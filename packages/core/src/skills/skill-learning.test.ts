@@ -15,6 +15,21 @@ describe("proposeSkillFromMisfires", () => {
     expect(proposeSkillFromMisfires([entry("pattern not found")])).toBeUndefined();
   });
 
+  test("does not treat two different failures of one tool as a pattern", () => {
+    expect(
+      proposeSkillFromMisfires([entry("pattern not found"), entry("permission denied")]),
+    ).toBeUndefined();
+  });
+
+  test("keeps paths and ids out of the proposal", () => {
+    const proposal = proposeSkillFromMisfires([
+      entry("ENOENT /Users/someone/notes/a.md"),
+      entry("ENOENT /Users/someone/notes/b.md"),
+    ]);
+    expect(proposal?.failureClass).toBe("ENOENT $HOME");
+    expect(proposal?.content).not.toContain("/Users/");
+  });
+
   test("creates a bounded proposal without mutating files", () => {
     const proposal = proposeSkillFromMisfires([
       entry("pattern not found"),

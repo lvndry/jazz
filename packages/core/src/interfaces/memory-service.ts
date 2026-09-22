@@ -115,8 +115,12 @@ export interface MemoryService {
     isRelevantTopic?: (topic: string) => boolean,
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
-  /** Persist lifecycle observations for recalled entries under per-scope locks. */
-  readonly recordUsage: (
+  /**
+   * Records how the entries injected into a run fared, one update per entry.
+   * `path` is the scope-qualified entry path as `standingEntries` reports it.
+   * Grouped by scope so each sidecar is rewritten once, under its lock.
+   */
+  readonly recordOutcomes: (
     updates: readonly {
       readonly scope: string;
       readonly path: string;

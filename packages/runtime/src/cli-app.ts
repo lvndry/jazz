@@ -542,6 +542,19 @@ function registerMemoryCommands(program: Command): void {
     );
 
   memoryCommand
+    .command("explain <agent> <path>")
+    .description("Show why a memory entry exists and how it has performed")
+    .action((agent: string, memoryPath: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.explainMemoryCommand(agent, memoryPath),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
     .command("recall")
     .description("Show how often runs consulted memory before answering, by surface")
     .option("--surface <name>", "Only report one surface (cli, telegram, discord)")

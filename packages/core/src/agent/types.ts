@@ -374,11 +374,15 @@ export interface AgentRunContext {
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
   /**
+   * Scope-qualified paths of the memory entries injected into this run's prompt,
+   * recorded so a lesson's outcome can later be credited to the entry that was
+   * actually in front of the model.
+   */
+  readonly activeMemoryPaths?: readonly string[];
+  /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
-  /** Scope-qualified memory entries injected into the live prompt. */
-  readonly activeMemoryPaths: readonly string[];
   readonly initialProviderAdvisory?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;

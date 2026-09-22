@@ -1092,7 +1092,7 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly recordUsage: MemoryService["recordUsage"] = (updates) =>
+  readonly recordOutcomes: MemoryService["recordOutcomes"] = (updates) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const byScope = new Map<string, typeof updates>();
@@ -1131,7 +1131,7 @@ export class MemoryServiceImpl implements MemoryService {
         }
         return {
           success: true,
-          message: "Memory lifecycle recorded",
+          message: "Memory outcomes recorded",
         } satisfies MemoryMutationOutcome;
       }.bind(this),
     );

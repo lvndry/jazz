@@ -111,7 +111,12 @@ function resolveActivePreferences(
   logger: LoggerService,
   dimensions?: MemoryTaskDimensions,
 ): Effect.Effect<
-  { readonly scope: string; readonly topic?: string; readonly summary: string }[],
+  {
+    readonly path: string;
+    readonly scope: string;
+    readonly topic?: string;
+    readonly summary: string;
+  }[],
   never,
   FileSystem.FileSystem
 > {
@@ -133,6 +138,7 @@ function resolveActivePreferences(
           )
         : [];
       return [...standing, ...conditional].map((entry) => ({
+        path: entry.path,
         scope: entry.scope,
         ...(entry.topic === undefined ? {} : { topic: entry.topic }),
         summary: entry.summary,
@@ -146,7 +152,12 @@ function resolveActivePreferences(
           })
           .pipe(
             Effect.as<
-              { readonly scope: string; readonly topic?: string; readonly summary: string }[]
+              {
+                readonly path: string;
+                readonly scope: string;
+                readonly topic?: string;
+                readonly summary: string;
+              }[]
             >([]),
           ),
       ),
@@ -737,9 +748,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
-      activeMemoryPaths: activePreferences.map(
-        (entry) => `${entry.scope}/${entry.topic === undefined ? "always" : `when/${entry.topic}`}`,
-      ),
+      activeMemoryPaths: activePreferences.map((entry) => entry.path),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       runMetrics,
       provider,
