@@ -9,6 +9,7 @@ import {
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
+import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
@@ -42,6 +43,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
@@ -395,7 +397,7 @@ function personaBackStep(state: WizardState): WizardStep {
  * Each step allows pressing ESC to go back to the previous step.
  * State is preserved when navigating backward.
  */
-async function promptForAgentInfo(
+export async function promptForAgentInfo(
   personaNames: readonly string[],
   toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
@@ -444,16 +446,28 @@ async function promptForAgentInfo(
 
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
-        const keyResult = await ensureProviderApiKey({
-          configService,
-          terminal,
-          provider: result,
-          displayName: providerDisplayName,
-          required: result !== "ollama" && result !== "llamacpp",
-        });
-        if (keyResult === "cancelled") {
-          await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
-          break;
+        if (isLocalServerProvider(result)) {
+          const urlResult = await ensureLocalProviderBaseUrl({
+            configService,
+            terminal,
+            provider: result,
+          });
+          if (urlResult === "cancelled") {
+            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+            break;
+          }
+        } else {
+          const keyResult = await ensureProviderApiKey({
+            configService,
+            terminal,
+            provider: result,
+            displayName: providerDisplayName,
+            required: true,
+          });
+          if (keyResult === "cancelled") {
+            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+            break;
+          }
         }
 
         // Cache provider info for next step
@@ -472,6 +486,27 @@ async function promptForAgentInfo(
       // STEP 2: Model Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "model": {
+        if (state.llmProvider === "llamacpp") {
+          const liveModel = state.providerInfo!.supportedModels[0];
+          if (!liveModel) {
+            throw new Error("llama.cpp did not report a model currently served by the server.");
+          }
+
+          state.llmModel = liveModel.id;
+          state.isReasoningModel = liveModel.isReasoningModel ?? false;
+          state.supportsTools = liveModel.supportsTools;
+          if (liveModel.contextWindow !== undefined) {
+            state.detectedContextWindow = liveModel.contextWindow;
+          }
+          await Effect.runPromise(
+            terminal.info(
+              `llama.cpp will use the model currently served by the server (${liveModel.id}).`,
+            ),
+          );
+          state.step = state.isReasoningModel ? "reasoning" : "persona";
+          break;
+        }
+
         const result = await Effect.runPromise(
           terminal.search<string>(`Which model would you like to use? ${hint}`, {
             choices: buildModelChoices(state.llmProvider!, state.providerInfo!.supportedModels),
@@ -508,7 +543,7 @@ async function promptForAgentInfo(
         const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);
         state.isReasoningModel = selectedModel?.isReasoningModel ?? false;
         state.supportsTools = selectedModel?.supportsTools ?? false;
-        if (typeof selectedModel?.contextWindow === "number") {
+        if (selectedModel?.contextWindow !== undefined) {
           state.detectedContextWindow = selectedModel.contextWindow;
         }
 
@@ -539,7 +574,7 @@ async function promptForAgentInfo(
         );
 
         if (result === undefined) {
-          state.step = "model";
+          state.step = state.llmProvider === "llamacpp" ? "provider" : "model";
           break;
         }
 

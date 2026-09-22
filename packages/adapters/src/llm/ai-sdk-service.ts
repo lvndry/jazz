@@ -1309,6 +1309,7 @@ class AISDKService implements LLMService {
     if (llmChanged) {
       // Provider instances may capture API keys, so invalidate cached models on key/config changes.
       this.modelCache.clear();
+      this.modelInfoCache.clear();
     }
   }
 
@@ -1350,7 +1351,15 @@ class AISDKService implements LLMService {
   readonly getProvider = (
     providerName: ProviderName,
   ): Effect.Effect<LLMProvider, LLMConfigurationError, never> => {
-    return this.getProviderModels(providerName).pipe(
+    return Effect.tryPromise({
+      try: () => this.refreshRuntimeConfigIfChanged(),
+      catch: (error) =>
+        new LLMConfigurationError({
+          provider: providerName,
+          message: `Failed to refresh provider configuration: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    }).pipe(
+      Effect.flatMap(() => this.getProviderModels(providerName)),
       Effect.map((models) => {
         const provider: LLMProvider = {
           name: providerName,
