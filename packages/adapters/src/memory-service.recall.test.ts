@@ -131,6 +131,16 @@ describe("standingEntries", () => {
     expect(entries.map((entry) => entry.summary)).toEqual(["home note", "work note"]);
   });
 
+  test("descends only the topics the filter accepts", async () => {
+    const service = makeService();
+    writeByHand("when/colleagues/tone.md", "Be professional");
+    writeByHand("when/friends/jokes.md", "Open with a joke");
+    const entries = await runEffect(
+      service.conditionalEntries(scopes, (topic) => topic === "colleagues"),
+    );
+    expect(entries.map((entry) => entry.path)).toEqual(["personal/when/colleagues/tone.md"]);
+  });
+
   test("returns conditional entries with scope and topic", async () => {
     const service = makeService();
     await runEffect(

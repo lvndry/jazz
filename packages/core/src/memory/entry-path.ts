@@ -33,17 +33,6 @@ export const WHEN_SEGMENT = "when";
  */
 export const MAX_MEMORY_SLUG_LENGTH = MAX_MEMORY_PATH_SEGMENT_LENGTH - ".md".length;
 
-export interface MemoryEntryLocation {
-  readonly scope: string;
-  /** `undefined` means the entry is in force on every task. */
-  readonly topic: string | undefined;
-  readonly slug: string;
-}
-
-function splitSegments(virtualPath: string): string[] {
-  return virtualPath.split("/").filter((segment) => segment.length > 0);
-}
-
 /**
  * Normalizes free text into a path-safe segment.
  *
@@ -106,42 +95,4 @@ export function buildMemoryEntryPath(input: BuildMemoryEntryPathInput): string {
   return topic === undefined || topic.length === 0
     ? `${input.scope}/${ALWAYS_SEGMENT}/${slug}`
     : `${input.scope}/${WHEN_SEGMENT}/${topic}/${slug}`;
-}
-
-/**
- * Reads an entry's location out of its path, or returns `undefined` for a path
- * that is not an entry — a file written before this layout existed, or anything
- * else a person has put in the directory.
- */
-export function parseMemoryEntryPath(virtualPath: string): MemoryEntryLocation | undefined {
-  const segments = splitSegments(virtualPath);
-  const scope = segments[0];
-  if (scope === undefined) return undefined;
-
-  const location = parseMemoryEntryRelativePath(segments.slice(1).join("/"));
-  return location === undefined ? undefined : { scope, ...location };
-}
-
-/** A location with the scope stripped, the form the store addresses files in. */
-export type MemoryEntryRelativeLocation = Omit<MemoryEntryLocation, "scope">;
-
-export function parseMemoryEntryRelativePath(
-  relativePath: string,
-): MemoryEntryRelativeLocation | undefined {
-  const segments = splitSegments(relativePath);
-  const [head, ...rest] = segments;
-
-  if (head === ALWAYS_SEGMENT) {
-    const slug = rest[0];
-    return rest.length === 1 && slug !== undefined ? { topic: undefined, slug } : undefined;
-  }
-
-  if (head === WHEN_SEGMENT) {
-    const [topic, slug] = rest;
-    return rest.length === 2 && topic !== undefined && slug !== undefined
-      ? { topic, slug }
-      : undefined;
-  }
-
-  return undefined;
 }

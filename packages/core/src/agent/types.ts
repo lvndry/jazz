@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
+import type { MemoryTaskDimensions } from "@/core/memory/relevance";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
@@ -32,8 +33,11 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
-  /** Explicit dimensions used to resolve conditional memory entries. */
-  readonly memoryTaskDimensions?: import("@/core/memory/relevance").MemoryTaskDimensions;
+  /**
+   * What this run is about — medium, recipient, project — as known by the caller.
+   * Selects which `when/<topic>/` memory entries are injected; when absent, none are.
+   */
+  readonly memoryTaskDimensions?: MemoryTaskDimensions;
   /**
    * Attachments placed directly on this run's first user message.
    *

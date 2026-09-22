@@ -67,8 +67,8 @@ stored is not.
 opinion, relationship, or personal fact ("my favorite artist is …", "I'm allergic to shellfish",
 "I prefer dark mode"), persist it with manage_memory in the same turn — don't wait to be asked.
 Skip small talk, temporary task state, and anything sensitive (secrets, credentials). If unsure
-whether a fact is durable, save it; stale entries can be cleaned up later, but a lost fact cannot
-be recovered.
+whether a fact is durable, don't save it: every standing entry is injected into every future turn
+for every agent, and the user can always ask you to remember something.
 `;
 
 const TOOL_SELECTION_INSTRUCTIONS =

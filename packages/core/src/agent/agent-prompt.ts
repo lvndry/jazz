@@ -93,13 +93,13 @@ export interface AgentPromptOptions {
    */
   readonly deferredTools?: readonly { readonly name: string; readonly summary: string }[];
   /**
-   * Preferences in force for this run — the ones that apply to every task, plus
-   * the ones whose workflow this request is about — injected so the model acts
-   * on them without having to remember to look them up.
+   * Preferences in force for this run — every standing (`always/`) entry in the
+   * agent's memory scopes — injected so the model acts on them without having
+   * to remember to look them up.
    *
    * These are part of the prompt cache key, so amending a preference takes
-   * effect on the next turn. They change only when the active workflow changes,
-   * which is an ordinary prompt change rather than a per-turn rewrite.
+   * effect on the next turn. They change only when a standing entry is written
+   * or removed, which is an ordinary prompt change rather than a per-turn rewrite.
    */
   readonly activePreferences?: readonly {
     readonly scope: string;
@@ -414,7 +414,7 @@ export class AgentPromptBuilder {
               id: "active-preferences",
               content: [
                 "## Preferences",
-                "How this user wants things done. Follow them without being asked.",
+                "How this user wants things done. Follow them without being asked. The bracketed tag is the memory scope each one came from.",
                 ...options.activePreferences.map((entry) => `- [${entry.scope}] ${entry.summary}`),
               ].join("\n"),
             });

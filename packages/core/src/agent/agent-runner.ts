@@ -36,8 +36,8 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import {
-  inferMemoryTaskDimensions,
   resolveRelevantMemories,
+  topicMatchesDimensions,
   type MemoryTaskDimensions,
 } from "@/core/memory/relevance";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
@@ -125,7 +125,12 @@ function resolveActivePreferences(
     return yield* Effect.gen(function* () {
       const standing = yield* memoryService.standingEntries(memoryScopes);
       const conditional = dimensions
-        ? resolveRelevantMemories(yield* memoryService.conditionalEntries(memoryScopes), dimensions)
+        ? resolveRelevantMemories(
+            yield* memoryService.conditionalEntries(memoryScopes, (topic) =>
+              topicMatchesDimensions(topic, dimensions),
+            ),
+            dimensions,
+          )
         : [];
       return [...standing, ...conditional].map((entry) => ({
         scope: entry.scope,
@@ -604,7 +609,7 @@ function initializeAgentRun(
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
-      options.memoryTaskDimensions ?? inferMemoryTaskDimensions(options.userInput),
+      options.memoryTaskDimensions,
     );
 
     // Build messages — reuses the PersonaService resolved earlier so custom

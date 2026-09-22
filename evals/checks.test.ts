@@ -73,7 +73,7 @@ describe("scopeCompositionCheck", () => {
       [/friend joke/i],
     );
     expect(checked.pass).toBe(true);
-    expect(checked.measurements?.standing_preference_coverage).toBe(1);
+    expect(checked.measurements?.["standing_preference_coverage"]).toBe(1);
   });
 });
 

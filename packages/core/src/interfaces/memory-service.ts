@@ -103,9 +103,16 @@ export interface MemoryService {
     scopes: readonly string[],
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
-  /** All files under `when/<topic>/` in the accessible scopes. */
+  /**
+   * Files under `when/<topic>/` in the accessible scopes.
+   *
+   * `isRelevantTopic` is applied to the topic directory name before it is
+   * descended, so the walk costs what applies to the task rather than
+   * everything ever remembered.
+   */
   readonly conditionalEntries: (
     scopes: readonly string[],
+    isRelevantTopic?: (topic: string) => boolean,
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
   /** Persist lifecycle observations for recalled entries under per-scope locks. */

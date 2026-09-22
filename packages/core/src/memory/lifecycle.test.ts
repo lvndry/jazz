@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { MemoryFileProvenance } from "@/core/interfaces/memory-provenance";
+import { MAX_MEMORY_EVIDENCE } from "@/core/constants/memory";
+import type { MemoryEvidence, MemoryFileProvenance } from "@/core/interfaces/memory-provenance";
 import { applyMemoryOutcome } from "./lifecycle";
 
 const base: MemoryFileProvenance = {
@@ -38,5 +39,40 @@ describe("applyMemoryOutcome", () => {
     });
     expect(base.evidence).toBeUndefined();
     expect(result.evidence?.[0]?.summary).toBe("edit_file failed");
+  });
+
+  test("appends evidence and keeps only the most recent observations", () => {
+    const observation = (index: number): MemoryEvidence => ({
+      kind: "run",
+      summary: `run ${index}`,
+      recordedAt: "2026-01-02T00:00:00.000Z",
+    });
+    let provenance = base;
+    for (let index = 0; index < MAX_MEMORY_EVIDENCE + 2; index += 1) {
+      provenance = applyMemoryOutcome(provenance, {
+        recalled: true,
+        triggerFired: false,
+        runId: String(index),
+        evidence: observation(index),
+      });
+    }
+    expect(provenance.evidence).toHaveLength(MAX_MEMORY_EVIDENCE);
+    expect(provenance.evidence?.[0]?.summary).toBe("run 2");
+    expect(provenance.evidence?.at(-1)?.summary).toBe(`run ${MAX_MEMORY_EVIDENCE + 1}`);
+  });
+
+  test("an outcome without evidence keeps what was already recorded", () => {
+    const withEvidence = applyMemoryOutcome(base, {
+      recalled: true,
+      triggerFired: true,
+      runId: "1",
+      evidence: { kind: "misfire", summary: "failed", recordedAt: "2026-01-02T00:00:00.000Z" },
+    });
+    const later = applyMemoryOutcome(withEvidence, {
+      recalled: true,
+      triggerFired: false,
+      runId: "2",
+    });
+    expect(later.evidence).toEqual(withEvidence.evidence);
   });
 });
