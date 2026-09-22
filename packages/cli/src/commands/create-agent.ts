@@ -10,6 +10,7 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
 import type { ProviderName } from "@jazz/core/constants/models";
+import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
 import {
   buildOllamaContextChoices,
   defaultOllamaContextWindow,
@@ -445,7 +446,7 @@ export async function promptForAgentInfo(
 
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
-        if (result === "ollama" || result === "llamacpp") {
+        if (isLocalServerProvider(result)) {
           const urlResult = await ensureLocalProviderBaseUrl({
             configService,
             terminal,
