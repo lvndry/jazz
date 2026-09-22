@@ -93,9 +93,9 @@ export const USER_INTERACTION_CATEGORY: ToolCategory = {
   displayName: "User Interaction",
   loadTier: "eager",
 };
-export const WEB_APP_CATEGORY: ToolCategory = {
-  id: "web_app",
-  displayName: "Web App",
+export const COMPOSITION_CATEGORY: ToolCategory = {
+  id: "composition",
+  displayName: "Compositions",
   loadTier: "deferred",
 };
 
@@ -120,7 +120,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   SUBAGENT_CATEGORY,
   PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
-  WEB_APP_CATEGORY,
+  COMPOSITION_CATEGORY,
 ] as const;
 
 /**

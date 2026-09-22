@@ -14,6 +14,10 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import type {
+  CommandRiskInput,
+  CommandRiskOutcome,
+  CompactToolsInput,
+  CompactToolsOutcome,
   JazzPluginModule,
   PluginHostApi,
   PluginManifest,
@@ -23,6 +27,7 @@ import type {
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";
+import { PluginSecretStore } from "./secret-store";
 
 const NATIVE_OR_ASSET_INPUT =
   /\.(?:node|wasm|css|html|sqlite|db|png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
@@ -36,6 +41,7 @@ interface SourceManifest {
   readonly hostApi: 1;
   readonly entry?: string;
   readonly hooks: readonly string[];
+  readonly policyHooks: readonly string[];
   readonly decisionProviders: readonly string[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
@@ -63,21 +69,28 @@ export interface ScaffoldPluginOptions {
 export interface ProbePackedPluginOptions {
   readonly manifestPath: string;
   readonly routeSkillsInput?: SkillRouteInput;
+  readonly commandRiskInput?: CommandRiskInput;
+  readonly compactToolsInput?: CompactToolsInput;
 }
 
 export interface PluginProbeResult {
   readonly manifest: PluginManifest;
   readonly registeredHooks: readonly string[];
+  readonly registeredPolicyHooks: readonly string[];
   readonly registeredDecisionProviders: readonly string[];
   readonly registeredTools: readonly string[];
   readonly registeredCommands: readonly string[];
   readonly registeredLifecycleEvents: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
+  readonly commandRiskOutcome?: CommandRiskOutcome;
+  readonly compactToolsOutcome?: CompactToolsOutcome;
 }
 
 export interface DevPluginOptions {
   readonly pluginDirectory: string;
   readonly routeSkillsInput?: SkillRouteInput;
+  readonly commandRiskInput?: CommandRiskInput;
+  readonly compactToolsInput?: CompactToolsInput;
 }
 
 export const SCAFFOLD_PLUGIN_SDK_VERSION = "0.1.0";
@@ -105,7 +118,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     fail(`invalid jazz-plugin.json (${error instanceof Error ? error.message : String(error)})`);
   }
   const source = record(decoded);
-  const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "entry"]);
+  const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "policyHooks", "entry"]);
   const unknown = Object.keys(source).filter((key) => !allowed.has(key));
   if (unknown.length > 0) fail(`manifest contains unknown field(s): ${unknown.join(", ")}`);
   // Reuse the install boundary for all metadata by supplying pack-generated fields.
@@ -285,6 +298,7 @@ export async function scaffoldPlugin(options: ScaffoldPluginOptions): Promise<st
     artifact: "./plugin.mjs",
     sha256: "0".repeat(64),
     hooks: ["route.skills"],
+    policyHooks: [],
     decisionProviders: [],
     network: { destinations: [] },
     dataSent: [],
@@ -342,6 +356,7 @@ export async function scaffoldPlugin(options: ScaffoldPluginOptions): Promise<st
           hostApi: 1,
           entry: "src/index.ts",
           hooks: ["route.skills"],
+          policyHooks: [],
           decisionProviders: [],
           network: { destinations: [] },
           dataSent: [],
@@ -385,6 +400,7 @@ function assertSameMembers(
 
 function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): PluginProbeResult {
   const hooks = new Set<string>();
+  const policyHooks = new Set<string>();
   const providers = new Set<string>();
   const tools = new Set<string>();
   const commands = new Set<string>();
@@ -398,6 +414,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
       register: (id) => {
         if (hooks.has(id)) fail(`hook ${id} was registered more than once`);
         hooks.add(id);
+      },
+    },
+    policy: {
+      register: (id) => {
+        if (policyHooks.has(id)) fail(`policy hook ${id} was registered more than once`);
+        policyHooks.add(id);
       },
     },
     decisions: {
@@ -442,6 +464,7 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   };
   module.register(api);
   assertSameMembers("hook", manifest.hooks, hooks);
+  assertSameMembers("policy hook", manifest.policyHooks, policyHooks);
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
   assertSameMembers("tool", [...declaredTools], tools);
   assertSameMembers("command", [...declaredCommands], commands);
@@ -449,6 +472,7 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
+    registeredPolicyHooks: [...policyHooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
     registeredTools: [...tools].sort(),
     registeredCommands: [...commands].sort(),
@@ -477,18 +501,42 @@ export async function probePackedPlugin(
       createPluginSession({
         agentId: "plugin-probe",
         plugins: [{ manifest: acquired.manifest, module }],
-        resolveSecret: () => Promise.resolve(undefined),
+        // Resolve secrets exactly as the real runtime does — env first, then the OS keyring — so a
+        // probe of an installed plugin uses the same credential a normal run would.
+        resolveSecret: (pluginId, declaration) =>
+          new PluginSecretStore().get(pluginId, declaration),
       }),
     );
     try {
-      if (options.routeSkillsInput === undefined) return audit;
-      if (!acquired.manifest.hooks.includes("route.skills")) {
-        fail("route.skills input was provided but the hook is not declared");
+      let result = audit;
+      if (options.routeSkillsInput !== undefined) {
+        if (!acquired.manifest.hooks.includes("route.skills")) {
+          fail("route.skills input was provided but the hook is not declared");
+        }
+        const routeSkillsOutcome = await Effect.runPromise(
+          session.runHook("route.skills", options.routeSkillsInput),
+        );
+        result = { ...result, routeSkillsOutcome };
       }
-      const routeSkillsOutcome = await Effect.runPromise(
-        session.runHook("route.skills", options.routeSkillsInput),
-      );
-      return { ...audit, routeSkillsOutcome };
+      if (options.commandRiskInput !== undefined) {
+        if (!acquired.manifest.policyHooks.includes("classify.command-risk")) {
+          fail("classify.command-risk input was provided but the policy hook is not declared");
+        }
+        const commandRiskOutcome = await Effect.runPromise(
+          session.runPolicyHook("classify.command-risk", options.commandRiskInput),
+        );
+        result = { ...result, commandRiskOutcome };
+      }
+      if (options.compactToolsInput !== undefined) {
+        if (!acquired.manifest.hooks.includes("compact.tools")) {
+          fail("compact.tools input was provided but the hook is not declared");
+        }
+        const compactToolsOutcome = await Effect.runPromise(
+          session.runCompactTools(options.compactToolsInput),
+        );
+        result = { ...result, compactToolsOutcome };
+      }
+      return result;
     } finally {
       await Effect.runPromise(session.close());
       closedBySession = true;
@@ -514,6 +562,12 @@ export async function devPlugin(options: DevPluginOptions): Promise<PluginProbeR
       ...(options.routeSkillsInput === undefined
         ? {}
         : { routeSkillsInput: options.routeSkillsInput }),
+      ...(options.commandRiskInput === undefined
+        ? {}
+        : { commandRiskInput: options.commandRiskInput }),
+      ...(options.compactToolsInput === undefined
+        ? {}
+        : { compactToolsInput: options.compactToolsInput }),
     });
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });

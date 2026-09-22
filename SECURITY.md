@@ -59,6 +59,9 @@ Some behavior that looks alarming is deliberate and documented rather than a vul
 - An MCP server you configured doing something you did not expect. MCP servers are third-party code you chose to run.
 - A trusted Jazz plugin doing something outside its manifest declarations. Plugins are executable
   in-process code, and those declarations are consent disclosures rather than a sandbox.
+- An explicitly trusted command-risk plugin making a documented probabilistic judgment you
+  disagree with, provided Jazz still enforces the hook's declared scope, validation, consent, and
+  failure behavior. A bypass of those host controls is a security issue.
 
 If you are unsure which side of that line something falls on, report it: we would rather
 triage a non-issue than miss a real one.
@@ -115,6 +118,14 @@ Only a local interactive terminal can grant code-digest trust and data-egress co
 enablement is scoped to one agent. Inspect the digest, hooks, destinations, data classes, and
 secrets before granting either. Disable or remove a plugin and restart long-lived Jazz processes
 to evict code that was already imported. See [Plugins](docs/configure/plugins.md).
+
+`classify.command-risk` is a policy hook, not a passive advisory. For an `execute_command` call whose
+declared risk is `unknown`, its `read-only` or `low-risk` result can make the active policy skip an
+approval prompt. Jazz sends the hook only the bounded command string, after the operator has
+consented to that data class and destination. Statically rated tools, tool-set reachability,
+explicit allowlists, the active tier, and the shell denylist remain host-enforced. Missing, invalid,
+timed-out, or unavailable plugin classification falls back to Jazz's built-in classifier and then
+to `high-risk`; failure never lowers risk.
 
 ---
 

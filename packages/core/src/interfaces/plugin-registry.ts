@@ -10,6 +10,7 @@ export interface InstalledPluginRecord {
   readonly trusted: boolean;
   readonly consent?: PluginConsentGrant;
   readonly enabledAgentIds: readonly string[];
+  readonly enabledForAllAgents: boolean;
 }
 
 export interface PluginRegistryService {

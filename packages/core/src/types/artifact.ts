@@ -6,8 +6,8 @@
  * message or a JSON envelope only makes both larger.
  *
  * Every producer declares its artifacts rather than a consumer recognizing them by tool name.
- * The alternative — what jazz did before this — was `extractWebAppResult` looking up
- * `toolResults["create_web_app"]` and validating its exact shape, which meant every new producer
+ * The alternative — what Jazz did before this — was `extractCompositionResult` looking up
+ * `toolResults["create_composition"]` and validating its exact shape, which meant every new producer
  * needed a branch in the runner, in the JSON envelope, and in every bridge.
  */
 

@@ -7,7 +7,8 @@ import { Effect } from "effect";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import {
   type BrowserExecutableLookup,
-  createWebAppTool,
+  compositionFilenameFromTitle,
+  createCompositionTool,
   MISSING_BROWSER_ERROR,
   resolveBrowserExecutablePath,
 } from "./web-app-tools";
@@ -31,7 +32,7 @@ function lookupWithChannels(
   };
 }
 
-function runTool(tool: ReturnType<typeof createWebAppTool>, args: Record<string, unknown>) {
+function runTool(tool: ReturnType<typeof createCompositionTool>, args: Record<string, unknown>) {
   return Effect.runPromise(tool.execute(args, context).pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
@@ -61,7 +62,7 @@ describe("resolveBrowserExecutablePath", () => {
   });
 });
 
-describe("create_web_app without a browser", () => {
+describe("create_composition without a browser", () => {
   const jazzHome = mkdtempSync(join(tmpdir(), "jazz-web-app-"));
   let previousJazzHome: string | undefined;
 
@@ -77,7 +78,7 @@ describe("create_web_app without a browser", () => {
   });
 
   test("static mode fails with an actionable error, not a puppeteer crash", async () => {
-    const tool = createWebAppTool(() => lookupWithChannels({}));
+    const tool = createCompositionTool(() => lookupWithChannels({}));
 
     const result = await runTool(tool, {
       html: MINIMAL_HTML,
@@ -93,7 +94,7 @@ describe("create_web_app without a browser", () => {
 
   test("interactive mode still succeeds and never looks for a browser", async () => {
     const lookup = lookupWithChannels({});
-    const tool = createWebAppTool(() => lookup);
+    const tool = createCompositionTool(() => lookup);
 
     const result = await runTool(tool, {
       html: MINIMAL_HTML,
@@ -103,6 +104,60 @@ describe("create_web_app without a browser", () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toMatchObject({ mode: "interactive", title: "Dashboard" });
+    expect(result.result).toMatchObject({
+      htmlPath: `${jazzHome}/compositions/agent-1/dashboard.html`,
+    });
+    expect(result.artifacts).toMatchObject([
+      { kind: "html", tool: "create_composition", source: "rendered" },
+    ]);
     expect(lookup.probedChannels).toEqual([]);
+  });
+
+  test("uses the actual conversation id as the composition session directory", async () => {
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+    const sessionContext: ToolExecutionContext = {
+      agentId: "agent-1",
+      conversationId: "session: with punctuation",
+    };
+
+    const result = await Effect.runPromise(
+      tool
+        .execute(
+          { html: MINIMAL_HTML, title: "Session composition", mode: "interactive" },
+          sessionContext,
+        )
+        .pipe(Effect.provide(NodeFileSystem.layer)),
+    );
+
+    expect(result.result).toMatchObject({
+      sessionId: "session--with-punctuation-7fe19d9b",
+      htmlPath: `${jazzHome}/compositions/session--with-punctuation-7fe19d9b/session-composition.html`,
+    });
+  });
+
+  test("keeps the old tool name as a configuration-only alias", () => {
+    expect(createCompositionTool().aliases).toEqual(["create_web_app"]);
+  });
+
+  test("keeps repeated composition names instead of overwriting them", async () => {
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+    const args = { html: MINIMAL_HTML, title: "Repeated", mode: "interactive" };
+
+    const first = await runTool(tool, args);
+    const second = await runTool(tool, args);
+
+    expect(first.result).toMatchObject({
+      htmlPath: `${jazzHome}/compositions/agent-1/repeated.html`,
+    });
+    expect(second.result).toMatchObject({
+      htmlPath: `${jazzHome}/compositions/agent-1/repeated-2.html`,
+    });
+  });
+});
+
+describe("compositionFilenameFromTitle", () => {
+  test("makes a portable readable filename", () => {
+    expect(compositionFilenameFromTitle("Weekly spending #1")).toBe("weekly-spending-1.html");
+    expect(compositionFilenameFromTitle("???")).toBe("composition.html");
   });
 });

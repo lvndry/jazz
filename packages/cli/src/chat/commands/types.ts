@@ -60,6 +60,8 @@ export interface CommandResult {
   newConversationId?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /** Leave the on-screen chat as-is instead of redrawing it. */
+  skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */
   newAgent?: Agent;
   /** New auto-approve policy for tool calls (set by /mode command) */

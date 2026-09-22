@@ -340,6 +340,14 @@ longer has in front of it, and every rewrite moves the prompt-cache prefix. So b
 rewritten at most once (`cleared` sticks), so the prefix only jumps when a result
 actually ages out of the protected window.
 
+When a `compact.tools` plugin is enabled, it replaces the deterministic stubbing at this rung:
+the plugin decides keep / truncate / drop per old, large result, and Jazz applies that (still
+only replacing content, never removing a message) or falls back to the deterministic clearer on
+abstain, error, or timeout. The same pre-pass runs on manual `/compact` before the summarizer,
+since that path skips the live clear rung. Either way the first reclaim in a run prints a green
+notice crediting the plugin, and the per-result decisions are logged (`Compaction plugin
+tool-result decisions`). See [Plugins](../configure/plugins.md).
+
 Before stubbing, Jazz tries to write the original body under
 `~/.jazz/work/<agent>/<conversation>/tool-results/<tool_call_id>.txt`. The
 placeholder then names `retrieve_tool_result`. If the write fails: read-only

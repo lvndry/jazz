@@ -59,6 +59,28 @@ describe("scanFilePickerEntries bounds", () => {
     expect(entries).toHaveLength(5);
   });
 
+  test("keeps a shallow match when an earlier directory has enough matches to fill the cap", async () => {
+    const crowded = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-picker-crowded-"));
+    try {
+      await fs.mkdir(path.join(crowded, "a-directory"));
+      for (let index = 0; index < 10; index += 1) {
+        await fs.writeFile(path.join(crowded, "a-directory", `package-${index}.json`), "");
+      }
+      await fs.writeFile(path.join(crowded, "package.json"), "");
+
+      const entries = await scanFilePickerEntries({
+        basePath: crowded,
+        query: "package",
+        includeDirectories: false,
+        maxResults: 5,
+      });
+
+      expect(entries.map((entry) => entry.name)).toContain("package.json");
+    } finally {
+      await fs.rm(crowded, { recursive: true, force: true });
+    }
+  });
+
   test("does not descend past maxDepth", async () => {
     const shallow = await scan({ query: "deep.ts", maxDepth: 2 });
     expect(shallow).toHaveLength(0);

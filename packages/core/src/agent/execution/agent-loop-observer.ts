@@ -42,6 +42,15 @@ export interface AgentLoopObserver {
     percentUsed: number,
     budgetTokens: number,
   ): Effect.Effect<void, never, never>;
+  /**
+   * Older tool results were compacted to free context, once per run. `pluginName` credits the
+   * plugin that decided what to prune, or is undefined when the built-in clearer ran.
+   */
+  onToolResultsCompacted(
+    agentName: string,
+    pluginName: string | undefined,
+    tokensReclaimed: number,
+  ): Effect.Effect<void, never, never>;
   onCompletion(agentName: string): Effect.Effect<void, never, never>;
 }
 
@@ -84,6 +93,14 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       presentation.presentWarning(
         agentName,
         `context ${percentUsed}% full of ${budgetTokens.toLocaleString()} tokens — will auto-compact soon`,
+      ),
+    onToolResultsCompacted: (agentName, pluginName, tokensReclaimed) =>
+      presentation.presentStatus(
+        pluginName === undefined
+          ? `Freed ~${tokensReclaimed.toLocaleString()} tokens by compacting older tool results`
+          : `Freed ~${tokensReclaimed.toLocaleString()} tokens — older tool results compacted by the ${pluginName} plugin`,
+        "success",
+        agentName,
       ),
     onCompletion: (agentName) => presentation.presentCompletion(agentName),
   };

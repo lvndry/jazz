@@ -70,7 +70,7 @@ ollama serve
 jazz agent create
 ```
 
-The default API base URL is `http://localhost:11434/api`. Override it with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or the `jazz config` → **LLM Providers** wizard, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
+The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz agent create` uses Ollama, it asks for the server URL and saves it; override it later with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or the `jazz config` → **LLM Providers** wizard, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
 
 ```json
 {
@@ -91,14 +91,14 @@ Models tagged `:cloud` or `-cloud` execute through Ollama Cloud and need `OLLAMA
 
 ## llama.cpp
 
-Jazz connects to `llama-server` through its OpenAI-compatible API. The default base URL is `http://localhost:8080/v1`; override it with `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server is behind bearer auth.
+Jazz connects to `llama-server`, vLLM, and other OpenAI-compatible servers through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server is behind bearer auth.
 
 ```bash
 llama-server -m /models/model.gguf --jinja --port 8080
 jazz agent create
 ```
 
-Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata. For reasoning models, Jazz maps its reasoning effort to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template.
+Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata when the server provides it. For reasoning models, Jazz maps its reasoning effort to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template. vLLM only needs its normal `/v1` OpenAI-compatible endpoint; start it on the port you enter, commonly `8000`.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 

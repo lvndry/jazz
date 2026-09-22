@@ -6,6 +6,7 @@
   "hostApi": 1,
   "entry": "src/index.ts",
   "hooks": ["route.skills"],
+  "policyHooks": [],
   "decisionProviders": [],
   "network": { "destinations": [] },
   "dataSent": [],

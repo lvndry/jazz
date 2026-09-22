@@ -3,11 +3,19 @@
 import {
   MAX_DECISION_OPTIONS,
   MAX_DECISION_QUESTIONS,
+  MAX_COMMAND_RISK_COMMAND_CHARS,
+  MAX_POLICY_ABSTENTION_REASON_CHARS,
   MAX_PLUGIN_IDENTIFIER_LENGTH,
   MAX_PLUGIN_STATE_BYTES,
   PluginValidationError,
   type DecisionBatchResult,
   type DecisionRequest,
+  type CommandRiskInput,
+  type CommandRiskOutcome,
+  type CompactToolCandidate,
+  type CompactToolsDecision,
+  type CompactToolsInput,
+  type CompactToolsOutcome,
   type JsonValue,
   type PluginManifest,
   type SkillRouteDistribution,
@@ -52,8 +60,12 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   if (manifest.hostApi !== 1) fail("unsupported plugin API version");
   if (!SHA256.test(manifest.sha256)) fail("sha256 must be a lowercase SHA-256 hex digest");
   if (new Set(manifest.hooks).size !== manifest.hooks.length) fail("manifest hooks must be unique");
-  if (manifest.hooks.some((hook) => hook !== "route.skills"))
+  if (manifest.hooks.some((hook) => hook !== "route.skills" && hook !== "compact.tools"))
     fail("manifest contains an unknown hook");
+  if (new Set(manifest.policyHooks).size !== manifest.policyHooks.length)
+    fail("manifest policy hooks must be unique");
+  if (manifest.policyHooks.some((hook) => hook !== "classify.command-risk"))
+    fail("manifest contains an unknown policy hook");
   const secretNames = manifest.secrets.map(({ name }) => name);
   if (
     secretNames.some((name) => !validIdentifier(name)) ||
@@ -125,6 +137,149 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
     fail("manifest contains an unknown lifecycle event");
   }
   return manifest;
+}
+
+export function validateCommandRiskInput(input: CommandRiskInput): CommandRiskInput {
+  if (
+    input === null ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    Object.keys(input).length !== 1 ||
+    !Object.hasOwn(input, "command")
+  ) {
+    fail("command risk input must contain exactly command");
+  }
+  if (
+    typeof input.command !== "string" ||
+    input.command.length === 0 ||
+    input.command.length > MAX_COMMAND_RISK_COMMAND_CHARS
+  ) {
+    fail(`command must contain 1-${MAX_COMMAND_RISK_COMMAND_CHARS} characters`);
+  }
+  return input;
+}
+
+export function validateCompactToolsInput(input: CompactToolsInput): CompactToolsInput {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail("compact tools input must be an object");
+  }
+  if (typeof input.goal !== "string" || input.goal.length > MAX_PLUGIN_STATE_BYTES) {
+    fail("compact tools goal must be a bounded string");
+  }
+  if (!Array.isArray(input.candidates) || input.candidates.length > MAX_DECISION_QUESTIONS) {
+    fail(`compact tools candidates must be an array of at most ${MAX_DECISION_QUESTIONS}`);
+  }
+  const seen = new Set<string>();
+  for (const candidate of input.candidates as readonly CompactToolCandidate[]) {
+    if (candidate === null || typeof candidate !== "object") {
+      fail("compact tools candidate must be an object");
+    }
+    if (typeof candidate.id !== "string" || candidate.id.length === 0) {
+      fail("compact tools candidate id must be a non-empty string");
+    }
+    if (seen.has(candidate.id)) fail("compact tools candidate ids must be unique");
+    seen.add(candidate.id);
+    if (typeof candidate.tool !== "string") fail("compact tools candidate tool must be a string");
+    if (candidate.input !== undefined && typeof candidate.input !== "string") {
+      fail("compact tools candidate input must be a string");
+    }
+    if (typeof candidate.resultPreview !== "string") {
+      fail("compact tools candidate resultPreview must be a string");
+    }
+    if (!Number.isInteger(candidate.resultChars) || candidate.resultChars < 0) {
+      fail("compact tools candidate resultChars must be a non-negative integer");
+    }
+    if (typeof candidate.isError !== "boolean") {
+      fail("compact tools candidate isError must be a boolean");
+    }
+  }
+  return input;
+}
+
+export function validateCompactToolsOutcome(
+  input: CompactToolsInput,
+  outcome: CompactToolsOutcome,
+): CompactToolsOutcome {
+  if (outcome === null || typeof outcome !== "object")
+    fail("compact tools outcome must be an object");
+  if (outcome.status === "abstained") {
+    if (
+      typeof outcome.reason !== "string" ||
+      outcome.reason.length === 0 ||
+      outcome.reason.length > MAX_POLICY_ABSTENTION_REASON_CHARS
+    ) {
+      fail("compact tools abstention reason must be a bounded non-empty string");
+    }
+    return outcome;
+  }
+  if (outcome.status !== "answered" || !Array.isArray(outcome.decisions)) {
+    fail("compact tools outcome must be answered with decisions, or abstained");
+  }
+  const candidateIds = new Set(input.candidates.map((candidate) => candidate.id));
+  const decided = new Set<string>();
+  for (const decision of outcome.decisions as readonly CompactToolsDecision[]) {
+    if (decision === null || typeof decision !== "object") {
+      fail("compact tools decision must be an object");
+    }
+    if (typeof decision.id !== "string" || !candidateIds.has(decision.id)) {
+      fail("compact tools decision id must reference a candidate");
+    }
+    if (decided.has(decision.id)) fail("compact tools decision ids must be unique");
+    decided.add(decision.id);
+    if (
+      decision.action !== "keep" &&
+      decision.action !== "truncate" &&
+      decision.action !== "drop"
+    ) {
+      fail("compact tools decision action must be keep, truncate, or drop");
+    }
+  }
+  // A partial answer would let the reducer default every undecided candidate to keep, silently
+  // suppressing the deterministic clearer. Require full coverage; otherwise abstain and fall back.
+  if (decided.size !== candidateIds.size) {
+    return {
+      status: "abstained",
+      reason: `compact tools response covered ${decided.size} of ${candidateIds.size} candidates`,
+    };
+  }
+  return outcome;
+}
+
+export function validateCommandRiskOutcome(outcome: CommandRiskOutcome): CommandRiskOutcome {
+  if (outcome === null || typeof outcome !== "object" || Array.isArray(outcome))
+    fail("policy hook returned no outcome");
+  if (outcome.status === "abstained") {
+    if (
+      Object.keys(outcome).length !== 2 ||
+      !Object.hasOwn(outcome, "reason") ||
+      typeof outcome.reason !== "string" ||
+      outcome.reason.trim().length === 0 ||
+      outcome.reason.length > MAX_POLICY_ABSTENTION_REASON_CHARS
+    ) {
+      fail(`abstention reason must contain 1-${MAX_POLICY_ABSTENTION_REASON_CHARS} characters`);
+    }
+    return outcome;
+  }
+  if (outcome.status !== "answered") fail("policy hook returned an unknown outcome status");
+  if (Object.keys(outcome).length !== 2 || !Object.hasOwn(outcome, "distribution")) {
+    fail("answered policy outcome must contain exactly status and distribution");
+  }
+  const distribution = outcome.distribution;
+  if (distribution === null || typeof distribution !== "object")
+    fail("command risk distribution must be an object");
+  const keys = Object.keys(distribution).sort();
+  const expected = ["highRiskProbability", "lowRiskProbability", "readOnlyProbability"].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index]))
+    fail("command risk distribution must contain exactly three probabilities");
+  assertProbability(distribution.readOnlyProbability, "readOnlyProbability");
+  assertProbability(distribution.lowRiskProbability, "lowRiskProbability");
+  assertProbability(distribution.highRiskProbability, "highRiskProbability");
+  const sum =
+    distribution.readOnlyProbability +
+    distribution.lowRiskProbability +
+    distribution.highRiskProbability;
+  if (Math.abs(sum - 1) > EPSILON) fail("command risk probabilities must sum to 1");
+  return outcome;
 }
 
 export function validateDecisionRequest(request: DecisionRequest): DecisionRequest {

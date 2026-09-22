@@ -1,0 +1,40 @@
+---
+import LibraryDefinition from "../../../components/LibraryDefinition.astro";
+import Library from "../../../layouts/Library.astro";
+import {
+  getSkillEntries,
+  rawSkillPath,
+  readSkillSource,
+  type SkillEntry,
+} from "../../../lib/library";
+
+export async function getStaticPaths() {
+  const entries = await getSkillEntries();
+  return entries.map((entry) => ({
+    params: { path: entry.id },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: SkillEntry;
+}
+
+const { entry } = Astro.props;
+const source = await readSkillSource(entry);
+---
+
+<Library title={`${entry.name} — Jazz skill`} description={entry.description}>
+  <LibraryDefinition
+    back={{ href: "/library#skills", label: "← all skills" }}
+    name={entry.name}
+    description={entry.description}
+    meta={[`source: skills/${entry.id}/SKILL.md`, "instruction-only"]}
+    tags={[]}
+    install={`copy SKILL.md to ~/.jazz/skills/${entry.id}/SKILL.md`}
+    raw={{ href: rawSkillPath(entry.id), label: "raw SKILL.md" }}
+    heading="SKILL.md"
+    warning="This is an instruction-only artifact. It does not grant tools or permissions, but its instructions can influence an agent. Read it for prompt injection or unsafe guidance before installing it."
+    body={source}
+  />
+</Library>

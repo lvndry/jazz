@@ -38,6 +38,7 @@ import { TextAttributes } from "@opentui/core";
 import {
   forwardRef,
   memo,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -126,6 +127,8 @@ export interface RenderRow {
   /** `prose` for running text, the full content width for scanned output. */
   readonly contentWidth: number;
   readonly meta: readonly Segment[];
+  /** A surface that fills the complete physical row. */
+  readonly backgroundColor?: string;
 }
 
 /**
@@ -866,6 +869,7 @@ function rowsForBlock(
   }
 }
 
+/** Render a user turn as a full-width neutral band so its boundary survives wrapping. */
 function userRows(
   block: Extract<Block, { kind: "user" }>,
   geometry: Geometry,
@@ -874,7 +878,6 @@ function userRows(
   const rail = railCell(THEME.border);
   const meta: readonly Segment[] =
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
-  // What you typed is an echo; the agent's answer is the bright thing on screen.
   const lines = wrap([{ text: block.text, fg: THEME.secondary }], geometry.prose);
   const rows: RenderRow[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -886,6 +889,7 @@ function userRows(
       content: line,
       contentWidth: geometry.prose,
       meta: index === 0 ? meta : [],
+      backgroundColor: THEME.surfaceStrong,
     });
   }
   return rows;
@@ -1406,7 +1410,15 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
 
 function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
   return (
-    <box style={{ width, height: 1, flexShrink: 0, flexDirection: "row" }}>
+    <box
+      style={{
+        width,
+        height: 1,
+        flexShrink: 0,
+        flexDirection: "row",
+        ...(row.backgroundColor === undefined ? {} : { backgroundColor: row.backgroundColor }),
+      }}
+    >
       <box style={{ width: GUTTER, flexShrink: 0 }}>
         <Spans segments={row.gutter} />
       </box>
@@ -1430,6 +1442,8 @@ export interface TranscriptProps {
   readonly newBelow?: number;
   /** Stick to the newest row. False once the reader has taken the scroll. */
   readonly followLive?: boolean;
+  /** Called when the view reaches the live edge, so the "new below" hint can clear on scroll. */
+  readonly onReachedBottom?: () => void;
   /**
    * Rows the transcript may paint. Defaults to `viewport.height` for standalone
    * tests; the shell passes the leftover after chrome, live band, and composer.
@@ -1438,11 +1452,11 @@ export interface TranscriptProps {
 }
 
 export interface TranscriptHandle {
-  scrollBy(delta: number, unit?: "line" | "page" | "end"): void;
+  scrollBy(delta: number, unit?: "line" | "page" | "end"): boolean;
 }
 
 const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
-  { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
+  { blocks, viewport, focus, newBelow, followLive = true, visibleCount, onReachedBottom },
   ref,
 ): ReactNode {
   // Deriving rows re-parses every block's markdown, tables and fences. The
@@ -1473,8 +1487,12 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   const visible = windowTranscriptRows(rows, windowHeight, offset);
   const padCount = Math.max(0, windowHeight - visible.length);
 
+  useEffect(() => {
+    if (offset === 0) onReachedBottom?.();
+  }, [offset, onReachedBottom]);
+
   useImperativeHandle(ref, () => ({
-    scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): void {
+    scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): boolean {
       const currentRows = rowsRef.current;
       const next = applyScrollDelta(
         scrollFromBottomRef.current,
@@ -1483,9 +1501,10 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
         delta,
         unit,
       );
-      if (next === scrollFromBottomRef.current) return;
+      if (next === scrollFromBottomRef.current) return next === 0;
       scrollFromBottomRef.current = next;
       setScrollVersion((version) => version + 1);
+      return next === 0;
     },
   }));
 

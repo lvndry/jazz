@@ -193,10 +193,12 @@ interface BridgeConfig extends AccessConfig {
   readonly publicBaseUrl: string | undefined;
 }
 
-interface JazzWebApp {
+interface JazzComposition {
   readonly id: string;
   readonly mode: "static" | "interactive";
   readonly title: string;
+  readonly sessionId: string;
+  readonly filename: string;
   readonly htmlPath: string;
   readonly imagePath?: string;
 }
@@ -212,7 +214,7 @@ interface JazzSuccessEnvelope {
     readonly completionTokens?: number;
     readonly cacheReadTokens?: number;
   };
-  readonly webApp?: JazzWebApp;
+  readonly composition?: JazzComposition;
   readonly messages?: unknown[];
 }
 
@@ -300,18 +302,22 @@ function sandboxForChannel(config: BridgeConfig, channelId: string): ChatSandbox
 }
 
 /**
- * Every file a `/webapps/<id>` request could be asking for.
+ * Every file a `/compositions/<session>/<name>.html` request could be asking for.
  *
  * The URL carries only the app's id, and with one Jazz home per conversation
  * there is no channel to key that on, so each home is a candidate. The health
  * server runs in the bridge process, which is the one identity allowed to read
  * across sandboxes.
  */
-function webAppCandidatePaths(config: BridgeConfig, id: string): string[] {
+function compositionCandidatePaths(
+  config: BridgeConfig,
+  sessionId: string,
+  filename: string,
+): string[] {
   const homes = chatIsolationEnabled()
     ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
     : [config.jazzHome];
-  return homes.map((home) => `${home}/webapps/${id}.html`);
+  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
 }
 
 function formatUptime(ms: number): string {
@@ -776,17 +782,25 @@ async function runJazz(
   }
 }
 
-async function deliverWebApp(
+async function deliverComposition(
   config: BridgeConfig,
   channelId: string,
-  webApp: JazzWebApp,
+  composition: JazzComposition,
 ): Promise<void> {
-  if (webApp.mode === "static") {
-    if (webApp.imagePath === undefined) {
-      console.error(`create_web_app returned static mode with no imagePath (id=${webApp.id})`);
+  if (composition.mode === "static") {
+    if (composition.imagePath === undefined) {
+      console.error(
+        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+      );
       return;
     }
-    await sendAttachment(config.botToken, channelId, webApp.imagePath, "chart.png", webApp.title);
+    await sendAttachment(
+      config.botToken,
+      channelId,
+      composition.imagePath,
+      "composition.png",
+      composition.title,
+    );
     return;
   }
 
@@ -800,8 +814,8 @@ async function deliverWebApp(
     return;
   }
 
-  const url = `${config.publicBaseUrl}/webapps/${webApp.id}`;
-  await sendReply(config, channelId, `Open **${webApp.title}**: ${url}`);
+  const url = `${config.publicBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  await sendReply(config, channelId, `Open **${composition.title}**: ${url}`);
 }
 
 async function handleMessage(
@@ -934,8 +948,8 @@ async function handleMessage(
       if (config.showReasoning) {
         await sendReasoningLog(config, channelId, reporter?.reasoningLog() ?? "");
       }
-      if (envelope.webApp) {
-        await deliverWebApp(config, channelId, envelope.webApp);
+      if (envelope.composition) {
+        await deliverComposition(config, channelId, envelope.composition);
       }
     } else {
       await reporter?.finish("⚠️ **Failed**");
@@ -1969,11 +1983,13 @@ function startHealthServer(config: BridgeConfig): void {
       if (request.method === "GET" && url.pathname === "/health") {
         return new Response("ok", { status: 200 });
       }
-      const webAppMatch =
-        request.method === "GET" ? /^\/webapps\/([A-Za-z0-9_-]+)$/.exec(url.pathname) : null;
-      if (webAppMatch) {
-        const id = webAppMatch[1];
-        for (const path of webAppCandidatePaths(config, id ?? "")) {
+      const compositionMatch =
+        request.method === "GET"
+          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
+          : null;
+      if (compositionMatch) {
+        const [, sessionId, filename] = compositionMatch;
+        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
           const file = Bun.file(path);
           if (await file.exists()) {
             return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });

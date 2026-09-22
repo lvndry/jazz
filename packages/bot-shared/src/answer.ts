@@ -14,7 +14,7 @@
  * point: these are promises about someone's money and someone's data.
  */
 
-import type { JazzSuccessEnvelope, JazzWebApp } from "./jazz-run";
+import type { JazzComposition, JazzSuccessEnvelope } from "./jazz-run";
 import {
   bold,
   type Choice,
@@ -132,31 +132,31 @@ export function followupPrompt(choiceId: string): string | undefined {
 }
 
 /**
- * How a `create_web_app` result should be delivered on a given surface.
+ * How a `create_composition` result should be delivered on a given surface.
  *
  * The rule is the same everywhere and was written out twice: a static app is an
  * image, which every surface can show; an interactive one is a page, which
  * needs somewhere public to serve it from and a way to open it. What differs is
  * only whether the surface can offer that as a tap.
  */
-export type WebAppDelivery =
+export type CompositionDelivery =
   | { readonly kind: "image"; readonly path: string; readonly caption: string }
   | { readonly kind: "link"; readonly url: string; readonly title: string }
   | { readonly kind: "unavailable"; readonly body: RichText }
   | { readonly kind: "nothing"; readonly logMessage: string };
 
-export function planWebAppDelivery(
-  webApp: JazzWebApp,
+export function planCompositionDelivery(
+  composition: JazzComposition,
   publicBaseUrl: string | undefined,
   publicUrlSettingName: string,
-): WebAppDelivery {
-  if (webApp.mode === "static") {
-    return webApp.imagePath === undefined
+): CompositionDelivery {
+  if (composition.mode === "static") {
+    return composition.imagePath === undefined
       ? {
           kind: "nothing",
-          logMessage: `create_web_app returned static mode with no imagePath (id=${webApp.id})`,
+          logMessage: `create_composition returned static mode with no imagePath (id=${composition.id})`,
         }
-      : { kind: "image", path: webApp.imagePath, caption: webApp.title };
+      : { kind: "image", path: composition.imagePath, caption: composition.title };
   }
 
   if (publicBaseUrl === undefined) {
@@ -172,14 +172,18 @@ export function planWebAppDelivery(
     };
   }
 
-  return { kind: "link", url: `${publicBaseUrl}/webapps/${webApp.id}`, title: webApp.title };
+  return {
+    kind: "link",
+    url: `${publicBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`,
+    title: composition.title,
+  };
 }
 
 /** Deliver a planned web app, using whatever the surface can actually do. */
-export async function deliverWebApp(
+export async function deliverComposition(
   surface: Surface,
   chatId: string,
-  delivery: WebAppDelivery,
+  delivery: CompositionDelivery,
 ): Promise<void> {
   switch (delivery.kind) {
     case "nothing":
