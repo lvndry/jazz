@@ -26,11 +26,11 @@ describe("resolveLocalProviderBaseUrl", () => {
   });
 
   it("returns the llamacpp default when nothing configured", () => {
-    expect(resolveLocalProviderBaseUrl("llamacpp")).toBe("http://localhost:8080/v1");
+    expect(resolveLocalProviderBaseUrl("llamacpp")).toBe("http://127.0.0.1:8080/v1");
   });
 
   it("returns the ollama default when nothing configured", () => {
-    expect(resolveLocalProviderBaseUrl("ollama")).toBe("http://localhost:11434/api");
+    expect(resolveLocalProviderBaseUrl("ollama")).toBe("http://127.0.0.1:11434/api");
   });
 
   it("uses LLAMACPP_BASE_URL env var over default", () => {
@@ -57,7 +57,7 @@ describe("resolveLocalProviderBaseUrl", () => {
 
   it("ignores empty string config values and falls through", () => {
     const config: LLMConfig = { llamacpp: { base_url: "" } };
-    expect(resolveLocalProviderBaseUrl("llamacpp", config)).toBe("http://localhost:8080/v1");
+    expect(resolveLocalProviderBaseUrl("llamacpp", config)).toBe("http://127.0.0.1:8080/v1");
   });
 
   it("canonicalizes an ollama env base URL without /api to the /api root", () => {
@@ -101,7 +101,7 @@ describe("resolveOllamaRequestBaseUrl", () => {
 
   it("keeps local models on the local daemon", () => {
     expect(resolveOllamaRequestBaseUrl("llama3.2", { ollama: { api_key: "ollama-key" } })).toBe(
-      "http://localhost:11434/api",
+      "http://127.0.0.1:11434/api",
     );
   });
 
@@ -112,7 +112,7 @@ describe("resolveOllamaRequestBaseUrl", () => {
   });
 
   it("leaves a cloud model on localhost when no key is configured (ollama signin path)", () => {
-    expect(resolveOllamaRequestBaseUrl("kimi-k3:cloud")).toBe("http://localhost:11434/api");
+    expect(resolveOllamaRequestBaseUrl("kimi-k3:cloud")).toBe("http://127.0.0.1:11434/api");
   });
 
   it("still honours a non-loopback base_url for cloud models", () => {

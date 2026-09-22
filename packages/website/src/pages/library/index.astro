@@ -3,27 +3,43 @@ import Library from "../../layouts/Library.astro";
 import {
   describeFrequency,
   getPersonaEntries,
+  getPluginEntries,
+  getSkillEntries,
   getWorkflowEntries,
   personaPath,
+  pluginPath,
+  skillPath,
   workflowPath,
 } from "../../lib/library";
 
 const personas = await getPersonaEntries();
 const workflows = await getWorkflowEntries();
+const skills = await getSkillEntries();
+const plugins = await getPluginEntries();
+const reviewedPlugins = plugins.filter((entry) => entry.sourceType === "reviewed");
+const communityPlugins = plugins.filter((entry) => entry.sourceType === "community");
 ---
 
 <Library
-  title="Library — Jazz"
-  description="Browse and copy Jazz personas and workflows: reusable system prompts, and scheduled jobs with their autonomy written down."
+  title="Marketplace — Jazz"
+  description="Browse Jazz personas, workflows, skills, and reviewed or community-indexed plugins: reusable ways to shape, teach, automate, and extend an agent."
 >
-  <p class="eyebrow mono">▞ library</p>
-  <h1>Prompts worth stealing.</h1>
+  <p class="eyebrow mono">▞ marketplace</p>
+  <h1>Give your agent a better starting point.</h1>
   <p class="lede">
-    Personas change how an agent thinks, writes, and pushes back. Workflows are jobs: a prompt,
-    a schedule, and what it may do with nobody watching. Copy either from here, or install it
-    straight from your terminal. Every entry lives in the Jazz repo and arrives through a pull
-    request.
+    Reusable building blocks for Jazz. Personas shape behavior, skills teach procedures, workflows
+    automate jobs, and plugins extend the harness. Read the source before you install anything;
+    reviewed entries are generated from Jazz-controlled source, while community entries are
+    metadata-only pointers to external repositories.
   </p>
+
+  <nav class="types mono" aria-label="Marketplace types">
+    <a href="#personas">personas</a>
+    <a href="#skills">skills</a>
+    <a href="#workflows">workflows</a>
+    <a href="#plugins">plugins</a>
+    <a href="#community-plugins">community plugins</a>
+  </nav>
 
   <section id="personas">
     <div class="section-head">
@@ -80,15 +96,98 @@ const workflows = await getWorkflowEntries();
     </div>
   </section>
 
+  <section id="skills">
+    <div class="section-head">
+      <h2>Skills</h2>
+      <div class="install">
+        <code class="mono">skills/**/SKILL.md</code>
+        <span class="hint">read, then copy to your skills directory</span>
+      </div>
+    </div>
+    <p class="section-lede">
+      Instruction-only procedures that help an agent use tools and integrations. Skills do not grant
+      permissions, but their text still shapes agent behavior: inspect each one for prompt injection
+      or unsafe guidance before installing it.
+    </p>
+    <div class="grid">
+      {
+        skills.map((entry) => (
+          <a class="card" href={skillPath(entry.id)}>
+            <span class="name mono">{entry.name}</span>
+            <span class="desc">{entry.description}</span>
+            <span class="meta mono">instruction-only · SKILL.md</span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section id="plugins">
+    <div class="section-head">
+      <h2>Plugins</h2>
+      <div class="install">
+        <code class="mono">jazz plugin inspect</code>
+        <span class="hint">review capabilities before enabling</span>
+      </div>
+    </div>
+    <p class="section-lede">
+      Jazz-reviewed executable extensions. Their cards disclose hooks, network destinations, data
+      sent, secrets, and artifact digests. Visiting a page never grants trust or enables code.
+    </p>
+    <div class="grid">
+      {
+        reviewedPlugins.map((entry) => (
+          <a class="card plugin-card" href={pluginPath(entry.id)}>
+            <span class="name mono">{entry.name}</span>
+            <span class="desc">{entry.id}</span>
+            <span class="meta mono">
+              {entry.version} · {entry.hooks.length + entry.policyHooks.length} hooks · sha256 verified
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section id="community-plugins">
+    <div class="section-head">
+      <h2>Community plugins</h2>
+      <div class="install">
+        <code class="mono">jazz plugin add owner/repo@commit</code>
+        <span class="hint">install source, then inspect and trust locally</span>
+      </div>
+    </div>
+    <p class="section-lede">
+      Community-indexed repositories opt in with the <code class="mono">jazz-plugin</code> GitHub
+      topic. Their manifests are validated as metadata only; Jazz has not reviewed or audited their
+      source, and the repository's declarations are not security guarantees.
+    </p>
+    <div class="grid">
+      {
+        communityPlugins.map((entry) => (
+          <a class="card plugin-card" href={pluginPath(entry.id)}>
+            <span class="name mono">{entry.name}</span>
+            <span class="desc">{entry.description ?? entry.repository}</span>
+            <span class="meta mono">
+              community · {entry.version} · source {entry.defaultBranch} · not reviewed by Jazz
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
   <section class="contribute">
     <h2>Add yours</h2>
     <p>
-      Drop a <code class="mono">PERSONA.md</code> into
+      Add a <code class="mono">PERSONA.md</code> into
       <code class="mono">packages/website/src/content/library/personas/&lt;name&gt;/</code>, or a
       <code class="mono">WORKFLOW.md</code> into
       <code class="mono">packages/website/src/content/library/workflows/&lt;name&gt;/</code>, in
-      the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request. Same
-      format as the ones Jazz ships with — frontmatter for the metadata, the body is the prompt.
+      the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request.
+      Skills live in <code class="mono">skills/&lt;name&gt;/SKILL.md</code>. Plugin repositories become
+      discoverable by adding the <span class="github-topic mono">jazz-plugin</span> GitHub topic and a valid
+      <code class="mono">jazz-plugin.json</code>; discoverability never grants trust.
     </p>
   </section>
 </Library>
@@ -110,6 +209,24 @@ const workflows = await getWorkflowEntries();
     color: var(--jz-secondary);
     max-width: 60ch;
   }
+  .types {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 26px;
+  }
+  .types a {
+    padding: 6px 10px;
+    border: 1px solid var(--jz-border);
+    border-radius: 999px;
+    color: var(--jz-secondary);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .types a:hover {
+    border-color: var(--jz-primary);
+    color: var(--jz-primary);
+  }
   section {
     margin-top: 3.5rem;
   }
@@ -123,6 +240,12 @@ const workflows = await getWorkflowEntries();
   .section-head h2 {
     font-size: 22px;
     color: var(--jz-selected);
+  }
+  .section-lede {
+    margin-top: 12px;
+    color: var(--jz-secondary);
+    max-width: 65ch;
+    font-size: 14px;
   }
   .install {
     display: flex;
@@ -168,6 +291,9 @@ const workflows = await getWorkflowEntries();
   .card:hover .name {
     color: var(--jz-primary);
   }
+  .plugin-card {
+    border-color: color-mix(in srgb, var(--jz-primary) 35%, var(--jz-border));
+  }
   .desc {
     color: var(--jz-secondary);
     font-size: 14px;
@@ -193,6 +319,15 @@ const workflows = await getWorkflowEntries();
   }
   .contribute a {
     color: var(--jz-link);
+  }
+  .github-topic {
+    display: inline-block;
+    padding: 2px 7px;
+    border: 1px solid color-mix(in srgb, var(--jz-link) 55%, var(--jz-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--jz-link) 12%, transparent);
+    color: var(--jz-link);
+    font-size: 0.85em;
   }
   code {
     font-family: var(--font-mono);

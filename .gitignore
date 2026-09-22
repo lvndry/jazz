@@ -51,6 +51,8 @@ coverage/
 
 # Data files
 data/
+!packages/website/src/data/
+!packages/website/src/data/community-plugin-catalog.json
 .jazz/
 jazz.config.json
 jazz.config.*.json

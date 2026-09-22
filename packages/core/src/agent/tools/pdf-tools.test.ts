@@ -22,7 +22,7 @@ describe("pdfFilenameFromTitle", () => {
 
 describe("resolvePdfOutputPath", () => {
   it("defaults to the working directory, not jazz's own data directory", () => {
-    // The whole reason this tool differs from create_web_app: someone running `jazz run` in a
+    // The whole reason this tool differs from create_composition: someone running `jazz run` in a
     // terminal wants the file where they are, not buried in ~/.jazz.
     const resolved = resolvePdfOutputPath({ title: "My Report" }, "/work/project");
     expect(resolved).toBe("/work/project/my-report.pdf");

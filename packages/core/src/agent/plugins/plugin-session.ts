@@ -12,12 +12,16 @@ import {
   PluginRuntimeError,
   type AdvisoryHookHandler,
   type AdvisoryHookId,
+  type CommandRiskOutcome,
+  type CompactToolsOutcome,
   type DecisionBatchResult,
   type DecisionProvider,
   type DecisionRequest,
   type LoadedPlugin,
   type PluginDecisionClient,
   type PluginHostApi,
+  type PolicyHookHandler,
+  type PolicyHookId,
   type PluginSecretDeclaration,
   type LifecycleEvent,
   type LifecycleEventId,
@@ -33,6 +37,10 @@ import {
 import {
   validateDecisionRequest,
   validateDecisionResult,
+  validateCommandRiskInput,
+  validateCommandRiskOutcome,
+  validateCompactToolsInput,
+  validateCompactToolsOutcome,
   validatePluginManifest,
   validateSkillRouteDistribution,
   validateSkillRouteInput,
@@ -79,6 +87,11 @@ type RegisteredHook = {
   readonly handler: AdvisoryHookHandler<"route.skills">;
 };
 
+type RegisteredPolicyHook = {
+  readonly pluginId: string;
+  readonly handler: PolicyHookHandler<"classify.command-risk">;
+};
+
 type RegisteredTool = {
   readonly pluginId: string;
   readonly declaration: PluginToolDeclaration;
@@ -99,6 +112,8 @@ type RegisteredLifecycle = {
 const toolError = (message: string): PluginToolResult => ({ content: message, isError: true });
 
 const abstainedRoute = (reason: string): SkillRouteOutcome => ({ status: "abstained", reason });
+const abstainedPolicy = (reason: string): CommandRiskOutcome => ({ status: "abstained", reason });
+const abstainedCompact = (reason: string): CompactToolsOutcome => ({ status: "abstained", reason });
 
 function abstainedBatch(
   providerId: string,
@@ -143,6 +158,8 @@ export function createPluginSession(
   return Effect.try({
     try: () => {
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
+      const policyHooks = new Map<PolicyHookId, RegisteredPolicyHook>();
+      const pluginNameById = new Map<string, string>();
       const tools = new Map<string, RegisteredTool>();
       const commands = new Map<string, RegisteredCommand>();
       const lifecycle = new Map<LifecycleEventId, RegisteredLifecycle[]>();
@@ -156,6 +173,7 @@ export function createPluginSession(
         const manifest = validatePluginManifest(plugin.manifest);
         if (plugin.module.apiVersion !== manifest.hostApi)
           throw new Error("module API version does not match manifest");
+        pluginNameById.set(manifest.id, manifest.name);
         const declarations = new Map(
           manifest.secrets.map((declaration) => [declaration.name, declaration]),
         );
@@ -170,6 +188,18 @@ export function createPluginSession(
               hooks.set(id, {
                 pluginId: manifest.id,
                 handler: handler as unknown as AdvisoryHookHandler<"route.skills">,
+              });
+            },
+          },
+          policy: {
+            register: (id, handler) => {
+              if (!manifest.policyHooks.includes(id))
+                throw new Error(`plugin did not declare policy hook ${id}`);
+              if (policyHooks.has(id))
+                throw new Error(`policy hook ${id} already has a handler in this run`);
+              policyHooks.set(id, {
+                pluginId: manifest.id,
+                handler: handler as unknown as PolicyHookHandler<"classify.command-risk">,
               });
             },
           },
@@ -342,6 +372,55 @@ export function createPluginSession(
               return abstainedRoute("plugin handler failed");
             }
           }),
+        runPolicyHook: (id, rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedPolicy("plugin session closed");
+            const registration = policyHooks.get(id);
+            if (!registration) return abstainedPolicy("no plugin policy handler");
+            try {
+              const input = validateCommandRiskInput(rawInput);
+              return validateCommandRiskOutcome(
+                await deadline((signal) => registration.handler(input, { signal }), timeoutMs),
+              );
+            } catch (error) {
+              options.reportFailure?.(
+                registration.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return abstainedPolicy("plugin policy handler failed");
+            }
+          }),
+        runCompactTools: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedCompact("plugin session closed");
+            const registration = hooks.get("compact.tools");
+            if (!registration) return abstainedCompact("no plugin handler");
+            try {
+              const input = validateCompactToolsInput(rawInput);
+              const outcome = await deadline(
+                (signal) =>
+                  (registration.handler as unknown as AdvisoryHookHandler<"compact.tools">)(input, {
+                    signal,
+                  }),
+                timeoutMs,
+              );
+              return validateCompactToolsOutcome(input, outcome);
+            } catch (error) {
+              options.reportFailure?.(
+                registration.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return abstainedCompact("plugin handler failed");
+            }
+          }),
+        describeHook: (id) => {
+          const registration = hooks.get(id);
+          if (!registration) return undefined;
+          return {
+            pluginId: registration.pluginId,
+            pluginName: pluginNameById.get(registration.pluginId) ?? registration.pluginId,
+          };
+        },
         listTools: () =>
           [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
         runTool: (name, args) =>
@@ -416,6 +495,7 @@ export function createPluginSession(
               ),
             );
             hooks.clear();
+            policyHooks.clear();
             tools.clear();
             commands.clear();
             lifecycle.clear();

@@ -22,6 +22,7 @@ function fakeHost(): {
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: { register: () => {} },
+    policy: { register: () => {} },
     decisions: {
       registerProvider: () => {
         throw new Error("not used");

@@ -322,9 +322,29 @@ See [Personas](./concepts/personas.md).
 
 ---
 
+## `jazz skill`
+
+| Command                     | Purpose                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                  |
+| `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                         |
+| `jazz skill install <name>` | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh` |
+
+Marketplace skills are instruction-only. Installation prints the complete file, asks for
+confirmation, writes only `SKILL.md`, and never executes or imports the downloaded text. Non-
+interactive installs must pass `--yes`. The catalog is cached under
+`<jazz home>/cache/skill-registry.json`, works offline after a successful fetch, and uses
+`JAZZ_LIBRARY_URL` when you host a compatible library yourself.
+
+Skills can influence an agent's behavior but grant no tools, credentials, network access, or
+approval authority. Read the source for prompt injection or unsafe guidance before installing.
+See [Skills](./concepts/skills.md).
+
+---
+
 ## `jazz plugin`
 
-Every command below that takes `<id>` also accepts the `owner/repo` (or github URL) you installed
+Every command below that takes `<id>` also accepts the `owner/repo` (or GitHub URL) you installed
 from — it resolves to the installed plugin. Trust and enable prompt for a plain yes/no confirmation.
 
 | Command                                           | Purpose                                                                                                                                                                                                             |
@@ -347,7 +367,11 @@ from — it resolves to the installed plugin. Trust and enable prompt for a plai
 | `jazz plugin secret status <id> <name>`           | Report whether a credential comes from environment, keyring, file, or is missing                                                                                                                                    |
 | `jazz plugin secret forget <id> <name>`           | Delete a Jazz-owned plugin credential; environment values are unaffected                                                                                                                                            |
 
-Trust and consent require a local interactive terminal. See [Plugins](./configure/plugins.md).
+Trust and consent require a local interactive terminal. This includes explicit consent for a
+`classify.command-risk` policy hook: it may send bounded command text to its declared destination
+and its validated verdict can affect whether an eligible `execute_command` call needs approval.
+Static tool risks, allowlists, approval tiers, and the shell denylist remain enforced by Jazz. See
+[Plugins](./configure/plugins.md).
 
 ---
 
@@ -401,19 +425,20 @@ Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhoo
 
 Available inside an interactive session. Type `/help` for the current list.
 
-| Command      | Purpose                                               |
-| ------------ | ----------------------------------------------------- |
-| `/help`      | List commands                                         |
-| `/tools`     | Show available tools                                  |
-| `/skills`    | Browse skills                                         |
-| `/workflows` | Browse workflows                                      |
-| `/mode`      | Change approval mode (also Shift+Tab)                 |
-| `/cost`      | Tokens and USD for this session, including sub-agents |
-| `/context`   | Context window usage and the biggest consumers        |
-| `/compact`   | Force context compaction now                          |
-| `/switch`    | Switch agent                                          |
-| `/peers`     | List configured peers and what each may learn or do   |
-| `/new`       | Start a fresh conversation                            |
+| Command      | Purpose                                                                           |
+| ------------ | --------------------------------------------------------------------------------- |
+| `/help`      | List commands                                                                     |
+| `/tools`     | Show available tools                                                              |
+| `/skills`    | Browse skills                                                                     |
+| `/workflows` | Browse workflows                                                                  |
+| `/mode`      | Change approval mode (also Shift+Tab)                                             |
+| `/cost`      | Tokens and USD for this session, including sub-agents                             |
+| `/context`   | Context window usage and the biggest consumers                                    |
+| `/compact`   | Force context compaction now                                                      |
+| `/switch`    | Switch agent                                                                      |
+| `/peers`     | List configured peers and what each may learn or do                               |
+| `/new`       | Start a fresh conversation                                                        |
+| `/fork`      | Branch to a new conversation, keeping the full history; the original is preserved |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.

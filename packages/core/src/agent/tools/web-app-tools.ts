@@ -7,12 +7,14 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { openCompletedCompositionInBrowser } from "./composition-browser";
 
 /**
- * Lets the agent produce arbitrary interactive UI — not just charts, any
- * self-contained webpage (a form, a dashboard, a small game, an explorable
- * chart) — for surfaces that can render it as a Telegram Web App / Mini App.
+ * Lets the agent compose a polished visual artifact — not just charts, any
+ * self-contained webpage (a form, dashboard, small game, or explorable chart)
+ * — for the terminal and chat surfaces that can present it.
  *
  * The agent writes the whole HTML document itself (inline CSS/JS, CDN
  * scripts for libraries like Chart.js are fine since the page runs in a real
@@ -21,8 +23,7 @@ import { defineTool, makeZodValidator } from "./base-tool";
  * plain chat image with no tap required.
  *
  * Surface-specific delivery (serving the interactive HTML over a public URL,
- * or posting the static image) is the caller's job — e.g. the Telegram
- * bridge reads this tool's structured result off `AgentResponse.toolResults`.
+ * posting the static image, or opening a local browser) is the caller's job.
  *
  * "static" mode needs a Chrome/Chromium on the host. Jazz depends on
  * `puppeteer-core`, which ships no browser, so that a global `npm i -g jazz-ai`
@@ -30,8 +31,8 @@ import { defineTool, makeZodValidator } from "./base-tool";
  * needs no browser at all.
  */
 
-function getWebAppsDirectory(): string {
-  return `${getUserDataDirectory()}/webapps`;
+function getCompositionsDirectory(sessionId: string): string {
+  return `${getUserDataDirectory()}/compositions/${storageSafeSegment(sessionId)}`;
 }
 
 /** Tried in order when `PUPPETEER_EXECUTABLE_PATH` is unset. */
@@ -43,7 +44,7 @@ const CHROME_RELEASE_CHANNELS: readonly ChromeReleaseChannel[] = [
 ];
 
 export const MISSING_BROWSER_ERROR =
-  "create_web_app with mode 'static' needs a Chrome or Chromium install to screenshot the page, " +
+  "create_composition with mode 'static' needs a Chrome or Chromium install to screenshot the page, " +
   "and none was found. Install Google Chrome or Chromium, or point PUPPETEER_EXECUTABLE_PATH at " +
   "an existing browser binary. Retrying with mode 'interactive' needs no browser.";
 
@@ -87,7 +88,7 @@ export function createSystemBrowserLookup(): BrowserExecutableLookup {
   };
 }
 
-const createWebAppParameters = z
+const createCompositionParameters = z
   .object({
     html: z
       .string()
@@ -101,7 +102,10 @@ const createWebAppParameters = z
       .string()
       .min(1)
       .max(120)
-      .describe("Short title for this UI — used as the button label / display name."),
+      .describe(
+        "Short, distinctive name for this composition — used as its display title and filename. " +
+          "Prefer a concrete noun phrase such as 'weekly-spending' or 'project-timeline'.",
+      ),
     mode: z
       .enum(["static", "interactive"])
       .describe(
@@ -127,7 +131,35 @@ const createWebAppParameters = z
   })
   .strict();
 
-type CreateWebAppArgs = z.infer<typeof createWebAppParameters>;
+type CreateCompositionArgs = z.infer<typeof createCompositionParameters>;
+
+/** A readable, portable filename based on the composition's display name. */
+export function compositionFilenameFromTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `${slug.length > 0 ? slug : "composition"}.html`;
+}
+
+/**
+ * Preserve every composition in a session. Repeating a title gets a readable
+ * numeric suffix rather than silently replacing an earlier artifact.
+ */
+function nextCompositionPath(fs: FileSystem.FileSystem, directory: string, title: string) {
+  const filename = compositionFilenameFromTitle(title);
+  const extensionIndex = filename.lastIndexOf(".");
+  const stem = filename.slice(0, extensionIndex);
+  const extension = filename.slice(extensionIndex);
+
+  return Effect.gen(function* () {
+    for (let version = 1; ; version += 1) {
+      const candidate = `${directory}/${stem}${version === 1 ? "" : `-${version}`}${extension}`;
+      if (!(yield* fs.exists(candidate))) return candidate;
+    }
+  });
+}
 
 async function renderStaticScreenshot(
   htmlPath: string,
@@ -154,41 +186,62 @@ async function renderStaticScreenshot(
   }
 }
 
-export function createWebAppTool(
+export function createCompositionTool(
   browserLookup: () => BrowserExecutableLookup = createSystemBrowserLookup,
 ): Tool<FileSystem.FileSystem> {
-  return defineTool<FileSystem.FileSystem, CreateWebAppArgs>({
-    name: "create_web_app",
+  return defineTool<FileSystem.FileSystem, CreateCompositionArgs>({
+    name: "create_composition",
     disclosure: "internal",
     description:
-      "Create a UI — a chart, form, dashboard, small game, or any other webpage — and deliver it as a static image (mode: 'static') or a live page (mode: 'interactive'). " +
-      "Use this when a plain text or markdown answer is the wrong medium. You write the full HTML yourself. " +
-      "mode 'static' needs Chrome or Chromium installed (or PUPPETEER_EXECUTABLE_PATH set). " +
-      "mode 'interactive' opens as a Mini App or WebView on Telegram and Discord; in the terminal it only writes a local HTML file. Do not use this to fetch or search the web.",
-    tags: ["ui", "webapp"],
-    parameters: createWebAppParameters,
+      "Compose a polished visual artifact — a visualization, interactive explainer, dashboard, form, or small tool — when text alone is not the clearest medium. " +
+      "Write one complete, self-contained HTML document. Before writing, choose the simplest useful interaction and information hierarchy; build a finished artifact, not a rough demo. " +
+      "Use semantic HTML, responsive CSS that works from 320px to desktop, clear labels and units, accessible contrast, visible focus states, keyboard-operable controls, and reduced-motion-friendly animation. " +
+      "Never invent data or imply false precision. Prefer inline CSS and JavaScript with no build step; use an external library only when it materially improves the result. Include useful empty, loading, or error states when the composition needs them. " +
+      "For mode 'static', make every important detail legible in the requested viewport with no hover, click, or scroll required. For mode 'interactive', make the first screen useful without instructions. " +
+      "mode 'static' produces a PNG and needs Chrome or Chromium installed (or PUPPETEER_EXECUTABLE_PATH set); mode 'interactive' produces a live HTML composition. On a supported local terminal, Jazz opens a completed composition in the default browser; chat surfaces deliver an image or link. Do not use this to fetch or search the web.",
+    tags: ["ui", "visualization", "composition"],
+    // Existing agent configurations can keep working while the model sees and
+    // calls the new, better-named capability.
+    aliases: ["create_web_app"],
+    parameters: createCompositionParameters,
     riskLevel: "low-risk",
     hidden: false,
-    validate: makeZodValidator(createWebAppParameters),
-    handler: (args, _context) =>
+    validate: makeZodValidator(createCompositionParameters),
+    handler: (args, context) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const dir = getWebAppsDirectory();
+        const sessionId = storageSafeSegment(context.conversationId ?? context.agentId);
+        const dir = getCompositionsDirectory(sessionId);
         yield* fs.makeDirectory(dir, { recursive: true });
 
         const id = shortuuid.generate();
-        const htmlPath = `${dir}/${id}.html`;
+        const htmlPath = yield* nextCompositionPath(fs, dir, args.title);
+        const filename = htmlPath.slice(dir.length + 1);
         yield* fs.writeFileString(htmlPath, args.html);
 
+        const htmlArtifact: GeneratedArtifact = {
+          kind: "html",
+          path: htmlPath,
+          mediaType: "text/html",
+          title: args.title,
+          tool: "create_composition",
+          source: "rendered",
+        };
+
         if (args.mode === "interactive") {
+          const opened = yield* Effect.promise(() => openCompletedCompositionInBrowser(htmlPath));
           return {
             success: true,
             result: {
               id,
               mode: "interactive",
               title: args.title,
+              sessionId,
+              filename,
               htmlPath,
+              ...(opened ? { opened: true } : {}),
             },
+            artifacts: [htmlArtifact],
           } satisfies ToolExecutionResult;
         }
 
@@ -220,9 +273,10 @@ export function createWebAppTool(
           path: pngPath,
           mediaType: "image/png",
           title: args.title,
-          tool: "create_web_app",
+          tool: "create_composition",
           source: "rendered",
         };
+        const opened = yield* Effect.promise(() => openCompletedCompositionInBrowser(htmlPath));
 
         return {
           success: true,
@@ -230,11 +284,14 @@ export function createWebAppTool(
             id,
             mode: "static",
             title: args.title,
+            sessionId,
+            filename,
             htmlPath,
+            ...(opened ? { opened: true } : {}),
             imagePath: pngPath,
-            artifacts: [artifact],
+            artifacts: [htmlArtifact, artifact],
           },
-          artifacts: [artifact],
+          artifacts: [htmlArtifact, artifact],
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>
@@ -248,7 +305,7 @@ export function createWebAppTool(
     createSummary: (result) => {
       if (!result.success) return undefined;
       const data = result.result as { mode: string; title: string };
-      return `Created ${data.mode} web app: ${data.title}`;
+      return `Created ${data.mode} composition: ${data.title}`;
     },
   });
 }
