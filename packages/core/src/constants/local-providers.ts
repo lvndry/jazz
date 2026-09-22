@@ -10,13 +10,13 @@ import { isOllamaCloudModel } from "@/core/constants/ollama";
 export const LOCAL_SERVER_PROVIDERS = {
   llamacpp: {
     name: "llama.cpp",
-    defaultUrl: "http://localhost:8080",
+    defaultUrl: "http://127.0.0.1:8080",
     envVar: "LLAMACPP_BASE_URL",
     startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
   },
   ollama: {
     name: "Ollama",
-    defaultUrl: "http://localhost:11434",
+    defaultUrl: "http://127.0.0.1:11434",
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
   },
