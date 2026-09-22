@@ -1449,7 +1449,6 @@ export interface TranscriptProps {
 }
 
 export interface TranscriptHandle {
-  /** Returns whether the resulting position is the live (newest-output) edge. */
   scrollBy(delta: number, unit?: "line" | "page" | "end"): boolean;
 }
 
