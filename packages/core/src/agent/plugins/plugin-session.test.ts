@@ -33,6 +33,7 @@ const manifest = {
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],
+  claimsNotifications: false,
 };
 
 it("keeps registrations per run and enforces declared secrets", async () => {
@@ -433,6 +434,46 @@ it("delivers a declared lifecycle event to its handler", async () => {
     }),
   );
   expect(received).toBe("all done");
+});
+
+it("gives lifecycle handlers a writeTerminalSequence routed to the host", async () => {
+  const written: string[] = [];
+  let handlerWrote = false;
+  const session = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [
+        {
+          manifest: lifecycleManifest,
+          module: {
+            apiVersion: 1,
+            register(api) {
+              api.lifecycle.register({
+                event: "run-complete",
+                handler: async (_event, context) => {
+                  handlerWrote = typeof context.writeTerminalSequence === "function";
+                  context.writeTerminalSequence("\u001b]777;notify;t;b\u0007");
+                },
+              });
+            },
+          },
+        },
+      ],
+      metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
+      resolveSecret: async () => "secret",
+      writeTerminalSequence: (data) => written.push(data),
+    }),
+  );
+  await Effect.runPromise(
+    session.emitLifecycle({
+      event: "run-complete",
+      agentId: "a",
+      conversationId: "c",
+      cwd: "/tmp",
+    }),
+  );
+  expect(handlerWrote).toBe(true);
+  expect(written).toEqual(["\u001b]777;notify;t;b\u0007"]);
 });
 
 it("rejects a lifecycle subscription the manifest did not declare", async () => {

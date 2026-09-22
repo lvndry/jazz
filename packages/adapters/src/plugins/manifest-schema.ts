@@ -23,6 +23,26 @@ export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
 export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
 export const MAX_PLUGIN_ARTIFACT_BYTES = 8 * 1024 * 1024;
 
+export const PLUGIN_MANIFEST_METADATA_FIELDS = [
+  "schemaVersion",
+  "id",
+  "name",
+  "version",
+  "hostApi",
+  "hooks",
+  "policyHooks",
+  "decisionProviders",
+  "tools",
+  "commands",
+  "personas",
+  "skills",
+  "lifecycleHooks",
+  "claimsNotifications",
+  "network",
+  "dataSent",
+  "secrets",
+] as const;
+
 const PLUGIN_ID = /^[a-z0-9](?:[a-z0-9.-]{1,126}[a-z0-9])?$/;
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -208,9 +228,20 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
 
 const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
   "session-start",
+  "session-end",
   "user-prompt",
   "run-complete",
+  "run-failed",
   "awaiting-input",
+  "tool-start",
+  "tool-end",
+  "tool-error",
+  "subagent-start",
+  "subagent-stop",
+  "compact-start",
+  "compact-end",
+  "permission-request",
+  "permission-denied",
 ]);
 
 function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
@@ -263,30 +294,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     }
   }
   const root = record(decoded, "plugin manifest");
-  exactKeys(
-    root,
-    [
-      "schemaVersion",
-      "id",
-      "name",
-      "version",
-      "hostApi",
-      "artifact",
-      "sha256",
-      "hooks",
-      "policyHooks",
-      "decisionProviders",
-      "tools",
-      "commands",
-      "personas",
-      "skills",
-      "lifecycleHooks",
-      "network",
-      "dataSent",
-      "secrets",
-    ],
-    "plugin manifest",
-  );
+  exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "artifact", "sha256"], "plugin manifest");
   if (root["schemaVersion"] !== PLUGIN_MANIFEST_SCHEMA_VERSION) {
     throw new Error(`Unsupported plugin manifest schemaVersion: ${String(root["schemaVersion"])}`);
   }
@@ -352,6 +360,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     personas: parsePersonas(root["personas"]),
     skills: parseSkills(root["skills"]),
     lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
+    claimsNotifications: root["claimsNotifications"] === true,
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

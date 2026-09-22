@@ -26,7 +26,7 @@ import type {
 } from "@jazz/core/types/plugin";
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
-import { parsePluginManifest } from "./manifest-schema";
+import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";
 import { PluginSecretStore } from "./secret-store";
 
 const NATIVE_OR_ASSET_INPUT =
@@ -118,25 +118,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     fail(`invalid jazz-plugin.json (${error instanceof Error ? error.message : String(error)})`);
   }
   const source = record(decoded);
-  const allowed = new Set([
-    "schemaVersion",
-    "id",
-    "name",
-    "version",
-    "hostApi",
-    "entry",
-    "hooks",
-    "policyHooks",
-    "decisionProviders",
-    "tools",
-    "commands",
-    "personas",
-    "skills",
-    "lifecycleHooks",
-    "network",
-    "dataSent",
-    "secrets",
-  ]);
+  const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "policyHooks", "entry"]);
   const unknown = Object.keys(source).filter((key) => !allowed.has(key));
   if (unknown.length > 0) fail(`manifest contains unknown field(s): ${unknown.join(", ")}`);
   // Reuse the install boundary for all metadata by supplying pack-generated fields.

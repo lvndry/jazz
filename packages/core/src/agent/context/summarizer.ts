@@ -4,17 +4,19 @@
  * running summary, replacing the messages it condenses.
  */
 
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import { describeAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { JsonValue } from "@/core/types/plugin";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
@@ -564,6 +566,25 @@ export const Summarizer = {
   > {
     return Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
+      const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+      const emitCompact = (
+        event: "compact-start" | "compact-end",
+        data: Readonly<Record<string, JsonValue>>,
+      ): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          if (Option.isNone(pluginRuntime)) return;
+          yield* Effect.forkDaemon(
+            pluginRuntime.value
+              .emitLifecycleEvent({
+                event,
+                agentId: agent.id,
+                conversationId,
+                cwd: process.cwd(),
+                data,
+              })
+              .pipe(Effect.catchAll(() => Effect.void)),
+          );
+        });
       const hint = modelHintFromAgent(agent);
       const tokensBefore =
         DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
@@ -643,6 +664,11 @@ export const Summarizer = {
         return undefined;
       }
 
+      yield* emitCompact("compact-start", {
+        messages: currentMessages.length,
+        tokensBefore,
+      });
+
       yield* logger.debug("Summarizing messages from conversation", {
         totalMessages: currentMessages.length,
         messagesToSummarize: messagesToSummarize.length,
@@ -716,6 +742,13 @@ export const Summarizer = {
         budgetTokens: contextWindowTokens,
         messagesBefore: currentMessages.length,
         messagesAfter: compactedMessages.length,
+      });
+
+      yield* emitCompact("compact-end", {
+        messagesBefore: currentMessages.length,
+        messagesAfter: compactedMessages.length,
+        tokensBefore,
+        tokensAfter,
       });
 
       return { messages: compactedMessages, tokensBefore, tokensAfter };

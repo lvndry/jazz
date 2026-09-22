@@ -80,7 +80,12 @@ describe("describeArtifact", () => {
     // The point of tracking provenance: a chart screenshotted from HTML has exact numbers, and
     // calling it AI-generated would tell the reader not to trust figures they can trust.
     const described = describeArtifact(
-      artifact({ kind: "image", tool: "create_web_app", source: "rendered", title: "Spending" }),
+      artifact({
+        kind: "image",
+        tool: "create_composition",
+        source: "rendered",
+        title: "Spending",
+      }),
     );
     expect(described).not.toContain("AI-generated");
     expect(described).toContain("Spending");

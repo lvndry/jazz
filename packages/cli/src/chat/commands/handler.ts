@@ -170,7 +170,7 @@ export function handleSpecialCommand(
         return yield* handleCostCommand(terminal, agent, context.sessionUsage);
 
       case "workflows":
-        return yield* handleWorkflowsCommand(terminal);
+        return yield* handleWorkflowsCommand(terminal, command.args);
 
       case "info":
         return yield* handleInfoCommand(terminal, agent, context);
@@ -1553,12 +1553,22 @@ function handleClearCommand(
 }
 
 /**
- * Handle /workflows command - List available workflows
+ * Handle /workflows command - List available workflows or create one
  */
 function handleWorkflowsCommand(
   terminal: TerminalService,
+  args: string[],
 ): Effect.Effect<CommandResult, Error, WorkflowService> {
   return Effect.gen(function* () {
+    if (args[0] === "create") {
+      const trailing = args.slice(1).join(" ").trim();
+      const prompt =
+        trailing.length > 0
+          ? `The user wants to create a workflow: ${trailing}. Use the create-workflow skill to guide them.`
+          : "The user wants to create a new workflow. Use the create-workflow skill to guide them through the process.";
+      return { shouldContinue: true, messageForAgent: prompt };
+    }
+
     const workflowService = yield* WorkflowServiceTag;
 
     yield* terminal.log(fmt.heading("Available Workflows"));

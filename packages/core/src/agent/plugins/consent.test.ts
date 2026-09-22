@@ -20,6 +20,7 @@ const manifest: PluginManifest = {
   personas: [],
   skills: [],
   lifecycleHooks: [],
+  claimsNotifications: false,
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],

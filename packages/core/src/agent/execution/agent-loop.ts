@@ -11,6 +11,7 @@ import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import {
   ToolRegistryTag,
@@ -67,6 +68,7 @@ import {
   recordToolResultTokens,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
+import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -666,6 +668,7 @@ function handleToolPhase(
     }
 
     const toolRenderer = strategy.getRenderer();
+    const pluginRuntimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
 
     // Media a tool attached during this batch of tool calls. Collected here rather than
     // returned through tool results because tool results are text-only — the actual bytes have
@@ -700,9 +703,30 @@ function handleToolPhase(
       supportedAttachmentKinds: supportedAttachmentKinds,
       attachmentsAreLocal: isLocalServerProvider(provider),
       // Let tools surface live progress (e.g. spawn_subagent lifecycle) through
-      // the same event stream, when a streaming renderer is present.
+      // the same event stream, when a streaming renderer is present. The same events are bridged to
+      // plugin lifecycle hooks (tool/approval/sub-agent), fire-and-forget so a plugin never delays
+      // or breaks tool execution.
       ...(toolRenderer
-        ? { emitEvent: (event: StreamEvent) => toolRenderer.handleEvent(event) }
+        ? {
+            emitEvent: (event: StreamEvent) =>
+              Effect.gen(function* () {
+                yield* toolRenderer.handleEvent(event);
+                const bridged = lifecycleEventForStreamEvent(event);
+                if (bridged !== undefined && Option.isSome(pluginRuntimeOption)) {
+                  yield* Effect.forkDaemon(
+                    pluginRuntimeOption.value
+                      .emitLifecycleEvent({
+                        event: bridged.event,
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                        cwd: process.cwd(),
+                        ...(bridged.data === undefined ? {} : { data: bridged.data }),
+                      })
+                      .pipe(Effect.catchAll(() => Effect.void)),
+                  );
+                }
+              }),
+          }
         : {}),
     };
 
