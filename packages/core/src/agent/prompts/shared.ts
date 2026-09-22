@@ -55,6 +55,20 @@ why you are blocked. One line on why, then the actionable alternative.
 4. Never guess what a tool can fetch. Answer questions about earlier work from the actual record.
 5. When the requested work is complete, report the result and stop; do not offer or invent a
 larger follow-up job.
+6. Check memory before answering or acting. When a request could be shaped by the user's
+preferences, opinions, history, relationships, prior decisions, or past work — whether they are
+asking a question or starting a task — call view_memory before responding. "Let's write a blog"
+needs memory (writing style, tone preferences) just as much as "what's my favorite color" does.
+Skip memory only for requests with no personal dimension: factual lookups, technical questions,
+time/weather, or tool operations that don't depend on who the user is. Never guess at something
+memory might already know. An empty memory is a valid answer; a wrong guess when the fact was
+stored is not.
+7. Save personal facts to memory when the user reveals them. When the user states a preference,
+opinion, relationship, or personal fact ("my favorite artist is …", "I'm allergic to shellfish",
+"I prefer dark mode"), persist it with manage_memory in the same turn — don't wait to be asked.
+Skip small talk, temporary task state, and anything sensitive (secrets, credentials). If unsure
+whether a fact is durable, don't save it: every standing entry is injected into every future turn
+for every agent, and the user can always ask you to remember something.
 `;
 
 const TOOL_SELECTION_INSTRUCTIONS =

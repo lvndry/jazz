@@ -18,3 +18,36 @@ export const MEMORY_VIEW_TRUNCATE_CHARS = 20_000;
 
 /** Reject `view` on files with more lines than this. */
 export const MEMORY_VIEW_MAX_LINES = 999_999;
+
+/**
+ * Scope every agent writes to when none is configured.
+ *
+ * Memory belongs to the person, not to whichever agent happens to run. A
+ * preference like "concise replies" should follow the user across agents, so
+ * the default is one shared scope rather than one silo per agent id.
+ */
+export const DEFAULT_MEMORY_SCOPE = "personal";
+
+/** Resolve the scopes a caller may use when configuration omits or empties them. */
+export function effectiveMemoryScopes(
+  scopes: readonly string[] | null | undefined,
+): readonly string[] {
+  return scopes !== undefined && scopes !== null && scopes.length > 0
+    ? scopes
+    : [DEFAULT_MEMORY_SCOPE];
+}
+/**
+ * Agent id the compaction-time extraction pass runs under.
+ *
+ * Shared so a write can be attributed: an entry written under this id was
+ * inferred by an unattended pass, while any other id means the agent wrote it
+ * while a person was in the conversation.
+ */
+export const MEMORY_EXTRACTOR_AGENT_ID = "memory-extractor";
+
+/**
+ * Longest derived entry summary kept in the sidecar. Entries are one thought
+ * each, so anything past this is prose that belongs in the body rather than in
+ * the text the recall index ranks on.
+ */
+export const MEMORY_SUMMARY_MAX_CHARS = 200;

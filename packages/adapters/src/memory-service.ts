@@ -14,12 +14,15 @@ import {
   MAX_MEMORY_PATH_DEPTH,
   MAX_MEMORY_PATH_SEGMENT_LENGTH,
   MAX_MEMORY_TOTAL_BYTES_PER_SCOPE,
+  MEMORY_SUMMARY_MAX_CHARS,
   MEMORY_VIEW_MAX_LINES,
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
 import type {
+  MemoryEntryCredit,
   MemoryFileProvenance,
   MemoryScopeProvenance,
+  MemoryFailureSignature,
 } from "@jazz/core/interfaces/memory-provenance";
 import {
   EMPTY_MEMORY_SCOPE_PROVENANCE,
@@ -27,12 +30,14 @@ import {
 } from "@jazz/core/interfaces/memory-provenance";
 import type {
   MemoryDirectoryEntry,
+  MemoryEntryInForce,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
+import { ALWAYS_SEGMENT } from "@jazz/core/memory/entry-path";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -143,28 +148,170 @@ function listDirectoryEntries(
   });
 }
 
+function asStringArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 /**
- * Reads a scope's provenance sidecar. A missing or corrupt file reads as empty
- * rather than failing: provenance is metadata about memory, and losing it must
- * never make the memory itself unreadable.
+ * Coerces one record to the shape the rest of the code dereferences.
+ *
+ * These files are meant to be hand-edited, so a field can be any shape by the
+ * time it is read back. Coercing rather than trusting keeps a malformed value
+ * from either throwing deep inside a write (`writtenBy.includes` on a
+ * non-array) or reaching the model as an `[object Object]` bullet in the system
+ * prompt, and it degrades one field instead of discarding the whole record.
+ */
+function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenance {
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    createdAt: asOptionalString(record["createdAt"]) ?? now,
+    updatedAt: asOptionalString(record["updatedAt"]) ?? now,
+    ...(asOptionalString(record["lastViewedAt"]) !== undefined
+      ? { lastViewedAt: record["lastViewedAt"] as string }
+      : {}),
+    writeCount: typeof record["writeCount"] === "number" ? record["writeCount"] : 0,
+    writtenBy: asStringArray(record["writtenBy"]),
+    ...(asOptionalString(record["subject"]) !== undefined
+      ? { subject: record["subject"] as string }
+      : {}),
+    ...(asOptionalString(record["summary"]) !== undefined
+      ? { summary: record["summary"] as string }
+      : {}),
+    ...(asOptionalString(record["origin"]) === "auto" ||
+    asOptionalString(record["origin"]) === "user"
+      ? { origin: record["origin"] as "auto" | "user" }
+      : {}),
+    ...(isMemoryFailureSignature(record["failure"]) ? { failure: record["failure"] } : {}),
+    ...(isMemoryEntryCredit(record["credit"]) ? { credit: record["credit"] } : {}),
+    ...(asOptionalString(record["compiledInto"]) !== undefined
+      ? { compiledInto: record["compiledInto"] as string }
+      : {}),
+    ...(typeof record["stale"] === "boolean" ? { stale: record["stale"] } : {}),
+  };
+}
+
+function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignature {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate["kind"] === "misfire") {
+    return typeof candidate["toolName"] === "string" && typeof candidate["errorClass"] === "string";
+  }
+  return candidate["kind"] === "correction" && typeof candidate["correctedBehavior"] === "string";
+}
+
+function isMemoryEntryCredit(value: unknown): value is MemoryEntryCredit {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate["helped"] === "number" &&
+    typeof candidate["failed"] === "number" &&
+    typeof candidate["missed"] === "number" &&
+    typeof candidate["everFired"] === "boolean"
+  );
+}
+
+/**
+ * Whether the sidecar could be read, as opposed to what it contained.
+ *
+ * A file that is simply absent is an ordinary empty scope. A file that exists
+ * but cannot be read or parsed — permission denied, a directory in its place,
+ * malformed JSON — is a fault, and the difference matters on the write path:
+ * every writer rewrites the whole map, so treating an unreadable file as "no
+ * records" would replace a scope's entire history with one entry.
+ */
+type ProvenanceReadStatus = "ok" | "absent" | "unreadable";
+
+interface ProvenanceRead {
+  readonly status: ProvenanceReadStatus;
+  readonly provenance: MemoryScopeProvenance;
+}
+
+/**
+ * Reads a scope's provenance sidecar, reporting whether it could be read.
+ *
+ * `JSON.parse` runs inside `Effect.try` rather than `Effect.map` because a
+ * throw inside `map` becomes a defect, which `catchAll` does not catch — a
+ * single malformed byte in a hand-editable file would otherwise take down every
+ * run that reads it.
  */
 function readScopeProvenance(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
-): Effect.Effect<MemoryScopeProvenance, never> {
-  return fs.readFileString(path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME)).pipe(
-    Effect.map((raw) => {
-      const parsed: unknown = JSON.parse(raw);
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        typeof (parsed as MemoryScopeProvenance).files !== "object"
-      ) {
-        return EMPTY_MEMORY_SCOPE_PROVENANCE;
-      }
-      return parsed as MemoryScopeProvenance;
+): Effect.Effect<ProvenanceRead, never> {
+  const sidecarPath = path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME);
+
+  return fs.readFileString(sidecarPath).pipe(
+    Effect.flatMap((raw) =>
+      Effect.try(() => {
+        const parsed: unknown = JSON.parse(raw);
+        const files =
+          typeof parsed === "object" && parsed !== null
+            ? (parsed as { files?: unknown }).files
+            : undefined;
+        if (typeof files !== "object" || files === null) throw new Error("malformed sidecar");
+
+        const now = new Date().toISOString();
+        const sanitized: Record<string, MemoryFileProvenance> = {};
+        for (const [key, value] of Object.entries(files as Record<string, unknown>)) {
+          sanitized[key] = sanitizeFileProvenance(value, now);
+        }
+        return { status: "ok" as const, provenance: { files: sanitized } };
+      }),
+    ),
+    Effect.catchAll((error) => {
+      const platformError = error as { _tag?: string; reason?: string };
+      const absent = platformError._tag === "SystemError" && platformError.reason === "NotFound";
+      return Effect.succeed({
+        status: absent ? "absent" : "unreadable",
+        provenance: EMPTY_MEMORY_SCOPE_PROVENANCE,
+      } satisfies ProvenanceRead);
     }),
-    Effect.catchAll(() => Effect.succeed(EMPTY_MEMORY_SCOPE_PROVENANCE)),
+  );
+}
+
+/**
+ * Moves an unreadable sidecar aside so a write can proceed without erasing it.
+ *
+ * Writers rebuild the whole map, so continuing from an unreadable file would
+ * silently replace every record in the scope. Keeping the bytes under a
+ * `.corrupt-<timestamp>` name means the history is recoverable by hand instead
+ * of gone.
+ */
+function quarantineProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+): Effect.Effect<void, never> {
+  const sidecarPath = path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME);
+  const quarantinedPath = `${sidecarPath}.corrupt-${Date.now()}`;
+  return fs.rename(sidecarPath, quarantinedPath).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/**
+ * Reads the sidecar for a writer, quarantining it first when it is unreadable.
+ *
+ * Returns the records a write should build on: the existing ones, or an empty
+ * map once the unreadable file has been moved aside.
+ */
+function readProvenanceForWrite(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+): Effect.Effect<MemoryScopeProvenance, never> {
+  return readScopeProvenance(fs, scopeRoot).pipe(
+    Effect.flatMap((read) =>
+      read.status === "unreadable"
+        ? quarantineProvenance(fs, scopeRoot).pipe(Effect.as(EMPTY_MEMORY_SCOPE_PROVENANCE))
+        : Effect.succeed(read.provenance),
+    ),
   );
 }
 
@@ -181,7 +328,36 @@ function writeScopeProvenance(
   ).pipe(Effect.catchAll(() => Effect.void));
 }
 
-/** Records a write against `relativePath`, creating its entry if it is new. */
+/**
+ * Reads back the entry that was just written and takes its first non-empty
+ * line as the summary. Deriving it from the file rather than accepting it from
+ * the caller is what keeps the index text honest across every mutation —
+ * `str_replace` and `insert` change the content too, not just `create`.
+ */
+function readEntrySummary(
+  fs: FileSystem.FileSystem,
+  absolutePath: string,
+): Effect.Effect<string | undefined, never> {
+  return fs.readFileString(absolutePath).pipe(
+    Effect.map((content) => {
+      const firstLine = content
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+      if (firstLine === undefined) return undefined;
+      return firstLine.replace(/^#+\s*/, "").slice(0, MEMORY_SUMMARY_MAX_CHARS);
+    }),
+    Effect.catchAll(() => Effect.succeed(undefined)),
+  );
+}
+
+/**
+ * Records a write against `relativePath`, creating its entry if it is new.
+ *
+ * Existing fields are carried forward rather than rebuilt: the record holds
+ * typing and credit counters that no single write knows about, and dropping
+ * them here would silently reset an entry's learning history on its next edit.
+ */
 function recordWrite(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
@@ -189,42 +365,78 @@ function recordWrite(
   writeContext: MemoryWriteContext,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const existing = provenance.files[relativePath];
     const now = new Date().toISOString();
     const writtenBy = existing?.writtenBy.includes(writeContext.agentId)
       ? existing.writtenBy
       : [...(existing?.writtenBy ?? []), writeContext.agentId];
 
+    const entry = writeContext.entry;
+    const summary = yield* readEntrySummary(fs, path.join(scopeRoot, relativePath));
+
     const updated: MemoryFileProvenance = {
+      ...(existing ?? {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
       writeCount: (existing?.writeCount ?? 0) + 1,
       writtenBy,
+      ...(summary !== undefined ? { summary } : {}),
+      ...(entry !== undefined
+        ? {
+            ...(entry.failure !== undefined ? { failure: entry.failure } : {}),
+            ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+          }
+        : {}),
     };
 
     yield* writeScopeProvenance(fs, scopeRoot, {
-      version: 1,
       files: { ...provenance.files, [relativePath]: updated },
     });
   });
 }
 
+/** Every record at `prefix` or beneath it, since a delete or rename may target a directory. */
+function keysUnder(
+  files: Readonly<Record<string, MemoryFileProvenance>>,
+  prefix: string,
+): readonly string[] {
+  return Object.keys(files).filter((key) => key === prefix || key.startsWith(`${prefix}/`));
+}
+
+/**
+ * Drops the records for a deleted path.
+ *
+ * `delete` removes directories recursively, so a record is matched by prefix
+ * rather than exact key: keeping a child's record after its directory is gone
+ * would leave an entry that recall keeps injecting and that nothing can view or
+ * amend, because the file behind it no longer exists.
+ */
 function forgetProvenance(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
   relativePath: string,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    const provenance = yield* readScopeProvenance(fs, scopeRoot);
-    if (provenance.files[relativePath] === undefined) return;
+    const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
+    const removed = keysUnder(provenance.files, relativePath);
+    if (removed.length === 0) return;
     const files = { ...provenance.files };
-    delete files[relativePath];
-    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+    for (const key of removed) delete files[key];
+    yield* writeScopeProvenance(fs, scopeRoot, { files });
   });
 }
 
+/**
+ * Re-keys the records under a renamed path, carrying their history forward.
+ *
+ * A rename is how an entry changes when it applies — moving from
+ * `when/<topic>/` to `always/`, for instance. Nothing needs re-deriving,
+ * because the path is the map key: move the record and the new key already
+ * says where the entry now applies. Children are moved with it, since renaming
+ * a directory would otherwise leave every record beneath it pointing at a path
+ * that no longer exists.
+ */
 function moveProvenance(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
@@ -233,21 +445,29 @@ function moveProvenance(
   writeContext: MemoryWriteContext,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    const provenance = yield* readScopeProvenance(fs, scopeRoot);
-    const existing = provenance.files[fromPath];
+    const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
+    const moved = keysUnder(provenance.files, fromPath);
     const files = { ...provenance.files };
-    delete files[fromPath];
     const now = new Date().toISOString();
-    files[toPath] = {
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
-      writeCount: (existing?.writeCount ?? 0) + 1,
-      writtenBy: existing?.writtenBy.includes(writeContext.agentId)
-        ? existing.writtenBy
-        : [...(existing?.writtenBy ?? []), writeContext.agentId],
-    };
-    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+
+    for (const key of moved) delete files[key];
+
+    for (const key of moved) {
+      const existing = provenance.files[key];
+      const destination = key === fromPath ? toPath : `${toPath}${key.slice(fromPath.length)}`;
+      files[destination] = {
+        ...(existing ?? {}),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        writeCount: (existing?.writeCount ?? 0) + 1,
+        writtenBy: existing?.writtenBy.includes(writeContext.agentId)
+          ? existing.writtenBy
+          : [...(existing?.writtenBy ?? []), writeContext.agentId],
+      };
+    }
+
+    if (moved.length === 0) return;
+    yield* writeScopeProvenance(fs, scopeRoot, { files });
   });
 }
 
@@ -257,11 +477,10 @@ function touchViewed(
   relativePath: string,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const existing = provenance.files[relativePath];
     if (existing === undefined) return;
     yield* writeScopeProvenance(fs, scopeRoot, {
-      version: 1,
       files: {
         ...provenance.files,
         [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },
@@ -498,6 +717,35 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
+  readonly standingEntries: MemoryService["standingEntries"] = (scopes) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const entries: MemoryEntryInForce[] = [];
+
+        for (const scope of scopes) {
+          if (!isValidStorageKey(scope)) continue;
+          const absolute = path.join(this.baseMemoryDirectory, scope, ALWAYS_SEGMENT);
+          const names = yield* fs
+            .readDirectory(absolute)
+            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+
+          for (const name of names.sort()) {
+            if (name.startsWith(".")) continue;
+            const summary = yield* readEntrySummary(fs, path.join(absolute, name));
+            if (summary === undefined) continue;
+            entries.push({
+              path: `${scope}/${ALWAYS_SEGMENT}/${name}`,
+              topic: undefined,
+              summary,
+            });
+          }
+        }
+
+        return entries;
+      }.bind(this),
+    );
+
   readonly provenance: MemoryService["provenance"] = (scopes, virtualPath) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
@@ -507,7 +755,7 @@ export class MemoryServiceImpl implements MemoryService {
           return undefined;
         }
         const scopeRoot = path.join(this.baseMemoryDirectory, scope);
-        const provenance = yield* readScopeProvenance(fs, scopeRoot);
+        const provenance = (yield* readScopeProvenance(fs, scopeRoot)).provenance;
         return provenance.files[rest];
       }.bind(this),
     );
@@ -540,9 +788,27 @@ export class MemoryServiceImpl implements MemoryService {
                 .exists(target)
                 .pipe(Effect.catchAll(() => Effect.succeed(false)));
               if (alreadyExists) {
+                // The filename is the entry's identity, so an existing file is
+                // the answer to "is this already recorded?". Returning what it
+                // says turns the refusal into something the caller can act on:
+                // amend the entry that exists rather than adding a second one
+                // beside it, which is how a store fragments into near-duplicates.
+                const existingText = yield* fs
+                  .readFileString(target)
+                  .pipe(Effect.catchAll(() => Effect.succeed("")));
                 return {
                   success: false,
-                  message: `Error: File ${abbreviateHomePath(target)} already exists`,
+                  message: [
+                    `Error: ${abbreviateHomePath(target)} already exists.`,
+                    "Amend it with str_replace rather than adding a second entry.",
+                    ...(existingText.length > 0
+                      ? [
+                          "",
+                          "Current content:",
+                          existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
+                        ]
+                      : []),
+                  ].join("\n"),
                 } satisfies MemoryMutationOutcome;
               }
 

@@ -154,6 +154,19 @@ export function findAllOccurrenceLineNumbers(
 }
 
 /**
+ * Whole-word substring match for a term inside an input string.
+ *
+ * Uses lookaround for boundaries because `\b` only fires between word and
+ * non-word characters — terms like "c++" or "node-fetch" need to match even
+ * though `+` and `-` are non-word, and naive `\b...\b` would fail.
+ */
+export function matchesWholeWord(input: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, "i");
+  return pattern.test(input);
+}
+
+/**
  * Convert camelCase, kebab-case, snake_case, or words to PascalCase.
  *
  * @param str - The string to convert.

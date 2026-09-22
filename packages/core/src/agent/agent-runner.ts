@@ -4,6 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
+import { FileSystem } from "@effect/platform";
 import { Cause, Effect, Option, Scope } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,
@@ -12,6 +13,7 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -23,6 +25,7 @@ import {
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
@@ -93,6 +96,45 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * Unknown models count as "cannot", matching every other capability check here: the consequence
  * of guessing wrong is an agent that promises an image it cannot make.
  */
+/**
+ * Reads the entries that apply to every turn (`always/`).
+ *
+ * Injected rather than looked up: recall that depends on the model choosing to
+ * spend a tool call is recall it will sometimes skip, and a preference the user
+ * already stated is not something they should have to restate. Topic-scoped
+ * entries are the agent's responsibility to discover via `view_memory`.
+ *
+ * Memory is optional — an agent configured without it still runs — and a failure
+ * to read degrades to injecting nothing rather than failing the run.
+ */
+function resolveActivePreferences(
+  memoryScopes: readonly string[],
+  logger: LoggerService,
+): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
+    if (Option.isNone(memoryServiceOption)) {
+      yield* logger.debug("No memory service in context; skipping memory injection");
+      return [];
+    }
+    const memoryService = memoryServiceOption.value;
+
+    return yield* Effect.gen(function* () {
+      const entries = yield* memoryService.standingEntries(memoryScopes);
+      return entries.map((entry) => ({ summary: entry.summary }));
+    }).pipe(
+      Effect.catchAll((error) =>
+        logger
+          .warn("Failed to read memory; running without it", {
+            scopes: memoryScopes,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          .pipe(Effect.as<{ summary: string }[]>([])),
+      ),
+    );
+  });
+}
+
 function resolveCanGenerateMedia(
   agent: AgentRunnerOptions["agent"],
 ): Effect.Effect<boolean, never> {
@@ -245,6 +287,7 @@ function initializeAgentRun(
   | SkillService
   | PresentationService
   | LLMService
+  | FileSystem.FileSystem
   | Scope.Scope
 > {
   return Effect.gen(function* () {
@@ -563,6 +606,11 @@ function initializeAgentRun(
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
 
+    const activePreferences = yield* resolveActivePreferences(
+      agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
+      logger,
+    );
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -577,6 +625,7 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
+        ...(activePreferences.length > 0 && { activePreferences }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),
@@ -613,7 +662,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      memoryScopes: agent.config.memoryScopes ?? [agent.id],
+      memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),

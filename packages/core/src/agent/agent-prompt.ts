@@ -93,6 +93,16 @@ export interface AgentPromptOptions {
    */
   readonly deferredTools?: readonly { readonly name: string; readonly summary: string }[];
   /**
+   * Preferences in force for this run — every standing (`always/`) entry in the
+   * agent's memory scopes — injected so the model acts on them without having
+   * to remember to look them up.
+   *
+   * These are part of the prompt cache key, so amending a preference takes
+   * effect on the next turn. They change only when a standing entry is written
+   * or removed, which is an ordinary prompt change rather than a per-turn rewrite.
+   */
+  readonly activePreferences?: readonly { readonly summary: string }[];
+  /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
    * model without the user restating them every session.
@@ -221,6 +231,13 @@ export class AgentPromptBuilder {
     if (options.deferredTools && options.deferredTools.length > 0) {
       const deferredFingerprints = options.deferredTools.map((t) => `${t.name}|${t.summary}`);
       hash.update(`deferredTools:${JSON.stringify(deferredFingerprints.sort())}`);
+    }
+    // Content, not paths: amending a preference must take effect on the next
+    // turn rather than serving a stale copy from the cache.
+    if (options.activePreferences && options.activePreferences.length > 0) {
+      hash.update(
+        `activePreferences:${JSON.stringify(options.activePreferences.map((entry) => entry.summary))}`,
+      );
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
     // next turn rather than waiting for a process restart.
@@ -388,6 +405,17 @@ export class AgentPromptBuilder {
             scope.push({
               id: "project-instructions",
               content: renderProjectInstructions(options.projectInstructions),
+            });
+          }
+
+          if (options.activePreferences && options.activePreferences.length > 0) {
+            live.push({
+              id: "active-preferences",
+              content: [
+                "## Preferences",
+                "How this user wants things done. Follow them without being asked.",
+                ...options.activePreferences.map((entry) => `- ${entry.summary}`),
+              ].join("\n"),
             });
           }
         }

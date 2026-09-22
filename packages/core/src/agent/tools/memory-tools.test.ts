@@ -63,24 +63,117 @@ describe("manage_memory tool", () => {
     expect(tool.hidden).toBe(false);
   });
 
-  test("dispatches create to the service and reports success", async () => {
-    let receivedArgs: unknown[] = [];
+  function captureCreate() {
+    const captured: { args: unknown[] } = { args: [] };
     const fakeService: Partial<MemoryService> = {
       create: (...args) => {
-        receivedArgs = args;
-        return Effect.succeed({
-          success: true,
-          message: "File created successfully at: /notes.txt",
-        });
+        captured.args = args;
+        return Effect.succeed({ success: true, message: "File created successfully at: /x.md" });
       },
     };
-    const tool = createManageMemoryTool();
+    return { captured, fakeService };
+  }
+
+  test("derives the path from the subject so the caller cannot misfile it", async () => {
+    const { captured, fakeService } = captureCreate();
     const result = await runWithFakeMemoryService(
       fakeService as MemoryService,
-      tool.execute({ command: "create", path: "notes.txt", file_text: "hi" }, context),
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Home timezone", file_text: "Paris" },
+        context,
+      ),
     );
     expect(result.success).toBe(true);
-    expect(receivedArgs).toEqual([["agent-1"], "notes.txt", "hi", { agentId: "agent-1" }]);
+    expect(captured.args[1]).toBe("personal/always/home-timezone.md");
+  });
+
+  test("stores an entry with no topic as in force on every task", async () => {
+    const { captured, fakeService } = captureCreate();
+    await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Rendered output opening", file_text: "auto-open" },
+        context,
+      ),
+    );
+    expect(captured.args[1]).toBe("personal/always/rendered-output-opening.md");
+  });
+
+  test("stores a topic entry under that topic rather than a directory", async () => {
+    const { captured, fakeService } = captureCreate();
+    await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "Artboard scaling",
+          topic: "Mood Board",
+          file_text: "artboards auto-scale",
+        },
+        context,
+      ),
+    );
+    expect(captured.args[1]).toBe("personal/when/mood-board/artboard-scaling.md");
+  });
+
+  test("refuses a subject that would write a hidden file", async () => {
+    const { fakeService } = captureCreate();
+    const result = await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "\u65e5\u672c\u8a9e", file_text: "x" },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Latin letters");
+  });
+
+  test("refuses a topic that normalizes to nothing", async () => {
+    const { fakeService } = captureCreate();
+    const result = await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Theme colors", topic: "???", file_text: "dark mode" },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Latin letters or digits");
+  });
+
+  test("records the failure an entry guards against", async () => {
+    const { captured, fakeService } = captureCreate();
+    await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "Edit pattern complexity",
+          topic: "editing",
+          failure: { kind: "misfire", tool_name: "edit_file", error_class: "pattern too complex" },
+          file_text: "prefer a literal snippet",
+        },
+        context,
+      ),
+    );
+    expect(captured.args[3]).toMatchObject({
+      entry: {
+        failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+      },
+    });
+  });
+
+  test("marks an entry written by the extraction pass as auto rather than user-stated", async () => {
+    const { captured, fakeService } = captureCreate();
+    await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Timezone", file_text: "Paris" },
+        { ...context, agentId: "memory-extractor" },
+      ),
+    );
+    expect(captured.args[3]).toMatchObject({ entry: { origin: "auto" } });
   });
 
   test("surfaces a failed mutation as a failed tool result", async () => {

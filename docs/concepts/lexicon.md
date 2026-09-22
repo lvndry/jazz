@@ -103,7 +103,7 @@ inside has already parked, waiting for someone to approve a tool.
 ~/.jazz/
   agents/                     one JSON file per agent
   personas/  skills/  workflows/
-  memory/                     durable facts, across conversations
+  memory/                     durable facts, per scope (personal/, project/, …), across conversations
   history/
     conversations/<agent>/    one append-only log per conversation
   work/<agent>/<conversation>/  work state, journal, and offloaded tool results

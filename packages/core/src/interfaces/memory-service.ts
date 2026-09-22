@@ -7,7 +7,17 @@
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
-import type { MemoryFileProvenance } from "./memory-provenance";
+import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
+
+/** An entry the current turn should act on. */
+export interface MemoryEntryInForce {
+  /** Scope-qualified path, as the memory tools address it. */
+  readonly path: string;
+  /** `undefined` means the entry is in force on every task. */
+  readonly topic: string | undefined;
+  /** First non-empty line: entries are one thought each, so this is the point. */
+  readonly summary: string;
+}
 
 export interface MemoryDirectoryEntry {
   readonly name: string;
@@ -57,6 +67,12 @@ export interface MemoryMutationOutcome {
  */
 export interface MemoryWriteContext {
   readonly agentId: string;
+  /**
+   * Typing recorded alongside the write. Supplied when an entry is created so
+   * the sidecar mirrors what the path encodes; omitted on later edits, which
+   * carry the existing typing forward untouched.
+   */
+  readonly entry?: MemoryEntryMetadata;
 }
 
 /**
@@ -79,6 +95,17 @@ export interface MemoryService {
     virtualPath: string,
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
+
+  /**
+   * Standing entries: everything under `always/` in the accessible scopes.
+   *
+   * Topic-scoped entries are the agent's responsibility to discover via
+   * `view_memory` — the recall path cannot do semantic association, so it
+   * only injects what applies unconditionally.
+   */
+  readonly standingEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
   readonly create: (
     scopes: readonly string[],

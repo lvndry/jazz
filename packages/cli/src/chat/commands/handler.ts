@@ -24,6 +24,7 @@ import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/s
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
+import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
@@ -2822,8 +2823,7 @@ function handleMemoryCommand(
   return Effect.gen(function* () {
     const memoryService = yield* MemoryServiceTag;
     const configuredScopes = agent.config.memoryScopes;
-    const scopes =
-      configuredScopes !== undefined && configuredScopes.length > 0 ? configuredScopes : [agent.id];
+    const scopes = effectiveMemoryScopes(configuredScopes);
 
     if (args[0] === "forget") {
       const target = args[1];

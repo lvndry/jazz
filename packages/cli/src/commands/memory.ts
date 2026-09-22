@@ -15,17 +15,16 @@
 
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memory-recall-log";
+import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { CLIError } from "@jazz/core/types/errors";
 import { Effect } from "effect";
-
 function resolveScopes(agent: {
   readonly id: string;
   readonly config: { readonly memoryScopes?: readonly string[] | undefined };
 }): readonly string[] {
-  const configured = agent.config.memoryScopes;
-  return configured !== undefined && configured.length > 0 ? configured : [agent.id];
+  return effectiveMemoryScopes(agent.config.memoryScopes);
 }
 
 /** `jazz memory list <agent>` — every file the agent can read, with provenance. */

@@ -457,6 +457,25 @@ describe("scope byte budget", () => {
 });
 
 describe("provenance", () => {
+  test("quarantines an unreadable sidecar on write instead of overwriting it", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/always/first.md", "first", writeContext));
+    const sidecar = path.join(tmpDir, "agent-1", ".provenance.json");
+    fs.writeFileSync(sidecar, "{not json");
+
+    await runEffect(service.create(scopes, "agent-1/always/second.md", "second", writeContext));
+
+    const quarantined = fs
+      .readdirSync(path.join(tmpDir, "agent-1"))
+      .filter((name) => name.startsWith(".provenance.json.corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(tmpDir, "agent-1", quarantined[0]!), "utf8")).toBe(
+      "{not json",
+    );
+    expect(await runEffect(service.provenance(scopes, "agent-1/always/second.md"))).toBeDefined();
+    expect(await runEffect(service.provenance(scopes, "agent-1/always/first.md"))).toBeUndefined();
+  });
+
   test("records creation, writes, and the writing agent", async () => {
     const service = makeService();
     await runEffect(service.create(scopes, "agent-1/notes.md", "hello", writeContext));
@@ -474,6 +493,73 @@ describe("provenance", () => {
     const edited = await runEffect(service.provenance(scopes, "agent-1/notes.md"));
     expect(edited?.writeCount).toBe(2);
     expect(edited?.createdAt).toBe(created?.createdAt);
+  });
+
+  test("records the origin and failure supplied on create", async () => {
+    const service = makeService();
+    const entryPath = "agent-1/when/moodboard/artboard.md";
+    await runEffect(
+      service.create(scopes, entryPath, "artboards autoscale", {
+        agentId: "agent-1",
+        entry: {
+          origin: "auto",
+          failure: { kind: "correction", correctedBehavior: "auto-scale the artboard" },
+        },
+      }),
+    );
+    const provenance = await runEffect(service.provenance(scopes, entryPath));
+    expect(provenance?.origin).toBe("auto");
+    expect(provenance?.failure).toEqual({
+      kind: "correction",
+      correctedBehavior: "auto-scale the artboard",
+    });
+  });
+
+  test("carries origin and failure through a later edit that supplies neither", async () => {
+    const service = makeService();
+    const entryPath = "agent-1/when/moodboard/artboard.md";
+    await runEffect(
+      service.create(scopes, entryPath, "artboards autoscale", {
+        agentId: "agent-1",
+        entry: {
+          origin: "auto",
+          failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+        },
+      }),
+    );
+    await runEffect(
+      service.strReplace(scopes, entryPath, "artboards autoscale", "artboards auto-scale", {
+        agentId: "agent-1",
+      }),
+    );
+    const provenance = await runEffect(service.provenance(scopes, entryPath));
+    expect(provenance?.origin).toBe("auto");
+    expect(provenance?.failure).toEqual({
+      kind: "misfire",
+      toolName: "edit_file",
+      errorClass: "pattern too complex",
+    });
+    expect(provenance?.writeCount).toBe(2);
+  });
+
+  test("keeps an entry's history when it moves to another topic", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/when/moodboard/artboard.md", "autoscale", {
+        agentId: "agent-1",
+        entry: { origin: "auto" },
+      }),
+    );
+    await runEffect(
+      service.rename(
+        scopes,
+        "agent-1/when/moodboard/artboard.md",
+        "agent-1/always/artboard.md",
+        writeContext,
+      ),
+    );
+    const provenance = await runEffect(service.provenance(scopes, "agent-1/always/artboard.md"));
+    expect(provenance?.origin).toBe("auto");
   });
 
   test("records every agent that has written to a shared scope", async () => {

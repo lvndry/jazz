@@ -7,6 +7,12 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
+import {
+  DEFAULT_MEMORY_SCOPE,
+  effectiveMemoryScopes,
+  MEMORY_EXTRACTOR_AGENT_ID,
+} from "@/core/constants/memory";
+import type { MemoryFailureSignature } from "@/core/interfaces/memory-provenance";
 import type {
   MemoryService,
   MemoryViewOutcome,
@@ -14,6 +20,11 @@ import type {
 } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import {
+  buildMemoryEntryPath,
+  describeUnusableSubject,
+  describeUnusableTopic,
+} from "@/core/memory/entry-path";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -82,8 +93,11 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     name: "view_memory",
     disclosure: "private",
     description:
-      "Consult memory when the request may depend on prior preferences, decisions, relationships, " +
-      "or work from another conversation. Skip it when prior context cannot improve the answer. " +
+      "Check memory BEFORE answering or acting on any request that could be shaped by the user's " +
+      "preferences, opinions, style, history, relationships, prior decisions, or past work. This " +
+      "applies to tasks ('let's write a blog' → check for writing preferences) just as much as " +
+      "questions ('what's my favorite X' → check for stored facts). Skip it only for requests " +
+      "with no personal dimension (factual lookups, technical questions, time/weather). " +
       "Memory is split into scopes by subject; inspect only scopes relevant to the conversation. " +
       "Calling it with no path returns every memory scope you can access " +
       '(e.g. "personal", "github-project-a") and the files saved in each, with sizes, so one call tells you ' +
@@ -97,7 +111,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
+        const scopes = effectiveMemoryScopes(context.memoryScopes);
         const outcome = yield* memoryService.view(scopes, args.path, args.view_range);
 
         if (outcome.kind === "not_found" || outcome.kind === "too_large") {
@@ -138,15 +152,63 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
   });
 }
 
+const memoryFailureParameter = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("misfire"),
+      tool_name: z.string().min(1).describe("Tool whose call failed."),
+      error_class: z
+        .string()
+        .min(1)
+        .describe("Short, stable description of the failure, without paths, ids, or numbers."),
+    }),
+    z.object({
+      kind: z.literal("correction"),
+      corrected_behavior: z.string().min(1).describe("What the user said you should do instead."),
+    }),
+  ])
+  .describe(
+    "The failure this entry keeps from recurring. Supply it when the entry records a lesson " +
+      "learned from a tool misfire or a user correction; entries without one are recalled but never scored.",
+  );
+
+const createMemoryParameters = z.object({
+  command: z.literal("create"),
+  subject: z
+    .string()
+    .min(1)
+    .describe(
+      'What this is about, in a few words (e.g. "rendered output opening"). One entry per ' +
+        "subject: reusing one is refused and you are shown the existing entry to amend.",
+    ),
+  topic: z
+    .string()
+    .optional()
+    .describe(
+      'The kind of work this applies to (e.g. "moodboard"). Omit when it applies to every task. ' +
+        "A topic is not a folder — the entry comes back wherever that work happens.",
+    ),
+  scope: z
+    .string()
+    .optional()
+    .describe("Memory scope to write into. Defaults to your first accessible scope."),
+  failure: memoryFailureParameter.optional(),
+  file_text: z
+    .string()
+    .describe("The entry itself. Keep it to one thought; the first line is the point."),
+});
+
+/** Maps the tool's snake_case failure shape onto the stored one. */
+function toMemoryFailureSignature(
+  failure: z.infer<typeof memoryFailureParameter>,
+): MemoryFailureSignature {
+  return failure.kind === "misfire"
+    ? { kind: "misfire", toolName: failure.tool_name, errorClass: failure.error_class }
+    : { kind: "correction", correctedBehavior: failure.corrected_behavior };
+}
+
 const manageMemoryParameters = z.discriminatedUnion("command", [
-  z.object({
-    command: z.literal("create"),
-    path: z
-      .string()
-      .min(1)
-      .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
-    file_text: z.string().describe("Full file contents. Errors if the path already exists."),
-  }),
+  createMemoryParameters,
   z.object({
     command: z.literal("str_replace"),
     path: z
@@ -199,17 +261,17 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
     disclosure: "private",
+    summary: "Remember durable user preferences, facts and corrections across conversations.",
     description:
-      "Save user-confirmed, durable information likely to improve a future conversation, such as " +
-      "preferences, recurring facts, and standing project decisions. Do not save small talk, " +
-      "temporary task state, tentative thoughts, sensitive personal data, or secrets. Every path " +
-      'starts with a relevant scope name (e.g. "personal/preferences.md" or "github-project-a/conventions.md"); ' +
-      "list scopes with view_memory only when the correct scope is unclear. Read the relevant file " +
-      "before changing it, keep one file per topic rather than a running log, and replace stale facts. " +
-      "Commands: create(path, file_text) makes a new file, errors if it already exists; " +
-      "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to delete it; " +
-      "insert(path, insert_line, insert_text) inserts text after a 0-based line (0 = start of file); " +
-      "delete(path) removes a file; rename(old_path, new_path) renames a file within its scope.",
+      "Save to memory in the same turn whenever the user reveals a preference, opinion, " +
+      "relationship, or personal fact — don't wait to be asked or for the conversation to end. " +
+      "Also save corrections and standing decisions. No secrets.\n" +
+      'Write facts, not commands: "prefers concise replies", not "always reply concisely" — a ' +
+      "later session re-reads a command as an order.\n" +
+      "One entry per subject: reusing one is refused and shows you the entry to amend.\n" +
+      "create(subject, file_text) picks the path. Add topic to scope it to a kind of work, " +
+      "which brings it back wherever that work happens rather than per folder; omit it when it " +
+      "always applies. str_replace / insert / delete / rename take an entry's path.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -217,13 +279,41 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
+        const scopes = effectiveMemoryScopes(context.memoryScopes);
         const writeContext: MemoryWriteContext = { agentId: context.agentId };
 
         const outcome = yield* (() => {
           switch (args.command) {
-            case "create":
-              return memoryService.create(scopes, args.path, args.file_text, writeContext);
+            case "create": {
+              const unusable = describeUnusableSubject(args.subject);
+              if (unusable !== undefined) {
+                return Effect.succeed({ success: false, message: unusable });
+              }
+              if (args.topic !== undefined) {
+                const unusableTopic = describeUnusableTopic(args.topic);
+                if (unusableTopic !== undefined) {
+                  return Effect.succeed({ success: false, message: unusableTopic });
+                }
+              }
+              const scope = args.scope ?? scopes[0] ?? DEFAULT_MEMORY_SCOPE;
+              const targetPath = buildMemoryEntryPath({
+                scope,
+                subject: args.subject,
+                ...(args.topic !== undefined ? { topic: args.topic } : {}),
+              });
+              return memoryService.create(scopes, targetPath, args.file_text, {
+                ...writeContext,
+                entry: {
+                  origin:
+                    context.agentId === MEMORY_EXTRACTOR_AGENT_ID
+                      ? ("auto" as const)
+                      : ("user" as const),
+                  ...(args.failure !== undefined
+                    ? { failure: toMemoryFailureSignature(args.failure) }
+                    : {}),
+                },
+              });
+            }
             case "str_replace":
               return memoryService.strReplace(
                 scopes,
