@@ -16,7 +16,7 @@ const nodeGlobals = globals.node;
 
 export default [
   // The website package lints with its own config (see packages/website/README.md).
-  { ignores: ["packages/website/**", "**/dist/**"] },
+  { ignores: ["packages/website/**", "**/dist/**", "**/release/**"] },
   js.configs.recommended,
   // Base TS rules (apply to all TS files including tests)
   ...tseslint.configs.recommended,

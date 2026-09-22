@@ -23,14 +23,14 @@ import {
 } from "./agent-file";
 import {
   cancelledSummary,
-  deliverWebApp,
+  deliverComposition,
   doneSummary,
   failedSummary,
   FOLLOWUP_PROMPT_ID,
   followupChoices,
   followupPrompt,
   formatTokenCount,
-  planWebAppDelivery,
+  planCompositionDelivery,
 } from "./answer";
 import {
   APPROVAL_MODE_LABELS,
@@ -88,7 +88,7 @@ export interface TurnConfig {
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
   /**
-   * Public origin an interactive `create_web_app` result is served from.
+   * Public origin an interactive `create_composition` result is served from.
    *
    * Undefined disables the interactive mode; the static one is an image and
    * needs no origin.
@@ -477,12 +477,12 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       promptId: FOLLOWUP_PROMPT_ID,
     });
 
-    if (envelope.webApp !== undefined) {
-      await deliverWebApp(
+    if (envelope.composition !== undefined) {
+      await deliverComposition(
         surface,
         chatId,
-        planWebAppDelivery(
-          envelope.webApp,
+        planCompositionDelivery(
+          envelope.composition,
           config.publicBaseUrl,
           config.publicUrlSettingName ?? "the public URL setting",
         ),

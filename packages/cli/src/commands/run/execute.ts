@@ -8,6 +8,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
 import {
   detectInteractiveInput,
@@ -16,11 +17,12 @@ import {
 import { AgentNotFoundError } from "@jazz/core/types/errors";
 import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import {
   ONE_SHOT_EXIT,
   formatOneShotError,
@@ -28,7 +30,7 @@ import {
   formatOneShotResult,
   isRunCostKnown,
   type OneShotOutputOptions,
-  type OneShotWebApp,
+  type OneShotComposition,
 } from "./envelope";
 import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
 
@@ -50,7 +52,7 @@ import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
  */
 
 /**
- * Narrow `create_web_app`'s structured tool result (last call wins if invoked
+ * Narrow `create_composition`'s structured tool result (last call wins if invoked
  * more than once in a turn) out of the agent run's `toolResults` map.
  */
 /**
@@ -75,10 +77,10 @@ export function composeResumedHistory(
   return workStatePreamble !== undefined ? [workStatePreamble] : null;
 }
 
-export function extractWebAppResult(
+export function extractCompositionResult(
   toolResults: Record<string, unknown> | undefined,
-): OneShotWebApp | undefined {
-  const raw = toolResults?.["create_web_app"];
+): OneShotComposition | undefined {
+  const raw = toolResults?.["create_composition"];
   if (!raw || typeof raw !== "object") return undefined;
 
   const data = raw as Record<string, unknown>;
@@ -86,6 +88,8 @@ export function extractWebAppResult(
     typeof data["id"] !== "string" ||
     (data["mode"] !== "static" && data["mode"] !== "interactive") ||
     typeof data["title"] !== "string" ||
+    typeof data["sessionId"] !== "string" ||
+    typeof data["filename"] !== "string" ||
     typeof data["htmlPath"] !== "string"
   ) {
     return undefined;
@@ -95,6 +99,8 @@ export function extractWebAppResult(
     id: data["id"],
     mode: data["mode"],
     title: data["title"],
+    sessionId: data["sessionId"],
+    filename: data["filename"],
     htmlPath: data["htmlPath"],
     ...(typeof data["imagePath"] === "string" ? { imagePath: data["imagePath"] } : {}),
   };
@@ -357,6 +363,29 @@ export function runAgentOnceCommand(
     // conversation this turn belongs to. Without `--conversation` the caller wants a clean
     // slate, so the turn gets a conversation of its own that nothing will ever reuse.
     const conversationId = conversationKey ?? generateConversationId("once");
+
+    // One-shot runs do not go through ChatService, so they must dispatch their own
+    // lifecycle events. Await the dispatch: unlike an interactive session, this
+    // process exits immediately after printing the answer and a detached effect
+    // could be terminated before the plugin writes its terminal notification.
+    const emitLifecycle = (
+      event: LifecycleEventId,
+      data?: Readonly<Record<string, JsonValue>>,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+        if (Option.isNone(runtimeOption)) return;
+        yield* runtimeOption.value.emitLifecycleEvent({
+          event,
+          agentId: agent.id,
+          conversationId,
+          cwd: process.cwd(),
+          ...(data !== undefined ? { data } : {}),
+        });
+      }).pipe(Effect.catchAll(() => Effect.void));
+
+    yield* emitLifecycle("user-prompt", { prompt: prompt.slice(0, 2000) });
+
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
@@ -381,7 +410,19 @@ export function runAgentOnceCommand(
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
 
-    const runResult = yield* deadline ? Effect.race(runEffect, deadline.watch) : runEffect;
+    const runResult = yield* (deadline ? Effect.race(runEffect, deadline.watch) : runEffect).pipe(
+      Effect.tap((response) =>
+        emitLifecycle("run-complete", {
+          prompt: prompt.slice(0, 2000),
+          summary: response.content.slice(0, 2000),
+        }),
+      ),
+      Effect.tapError((error) =>
+        isRunParkRequested(error)
+          ? Effect.void
+          : emitLifecycle("run-failed", { error: String(error).slice(0, 2000) }),
+      ),
+    );
 
     if (conversationKey !== undefined) {
       const record = buildConversation({
@@ -413,7 +454,7 @@ export function runAgentOnceCommand(
       name: toolCall.function?.name ?? "",
       arguments: toolCall.function?.arguments ?? "",
     }));
-    const webApp = extractWebAppResult(runResult.toolResults);
+    const composition = extractCompositionResult(runResult.toolResults);
     const artifacts = runResult.artifacts ?? [];
 
     yield* writeStdout(
@@ -439,7 +480,7 @@ export function runAgentOnceCommand(
             }),
           },
           toolCalls,
-          ...(webApp ? { webApp } : {}),
+          ...(composition ? { composition } : {}),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(ephemeral ? { messages: runResult.messages ?? [] } : {}),
         },

@@ -1,0 +1,328 @@
+---
+/**
+ * Security-first presentation of one reviewed or community plugin catalog entry.
+ *
+ * Community entries expose only repository-declared metadata and never imply
+ * that Jazz reviewed, hosts, or endorses executable code.
+ */
+import type { PluginEntry } from "../lib/library";
+
+interface Props {
+  entry: PluginEntry;
+  manifest: string;
+  manifestPath: string;
+}
+
+const { entry, manifest, manifestPath } = Astro.props;
+const hooks = [...entry.hooks, ...entry.policyHooks];
+const description = entry.sourceType === "community" ? entry.description : undefined;
+const capabilityCount =
+  entry.tools.length +
+  entry.commands.length +
+  entry.personas.length +
+  entry.skills.length +
+  entry.lifecycleHooks.length;
+---
+
+<a class="back mono" href={entry.sourceType === "reviewed" ? "/library#plugins" : "/library#community-plugins"}>
+  ← all plugins
+</a>
+<p class="eyebrow mono">{entry.sourceType === "reviewed" ? "reviewed plugin" : "community plugin"}</p>
+<h1 class="mono">{entry.name}</h1>
+<p class="lede">{description ?? entry.id}</p>
+<p class="meta mono">
+  manifest {entry.version} · host API {entry.hostApi}
+  {entry.sourceType === "community" && <> · source {entry.defaultBranch}</>}
+</p>
+
+<div class="actions">
+  <a class="button mono" href={manifestPath}>source manifest</a>
+  {entry.sourceType === "reviewed" ? (
+    <a class="raw mono" href={entry.artifact}>packed artifact</a>
+  ) : (
+    <a class="raw mono" href={entry.repositoryUrl}>GitHub repository</a>
+  )}
+</div>
+
+<section class="notice">
+  {entry.sourceType === "reviewed" ? (
+    <>
+      <strong>Reviewed executable code</strong>
+      <p>
+        This entry comes from Jazz's reviewed first-party plugin catalog. Inspect its declarations
+        and digest before installing or enabling it. Visiting this page does not grant trust, load
+        code, or enable the plugin.
+      </p>
+    </>
+  ) : (
+    <>
+      <strong>Community source · not reviewed by Jazz</strong>
+      <p>
+        Jazz lists this repository for discovery only. Jazz has not reviewed or audited its code,
+        does not host its artifact, and does not endorse it. The declarations below come from the
+        repository manifest and are not independent security findings.
+      </p>
+    </>
+  )}
+</section>
+
+{entry.sourceType === "community" && (
+  <section class="install-command">
+    <h2>Install from source</h2>
+    <code class="mono">jazz plugin add {entry.repository}@{entry.sourceSha}</code>
+    <p class="muted">Installation, trust, egress consent, and enablement remain separate local decisions.</p>
+  </section>
+)}
+
+<section>
+  <h2>Declared surface</h2>
+  <div class="facts">
+    <div>
+      <span class="label mono">hooks</span>
+      <span>{hooks.length > 0 ? hooks.join(", ") : "none declared"}</span>
+    </div>
+    <div>
+      <span class="label mono">capabilities</span>
+      <span>{capabilityCount > 0 ? `${capabilityCount} declared` : "none declared"}</span>
+    </div>
+    <div>
+      <span class="label mono">decision providers</span>
+      <span>{entry.decisionProviders.length > 0 ? entry.decisionProviders.join(", ") : "none declared"}</span>
+    </div>
+    <div>
+      <span class="label mono">lifecycle hooks</span>
+      <span>{entry.lifecycleHooks.length > 0 ? entry.lifecycleHooks.join(", ") : "none declared"}</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Network and data</h2>
+  <div class="facts">
+    <div>
+      <span class="label mono">network destinations</span>
+      <span>{entry.network.destinations.length > 0 ? entry.network.destinations.join(", ") : "none declared"}</span>
+    </div>
+    <div>
+      <span class="label mono">data sent</span>
+      <ul>
+        {entry.dataSent.length > 0 ? entry.dataSent.map((item) => <li>{item}</li>) : <li>none declared</li>}
+      </ul>
+    </div>
+    <div>
+      <span class="label mono">secrets</span>
+      <ul>
+        {entry.secrets.length > 0
+          ? entry.secrets.map((secret) => (
+              <li>
+                <code>{secret.name}</code>
+                {secret.env && <> via <code>{secret.env}</code></>}
+                {secret.required ? " (required)" : " (optional)"}
+                <span class="muted">{secret.description}</span>
+              </li>
+            ))
+          : <li>none declared</li>}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>{entry.sourceType === "reviewed" ? "Integrity" : "Source"}</h2>
+  {entry.sourceType === "reviewed" ? (
+    <>
+      <p class="digest mono">sha256:{entry.sha256}</p>
+      <p class="muted">The digest identifies the exact packed artifact. It is not a substitute for reviewing the source or deciding whether to trust the publisher.</p>
+    </>
+  ) : (
+    <>
+      <p class="digest mono">
+        <a href={`${entry.repositoryUrl}/commit/${entry.sourceSha}`}>{entry.sourceSha}</a>
+      </p>
+      <p class="muted">This is the commit observed at the repository's default branch when the catalog was built; it is provenance, not a Jazz security review.</p>
+    </>
+  )}
+</section>
+
+{entry.tools.length > 0 && (
+  <section>
+    <h2>Tools</h2>
+    <ul class="declarations">
+      {entry.tools.map((tool) => (
+        <li>
+          <strong class="mono">{tool.name}</strong>
+          <span>{tool.description}</span>
+          <span class="muted mono">{tool.riskLevel} · {tool.egress ? "egress" : "no egress"}</span>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}
+
+<section class="manifest">
+  <div class="section-head">
+    <h2>Generated manifest</h2>
+    <a class="raw mono" href={manifestPath}>open JSON</a>
+  </div>
+  <pre>{manifest}</pre>
+</section>
+
+<style>
+  .back,
+  .raw {
+    color: var(--jz-link);
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .back:hover,
+  .raw:hover {
+    color: var(--jz-primary);
+  }
+  .eyebrow {
+    margin-top: 26px;
+    color: var(--jz-primary);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin-top: 10px;
+    color: var(--jz-selected);
+    font-size: clamp(28px, 4vw, 40px);
+  }
+  .lede {
+    margin-top: 12px;
+    color: var(--jz-secondary);
+    overflow-wrap: anywhere;
+  }
+  .meta,
+  .muted {
+    color: var(--jz-muted);
+    font-size: 13px;
+  }
+  .meta {
+    margin-top: 8px;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 26px;
+  }
+  .button {
+    padding: 8px 12px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    color: var(--jz-selected);
+    text-decoration: none;
+    background: var(--jz-surface);
+    font-size: 13px;
+  }
+  .button:hover {
+    border-color: var(--jz-primary);
+  }
+  section {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--jz-border);
+  }
+  section h2 {
+    color: var(--jz-selected);
+    font-size: 20px;
+  }
+  .notice {
+    padding: 16px;
+    border: 1px solid var(--jz-primary);
+    border-radius: 6px;
+    background: var(--jz-surface);
+  }
+  .notice strong {
+    color: var(--jz-primary);
+  }
+  .notice p {
+    margin-top: 8px;
+    color: var(--jz-secondary);
+    font-size: 14px;
+  }
+  .facts {
+    display: grid;
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .facts > div {
+    display: grid;
+    grid-template-columns: minmax(145px, 0.35fr) 1fr;
+    gap: 16px;
+    color: var(--jz-secondary);
+    font-size: 14px;
+  }
+  .label {
+    color: var(--jz-muted);
+    font-size: 12px;
+  }
+  ul {
+    padding-left: 18px;
+  }
+  .digest {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+    color: var(--jz-info);
+    font-size: 12px;
+  }
+  .muted {
+    margin-top: 8px;
+  }
+  .declarations {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 0;
+    list-style: none;
+  }
+  .declarations li {
+    display: grid;
+    gap: 4px;
+    padding: 14px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    color: var(--jz-secondary);
+    font-size: 14px;
+  }
+  .declarations strong {
+    color: var(--jz-selected);
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  pre {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    overflow-x: auto;
+    color: var(--jz-info);
+    background: var(--jz-surface);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+  @media (max-width: 560px) {
+    .facts > div {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+  }
+</style>

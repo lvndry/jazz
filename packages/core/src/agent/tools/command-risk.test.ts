@@ -10,6 +10,8 @@ import {
   classifyCommandRisk,
   formatConversationForClassifier,
   parseClassifierVerdict,
+  resolveCommandRisk,
+  riskFromPluginDistribution,
   shouldClassifyExecuteCommand,
 } from "./command-risk";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
@@ -58,6 +60,89 @@ describe("parseClassifierVerdict", () => {
     expect(parseClassifierVerdict("read-only\nhigh-risk")).toBe("high-risk");
     expect(parseClassifierVerdict("readonly")).toBe("high-risk");
     expect(parseClassifierVerdict("lowrisk")).toBe("high-risk");
+  });
+});
+
+describe("plugin command-risk policy", () => {
+  const answered = (
+    readOnlyProbability: number,
+    lowRiskProbability: number,
+    highRiskProbability: number,
+  ) => ({
+    status: "answered" as const,
+    distribution: { readOnlyProbability, lowRiskProbability, highRiskProbability },
+  });
+
+  it("requires at least 90% mass before lowering risk", () => {
+    expect(riskFromPluginDistribution(answered(0.9, 0.05, 0.05))).toBe("read-only");
+    expect(riskFromPluginDistribution(answered(0.05, 0.9, 0.05))).toBe("low-risk");
+    expect(riskFromPluginDistribution(answered(0.89, 0.1, 0.01))).toBe("high-risk");
+    expect(riskFromPluginDistribution(answered(0.01, 0.09, 0.9))).toBe("high-risk");
+  });
+
+  it("uses an answered plugin verdict without calling the fallback model", async () => {
+    const agent: Agent = {
+      id: "agent-1",
+      name: "test",
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const risk = await Effect.runPromise(
+      resolveCommandRisk("git status", agent, undefined, undefined, () =>
+        Effect.succeed(answered(0.95, 0.03, 0.02)),
+      ).pipe(
+        Effect.provideService(LLMServiceTag, {
+          createChatCompletion: () => {
+            throw new Error("fallback must not run");
+          },
+        } as unknown as LLMService),
+        Effect.provideService(LoggerServiceTag, {
+          debug: () => Effect.void,
+          info: () => Effect.void,
+          warn: () => Effect.void,
+          error: () => Effect.void,
+        } as unknown as LoggerService),
+      ),
+    );
+    expect(risk).toBe("read-only");
+  });
+
+  it("falls back to Jazz when the policy hook abstains or fails", async () => {
+    const agent: Agent = {
+      id: "agent-1",
+      name: "test",
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    let fallbackCalls = 0;
+    const llm = {
+      createChatCompletion: () => {
+        fallbackCalls += 1;
+        return Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "low-risk" });
+      },
+    } as unknown as LLMService;
+    const logger = {
+      debug: () => Effect.void,
+      info: () => Effect.void,
+      warn: () => Effect.void,
+      error: () => Effect.void,
+    } as unknown as LoggerService;
+
+    const run = (policyHook: Parameters<typeof resolveCommandRisk>[4]) =>
+      Effect.runPromise(
+        resolveCommandRisk("git add README.md", agent, undefined, undefined, policyHook).pipe(
+          Effect.provideService(LLMServiceTag, llm),
+          Effect.provideService(LoggerServiceTag, logger),
+        ),
+      );
+
+    expect(await run(() => Effect.succeed({ status: "abstained", reason: "unavailable" }))).toBe(
+      "low-risk",
+    );
+    expect(await run(() => Effect.die(new Error("policy defect")))).toBe("low-risk");
+    expect(fallbackCalls).toBe(2);
   });
 });
 

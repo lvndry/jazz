@@ -8,6 +8,8 @@
  */
 
 export const PLUGIN_API_VERSION = 1 as const;
+export const MAX_COMMAND_RISK_COMMAND_CHARS = 4_000;
+export const MAX_POLICY_ABSTENTION_REASON_CHARS = 512;
 export type JazzPluginApiVersion = typeof PLUGIN_API_VERSION;
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -28,8 +30,62 @@ export type SkillRouteOutcome =
   | { readonly status: "answered"; readonly distribution: SkillRouteDistribution }
   | { readonly status: "abstained"; readonly reason: string };
 
+export interface CommandRiskInput {
+  readonly command: string;
+}
+
+export interface CommandRiskDistribution {
+  readonly readOnlyProbability: number;
+  readonly lowRiskProbability: number;
+  readonly highRiskProbability: number;
+}
+
+export type CommandRiskOutcome =
+  | { readonly status: "answered"; readonly distribution: CommandRiskDistribution }
+  | { readonly status: "abstained"; readonly reason: string };
+
+export interface CompactToolCandidate {
+  /** The tool call's id (`tool_call_id`), used to pair the decision back to the message. */
+  readonly id: string;
+  readonly tool: string;
+  /** Serialized call arguments, bounded by the host. */
+  readonly input?: string;
+  /** Head+tail preview of the result, so the provider judges content it can actually see. */
+  readonly resultPreview: string;
+  readonly resultChars: number;
+  readonly isError: boolean;
+}
+
+export interface CompactToolsInput {
+  /** The run's current goal or task, for judging what is still relevant. */
+  readonly goal: string;
+  readonly candidates: readonly CompactToolCandidate[];
+}
+
+export type CompactToolAction = "keep" | "truncate" | "drop";
+
+export interface CompactToolsDecision {
+  readonly id: string;
+  readonly action: CompactToolAction;
+}
+
+export type CompactToolsOutcome =
+  | { readonly status: "answered"; readonly decisions: readonly CompactToolsDecision[] }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
+  readonly "compact.tools": {
+    readonly input: CompactToolsInput;
+    readonly output: CompactToolsOutcome;
+  };
+}
+
+export interface PolicyHookContracts {
+  readonly "classify.command-risk": {
+    readonly input: CommandRiskInput;
+    readonly output: CommandRiskOutcome;
+  };
 }
 
 export type AdvisoryHookId = keyof AdvisoryHookContracts;
@@ -37,6 +93,12 @@ export type AdvisoryHookHandler<K extends AdvisoryHookId> = (
   input: AdvisoryHookContracts[K]["input"],
   context: { readonly signal: AbortSignal },
 ) => Promise<AdvisoryHookContracts[K]["output"]>;
+
+export type PolicyHookId = keyof PolicyHookContracts;
+export type PolicyHookHandler<K extends PolicyHookId> = (
+  input: PolicyHookContracts[K]["input"],
+  context: { readonly signal: AbortSignal },
+) => Promise<PolicyHookContracts[K]["output"]>;
 
 export type DecisionQuestion =
   | { readonly kind: "probability"; readonly instructions: string }
@@ -209,6 +271,9 @@ export interface PluginHostApi {
   readonly hooks: {
     register<K extends AdvisoryHookId>(id: K, handler: AdvisoryHookHandler<K>): void;
   };
+  readonly policy: {
+    register<K extends PolicyHookId>(id: K, handler: PolicyHookHandler<K>): void;
+  };
   readonly decisions: {
     registerProvider(provider: DecisionProvider): PluginDecisionClient;
   };
@@ -253,6 +318,7 @@ export interface JazzPluginSourceManifest {
   readonly hostApi: JazzPluginApiVersion;
   readonly entry?: string;
   readonly hooks: readonly AdvisoryHookId[];
+  readonly policyHooks: readonly PolicyHookId[];
   readonly decisionProviders: readonly string[];
   readonly tools?: readonly PluginToolDeclaration[];
   readonly commands?: readonly PluginCommandDeclaration[];

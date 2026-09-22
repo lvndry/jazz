@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "schemaVersion": 1,
+      "id": "com.jazz.plugins.warp",
+      "name": "Warp notifications",
+      "version": "0.1.0",
+      "hostApi": 1,
+      "hooks": [],
+      "policyHooks": [],
+      "decisionProviders": [],
+      "tools": [],
+      "commands": [],
+      "personas": [],
+      "skills": [],
+      "lifecycleHooks": ["run-complete", "awaiting-input"],
+      "claimsNotifications": true,
+      "network": {
+        "destinations": []
+      },
+      "dataSent": [],
+      "secrets": [],
+      "sourceType": "community",
+      "trustTier": "community-indexed",
+      "repositoryId": 1378708398,
+      "repository": "lvndry/jazz-plugin-warp",
+      "repositoryUrl": "https://github.com/lvndry/jazz-plugin-warp",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-warp/af02c4aeab13cb42d8c7325d87acfc8190708e31/jazz-plugin.json",
+      "defaultBranch": "main",
+      "sourceSha": "af02c4aeab13cb42d8c7325d87acfc8190708e31",
+      "manifestSha256": "cabacdc1394bcf85dda69960dd7341bca10af53930bc9696c8885d513fc618ff",
+      "manifestPath": "jazz-plugin.json",
+      "indexedAt": "2026-09-22T14:50:00.989Z",
+      "entry": "src/index.ts",
+      "description": "A Jazz plugin that raises native desktop notifications on lifecycle events (task complete, awaiting input).",
+      "license": "MIT"
+    }
+  ]
+}
