@@ -186,7 +186,7 @@ const communityPlugins = plugins.filter((entry) => entry.sourceType === "communi
       <code class="mono">packages/website/src/content/library/workflows/&lt;name&gt;/</code>, in
       the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request.
       Skills live in <code class="mono">skills/&lt;name&gt;/SKILL.md</code>. Plugin repositories become
-      discoverable by adding the <code class="mono">jazz-plugin</code> topic and a valid
+      discoverable by adding the <span class="github-topic mono">jazz-plugin</span> GitHub topic and a valid
       <code class="mono">jazz-plugin.json</code>; discoverability never grants trust.
     </p>
   </section>
@@ -319,6 +319,15 @@ const communityPlugins = plugins.filter((entry) => entry.sourceType === "communi
   }
   .contribute a {
     color: var(--jz-link);
+  }
+  .github-topic {
+    display: inline-block;
+    padding: 2px 7px;
+    border: 1px solid color-mix(in srgb, var(--jz-link) 55%, var(--jz-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--jz-link) 12%, transparent);
+    color: var(--jz-link);
+    font-size: 0.85em;
   }
   code {
     font-family: var(--font-mono);
