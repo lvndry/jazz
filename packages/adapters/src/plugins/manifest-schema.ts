@@ -342,7 +342,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       }
       return hook;
     }),
-    policyHooks: uniqueStrings(root["policyHooks"], "policyHooks", {
+    policyHooks: uniqueStrings(root["policyHooks"] ?? [], "policyHooks", {
       maxItems: 8,
       maxLength: 64,
       pattern: HOOK_ID,
