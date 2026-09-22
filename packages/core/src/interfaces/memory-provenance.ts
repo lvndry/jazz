@@ -25,8 +25,7 @@
 /**
  * The failure a lesson exists to prevent, recorded so the learning loop can
  * check whether that failure recurred and credit or blame the lesson
- * accordingly. A lesson whose failure is unnamed could never be scored, which is why
- * `manage_memory` requires one.
+ * accordingly. An entry without one is recalled like any other but never scored.
  */
 export type MemoryFailureSignature =
   | {

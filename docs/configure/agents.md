@@ -128,5 +128,9 @@ is `["personal"]` — a single shared scope so that preferences follow the perso
 Override it when an agent should see project-specific or role-specific memory instead.
 Conversation history remains separate.
 
+The memory tools (`view_memory`, `manage_memory`) are part of every agent's built-in bundle, like
+the scratchpad, so they cannot be unticked in `jazz agent create`. To keep an agent from writing
+memory, deny `manage_memory` in its persona, or run it with `jazz run --ephemeral`.
+
 Run `jazz agent show <name>` to inspect the resolved agent and `/tools` inside chat to see the tools
 available to that run.

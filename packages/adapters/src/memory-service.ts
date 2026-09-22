@@ -224,9 +224,10 @@ function isMemoryEntryCredit(value: unknown): value is MemoryEntryCredit {
  * Whether the sidecar could be read, as opposed to what it contained.
  *
  * A file that is simply absent is an ordinary empty scope. A file that exists
- * but cannot be parsed is a fault, and the difference matters on the write
- * path: every writer rewrites the whole map, so treating an unreadable file as
- * "no records" would replace a scope's entire history with one entry.
+ * but cannot be read or parsed — permission denied, a directory in its place,
+ * malformed JSON — is a fault, and the difference matters on the write path:
+ * every writer rewrites the whole map, so treating an unreadable file as "no
+ * records" would replace a scope's entire history with one entry.
  */
 type ProvenanceReadStatus = "ok" | "absent" | "unreadable";
 
@@ -267,12 +268,14 @@ function readScopeProvenance(
         return { status: "ok" as const, provenance: { files: sanitized } };
       }),
     ),
-    Effect.catchAll((error) =>
-      Effect.succeed({
-        status: (error as { _tag?: string })._tag === "SystemError" ? "absent" : "unreadable",
+    Effect.catchAll((error) => {
+      const platformError = error as { _tag?: string; reason?: string };
+      const absent = platformError._tag === "SystemError" && platformError.reason === "NotFound";
+      return Effect.succeed({
+        status: absent ? "absent" : "unreadable",
         provenance: EMPTY_MEMORY_SCOPE_PROVENANCE,
-      } satisfies ProvenanceRead),
-    ),
+      } satisfies ProvenanceRead);
+    }),
   );
 }
 
@@ -427,12 +430,12 @@ function forgetProvenance(
 /**
  * Re-keys the records under a renamed path, carrying their history forward.
  *
- * A rename is how an entry changes kind or workflow — promoting a
- * workflow-scoped lesson to `_global`, for instance. Nothing needs re-deriving,
- * because kind and workflow live in the path and the path is the map key: move
- * the record and the new key already says what the entry now is. Children are
- * moved with it, since renaming a directory would otherwise leave every record
- * beneath it pointing at a path that no longer exists.
+ * A rename is how an entry changes when it applies — moving from
+ * `when/<topic>/` to `always/`, for instance. Nothing needs re-deriving,
+ * because the path is the map key: move the record and the new key already
+ * says where the entry now applies. Children are moved with it, since renaming
+ * a directory would otherwise leave every record beneath it pointing at a path
+ * that no longer exists.
  */
 function moveProvenance(
   fs: FileSystem.FileSystem,

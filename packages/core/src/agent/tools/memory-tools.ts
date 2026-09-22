@@ -167,7 +167,10 @@ const memoryFailureParameter = z
       corrected_behavior: z.string().min(1).describe("What the user said you should do instead."),
     }),
   ])
-  .describe("The failure this lesson prevents. Required for lessons.");
+  .describe(
+    "The failure this entry keeps from recurring. Supply it when the entry records a lesson " +
+      "learned from a tool misfire or a user correction; entries without one are recalled but never scored.",
+  );
 
 const createMemoryParameters = z.object({
   command: z.literal("create"),
@@ -204,7 +207,7 @@ function toMemoryFailureSignature(
     : { kind: "correction", correctedBehavior: failure.corrected_behavior };
 }
 
-const manageMemoryCommands = z.discriminatedUnion("command", [
+const manageMemoryParameters = z.discriminatedUnion("command", [
   createMemoryParameters,
   z.object({
     command: z.literal("str_replace"),
@@ -251,13 +254,6 @@ const manageMemoryCommands = z.discriminatedUnion("command", [
       ),
   }),
 ]);
-
-/**
- * A lesson must name the failure it prevents. The rule lives here rather than
- * on the create branch because a `superRefine` produces a ZodEffects, which a
- * discriminated union cannot hold as a member.
- */
-const manageMemoryParameters = manageMemoryCommands;
 
 type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
 
