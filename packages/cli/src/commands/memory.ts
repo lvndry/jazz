@@ -110,6 +110,40 @@ export function forgetMemoryCommand(identifier: string, memoryPath: string) {
   });
 }
 
+/** `jazz memory explain <agent> <path>` — show why an entry exists and how it performs. */
+export function explainMemoryCommand(identifier: string, memoryPath: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const memoryService = yield* MemoryServiceTag;
+    const agent = yield* getAgentByIdentifier(identifier);
+    const scopes = resolveScopes(agent);
+    const provenance = yield* memoryService.provenance(scopes, memoryPath);
+    if (provenance === undefined) {
+      return yield* Effect.fail(
+        new CLIError({ command: "memory explain", message: `No provenance for ${memoryPath}` }),
+      );
+    }
+    yield* terminal.log(`Memory: ${memoryPath}`);
+    yield* terminal.log(`Created: ${provenance.createdAt}`);
+    yield* terminal.log(`Updated: ${provenance.updatedAt}`);
+    yield* terminal.log(`Origin: ${provenance.origin ?? "unknown"}`);
+    yield* terminal.log(`Writes: ${provenance.writeCount}`);
+    if (provenance.credit !== undefined) {
+      yield* terminal.log(
+        `Credit: helped ${provenance.credit.helped}, failed ${provenance.credit.failed}, missed ${provenance.credit.missed}`,
+      );
+    }
+    if (provenance.failure !== undefined) {
+      yield* terminal.log(`Trigger: ${JSON.stringify(provenance.failure)}`);
+    }
+    if (provenance.evidence !== undefined) {
+      yield* terminal.log(
+        `Evidence: ${provenance.evidence.map((item) => item.summary).join("; ")}`,
+      );
+    }
+  });
+}
+
 /**
  * `jazz memory recall` — the measured rate at which runs consulted memory
  * before answering, split by surface.

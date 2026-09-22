@@ -372,6 +372,8 @@ export interface AgentRunContext {
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
+  /** Scope-qualified memory entries injected into the live prompt. */
+  readonly activeMemoryPaths: readonly string[];
   readonly initialProviderAdvisory?: string;
   /**
    * Decision-advised clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
