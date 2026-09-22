@@ -1,16 +1,14 @@
-/** Deterministic outcome metrics for memory and skill learning evals. */
+/**
+ * Outcome metrics for memory-learning evals. The classification is the store's
+ * own rule, imported rather than restated, so an eval cannot score a run
+ * differently from how the sidecar would credit it.
+ */
 
-export type LessonOutcome = "helped" | "failed" | "missed" | "noop";
+import { classifyMemoryOutcome, type MemoryOutcomeKind } from "@/core/memory/lifecycle";
 
-export function classifyLessonOutcome(input: {
-  readonly recalled: boolean;
-  readonly triggerFired: boolean;
-}): LessonOutcome {
-  if (input.recalled && input.triggerFired) return "failed";
-  if (!input.recalled && input.triggerFired) return "missed";
-  if (input.recalled && !input.triggerFired) return "helped";
-  return "noop";
-}
+export type LessonOutcome = MemoryOutcomeKind;
+
+export const classifyLessonOutcome = classifyMemoryOutcome;
 
 export function outcomeRate(
   outcomes: readonly LessonOutcome[],
