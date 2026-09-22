@@ -334,14 +334,17 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       }
       return hook;
     }),
-    policyHooks: uniqueStrings(root["policyHooks"], "policyHooks", {
-      maxItems: 8,
-      maxLength: 64,
-      pattern: HOOK_ID,
-    }).map((hook) => {
-      if (hook !== "classify.command-risk") throw new Error(`Unknown policy hook: ${hook}`);
-      return hook;
-    }),
+    policyHooks:
+      root["policyHooks"] === undefined
+        ? []
+        : uniqueStrings(root["policyHooks"], "policyHooks", {
+            maxItems: 8,
+            maxLength: 64,
+            pattern: HOOK_ID,
+          }).map((hook) => {
+            if (hook !== "classify.command-risk") throw new Error(`Unknown policy hook: ${hook}`);
+            return hook;
+          }),
     decisionProviders: uniqueStrings(root["decisionProviders"], "decisionProviders", {
       maxItems: 8,
       maxLength: 64,

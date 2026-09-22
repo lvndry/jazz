@@ -24,7 +24,7 @@ import {
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
 import { Effect, Layer } from "effect";
-import type { PluginModuleLoader } from "./module-loader";
+import type { EnabledPluginSnapshot, PluginModuleLoader } from "./module-loader";
 import type { PluginSecretStore } from "./secret-store";
 
 export interface PluginRuntimeServiceOptions {
@@ -33,11 +33,29 @@ export interface PluginRuntimeServiceOptions {
   readonly reportFailure?: (pluginId: string, message: string) => void;
 }
 
+interface CachedLifecycleSession {
+  readonly session: PluginSession;
+  readonly enabledPlugins: readonly EnabledPluginSnapshot[];
+}
+
+function sameEnabledPlugins(
+  left: readonly EnabledPluginSnapshot[],
+  right: readonly EnabledPluginSnapshot[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((plugin, index) => {
+      const other = right[index];
+      return other?.id === plugin.id && other.digest === plugin.digest;
+    })
+  );
+}
+
 export class PluginRuntimeServiceImpl implements PluginRuntimeService {
   constructor(private readonly options: PluginRuntimeServiceOptions) {}
 
   /** Long-lived per-agent sessions for lifecycle dispatch, so frequent events don't reload code. */
-  private readonly lifecycleSessions = new Map<string, PluginSession>();
+  private readonly lifecycleSessions = new Map<string, CachedLifecycleSession>();
 
   openSession(run: PluginSessionOptions) {
     return Effect.tryPromise({
@@ -131,16 +149,24 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
   }
 
   emitLifecycleEvent(event: LifecycleEvent): Effect.Effect<void> {
-    const cached = this.lifecycleSessions.get(event.agentId);
-    const session = cached
-      ? Effect.succeed(cached)
-      : this.openSession({ agentId: event.agentId }).pipe(
-          Effect.tap((opened) =>
-            Effect.sync(() => this.lifecycleSessions.set(event.agentId, opened)),
-          ),
-        );
-    return session.pipe(
-      Effect.flatMap((resolved) => resolved.emitLifecycle(event)),
+    return Effect.tryPromise(() => this.options.loader.listEnabledForAgent(event.agentId)).pipe(
+      Effect.flatMap((enabledPlugins) =>
+        Effect.gen(this, function* () {
+          const cached = this.lifecycleSessions.get(event.agentId);
+          if (cached !== undefined && sameEnabledPlugins(cached.enabledPlugins, enabledPlugins)) {
+            yield* cached.session.emitLifecycle(event);
+            return;
+          }
+          if (cached !== undefined) {
+            this.lifecycleSessions.delete(event.agentId);
+            yield* cached.session.close();
+          }
+          if (enabledPlugins.length === 0) return;
+          const opened = yield* this.openSession({ agentId: event.agentId });
+          this.lifecycleSessions.set(event.agentId, { session: opened, enabledPlugins });
+          yield* opened.emitLifecycle(event);
+        }),
+      ),
       Effect.catchAll(() => Effect.void),
     );
   }

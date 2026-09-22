@@ -875,6 +875,67 @@ function registerPersonaCommands(program: Command): void {
     );
 }
 
+/** Register reviewed, instruction-only marketplace skill commands. */
+function registerSkillCommands(program: Command): void {
+  const skillCommand = program
+    .command("skill")
+    .description("Browse and install reviewed Jazz skills");
+
+  function run(
+    loadEffect: () => Promise<CliCommandEffect>,
+    options?: CliRunOptions,
+  ): Promise<void> {
+    return runCliAction(loadEffect, cliRuntimeOptions(program), options);
+  }
+
+  skillCommand
+    .command("browse")
+    .description("Browse the skill marketplace and install a skill (interactive)")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((options: { refresh?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/skill-library").then((mod) =>
+            mod.browseSkillLibraryCommand({ refresh: options.refresh === true }),
+          ),
+        { session: true },
+      ),
+    );
+
+  skillCommand
+    .command("search [query]")
+    .description("Search reviewed marketplace skills")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((query: string | undefined, options: { refresh?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/skill-library").then((mod) =>
+          mod.listLibrarySkillsCommand({
+            ...(query !== undefined ? { query } : {}),
+            refresh: options.refresh === true,
+          }),
+        ),
+      ),
+    );
+
+  skillCommand
+    .command("install <name>")
+    .description("Install one reviewed SKILL.md into ~/.jazz/skills/")
+    .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((name: string, options: { yes?: boolean; refresh?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/skill-library").then((mod) =>
+            mod.installSkillCommand(name, {
+              yes: options.yes === true,
+              refresh: options.refresh === true,
+            }),
+          ),
+        { session: true },
+      ),
+    );
+}
+
 /** Register trusted, opt-in executable plugin lifecycle commands. */
 function registerPluginCommands(program: Command): void {
   const plugin = program
@@ -2042,6 +2103,7 @@ export function createCLIApp(): Command {
   registerRunCommand(program);
   registerAgentCommands(program);
   registerPersonaCommands(program);
+  registerSkillCommands(program);
   registerPluginCommands(program);
   registerConfigCommands(program);
   registerMemoryCommands(program);

@@ -18,6 +18,7 @@ async function packageFixture(
   capabilities: {
     readonly hooks?: readonly string[];
     readonly policyHooks?: readonly string[];
+    readonly lifecycleHooks?: readonly string[];
   } = {},
 ): Promise<{ readonly manifestPath: string; readonly digest: string }> {
   const directory = path.join(root, `package-${version}`);
@@ -35,6 +36,7 @@ async function packageFixture(
     hooks: capabilities.hooks ?? ["route.skills"],
     policyHooks: capabilities.policyHooks ?? [],
     decisionProviders: [],
+    lifecycleHooks: capabilities.lifecycleHooks ?? [],
     network: { destinations: [] },
     dataSent: [],
     secrets: [],
@@ -204,6 +206,16 @@ describe("PluginRegistryServiceImpl", () => {
     expect(enabled.enabledForAllAgents).toBe(true);
     expect(enabled.enabledAgentIds).toEqual([]);
 
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    expect(await loader.listEnabledForAgent("future-agent")).toEqual([
+      { id: "com.jazz.test.lifecycle", digest: first.digest },
+    ]);
+    expect(await loader.loadEnabledForAgent("future-agent")).toHaveLength(1);
+    expect(await loader.listEnabledManifests()).toHaveLength(1);
+
     await expect(registry.enable("com.jazz.test.other", "default")).rejects.toThrow(
       "hook conflict",
     );
@@ -307,6 +319,63 @@ describe("PluginRegistryServiceImpl", () => {
     const disabled = await registry.disable("com.jazz.test.lifecycle");
     expect(disabled.restartRequired).toBe(true);
     expect(await loader.loadEnabledForAgent("default")).toEqual([]);
+  });
+
+  test("invalidates cached lifecycle sessions after update and disable", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-lifecycle-cache-"));
+    const marker = path.join(root, "lifecycle.log");
+    const source = (label: string) =>
+      [
+        'import { appendFileSync } from "node:fs";',
+        "export default { apiVersion: 1, register(api) {",
+        `api.lifecycle.register({ event: "run-complete", handler: async () => appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(`${label}\n`)}) });`,
+        "} };",
+      ].join("\n");
+    const first = await packageFixture(root, "1.0.0", source("v1"), {
+      hooks: [],
+      lifecycleHooks: ["run-complete"],
+    });
+    const second = await packageFixture(root, "2.0.0", source("v2"), {
+      hooks: [],
+      lifecycleHooks: ["run-complete"],
+    });
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    const runtime = new PluginRuntimeServiceImpl({ loader, secrets: registry.secrets });
+    const event = {
+      event: "run-complete" as const,
+      agentId: "default",
+      conversationId: "conversation",
+    };
+
+    await registry.add(first.manifestPath);
+    await registry.trust("com.jazz.test.lifecycle", first.digest);
+    await registry.grantConsent(
+      "com.jazz.test.lifecycle",
+      (await registry.inspect("com.jazz.test.lifecycle")).consentDigest,
+    );
+    await registry.enable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+
+    await registry.update("com.jazz.test.lifecycle", second.manifestPath);
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\n");
+
+    await registry.trust("com.jazz.test.lifecycle", second.digest);
+    await registry.grantConsent(
+      "com.jazz.test.lifecycle",
+      (await registry.inspect("com.jazz.test.lifecycle")).consentDigest,
+    );
+    await registry.enable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\nv2\n");
+
+    await registry.disable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\nv2\n");
   });
 
   test("removes state and garbage-collects unreferenced artifacts", async () => {

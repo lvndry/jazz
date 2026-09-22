@@ -25,6 +25,12 @@ Plugins are absent and disabled by default. A normal Jazz installation has no pl
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
 manifest — the reviewed, consented contract — and the module can never exceed what it declared.
 
+The [Jazz Marketplace](https://jazz-cli.vercel.app/library) lists reviewed first-party plugins
+alongside skills, personas, and workflows. A listing is a discovery and review surface, not a
+trust grant: use `jazz plugin add`, `inspect`, `trust`, and `enable` as separate local decisions.
+The marketplace exposes the plugin's exact version, artifact digest, hooks, capabilities, network
+destinations, data classes, and secrets before installation.
+
 ## Trust means code execution
 
 Plugins run inside the Jazz process with the authority of the operating-system user. The manifest's

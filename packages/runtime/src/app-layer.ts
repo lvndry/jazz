@@ -28,6 +28,7 @@ import {
   PluginRegistryServiceImpl,
 } from "@jazz/adapters/plugins";
 import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
+import { createSkillRegistryServiceLayer } from "@jazz/adapters/skill-registry-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-service";
 import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-service";
@@ -234,6 +235,7 @@ export function createAppLayer(
     secrets: pluginLifecycle.secrets,
   });
   const workflowRegistryLayer = createWorkflowRegistryServiceLayer();
+  const skillRegistryLayer = createSkillRegistryServiceLayer();
   const memoryServiceLayer = createMemoryServiceLayer();
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
   const reminderServiceLayer = createReminderServiceLayer();
@@ -281,6 +283,7 @@ export function createAppLayer(
     pluginRegistryLayer,
     pluginRuntimeLayer,
     workflowRegistryLayer,
+    skillRegistryLayer,
     memoryServiceLayer,
     workspaceServiceLayer,
     reminderServiceLayer,

@@ -321,6 +321,26 @@ See [Personas](./concepts/personas.md).
 
 ---
 
+## `jazz skill`
+
+| Command                     | Purpose                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                  |
+| `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                         |
+| `jazz skill install <name>` | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh` |
+
+Marketplace skills are instruction-only. Installation prints the complete file, asks for
+confirmation, writes only `SKILL.md`, and never executes or imports the downloaded text. Non-
+interactive installs must pass `--yes`. The catalog is cached under
+`<jazz home>/cache/skill-registry.json`, works offline after a successful fetch, and uses
+`JAZZ_LIBRARY_URL` when you host a compatible library yourself.
+
+Skills can influence an agent's behavior but grant no tools, credentials, network access, or
+approval authority. Read the source for prompt injection or unsafe guidance before installing.
+See [Skills](./concepts/skills.md).
+
+---
+
 ## `jazz plugin`
 
 | Command                                           | Purpose                                                                                                                                                               |

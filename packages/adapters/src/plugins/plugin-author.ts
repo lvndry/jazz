@@ -41,7 +41,7 @@ interface SourceManifest {
   readonly hostApi: 1;
   readonly entry?: string;
   readonly hooks: readonly string[];
-  readonly policyHooks: readonly string[];
+  readonly policyHooks?: readonly string[];
   readonly decisionProviders: readonly string[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];

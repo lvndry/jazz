@@ -68,6 +68,18 @@ describe("parsePluginManifest", () => {
     );
   });
 
+  test("defaults omitted policy hooks while validating declared values", () => {
+    const legacy = manifest();
+    delete legacy["policyHooks"];
+    expect(parsePluginManifest(legacy).policyHooks).toEqual([]);
+    expect(() => parsePluginManifest(manifest({ policyHooks: ["route.skills"] }))).toThrow(
+      "Unknown policy hook",
+    );
+    expect(() => parsePluginManifest(manifest({ policyHooks: "classify.command-risk" }))).toThrow(
+      "policyHooks must be an array",
+    );
+  });
+
   test("rejects wildcard, URL-shaped, and local destinations", () => {
     for (const destination of ["*.example.com", "https://example.com", "localhost"]) {
       expect(() =>
