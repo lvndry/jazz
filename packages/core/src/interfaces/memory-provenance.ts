@@ -96,6 +96,13 @@ export interface MemoryFileProvenance {
   readonly summary?: string;
   readonly failure?: MemoryFailureSignature;
   readonly credit?: MemoryEntryCredit;
+  /** Bounded evidence that explains recent lifecycle updates. */
+  readonly evidence?: readonly {
+    readonly kind: "correction" | "misfire" | "run";
+    readonly summary: string;
+    readonly recordedAt: string;
+    readonly runId?: string;
+  }[];
   readonly origin?: MemoryEntryOrigin;
   /** Name of the skill this lesson was distilled into, if any. */
   readonly compiledInto?: string;

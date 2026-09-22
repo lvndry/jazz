@@ -130,4 +130,19 @@ describe("standingEntries", () => {
     const entries = await runEffect(service.standingEntries(multiScopes));
     expect(entries.map((entry) => entry.summary)).toEqual(["home note", "work note"]);
   });
+
+  test("returns conditional entries with scope and topic", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "personal/when/colleagues/tone.md", "Be professional", writeContext),
+    );
+    expect(await runEffect(service.conditionalEntries(scopes))).toEqual([
+      {
+        path: "personal/when/colleagues/tone.md",
+        scope: "personal",
+        topic: "colleagues",
+        summary: "Be professional",
+      },
+    ]);
+  });
 });

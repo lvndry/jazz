@@ -32,6 +32,8 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
+  /** Explicit dimensions used to resolve conditional memory entries. */
+  readonly memoryTaskDimensions?: import("@/core/memory/relevance").MemoryTaskDimensions;
   /**
    * Attachments placed directly on this run's first user message.
    *

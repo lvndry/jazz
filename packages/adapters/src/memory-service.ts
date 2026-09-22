@@ -714,19 +714,59 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
+  readonly conditionalEntries: MemoryService["conditionalEntries"] = (scopes) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const entries: MemoryEntryInForce[] = [];
+        for (const scope of scopes) {
+          if (!isValidStorageKey(scope)) continue;
+          const topicRoot = path.join(this.baseMemoryDirectory, scope, "when");
+          const topics = yield* fs
+            .readDirectory(topicRoot)
+            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+          for (const topic of topics.sort()) {
+            if (topic.startsWith(".")) continue;
+            const topicPath = path.join(topicRoot, topic);
+            const topicInfo = yield* fs
+              .stat(topicPath)
+              .pipe(Effect.catchAll(() => Effect.succeed(null)));
+            if (topicInfo?.type !== "Directory") continue;
+            const names = yield* fs
+              .readDirectory(topicPath)
+              .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+            for (const name of names.sort()) {
+              if (name.startsWith(".")) continue;
+              const info = yield* fs
+                .stat(path.join(topicPath, name))
+                .pipe(Effect.catchAll(() => Effect.succeed(null)));
+              if (info?.type !== "File") continue;
+              const summary = yield* readEntrySummary(fs, path.join(topicPath, name));
+              if (summary === undefined) continue;
+              entries.push({
+                path: `${scope}/when/${topic}/${name}`,
+                scope,
+                topic,
+                summary,
+              });
+            }
+          }
+        }
+        return entries;
+      }.bind(this),
+    );
+
   readonly standingEntries: MemoryService["standingEntries"] = (scopes) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
         const entries: MemoryEntryInForce[] = [];
-
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
           const absolute = path.join(this.baseMemoryDirectory, scope, ALWAYS_SEGMENT);
           const names = yield* fs
             .readDirectory(absolute)
             .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-
           for (const name of names.sort()) {
             if (name.startsWith(".")) continue;
             const info = yield* fs
@@ -743,7 +783,6 @@ export class MemoryServiceImpl implements MemoryService {
             });
           }
         }
-
         return entries;
       }.bind(this),
     );

@@ -35,6 +35,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { resolveRelevantMemories, type MemoryTaskDimensions } from "@/core/memory/relevance";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -104,8 +105,9 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
+  dimensions?: MemoryTaskDimensions,
 ): Effect.Effect<
-  { readonly scope: string; readonly summary: string }[],
+  { readonly scope: string; readonly topic?: string; readonly summary: string }[],
   never,
   FileSystem.FileSystem
 > {
@@ -116,10 +118,16 @@ function resolveActivePreferences(
       return [];
     }
     const memoryService = memoryServiceOption.value;
-
     return yield* Effect.gen(function* () {
-      const entries = yield* memoryService.standingEntries(memoryScopes);
-      return entries.map((entry) => ({ scope: entry.scope, summary: entry.summary }));
+      const standing = yield* memoryService.standingEntries(memoryScopes);
+      const conditional = dimensions
+        ? resolveRelevantMemories(yield* memoryService.conditionalEntries(memoryScopes), dimensions)
+        : [];
+      return [...standing, ...conditional].map((entry) => ({
+        scope: entry.scope,
+        ...(entry.topic === undefined ? {} : { topic: entry.topic }),
+        summary: entry.summary,
+      }));
     }).pipe(
       Effect.catchAll((error) =>
         logger
@@ -127,7 +135,11 @@ function resolveActivePreferences(
             scopes: memoryScopes,
             error: error instanceof Error ? error.message : String(error),
           })
-          .pipe(Effect.as<{ readonly scope: string; readonly summary: string }[]>([])),
+          .pipe(
+            Effect.as<
+              { readonly scope: string; readonly topic?: string; readonly summary: string }[]
+            >([]),
+          ),
       ),
     );
   });
@@ -585,10 +597,10 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
+      options.memoryTaskDimensions,
     );
 
     // Build messages — reuses the PersonaService resolved earlier so custom

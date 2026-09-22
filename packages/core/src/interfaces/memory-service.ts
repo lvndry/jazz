@@ -98,14 +98,13 @@ export interface MemoryService {
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
-  /**
-   * Standing entries: everything under `always/` in the accessible scopes.
-   *
-   * Topic-scoped entries are the agent's responsibility to discover via
-   * `view_memory` — the recall path cannot do semantic association, so it
-   * only injects what applies unconditionally.
-   */
+  /** All files under `always/` in the accessible scopes. */
   readonly standingEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
+
+  /** All files under `when/<topic>/` in the accessible scopes. */
+  readonly conditionalEntries: (
     scopes: readonly string[],
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
