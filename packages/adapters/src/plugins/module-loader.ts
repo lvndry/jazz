@@ -9,8 +9,14 @@
 import { pathToFileURL } from "node:url";
 import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/types/plugin";
 import type { PluginArtifactInstaller } from "./artifact-installer";
+import { hashSourceTree } from "./github-source";
 import { pluginConsentDigest } from "./plugin-registry-service";
-import type { PluginStateRecord, PluginStateStore } from "./state-store";
+import {
+  ALL_AGENTS,
+  type PluginLockRecord,
+  type PluginStateRecord,
+  type PluginStateStore,
+} from "./state-store";
 
 export interface PluginModuleLoaderOptions {
   readonly stateStore: PluginStateStore;
@@ -44,6 +50,33 @@ export class PluginModuleLoader {
 
   hasLoadedDigest = (digest: string): boolean => this.loaded.has(digest);
 
+  /** Confirm the installed code still hashes to its trusted digest and sits at its digest-addressed path. */
+  private async verifyDigestAddressed(pluginId: string, record: PluginLockRecord): Promise<void> {
+    const digest = record.manifest.sha256;
+    if (record.kind === "source") {
+      const expectedEntry = this.options.installer.sourceEntryPath(
+        digest,
+        record.manifest.artifact,
+      );
+      if (record.artifactPath !== expectedEntry) {
+        throw new Error(`Plugin ${pluginId} source entry is not digest-addressed`);
+      }
+      const actual = await hashSourceTree(this.options.installer.sourcePath(digest)).catch(
+        () => undefined,
+      );
+      if (actual !== digest) {
+        throw new Error(`Plugin ${pluginId} source tree is missing or failed digest verification`);
+      }
+      return;
+    }
+    if (record.artifactPath !== this.options.installer.artifactPath(digest)) {
+      throw new Error(`Plugin ${pluginId} artifact path is not digest-addressed`);
+    }
+    if (!(await this.options.installer.verify(digest))) {
+      throw new Error(`Plugin ${pluginId} artifact is missing or failed digest verification`);
+    }
+  }
+
   /**
    * Manifests of every plugin enabled for at least one agent, without importing any code. For
    * reading declared, inert data (personas, skills) that needs no module execution — plugins are
@@ -52,17 +85,24 @@ export class PluginModuleLoader {
   async listEnabledManifests(): Promise<readonly PluginManifest[]> {
     const state = await this.options.stateStore.read();
     return Object.values(state.plugins)
-      .filter((record) => record.enabledAgentIds.length > 0)
+      .filter((record) => record.enabledForAllAgents || record.enabledAgentIds.length > 0)
       .map((record) => record.current.manifest)
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   /** Verify and import all plugins enabled for one agent without registering them. */
   async loadEnabledForAgent(agentId: string): Promise<readonly LoadedPlugin[]> {
-    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+    if (agentId.trim().length === 0) {
+      throw new Error("agentId cannot be empty");
+    }
     const state = await this.options.stateStore.read();
     const enabled = Object.entries(state.plugins)
-      .filter(([, record]) => record.enabledAgentIds.includes(agentId))
+      .filter(
+        ([, record]) =>
+          record.enabledForAllAgents ||
+          record.enabledAgentIds.includes(agentId) ||
+          record.enabledAgentIds.includes(ALL_AGENTS),
+      )
       .sort(([left], [right]) => left.localeCompare(right));
 
     // Validate every grant before importing any code. This avoids partial loading
@@ -71,14 +111,7 @@ export class PluginModuleLoader {
 
     const verified = await Promise.all(
       enabled.map(async ([pluginId, record]) => {
-        const expectedPath = this.options.installer.artifactPath(record.current.manifest.sha256);
-        if (record.current.artifactPath !== expectedPath) {
-          throw new Error(`Plugin ${pluginId} artifact path is not digest-addressed`);
-        }
-        const valid = await this.options.installer.verify(record.current.manifest.sha256);
-        if (!valid) {
-          throw new Error(`Plugin ${pluginId} artifact is missing or failed digest verification`);
-        }
+        await this.verifyDigestAddressed(pluginId, record.current);
         return [pluginId, record] as const;
       }),
     );

@@ -230,6 +230,7 @@ export interface LifecycleEvent {
   readonly event: LifecycleEventId;
   readonly agentId: string;
   readonly conversationId: string;
+  readonly cwd: string;
   readonly data?: Readonly<Record<string, JsonValue>>;
 }
 

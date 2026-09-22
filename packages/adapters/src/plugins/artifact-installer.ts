@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { EXCLUDED_DIRECTORIES } from "./github-source";
 import {
   MAX_PLUGIN_ARTIFACT_BYTES,
   MAX_PLUGIN_MANIFEST_BYTES,
@@ -136,6 +137,56 @@ export class PluginArtifactInstaller {
 
   artifactPath(digest: string): string {
     return path.join(this.options.pluginDirectory, "artifacts", digest, "plugin.mjs");
+  }
+
+  /** The digest-addressed root of an installed source tree. */
+  sourcePath(digest: string): string {
+    return path.join(this.options.pluginDirectory, "sources", digest);
+  }
+
+  /** The import entry inside an installed source tree, given the manifest's entry path. */
+  sourceEntryPath(digest: string, entry: string): string {
+    return path.join(this.sourcePath(digest), entry);
+  }
+
+  /**
+   * Copy an extracted source tree into its digest-addressed home, excluding `node_modules`/`.git` so
+   * the on-disk tree matches what was hashed. Idempotent: an existing tree at this digest is reused.
+   * The copy never overwrites a different tree, because the directory name is the tree's own hash.
+   */
+  async commitSourceTree(sourceRoot: string, digest: string): Promise<string> {
+    const finalDirectory = this.sourcePath(digest);
+    try {
+      await fs.access(finalDirectory);
+      return finalDirectory;
+    } catch {
+      // Not yet installed; fall through to copy it in.
+    }
+    const parent = path.dirname(finalDirectory);
+    await fs.mkdir(parent, { recursive: true, mode: 0o700 });
+    const partial = path.join(parent, `.${digest}.partial-${process.pid}-${Date.now()}`);
+    try {
+      await fs.cp(sourceRoot, partial, {
+        recursive: true,
+        dereference: false,
+        errorOnExist: false,
+        filter: (candidate) => !EXCLUDED_DIRECTORIES.has(path.basename(candidate)),
+      });
+      try {
+        await fs.rename(partial, finalDirectory);
+      } catch (error) {
+        // A concurrent installer may have won the race for this same digest.
+        if ((error as NodeJS.ErrnoException).code === "ENOTEMPTY") return finalDirectory;
+        throw error;
+      }
+      return finalDirectory;
+    } finally {
+      await fs.rm(partial, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  async removeSource(digest: string): Promise<void> {
+    await fs.rm(this.sourcePath(digest), { recursive: true, force: true });
   }
 
   async install(manifest: PluginManifest, manifestSource: URL): Promise<string> {

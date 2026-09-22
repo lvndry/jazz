@@ -184,6 +184,7 @@ export class ChatServiceImpl implements ChatService {
             event,
             agentId: agent.id,
             conversationId,
+            cwd: process.cwd(),
             ...(data !== undefined ? { data } : {}),
           });
         }).pipe(

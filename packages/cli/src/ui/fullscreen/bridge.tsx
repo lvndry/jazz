@@ -52,12 +52,15 @@ import {
   deleteBackward,
   deleteForward,
   deleteRange,
+  DOWN,
   EMPTY_COMPOSER,
   EMPTY_HISTORY,
   insertText,
   moveCaret,
+  moveCaretVertical,
   redo,
   selectAll,
+  UP,
   type ComposerHistory,
   undo,
 } from "./composer-edit";
@@ -2034,6 +2037,15 @@ export function FullscreenBridge(): React.ReactNode {
             return true;
           }
         }
+      }
+      if (name === "up" || name === "down") {
+        const current = composerRef.current;
+        const characters = [...current.text];
+        const target = moveCaretVertical(characters, current.caret, name === "up" ? UP : DOWN);
+        if (target !== current.caret) {
+          moveComposer(target, shift);
+        }
+        return true;
       }
 
       // Cmd+Backspace on macOS and the classic readline Ctrl+U both mean

@@ -85,6 +85,7 @@ describe("example-tool plugin", () => {
           event: "run-complete",
           agentId: "a",
           conversationId: "c",
+          cwd: "/tmp",
           data: { summary: "done" },
         },
         { signal: new AbortController().signal },

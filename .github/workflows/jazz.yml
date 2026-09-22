@@ -300,10 +300,31 @@ jobs:
           echo "--- PR context (first 200 lines) ---"
           head -n 200 "$OUT"
 
+      - name: Post status comment
+        id: status
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const runUrl = process.env.RUN_URL;
+            try {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## Jazz Code Review\n\n⏳ Review in progress… ([workflow run](${runUrl}))`,
+              });
+              core.setOutput('comment_id', String(data.id));
+            } catch (e) {
+              core.warning(`Could not post status comment: ${e.message}`);
+              core.setOutput('comment_id', '');
+            }
+
       - name: Run code review
         env:
-          # The checked-in agents run on openai. Another provider means adding its
-          # <PROVIDER>_API_KEY line here too — see .github/jazz/README.md for the names.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
@@ -313,7 +334,7 @@ jobs:
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer | tee /tmp/jazz-review.txt
+          jazz workflow run code-review --auto-approve --agent ci-reviewer --json --events tools | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
       - name: Post review comments
@@ -321,15 +342,43 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            const raw = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
+            const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
+
+            // --json wraps the answer in a JSON envelope; extract the answer field.
+            let output = raw;
+            try {
+              const firstBrace = raw.indexOf('{');
+              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
+              output = json.answer ?? raw;
+            } catch (_) {}
+
+            const postOrUpdate = async (body) => {
+              if (statusCommentId > 0) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: statusCommentId,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            };
 
             // The run step captures jazz's exit code without failing the step
             // (the free tier throttles routinely; red CI on every throttle is
@@ -352,12 +401,7 @@ jobs:
 
             if (jazzExitCode !== 0) {
               core.warning(`jazz code review exited with status ${jazzExitCode} (provider error or rate limit); posted a could-not-run notice instead of a verdict.`);
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit). See the [workflow run](${runUrl}) for the job log. Re-run the workflow to retry.${modelLabel}`,
-              });
+              await postOrUpdate(`## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit). See the [workflow run](${runUrl}) for the job log. Re-run the workflow to retry.${modelLabel}`);
               return;
             }
 
@@ -412,12 +456,7 @@ jobs:
             }
 
             if (!Array.isArray(comments) || comments.length === 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `## Jazz Code Review\n\n${summarySection}${modelLabel}`,
-              });
+              await postOrUpdate(`## Jazz Code Review\n\n${summarySection}${modelLabel}`);
               return;
             }
 
@@ -579,22 +618,18 @@ jobs:
                   body: reviewBody,
                   comments: inlineComments.map(mapComment)
                 });
+                if (statusCommentId > 0) {
+                  await github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: statusCommentId,
+                  }).catch(() => {});
+                }
               } else {
-                // All comments were outside the diff — post as a general comment instead
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber,
-                  body: reviewBody
-                });
+                await postOrUpdate(reviewBody);
               }
             } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: reviewBody
-              });
+              await postOrUpdate(reviewBody);
             }
 
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
@@ -686,10 +721,31 @@ jobs:
           echo "--- PR context (first 200 lines) ---"
           head -n 200 "$OUT"
 
+      - name: Post status comment
+        id: assist-status
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const runUrl = process.env.RUN_URL;
+            try {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `## Jazz PR Assistant\n\n⏳ Working on it… ([workflow run](${runUrl}))`,
+              });
+              core.setOutput('comment_id', String(data.id));
+            } catch (e) {
+              core.warning(`Could not post status comment: ${e.message}`);
+              core.setOutput('comment_id', '');
+            }
+
       - name: Run Jazz assistant
         env:
-          # The checked-in agents run on openai. Another provider means adding its
-          # <PROVIDER>_API_KEY line here too — see .github/jazz/README.md for the names.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
@@ -699,28 +755,49 @@ jobs:
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant \
-            2>&1 | tee /tmp/jazz-pr-assistant.txt
+          jazz workflow run pr-assistant --auto-approve --agent pr-assistant --json --events tools \
+            | tee /tmp/jazz-pr-assistant.txt
 
       - name: Post PR comment
         if: always()
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          STATUS_COMMENT_ID: ${{ steps.assist-status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
+            const raw = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
 
-            // Three-tier extraction. Strict: four-backtick markdown fence
-            // (the contract). Lenient: three-backtick markdown via last-
-            // occurrence scan. Fallback: any final fenced block, posted
-            // with a header noting the agent broke the contract — better
-            // than dumping the failure stub when the agent produced real
-            // content but used the wrong language tag.
+            let output = raw;
+            try {
+              const firstBrace = raw.indexOf('{');
+              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
+              output = json.answer ?? raw;
+            } catch (_) {}
+
+            const postOrUpdate = async (body) => {
+              if (statusCommentId > 0) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: statusCommentId,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            };
+
             const extractAnswer = (text) => {
               const fourMd = text.match(/````markdown\s*\n([\s\S]*?)\n?````/);
               if (fourMd) return { body: fourMd[1].trim(), strict: true };
@@ -755,9 +832,4 @@ jobs:
                 '```' + extracted.lang + '\n' + extracted.body + '\n```';
             }
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `## Jazz PR Assistant\n\n${commentBody}`,
-            });
+            await postOrUpdate(`## Jazz PR Assistant\n\n${commentBody}`);

@@ -153,6 +153,32 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
   return source as unknown as SourceManifest;
 }
 
+export interface PreparedSourceManifest {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
+}
+
+/**
+ * Read a plugin's authoring manifest and synthesize the install manifest for a source install,
+ * binding it to a source-tree `digest`. The entry path replaces the packed artifact reference; no
+ * bundling or code execution occurs.
+ */
+export async function prepareSourceManifest(
+  pluginDirectory: string,
+  digest: string,
+): Promise<PreparedSourceManifest> {
+  const source = await readSourceManifest(pluginDirectory);
+  const entry = source.entry ?? "src/index.ts";
+  const { entry: _entry, ...installMetadata } = source as unknown as Record<string, unknown>;
+  const manifest = parsePluginManifest({
+    ...installMetadata,
+    schemaVersion: source.schemaVersion ?? 1,
+    artifact: entry,
+    sha256: digest,
+  });
+  return { manifest, entry };
+}
+
 function resolveInside(root: string, relativePath: string): string {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, relativePath);

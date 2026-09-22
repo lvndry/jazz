@@ -12,6 +12,9 @@ import type { PluginConsentGrant } from "@jazz/core/types/plugin";
 import type { PluginManifest } from "./manifest-schema";
 
 export const PLUGIN_STATE_SCHEMA_VERSION = 1;
+
+/** Sentinel enablement entry meaning "every agent" — a plugin enabled globally rather than per-agent. */
+export const ALL_AGENTS = "*";
 const LOCK_RETRIES = 4_800;
 const LOCK_RETRY_MS = 20;
 // HTTPS acquisition can legitimately span several bounded redirect requests.
@@ -23,6 +26,8 @@ export interface PluginLockRecord {
   readonly source: string;
   readonly artifactPath: string;
   readonly installedAt: string;
+  /** "source" for a source-tree install; absent or "packed" for a bundled `.mjs` artifact. */
+  readonly kind?: "packed" | "source";
 }
 
 export interface PluginStateRecord {
@@ -87,7 +92,8 @@ function isLockRecord(value: unknown): value is PluginLockRecord {
     typeof item["manifest"] === "object" &&
     typeof item["source"] === "string" &&
     typeof item["artifactPath"] === "string" &&
-    typeof item["installedAt"] === "string"
+    typeof item["installedAt"] === "string" &&
+    (item["kind"] === undefined || item["kind"] === "packed" || item["kind"] === "source")
   );
 }
 

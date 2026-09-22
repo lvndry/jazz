@@ -7,9 +7,12 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
+  ALL_AGENTS,
   PluginRegistryServiceImpl,
   devPlugin,
+  isLocalSourceDirectory,
   packPlugin,
+  parseGitHubPluginSource,
   probePackedPlugin,
   scaffoldPlugin,
   type PluginInspection,
@@ -195,6 +198,13 @@ export function pluginProbeArtifactCommand(
   });
 }
 
+function formatEnabledAgents(agentIds: readonly string[]): string {
+  if (agentIds.includes(ALL_AGENTS)) {
+    return "all";
+  }
+  return agentIds.join(", ") || "none";
+}
+
 function manifestSummary(inspection: PluginInspection): readonly string[] {
   const { manifest } = inspection.current;
   return [
@@ -207,7 +217,7 @@ function manifestSummary(inspection: PluginInspection): readonly string[] {
     `data sent: ${manifest.dataSent.join("; ") || "none declared"}`,
     `trusted: ${inspection.trusted ? "yes" : "no"}`,
     `consented: ${inspection.consented ? "yes" : "no"}`,
-    `enabled agents: ${inspection.enabledForAllAgents ? "all agents" : inspection.enabledAgentIds.join(", ") || "none"}`,
+    `enabled agents: ${formatEnabledAgents(inspection.enabledAgentIds)}`,
     `artifact valid: ${inspection.artifactValid ? "yes" : "no"}`,
     ...(inspection.restartRequired ? ["restart required to unload previously imported code"] : []),
   ];
@@ -220,10 +230,6 @@ function renderInspection(
   return Effect.gen(function* () {
     yield* terminal.heading("Jazz plugin");
     for (const line of manifestSummary(inspection)) yield* terminal.log(line);
-    yield* terminal.log("");
-    yield* terminal.warn(
-      "Trusted plugins execute inside Jazz with your full OS-user authority. Manifest declarations are disclosure, not a sandbox.",
-    );
   });
 }
 
@@ -246,7 +252,14 @@ export function pluginAddCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const result = yield* attempt(() => registry().add(resolvePluginSource(source)));
+    const github = parseGitHubPluginSource(source);
+    const localSource = github ? false : yield* attempt(() => isLocalSourceDirectory(source));
+    if (github) yield* terminal.info(`Fetching ${github.owner}/${github.repo} from GitHub…`);
+    const result = yield* github
+      ? attempt(() => registry().addFromSource({ github }))
+      : localSource
+        ? attempt(() => registry().addFromSource({ localDirectory: path.resolve(source) }))
+        : attempt(() => registry().add(resolvePluginSource(source)));
     if (options.json === true) return printJson({ ok: true, result });
     yield* terminal.success(`Installed ${result.pluginId} at ${result.digest}.`);
     yield* terminal.info("It is not trusted or enabled. Inspect it before granting either.");
@@ -264,7 +277,7 @@ export function pluginListCommand(
     yield* terminal.heading(`Plugins (${plugins.length})`);
     for (const plugin of plugins) {
       yield* terminal.log(
-        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledForAllAgents ? "all" : plugin.enabledAgentIds.join(",") || "none"}`,
+        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledForAllAgents ? "all" : formatEnabledAgents(plugin.enabledAgentIds)}`,
       );
     }
   });
@@ -289,10 +302,15 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    const granted = yield* terminal.confirm(`Do you trust ${id}?`, false);
-    if (!granted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
-    yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
-    yield* terminal.success(`Trusted ${id} at the inspected code digest.`);
+    const confirmed = yield* terminal.confirm(
+      `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
+      false,
+    );
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin trust cancelled."));
+    }
+    yield* attempt(() => service.trust(inspection.id, inspection.current.manifest.sha256));
+    yield* terminal.success(`Trusted ${inspection.id} at the inspected code digest.`);
   });
 }
 
@@ -302,25 +320,38 @@ export function pluginEnableCommand(
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* requireInteractive(terminal, "Plugin enablement");
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
+    yield* requireInteractive(terminal, "Plugin egress consent");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
-      yield* renderInspection(terminal, inspection);
-      const trusted = yield* terminal.confirm(`Do you trust ${id}?`, false);
-      if (!trusted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
-      yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
+      return yield* Effect.fail(
+        new Error(
+          `${inspection.id} is not trusted. Run 'jazz plugin trust ${inspection.id}' first.`,
+        ),
+      );
     }
+    yield* renderInspection(terminal, inspection);
     if (inspection.current.manifest.policyHooks.length > 0) {
       yield* terminal.warn(
         "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
-    const scope = agent === undefined ? "all agents" : `${agent.name} (${agent.id})`;
-    yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
-    yield* attempt(() => service.enable(id, agent?.id));
-    yield* terminal.success(`Enabled ${id} for ${scope}.`);
+    const target = agent === undefined ? "all agents" : agent.name;
+    const confirmed = yield* terminal.confirm(
+      `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,
+      false,
+    );
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin enablement cancelled."));
+    }
+    yield* attempt(() => service.grantConsent(inspection.id, inspection.consentDigest));
+    yield* attempt(() => service.enable(inspection.id, agent?.id));
+    yield* terminal.success(
+      agent === undefined
+        ? `Enabled ${inspection.id} for all agents.`
+        : `Enabled ${inspection.id} for agent ${agent.name} (${agent.id}).`,
+    );
 
     // A required secret the host cannot already resolve would leave the plugin failing open on
     // every run, so provision it as part of setup instead of making the operator discover the gap
