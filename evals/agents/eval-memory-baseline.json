@@ -1,0 +1,15 @@
+{
+  "id": "eval-memory-baseline",
+  "name": "eval-memory-baseline",
+  "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+  "config": {
+    "persona": "default",
+    "llmProvider": "openrouter",
+    "llmModel": "qwen/qwen3-next-80b-a3b-instruct:free",
+    "reasoningEffort": "medium",
+    "deniedTools": ["view_memory", "manage_memory"],
+    "tools": ["read_file", "write_file", "edit_file", "find", "grep", "execute_command"]
+  },
+  "createdAt": "2026-09-22T00:00:00.000Z",
+  "updatedAt": "2026-09-22T00:00:00.000Z"
+}
