@@ -383,7 +383,11 @@ export class ToolExecutor {
           // yolo: there is nothing to approve until somebody picked a row. The
           // companion-bound path skips approval inside the tool itself instead.
           const hasSelectionOptions = (approvalResult.options?.length ?? 0) > 0;
-          const isAutoApproved = !hasSelectionOptions && checkAutoApproved();
+          const isAutoApproved =
+            !hasSelectionOptions &&
+            ("requiresExplicitConfirmation" in toolInfo &&
+              toolInfo.requiresExplicitConfirmation === true) === false &&
+            checkAutoApproved();
 
           if (classifiedRisk !== undefined && displayConfig.showToolExecution) {
             if (renderer) {
