@@ -414,7 +414,7 @@ export class AgentPromptBuilder {
               id: "active-preferences",
               content: [
                 "## Preferences",
-                "How this user wants things done. Follow them without being asked.",
+                "How this user wants things done. Follow them without being asked. The bracketed tag is the memory scope each one came from.",
                 ...options.activePreferences.map((entry) => `- [${entry.scope}] ${entry.summary}`),
               ].join("\n"),
             });
