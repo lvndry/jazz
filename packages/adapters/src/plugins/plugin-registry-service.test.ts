@@ -349,6 +349,7 @@ describe("PluginRegistryServiceImpl", () => {
       event: "run-complete" as const,
       agentId: "default",
       conversationId: "conversation",
+      cwd: process.cwd(),
     };
 
     await registry.add(first.manifestPath);
