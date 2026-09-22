@@ -1,7 +1,7 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, type Mock } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Fiber, Layer, Stream } from "effect";
 import { AgentRunner, renderSkillRoutingAdvisory } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
@@ -15,6 +15,11 @@ import { LoggerServiceTag } from "../interfaces/logger";
 import type { MCPServerManager } from "../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "../interfaces/persona-service";
+import {
+  PluginRuntimeServiceTag,
+  type PluginRuntimeService,
+  type PluginSession,
+} from "../interfaces/plugin-runtime";
 import type { PresentationService } from "../interfaces/presentation";
 import { PresentationServiceTag } from "../interfaces/presentation";
 import type { TerminalService } from "../interfaces/terminal";
@@ -264,7 +269,10 @@ const mockPersonaService = {
 } as unknown as PersonaService;
 
 describe("AgentRunner", () => {
-  function createTestLayer(): Layer.Layer<never, never, unknown> {
+  function createTestLayer(overrides?: {
+    readonly llm?: LLMService;
+    readonly pluginRuntime?: PluginRuntimeService;
+  }): Layer.Layer<never, never, unknown> {
     return Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
       Layer.succeed(PresentationServiceTag, mockPresentationService),
@@ -272,17 +280,23 @@ describe("AgentRunner", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
       Layer.succeed(MCPServerManagerTag, mockMcpServerManager),
-      Layer.succeed(LLMServiceTag, mockLlmService),
+      Layer.succeed(LLMServiceTag, overrides?.llm ?? mockLlmService),
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystem.FileSystem, mockFileSystem),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(PersonaServiceTag, mockPersonaService),
+      ...(overrides?.pluginRuntime
+        ? [Layer.succeed(PluginRuntimeServiceTag, overrides.pluginRuntime)]
+        : []),
     );
   }
 
-  function runWithTestLayers<A, E>(program: Effect.Effect<A, E, unknown>): Promise<A> {
+  function runWithTestLayers<A, E>(
+    program: Effect.Effect<A, E, unknown>,
+    overrides?: { readonly llm?: LLMService; readonly pluginRuntime?: PluginRuntimeService },
+  ): Promise<A> {
     return Effect.runPromise(
-      program.pipe(Effect.provide(createTestLayer())) as Effect.Effect<A, E, never>,
+      program.pipe(Effect.provide(createTestLayer(overrides))) as Effect.Effect<A, E, never>,
     );
   }
 
@@ -335,6 +349,113 @@ describe("AgentRunner", () => {
       expect(result).toBeDefined();
       expect(result.content).toBe("Hello world");
       expect(result.conversationId).toBeDefined();
+    });
+
+    it("keeps one plugin session alive through the full non-internal run", async () => {
+      const events: string[] = [];
+      const session = {
+        runHook: () =>
+          Effect.sync(() => {
+            events.push("route");
+            return { status: "abstained", reason: "test" } as const;
+          }),
+        runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        describeHook: () => undefined,
+        close: () =>
+          Effect.sync(() => {
+            events.push("close");
+          }),
+      } as unknown as PluginSession;
+      const pluginRuntime = {
+        openSession: () =>
+          Effect.sync(() => {
+            events.push("open");
+            return session;
+          }),
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: () =>
+          Effect.sync(() => {
+            expect(events).toEqual(["open", "route"]);
+            events.push("llm");
+            return { id: "test-completion", model: "gpt-4", content: "Hello world" };
+          }),
+      } as unknown as LLMService;
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }),
+        { llm, pluginRuntime },
+      );
+
+      expect(events).toEqual(["open", "route", "llm", "close"]);
+    });
+
+    it("closes the plugin session when the run fails", async () => {
+      let closes = 0;
+      const session = {
+        runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
+        runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        describeHook: () => undefined,
+        close: () =>
+          Effect.sync(() => {
+            closes += 1;
+          }),
+      } as unknown as PluginSession;
+      const pluginRuntime = {
+        openSession: () => Effect.succeed(session),
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: () => Effect.fail(new Error("model unavailable")),
+      } as unknown as LLMService;
+
+      await expect(
+        runWithTestLayers(AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }), {
+          llm,
+          pluginRuntime,
+        }),
+      ).rejects.toThrow("model unavailable");
+      expect(closes).toBe(1);
+    });
+
+    it("closes the plugin session when the run is interrupted", async () => {
+      let enterModel!: () => void;
+      const modelEntered = new Promise<void>((resolve) => {
+        enterModel = resolve;
+      });
+      let closes = 0;
+      const session = {
+        runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
+        runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        describeHook: () => undefined,
+        close: () =>
+          Effect.sync(() => {
+            closes += 1;
+          }),
+      } as unknown as PluginSession;
+      const pluginRuntime = {
+        openSession: () => Effect.succeed(session),
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: () => {
+          enterModel();
+          return Effect.never;
+        },
+      } as unknown as LLMService;
+      const program = AgentRunner.run({ ...defaultOptions, stream: false, maxIterations: 1 }).pipe(
+        Effect.provide(createTestLayer({ llm, pluginRuntime })),
+      ) as Effect.Effect<unknown, unknown, never>;
+      const fiber = Effect.runFork(program);
+
+      await modelEntered;
+      await Effect.runPromise(Fiber.interrupt(fiber));
+
+      expect(closes).toBe(1);
     });
   });
 

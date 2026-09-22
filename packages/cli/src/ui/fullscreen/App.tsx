@@ -263,6 +263,11 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
     onActionRef.current(action);
   }, []);
 
+  const handleReachedBottom = useCallback(() => {
+    seenBlocks.current = viewRef.current.blocks.length;
+    setNewBelow(undefined);
+  }, []);
+
   const scrollTranscriptByWheel = useCallback(
     (direction: string, delta: number): void => {
       const amount = wheelScrollDelta(direction, delta);
@@ -608,7 +613,8 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
           viewport={viewport}
           focus={focus}
           visibleCount={visibleCount}
-          followLive={followLive && !overlayOpen}
+          followLive={followLive && focus === "input" && newBelow === undefined && !overlayOpen}
+          onReachedBottom={handleReachedBottom}
           {...(newBelow === undefined ? {} : { newBelow })}
         />
       </box>

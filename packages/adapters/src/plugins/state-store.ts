@@ -36,6 +36,8 @@ export interface PluginStateRecord {
   readonly trustedDigests: readonly string[];
   readonly consentGrants: readonly PluginConsentGrant[];
   readonly enabledAgentIds: readonly string[];
+  /** Enabled for every agent, including agents created later, the way MCP servers enable globally. */
+  readonly enabledForAllAgents: boolean;
   /** Digests enabled at least once; retained to conservatively report restart requirements. */
   readonly activatedDigests: readonly string[];
   readonly storedSecretNames: readonly string[];
@@ -136,6 +138,7 @@ function parseState(value: unknown): PluginStateDocument {
       trustedDigests: item["trustedDigests"],
       consentGrants: item["consentGrants"],
       enabledAgentIds: item["enabledAgentIds"],
+      enabledForAllAgents: item["enabledForAllAgents"] === true,
       activatedDigests: item["activatedDigests"],
       storedSecretNames: item["storedSecretNames"],
     };

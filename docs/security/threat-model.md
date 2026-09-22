@@ -32,8 +32,12 @@ additions, MCP/custom tools, and then applies `deniedTools` and any run-specific
 `deniedTools` for a hard per-agent ceiling; `tools` is additive, not an allowlist.
 
 Available mutating tools use approval pairs: the proposal describes the action, then only the hidden
-execution half performs it. `execute_command` is classified per command. Unknown or ambiguous shell
-commands remain `high-risk`; the denylist is only defense in depth and is bypassable by obfuscation.
+execution half performs it. `execute_command` is classified per command because its declared risk is
+`unknown`. An enabled `classify.command-risk` policy hook may supply that classification and can
+therefore affect whether the active tier asks for approval. It cannot classify statically rated
+tools, expand the effective tool set, override allowlists or the selected tier, or bypass the shell
+denylist. Plugin failure falls back to the built-in classifier; unknown or ambiguous shell commands
+remain `high-risk`. The denylist is only defense in depth and is bypassable by obfuscation.
 
 Interactive runs ask a person. Unattended runs auto-approve only what their policy admits and decline
 the rest. `--park` is an explicit alternative that persists one waiting run for later approval.
@@ -44,6 +48,11 @@ Risk, disclosure, and egress are separate metadata. A read-only web request can 
 text; a local file edit mutates without egress. Webhook and peer runs first enforce a disclosure
 ceiling and remove egress tools, then add only tools explicitly named in that caller's `allow` list.
 The receiving installation chooses its agent and policy; a peer cannot import the caller's authority.
+
+A network-backed command-risk plugin is a separate egress boundary. Jazz projects only the bounded
+command string into `classify.command-risk`; it does not include conversation history, tool results,
+environment variables, or file contents. The manifest must declare command-text egress and the exact
+destination, and a local operator must consent to those declarations for the current code digest.
 
 ### Secrets
 
@@ -77,6 +86,9 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Plugin isolation or preemption:** a trusted plugin can bypass its declared projection, network,
   and secret API; synchronous code can block or terminate Jazz. Cooperative timeouts and disabling
   stop host dispatch, not code that has already escaped host control.
+- **Classifier correctness:** an explicitly trusted and consented command-risk plugin can
+  misclassify an eligible `execute_command` call. Jazz validates its shape, limits its scope, and
+  fails closed on operational errors, but probabilistic judgment is not proof of safety.
 - **Air gap from `JAZZ_OFFLINE`:** the flag skips public catalog, library, and update requests;
   it does not block inference, tools, MCP, or OTLP. Enforce egress outside Jazz.
 - **Encrypted local history:** transcripts, work state, logs, and local telemetry are files under

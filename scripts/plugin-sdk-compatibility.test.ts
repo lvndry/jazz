@@ -16,6 +16,9 @@ type PluginSdkAbiCompatibility = readonly [
   Assert<Equivalent<Core.JsonValue, Sdk.JsonValue>>,
   Assert<Equivalent<Core.SkillRouteInput, Sdk.SkillRouteInput>>,
   Assert<Equivalent<Core.SkillRouteOutcome, Sdk.SkillRouteOutcome>>,
+  Assert<Equivalent<Core.CommandRiskInput, Sdk.CommandRiskInput>>,
+  Assert<Equivalent<Core.CommandRiskDistribution, Sdk.CommandRiskDistribution>>,
+  Assert<Equivalent<Core.CommandRiskOutcome, Sdk.CommandRiskOutcome>>,
   Assert<Equivalent<Core.DecisionQuestion, Sdk.DecisionQuestion>>,
   Assert<Equivalent<Core.DecisionRequest, Sdk.DecisionRequest>>,
   Assert<Equivalent<Core.DecisionAnswer, Sdk.DecisionAnswer>>,
@@ -28,6 +31,9 @@ type PluginSdkAbiCompatibility = readonly [
 
 it("keeps the SDK boundary structurally aligned with core", () => {
   const checked: PluginSdkAbiCompatibility = [
+    true,
+    true,
+    true,
     true,
     true,
     true,

@@ -30,6 +30,7 @@ export const PLUGIN_MANIFEST_METADATA_FIELDS = [
   "version",
   "hostApi",
   "hooks",
+  "policyHooks",
   "decisionProviders",
   "tools",
   "commands",
@@ -336,7 +337,17 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }).map((hook) => {
-      if (hook !== "route.skills") throw new Error(`Unknown advisory hook: ${hook}`);
+      if (hook !== "route.skills" && hook !== "compact.tools") {
+        throw new Error(`Unknown advisory hook: ${hook}`);
+      }
+      return hook;
+    }),
+    policyHooks: uniqueStrings(root["policyHooks"] ?? [], "policyHooks", {
+      maxItems: 8,
+      maxLength: 64,
+      pattern: HOOK_ID,
+    }).map((hook) => {
+      if (hook !== "classify.command-risk") throw new Error(`Unknown policy hook: ${hook}`);
       return hook;
     }),
     decisionProviders: uniqueStrings(root["decisionProviders"], "decisionProviders", {

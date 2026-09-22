@@ -85,7 +85,7 @@ export class PluginModuleLoader {
   async listEnabledManifests(): Promise<readonly PluginManifest[]> {
     const state = await this.options.stateStore.read();
     return Object.values(state.plugins)
-      .filter((record) => record.enabledAgentIds.length > 0)
+      .filter((record) => record.enabledForAllAgents || record.enabledAgentIds.length > 0)
       .map((record) => record.current.manifest)
       .sort((left, right) => left.id.localeCompare(right.id));
   }
@@ -99,7 +99,9 @@ export class PluginModuleLoader {
     const enabled = Object.entries(state.plugins)
       .filter(
         ([, record]) =>
-          record.enabledAgentIds.includes(agentId) || record.enabledAgentIds.includes(ALL_AGENTS),
+          record.enabledForAllAgents ||
+          record.enabledAgentIds.includes(agentId) ||
+          record.enabledAgentIds.includes(ALL_AGENTS),
       )
       .sort(([left], [right]) => left.localeCompare(right));
 

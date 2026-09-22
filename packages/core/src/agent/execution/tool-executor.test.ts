@@ -603,7 +603,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     expect(approvalResolved?.approved).toBe(true);
   });
 
-  it("emits classifying/classified events and the verdict on complete for execute_command", async () => {
+  it("uses the run-scoped resolver and emits its verdict for execute_command", async () => {
     const mockToolRegistry = {
       getTool: () =>
         Effect.succeed({
@@ -650,8 +650,9 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     } as unknown as PresentationService;
 
     const classifyingLlm = {
-      createChatCompletion: () =>
-        Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "read-only" }),
+      createChatCompletion: () => {
+        throw new Error("the run-scoped resolver should replace the direct classifier");
+      },
     } as unknown as LLMService;
 
     const testLayer = makeTestLayer({
@@ -680,6 +681,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
             createdAt: new Date(),
             updatedAt: new Date(),
           },
+          resolveCommandRisk: () => Effect.succeed("read-only"),
         },
         displayConfig,
         recordingRenderer,

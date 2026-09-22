@@ -59,6 +59,7 @@ export interface PluginInspection {
   readonly consented: boolean;
   readonly consentDigest: string;
   readonly enabledAgentIds: readonly string[];
+  readonly enabledForAllAgents: boolean;
   readonly secrets: readonly PluginSecretStatus[];
   readonly artifactValid: boolean;
   readonly restartRequired: boolean;
@@ -190,6 +191,7 @@ export class PluginRegistryServiceImpl {
         trustedDigests: [],
         consentGrants: [],
         enabledAgentIds: [],
+        enabledForAllAgents: false,
         activatedDigests: [],
         storedSecretNames: [],
       };
@@ -230,6 +232,7 @@ export class PluginRegistryServiceImpl {
           trustedDigests: [],
           consentGrants: [],
           enabledAgentIds: [],
+          enabledForAllAgents: false,
           activatedDigests: [],
           storedSecretNames: [],
         };
@@ -283,6 +286,7 @@ export class PluginRegistryServiceImpl {
         current: recordFor(acquired.manifest, acquired.source, artifactPath),
         previous: existing.current,
         enabledAgentIds: [],
+        enabledForAllAgents: false,
       };
       return {
         state: replaceEntry(state, pluginId, entry),
@@ -403,6 +407,7 @@ export class PluginRegistryServiceImpl {
         current: existing.previous,
         previous: existing.current,
         enabledAgentIds: [],
+        enabledForAllAgents: false,
       };
       return {
         state: replaceEntry(state, pluginId, entry),
@@ -463,8 +468,10 @@ export class PluginRegistryServiceImpl {
     });
   }
 
-  async enable(id: string, agentId: string): Promise<PluginLifecycleResult> {
-    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+  async enable(id: string, agentId?: string): Promise<PluginLifecycleResult> {
+    if (agentId !== undefined && agentId.trim().length === 0) {
+      throw new Error("agentId cannot be empty");
+    }
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
       const pluginId = existing.current.manifest.id;
@@ -477,19 +484,37 @@ export class PluginRegistryServiceImpl {
       ) {
         throw new Error(`Plugin ${id} does not have current egress consent`);
       }
+      // A plugin enabled for all agents runs everywhere, so it conflicts with any other plugin that
+      // shares a hook and is active anywhere; a per-agent enable conflicts with another plugin that
+      // is enabled for that agent or for all agents. One handler per hook, either way.
       const conflicts: string[] = [];
       for (const [otherId, other] of Object.entries(state.plugins)) {
-        if (otherId === pluginId || !other.enabledAgentIds.includes(agentId)) continue;
-        const overlap = other.current.manifest.hooks.filter((hook) =>
+        if (otherId === pluginId) continue;
+        const otherActiveHere =
+          agentId === undefined
+            ? other.enabledForAllAgents || other.enabledAgentIds.length > 0
+            : other.enabledForAllAgents || other.enabledAgentIds.includes(agentId);
+        if (!otherActiveHere) continue;
+        const advisoryOverlap = other.current.manifest.hooks.filter((hook) =>
           existing.current.manifest.hooks.includes(hook),
         );
+        const policyOverlap = other.current.manifest.policyHooks.filter((hook) =>
+          existing.current.manifest.policyHooks.includes(hook),
+        );
+        const overlap = [...advisoryOverlap, ...policyOverlap];
         if (overlap.length > 0) conflicts.push(`${otherId} (${overlap.join(", ")})`);
       }
-      if (conflicts.length > 0)
-        throw new Error(`Plugin hook conflict for agent ${agentId}: ${conflicts.join("; ")}`);
+      if (conflicts.length > 0) {
+        const scope = agentId === undefined ? "all agents" : `agent ${agentId}`;
+        throw new Error(`Plugin hook conflict for ${scope}: ${conflicts.join("; ")}`);
+      }
       const entry = {
         ...existing,
-        enabledAgentIds: normalized([...existing.enabledAgentIds, agentId]),
+        enabledAgentIds:
+          agentId === undefined
+            ? existing.enabledAgentIds
+            : normalized([...existing.enabledAgentIds, agentId]),
+        enabledForAllAgents: agentId === undefined ? true : existing.enabledForAllAgents,
         activatedDigests: normalized([...existing.activatedDigests, digest]),
       };
       return {
@@ -506,8 +531,9 @@ export class PluginRegistryServiceImpl {
       const enabledAgentIds = agentId
         ? existing.enabledAgentIds.filter((candidate) => candidate !== agentId)
         : [];
+      const enabledForAllAgents = agentId ? existing.enabledForAllAgents : false;
       return {
-        state: replaceEntry(state, pluginId, { ...existing, enabledAgentIds }),
+        state: replaceEntry(state, pluginId, { ...existing, enabledAgentIds, enabledForAllAgents }),
         result: {
           action: "disabled" as const,
           pluginId,
@@ -607,6 +633,7 @@ export class PluginRegistryServiceImpl {
       consented: entry.consentGrants.some((grant) => grant.digest === consentDigest),
       consentDigest,
       enabledAgentIds: entry.enabledAgentIds,
+      enabledForAllAgents: entry.enabledForAllAgents,
       secrets: await Promise.all(
         entry.current.manifest.secrets.map((secret) => this.secrets.status(pluginId, secret)),
       ),

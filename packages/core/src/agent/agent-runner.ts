@@ -4,7 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
-import { Effect, Option } from "effect";
+import { Cause, Effect, Option, Scope } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,
   DEFAULT_MAX_LLM_RETRIES,
@@ -39,7 +39,7 @@ import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import type { SkillRouteOutcome } from "@/core/types/plugin";
+import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -48,13 +48,19 @@ import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
-import { Summarizer, type CompactionOutcome } from "./context/summarizer";
+import { buildAdvisedReducer } from "./context/advised-tool-clearing";
+import {
+  Summarizer,
+  type CompactionOutcome,
+  type CompactionProgressObserver,
+} from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
 import { toolDenials } from "./tools/agent-tool-resolution";
+import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
@@ -239,6 +245,7 @@ function initializeAgentRun(
   | SkillService
   | PresentationService
   | LLMService
+  | Scope.Scope
 > {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;
@@ -304,15 +311,13 @@ function initializeAgentRun(
       `[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map((s) => s.name).join(", ")}`,
     );
 
-    // Plugin routing is a shadow measurement unless the explicit experimental switch is on.
-    // The session is scoped to this run and closed immediately after the only v1 hook.
+    // One plugin session owns every hook/provider registration for this run. It remains alive
+    // through tool execution so policy hooks and routing share the same bounded budgets and is
+    // released by the enclosing Effect scope on success, failure, or interruption.
     const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-    const routingOutcome =
-      options.internal !== true &&
-      options.isResume !== true &&
-      persona !== "summarizer" &&
-      Option.isSome(pluginRuntime)
-        ? yield* Effect.acquireUseRelease(
+    const pluginSession =
+      options.internal !== true && persona !== "summarizer" && Option.isSome(pluginRuntime)
+        ? yield* Effect.acquireRelease(
             pluginRuntime.value.openSession({
               agentId: agent.id,
               metrics: runMetrics,
@@ -321,27 +326,46 @@ function initializeAgentRun(
                 ? {
                     hookTimeoutMs: Math.max(
                       1,
-                      resolvedMaxDurationMs - (Date.now() - runMetrics.startedAt.getTime()),
+                      Math.min(
+                        DEFAULT_PLUGIN_HOOK_TIMEOUT_MS,
+                        resolvedMaxDurationMs - (Date.now() - runMetrics.startedAt.getTime()),
+                      ),
                     ),
                   }
                 : {}),
               currentRunCostUSD: () => runMetrics.decisionCostUSD ?? 0,
             }),
-            (session) =>
-              session.runHook("route.skills", {
-                requestText: userInput,
-                skills: relevantSkills.map(({ name, description }) => ({ name, description })),
-              }),
             (session) => session.close(),
           ).pipe(
+            Effect.map(Option.some),
             Effect.catchAll((error) =>
               logger
-                .warn("Plugin skill routing failed; using deterministic behavior", {
+                .warn("Plugin session failed to open; using deterministic behavior", {
                   error: error.message,
                 })
-                .pipe(Effect.as(undefined)),
+                .pipe(Effect.as(Option.none())),
             ),
           )
+        : Option.none();
+
+    const routingOutcome =
+      options.isResume !== true && persona !== "summarizer" && Option.isSome(pluginSession)
+        ? yield* pluginSession.value
+            .runHook("route.skills", {
+              requestText: userInput,
+              skills: relevantSkills.map(({ name, description }) => ({ name, description })),
+            })
+            .pipe(
+              Effect.catchAllCause((cause) =>
+                Cause.isInterruptedOnly(cause)
+                  ? Effect.failCause(cause)
+                  : logger
+                      .warn("Plugin skill routing failed; using deterministic behavior", {
+                        error: String(cause),
+                      })
+                      .pipe(Effect.as(undefined)),
+              ),
+            )
         : undefined;
     if (
       routingOutcome?.status === "abstained" &&
@@ -350,7 +374,7 @@ function initializeAgentRun(
       yield* logger.warn("Plugin skill routing handler failed; using deterministic behavior");
     }
     const initialProviderAdvisory =
-      process.env["JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY"] === "1" && routingOutcome !== undefined
+      routingOutcome !== undefined
         ? renderSkillRoutingAdvisory(
             routingOutcome,
             new Set(relevantSkills.map((skill) => skill.name)),
@@ -593,6 +617,16 @@ function initializeAgentRun(
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
+            resolveCommandRisk: (command: string, conversationMessages?: readonly ChatMessage[]) =>
+              resolveCommandRisk(command, agent, conversationMessages, runMetrics, (candidate) =>
+                pluginSession.value.runPolicyHook("classify.command-risk", {
+                  command: candidate,
+                }),
+              ),
+          }
+        : {}),
       // Always pass arrays by reference so that in-place mutations via
       // onAutoApproveCommand/onAutoApproveTool callbacks are visible to
       // subsequent isAutoApproved checks within the same agent run.
@@ -656,6 +690,10 @@ function initializeAgentRun(
         }),
     };
 
+    const compactPluginName = Option.isSome(pluginSession)
+      ? pluginSession.value.describeHook("compact.tools")?.pluginName
+      : undefined;
+
     return {
       agent,
       actualConversationId,
@@ -664,6 +702,17 @@ function initializeAgentRun(
       expandedToolNames,
       messages,
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
+            reduceToolResults: buildAdvisedReducer({
+              goal: userInput,
+              provider,
+              model,
+              decide: (input) => pluginSession.value.runCompactTools(input),
+            }),
+          }
+        : {}),
+      ...(compactPluginName !== undefined ? { compactPluginName } : {}),
       runMetrics,
       provider,
       model,
@@ -726,79 +775,81 @@ export class AgentRunner {
     | ToolRequirements
     | SkillService
   > {
-    return Effect.gen(function* () {
-      // Get services
-      const configService = yield* AgentConfigServiceTag;
-      const appConfig = yield* configService.appConfig;
+    return Effect.scoped(
+      Effect.gen(function* () {
+        // Get services
+        const configService = yield* AgentConfigServiceTag;
+        const appConfig = yield* configService.appConfig;
 
-      // Initialize run context
-      const runContext = yield* initializeAgentRun(options);
+        // Initialize run context
+        const runContext = yield* initializeAgentRun(options);
 
-      // Internal runs without their own panel (compaction) must not take over
-      // the parent's stream — a streamed completion finalizes the transcript,
-      // idles the live zone, and looks like the turn ended. Sub-agents that
-      // need a live panel pass ephemeralRegionId and keep streaming.
-      const streamDetection = shouldEnableStreaming(
-        appConfig,
-        options.stream !== undefined ? { stream: options.stream } : {},
-      );
-      const shouldStream =
-        streamDetection.shouldStream &&
-        !(options.internal === true && options.ephemeralRegionId === undefined);
+        // Internal runs without their own panel (compaction) must not take over
+        // the parent's stream — a streamed completion finalizes the transcript,
+        // idles the live zone, and looks like the turn ended. Sub-agents that
+        // need a live panel pass ephemeralRegionId and keep streaming.
+        const streamDetection = shouldEnableStreaming(
+          appConfig,
+          options.stream !== undefined ? { stream: options.stream } : {},
+        );
+        const shouldStream =
+          streamDetection.shouldStream &&
+          !(options.internal === true && options.ephemeralRegionId === undefined);
 
-      // Get display config with defaults
-      const displayConfig: DisplayConfig = resolveDisplayConfig(appConfig);
+        // Get display config with defaults
+        const displayConfig: DisplayConfig = resolveDisplayConfig(appConfig);
 
-      // Check if we should show metrics
-      const showMetrics = appConfig.output?.showMetrics ?? true;
+        // Check if we should show metrics
+        const showMetrics = appConfig.output?.showMetrics ?? true;
 
-      // Get streaming config with defaults (streaming-specific)
-      const streamingConfig: StreamingConfig = {
-        ...(appConfig.output?.streaming?.enabled !== undefined
-          ? { enabled: appConfig.output.streaming.enabled }
-          : {}),
-        ...(appConfig.output?.streaming?.textBufferMs !== undefined
-          ? { textBufferMs: appConfig.output.streaming.textBufferMs }
-          : {}),
-      };
+        // Get streaming config with defaults (streaming-specific)
+        const streamingConfig: StreamingConfig = {
+          ...(appConfig.output?.streaming?.enabled !== undefined
+            ? { enabled: appConfig.output.streaming.enabled }
+            : {}),
+          ...(appConfig.output?.streaming?.textBufferMs !== undefined
+            ? { textBufferMs: appConfig.output.streaming.textBufferMs }
+            : {}),
+        };
 
-      const runRecursive = (runOpts: {
-        agent: Agent;
-        userInput: string;
-        conversationId: string;
-        maxIterations?: number;
-      }) => AgentRunner.runRecursive(runOpts);
+        const runRecursive = (runOpts: {
+          agent: Agent;
+          userInput: string;
+          conversationId: string;
+          maxIterations?: number;
+        }) => AgentRunner.runRecursive(runOpts);
 
-      const execute = shouldStream
-        ? executeWithStreaming(
-            options,
-            runContext,
-            displayConfig,
-            streamingConfig,
-            showMetrics,
-            runRecursive,
-          )
-        : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+        const execute = shouldStream
+          ? executeWithStreaming(
+              options,
+              runContext,
+              displayConfig,
+              streamingConfig,
+              showMetrics,
+              runRecursive,
+            )
+          : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
 
-      // Priced once here rather than per transition: the lookup is a cached network fetch,
-      // and a run that parks or fails should not pay for it twice.
-      const pricing = yield* Effect.tryPromise({
-        try: () => getModelsDevMetadata(runContext.model, runContext.provider),
-        catch: () => undefined,
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        // Priced once here rather than per transition: the lookup is a cached network fetch,
+        // and a run that parks or fails should not pay for it twice.
+        const pricing = yield* Effect.tryPromise({
+          try: () => getModelsDevMetadata(runContext.model, runContext.provider),
+          catch: () => undefined,
+        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-      return yield* withRunRecording(
-        {
-          runId: options.runId ?? runContext.runMetrics.runId,
-          agentId: options.agent.id,
-          conversationId: runContext.actualConversationId,
-          userInput: options.userInput,
-          internal: options.internal === true,
-          costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
-        },
-        execute,
-      );
-    });
+        return yield* withRunRecording(
+          {
+            runId: options.runId ?? runContext.runMetrics.runId,
+            agentId: options.agent.id,
+            conversationId: runContext.actualConversationId,
+            userInput: options.userInput,
+            internal: options.internal === true,
+            costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+          },
+          execute,
+        );
+      }),
+    );
   }
 
   /**
@@ -818,6 +869,7 @@ export class AgentRunner {
     agent: Agent,
     conversationId: string,
     contextWindowTokens: number,
+    onPhase?: CompactionProgressObserver,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -836,8 +888,102 @@ export class AgentRunner {
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
-    return Summarizer.compact(messages, agent, conversationId, runRecursive, contextWindowTokens);
+    return Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+      // Manual /compact has no live agent loop, so it never hit the clear rung where a
+      // compact.tools plugin normally prunes. Open a short-lived session here and run the same
+      // lossless pre-pass before the summary, so /compact is plugin-driven exactly like a run.
+      const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+      if (Option.isNone(pluginRuntime)) {
+        return yield* Summarizer.compact(
+          messages,
+          agent,
+          conversationId,
+          runRecursive,
+          contextWindowTokens,
+          false,
+          undefined,
+          onPhase,
+        );
+      }
+
+      const provider = agent.config.llmProvider;
+      const model = agent.config.llmModel;
+      const goal =
+        lastUserMessageText(messages) ??
+        "Continue the current task; keep tool results still relevant to it.";
+      const metrics = createAgentRunMetrics({ agent, conversationId, provider, model });
+
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* Effect.acquireRelease(
+            pluginRuntime.value.openSession({ agentId: agent.id, metrics }),
+            (openedSession) => openedSession.close(),
+          ).pipe(
+            Effect.map(Option.some),
+            Effect.catchAll((error) =>
+              logger
+                .warn("Plugin session failed to open for /compact; summarizing without pruning", {
+                  error: error.message,
+                })
+                .pipe(Effect.as(Option.none())),
+            ),
+          );
+
+          const reduceToolResults = Option.isSome(session)
+            ? buildAdvisedReducer({
+                goal,
+                provider,
+                model,
+                decide: (input) => session.value.runCompactTools(input),
+              })
+            : undefined;
+
+          const pluginName = Option.isSome(session)
+            ? session.value.describeHook("compact.tools")?.pluginName
+            : undefined;
+          const observedPhase: CompactionProgressObserver | undefined =
+            onPhase === undefined
+              ? undefined
+              : pluginName === undefined
+                ? onPhase
+                : (event) =>
+                    onPhase(
+                      event.phase === "prune-start" || event.phase === "prune-done"
+                        ? { ...event, plugin: pluginName }
+                        : event,
+                    );
+
+          return yield* Summarizer.compact(
+            messages,
+            agent,
+            conversationId,
+            runRecursive,
+            contextWindowTokens,
+            false,
+            reduceToolResults,
+            observedPhase,
+          );
+        }),
+      );
+    });
   }
+}
+
+/** Most recent user message text, to hint the compaction prune at what is still relevant. */
+function lastUserMessageText(messages: ConversationMessages): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (
+      message &&
+      message.role === "user" &&
+      typeof message.content === "string" &&
+      message.content.trim().length > 0
+    ) {
+      return message.content;
+    }
+  }
+  return undefined;
 }
 
 // Re-export types for convenience
