@@ -1,13 +1,11 @@
 /** Pure memory lifecycle transitions used to credit recalled lessons and record evidence. */
 
-import type { MemoryEntryCredit, MemoryFileProvenance } from "@/core/interfaces/memory-provenance";
-
-export interface MemoryEvidence {
-  readonly kind: "correction" | "misfire" | "run";
-  readonly summary: string;
-  readonly recordedAt: string;
-  readonly runId?: string;
-}
+import { MAX_MEMORY_EVIDENCE } from "@/core/constants/memory";
+import type {
+  MemoryEntryCredit,
+  MemoryEvidence,
+  MemoryFileProvenance,
+} from "@/core/interfaces/memory-provenance";
 
 export interface MemoryOutcomeInput {
   readonly recalled: boolean;
@@ -32,7 +30,10 @@ export function applyMemoryOutcome(
     missed: previous.missed + (!input.recalled && input.triggerFired ? 1 : 0),
     everFired: previous.everFired || input.triggerFired,
   };
-  const evidence = input.evidence === undefined ? undefined : [input.evidence];
+  const evidence =
+    input.evidence === undefined
+      ? provenance.evidence
+      : [...(provenance.evidence ?? []), input.evidence].slice(-MAX_MEMORY_EVIDENCE);
   return {
     ...provenance,
     credit: nextCredit,

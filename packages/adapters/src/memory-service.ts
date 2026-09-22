@@ -37,7 +37,7 @@ import type {
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
-import { ALWAYS_SEGMENT } from "@jazz/core/memory/entry-path";
+import { ALWAYS_SEGMENT, WHEN_SEGMENT } from "@jazz/core/memory/entry-path";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -717,19 +717,20 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly conditionalEntries: MemoryService["conditionalEntries"] = (scopes) =>
+  readonly conditionalEntries: MemoryService["conditionalEntries"] = (scopes, isRelevantTopic) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
         const entries: MemoryEntryInForce[] = [];
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
-          const topicRoot = path.join(this.baseMemoryDirectory, scope, "when");
+          const topicRoot = path.join(this.baseMemoryDirectory, scope, WHEN_SEGMENT);
           const topics = yield* fs
             .readDirectory(topicRoot)
             .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
           for (const topic of topics.sort()) {
             if (topic.startsWith(".")) continue;
+            if (isRelevantTopic !== undefined && !isRelevantTopic(topic)) continue;
             const topicPath = path.join(topicRoot, topic);
             const topicInfo = yield* fs
               .stat(topicPath)
@@ -747,7 +748,7 @@ export class MemoryServiceImpl implements MemoryService {
               const summary = yield* readEntrySummary(fs, path.join(topicPath, name));
               if (summary === undefined) continue;
               entries.push({
-                path: `${scope}/when/${topic}/${name}`,
+                path: `${scope}/${WHEN_SEGMENT}/${topic}/${name}`,
                 scope,
                 topic,
                 summary,
