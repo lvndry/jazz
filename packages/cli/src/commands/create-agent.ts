@@ -9,8 +9,8 @@ import {
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
-import type { ProviderName } from "@jazz/core/constants/models";
 import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
+import type { ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
   defaultOllamaContextWindow,
