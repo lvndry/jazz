@@ -21,9 +21,9 @@ export type ModelSource =
     }
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
-export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
+export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/api";
 export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
-export const DEFAULT_LLAMACPP_BASE_URL = "http://localhost:8080/v1";
+export const DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   anthropic: { type: "models-dev" },
