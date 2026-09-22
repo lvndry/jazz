@@ -54,11 +54,11 @@ Two consequences worth stating, because both were bugs before:
   _live_ everywhere else, so spending it on bold prose would actively mislead.
   Hierarchy comes from stroke weight (`▏▎▍▌`), rule weight (`─ ━`), shade
   density (`░▒▓█`), and indentation.
-- **There is one accent.** A compact neutral bubble makes a user turn findable,
-  and its marker glyph identifies the speaker without giving either party a
-  separate colour. Previously brand, warning and inline code were all the same
-  amber, so a bulleted list with bold text and a code span rendered as a wall of
-  orange.
+- **There is one accent.** A full-width neutral band makes a user turn
+  findable, while its marker glyph identifies the speaker without giving either
+  party a separate colour. Previously brand, warning and inline code were all
+  the same amber, so a bulleted list with bold text and a code span rendered as
+  a wall of orange.
 
 ### Motion is allowed where text is not
 
