@@ -1545,7 +1545,22 @@ describe("fullscreen bridge", () => {
     expect(scrolled).toContain("line-00");
     expect(scrolled).not.toContain("line-39");
 
-    for (let step = 0; step < 40; step++) {
+    // New output must not steal the reader back to the live edge. In
+    // particular, this covers streaming updates arriving immediately after a
+    // wheel event, before a focus update would otherwise have rendered.
+    store.printOutput({
+      type: "log",
+      message: "line-40 unique-marker",
+      timestamp: new Date(),
+    });
+    store.flushOutputBatchNow();
+    await rendered.flush();
+    await settleKeypress(rendered.flush, 100);
+    const whileGenerating = rendered.captureCharFrame();
+    expect(whileGenerating).toContain("line-00");
+    expect(whileGenerating).not.toContain("line-40");
+
+    for (let step = 0; step < 41; step++) {
       await rendered.mockMouse.scroll(20, 8, "down");
       await settleKeypress(rendered.flush);
     }
