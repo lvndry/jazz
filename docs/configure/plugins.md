@@ -59,6 +59,31 @@ it, and hashes the source tree; that hash is the digest you trust. A local direc
 HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install as bundled
 artifacts (see [Authoring](#authoring)).
 
+## Community plugin discovery
+
+Public repositories can opt into Jazz's metadata-only community directory by adding the exact
+GitHub topic `jazz-plugin` and a valid root `jazz-plugin.json`. Jazz's scheduled index refresh reads
+repository metadata, resolves the default branch to a full commit SHA, and fetches only that JSON
+manifest. It never checks out, builds, imports, or executes community repository code.
+
+Community entries are labeled **community-indexed — not reviewed by Jazz**. Their declared hooks,
+network destinations, data classes, secrets, tools, and commands are disclosures supplied by the
+repository, not independent security findings. Jazz shows the observed commit and emits an install
+command pinned to it:
+
+```bash
+jazz plugin add owner/repo@<commit-sha>
+```
+
+The normal local lifecycle still applies: installation stores and hashes the source, then the
+operator must inspect, trust, grant egress consent, and enable it. Community entries are kept out
+of the reviewed artifact catalog and cannot be installed by reviewed catalog id.
+
+The website consumes a checked-in snapshot at
+`packages/website/src/data/community-plugin-catalog.json`. The scheduled
+`community plugin catalog` workflow refreshes that snapshot through a pull request, so website
+builds remain deterministic and do not depend on GitHub being available at deploy time.
+
 `add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
 whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
 are still granted; before each run it re-hashes the installed source tree and refuses to load code

@@ -1,0 +1,50 @@
+name: community plugin catalog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: community-plugin-catalog
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Refresh snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun run plugin:community-catalog
+      - name: Open catalog update pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- packages/website/src/data/community-plugin-catalog.json; then
+            exit 0
+          fi
+          branch="automation/community-plugin-catalog"
+          git switch -C "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/website/src/data/community-plugin-catalog.json
+          git commit -m "chore(marketplace): refresh community plugin catalog"
+          git push --force-with-lease origin "HEAD:$branch"
+          if [ "$(gh pr list --head "$branch" --base main --state open --json number --jq 'length')" = "0" ]; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore(marketplace): refresh community plugin catalog" \
+              --body "Refreshes the metadata-only community plugin snapshot. The indexer reads GitHub repository metadata and jazz-plugin.json only; it does not execute community code."
+          fi

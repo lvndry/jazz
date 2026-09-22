@@ -16,18 +16,21 @@ const personas = await getPersonaEntries();
 const workflows = await getWorkflowEntries();
 const skills = await getSkillEntries();
 const plugins = await getPluginEntries();
+const reviewedPlugins = plugins.filter((entry) => entry.sourceType === "reviewed");
+const communityPlugins = plugins.filter((entry) => entry.sourceType === "community");
 ---
 
 <Library
   title="Marketplace — Jazz"
-  description="Browse Jazz personas, workflows, skills, and reviewed plugins: reusable ways to shape, teach, automate, and extend an agent."
+  description="Browse Jazz personas, workflows, skills, and reviewed or community-indexed plugins: reusable ways to shape, teach, automate, and extend an agent."
 >
   <p class="eyebrow mono">▞ marketplace</p>
   <h1>Give your agent a better starting point.</h1>
   <p class="lede">
     Reusable building blocks for Jazz. Personas shape behavior, skills teach procedures, workflows
     automate jobs, and plugins extend the harness. Read the source before you install anything;
-    every listing is committed to the repository or generated from a reviewed plugin catalog.
+    reviewed entries are generated from Jazz-controlled source, while community entries are
+    metadata-only pointers to external repositories.
   </p>
 
   <nav class="types mono" aria-label="Marketplace types">
@@ -35,6 +38,7 @@ const plugins = await getPluginEntries();
     <a href="#skills">skills</a>
     <a href="#workflows">workflows</a>
     <a href="#plugins">plugins</a>
+    <a href="#community-plugins">community plugins</a>
   </nav>
 
   <section id="personas">
@@ -127,18 +131,45 @@ const plugins = await getPluginEntries();
       </div>
     </div>
     <p class="section-lede">
-      Reviewed executable extensions. Their cards disclose hooks, network destinations, data sent,
-      secrets, and artifact digests. The marketplace does not accept arbitrary uploads or enable code
-      from a page.
+      Jazz-reviewed executable extensions. Their cards disclose hooks, network destinations, data
+      sent, secrets, and artifact digests. Visiting a page never grants trust or enables code.
     </p>
     <div class="grid">
       {
-        plugins.map((entry) => (
+        reviewedPlugins.map((entry) => (
           <a class="card plugin-card" href={pluginPath(entry.id)}>
             <span class="name mono">{entry.name}</span>
             <span class="desc">{entry.id}</span>
             <span class="meta mono">
               {entry.version} · {entry.hooks.length + entry.policyHooks.length} hooks · sha256 verified
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section id="community-plugins">
+    <div class="section-head">
+      <h2>Community plugins</h2>
+      <div class="install">
+        <code class="mono">jazz plugin add owner/repo@commit</code>
+        <span class="hint">install source, then inspect and trust locally</span>
+      </div>
+    </div>
+    <p class="section-lede">
+      Community-indexed repositories opt in with the <code class="mono">jazz-plugin</code> GitHub
+      topic. Their manifests are validated as metadata only; Jazz has not reviewed or audited their
+      source, and the repository's declarations are not security guarantees.
+    </p>
+    <div class="grid">
+      {
+        communityPlugins.map((entry) => (
+          <a class="card plugin-card" href={pluginPath(entry.id)}>
+            <span class="name mono">{entry.name}</span>
+            <span class="desc">{entry.description ?? entry.repository}</span>
+            <span class="meta mono">
+              community · {entry.version} · source {entry.defaultBranch} · not reviewed by Jazz
             </span>
           </a>
         ))
@@ -154,8 +185,9 @@ const plugins = await getPluginEntries();
       <code class="mono">WORKFLOW.md</code> into
       <code class="mono">packages/website/src/content/library/workflows/&lt;name&gt;/</code>, in
       the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request.
-      Skills live in <code class="mono">skills/&lt;name&gt;/SKILL.md</code>. Plugins are added only
-      through the reviewed first-party catalog build; this page is not an upload endpoint.
+      Skills live in <code class="mono">skills/&lt;name&gt;/SKILL.md</code>. Plugin repositories become
+      discoverable by adding the <code class="mono">jazz-plugin</code> topic and a valid
+      <code class="mono">jazz-plugin.json</code>; discoverability never grants trust.
     </p>
   </section>
 </Library>

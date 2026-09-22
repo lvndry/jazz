@@ -30,14 +30,12 @@ export interface PluginSecretEntry {
   description: string;
 }
 
-export interface PluginEntry {
+interface PluginEntryBase {
   schemaVersion: number;
   id: string;
   name: string;
   version: string;
   hostApi: number;
-  artifact: string;
-  sha256: string;
   hooks: string[];
   policyHooks: string[];
   decisionProviders: string[];
@@ -50,6 +48,31 @@ export interface PluginEntry {
   dataSent: string[];
   secrets: PluginSecretEntry[];
 }
+
+export type PluginEntry = PluginEntryBase &
+  (
+    | {
+        sourceType: "reviewed";
+        artifact: string;
+        sha256: string;
+      }
+    | {
+        sourceType: "community";
+        repository: string;
+        repositoryUrl: string;
+        manifestUrl: string;
+        defaultBranch: string;
+        sourceSha: string;
+        manifestSha256: string;
+        manifestPath: string;
+        trustTier: "community-indexed";
+        repositoryId: number;
+        indexedAt: string;
+        entry: string;
+        description?: string;
+        license?: string;
+      }
+  );
 
 export interface PersonaIndexEntry {
   name: string;
@@ -141,10 +164,15 @@ const skillDirectoryCandidates = [
   resolve(process.cwd(), "../skills"),
   resolve(process.cwd(), "../../skills"),
 ] as const;
-const pluginCatalogCandidates = [
+const reviewedPluginCatalogCandidates = [
   resolve(process.cwd(), ".build/plugin-catalog/plugins.json"),
   resolve(process.cwd(), "../.build/plugin-catalog/plugins.json"),
   resolve(process.cwd(), "../../.build/plugin-catalog/plugins.json"),
+] as const;
+const communityPluginCatalogCandidates = [
+  resolve(process.cwd(), ".build/plugin-catalog/community-plugins.json"),
+  resolve(process.cwd(), "../.build/plugin-catalog/community-plugins.json"),
+  resolve(process.cwd(), "../../.build/plugin-catalog/community-plugins.json"),
 ] as const;
 
 let repositorySkillsDirectoryPromise: Promise<string> | undefined;
@@ -345,19 +373,15 @@ function parsePluginEntry(value: unknown, index: number): PluginEntry {
   const secrets = record.secrets === undefined ? [] : record.secrets;
 
   if (!Array.isArray(tools) || !Array.isArray(commands) || !Array.isArray(secrets)) {
-    throw new Error(
-      `Invalid reviewed plugin catalog: plugins[${index}] capability fields must be arrays`,
-    );
+    throw new Error(`Invalid plugin catalog: plugins[${index}] capability fields must be arrays`);
   }
 
-  return {
+  const common = {
     schemaVersion: catalogNumber(record.schemaVersion, `plugins[${index}].schemaVersion`),
     id: catalogString(record.id, `plugins[${index}].id`),
     name: catalogString(record.name, `plugins[${index}].name`),
     version: catalogString(record.version, `plugins[${index}].version`),
     hostApi: catalogNumber(record.hostApi, `plugins[${index}].hostApi`),
-    artifact: catalogString(record.artifact, `plugins[${index}].artifact`),
-    sha256: catalogString(record.sha256, `plugins[${index}].sha256`),
     hooks: catalogStrings(record.hooks, `plugins[${index}].hooks`),
     policyHooks: catalogStrings(record.policyHooks, `plugins[${index}].policyHooks`),
     decisionProviders: catalogStrings(
@@ -413,30 +437,96 @@ function parsePluginEntry(value: unknown, index: number): PluginEntry {
       };
     }),
   };
+
+  const sourceType =
+    record.sourceType === undefined
+      ? "reviewed"
+      : catalogString(record.sourceType, `plugins[${index}].sourceType`);
+  if (sourceType === "reviewed") {
+    return {
+      ...common,
+      sourceType,
+      artifact: catalogString(record.artifact, `plugins[${index}].artifact`),
+      sha256: catalogString(record.sha256, `plugins[${index}].sha256`),
+    };
+  }
+  if (sourceType === "community") {
+    const description =
+      record.description === undefined
+        ? undefined
+        : catalogString(record.description, `plugins[${index}].description`);
+    const license =
+      record.license === undefined
+        ? undefined
+        : catalogString(record.license, `plugins[${index}].license`);
+    const sourceSha = catalogString(record.sourceSha, `plugins[${index}].sourceSha`);
+    const manifestSha256 = catalogString(record.manifestSha256, `plugins[${index}].manifestSha256`);
+    if (!/^[a-f0-9]{40}$/i.test(sourceSha)) {
+      throw new Error(`Invalid plugin catalog: plugins[${index}].sourceSha is invalid`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(manifestSha256)) {
+      throw new Error(`Invalid plugin catalog: plugins[${index}].manifestSha256 is invalid`);
+    }
+    return {
+      ...common,
+      sourceType,
+      repository: catalogString(record.repository, `plugins[${index}].repository`),
+      repositoryUrl: catalogString(record.repositoryUrl, `plugins[${index}].repositoryUrl`),
+      manifestUrl: catalogString(record.manifestUrl, `plugins[${index}].manifestUrl`),
+      defaultBranch: catalogString(record.defaultBranch, `plugins[${index}].defaultBranch`),
+      sourceSha,
+      manifestSha256,
+      manifestPath: catalogString(record.manifestPath, `plugins[${index}].manifestPath`),
+      trustTier:
+        record.trustTier === "community-indexed"
+          ? "community-indexed"
+          : (() => {
+              throw new Error(`Invalid plugin catalog: plugins[${index}].trustTier is unsupported`);
+            })(),
+      repositoryId:
+        typeof record.repositoryId === "number" &&
+        Number.isSafeInteger(record.repositoryId) &&
+        record.repositoryId > 0
+          ? record.repositoryId
+          : (() => {
+              throw new Error(`Invalid plugin catalog: plugins[${index}].repositoryId is invalid`);
+            })(),
+      indexedAt: catalogString(record.indexedAt, `plugins[${index}].indexedAt`),
+      entry: catalogString(record.entry, `plugins[${index}].entry`),
+      ...(description === undefined ? {} : { description }),
+      ...(license === undefined ? {} : { license }),
+    };
+  }
+  throw new Error(`Invalid plugin catalog: plugins[${index}].sourceType is unsupported`);
 }
 
 let pluginEntriesPromise: Promise<PluginEntry[]> | undefined;
 
-/** Read reviewed plugin releases from the catalog generated before Astro builds. */
+async function readPluginCatalog(candidate: string): Promise<PluginEntry[] | undefined> {
+  try {
+    const catalog = JSON.parse(await readFile(candidate, "utf8")) as { plugins?: unknown };
+    if (!Array.isArray(catalog.plugins)) {
+      throw new Error(`Invalid plugin catalog: ${candidate} must contain a plugins array`);
+    }
+    return catalog.plugins.map(parsePluginEntry);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Read reviewed and community plugin releases from the catalogs generated before Astro builds. */
 export async function getPluginEntries(): Promise<PluginEntry[]> {
   pluginEntriesPromise ??= (async () => {
-    for (const candidate of pluginCatalogCandidates) {
-      try {
-        const catalog = JSON.parse(await readFile(candidate, "utf8")) as {
-          plugins?: PluginEntry[];
-        };
-        if (!Array.isArray(catalog.plugins)) {
-          throw new Error("Invalid reviewed plugin catalog: plugins must be an array");
-        }
-        return catalog.plugins
-          .map(parsePluginEntry)
-          .sort((left, right) => left.name.localeCompare(right.name));
-      } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
-      }
-    }
-    return [];
+    const reviewed = await Promise.all(reviewedPluginCatalogCandidates.map(readPluginCatalog));
+    const community = await Promise.all(communityPluginCatalogCandidates.map(readPluginCatalog));
+    const reviewedEntries = reviewed.find((entries) => entries !== undefined) ?? [];
+    const communityEntries = community.find((entries) => entries !== undefined) ?? [];
+    const reviewedIds = new Set(reviewedEntries.map((entry) => entry.id));
+    return [
+      ...reviewedEntries,
+      ...communityEntries.filter((entry) => !reviewedIds.has(entry.id)),
+    ].sort((left, right) => left.name.localeCompare(right.name));
   })();
   return pluginEntriesPromise;
 }

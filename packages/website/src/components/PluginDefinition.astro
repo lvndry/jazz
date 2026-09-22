@@ -1,10 +1,9 @@
 ---
 /**
- * Security-first presentation of one reviewed plugin catalog entry.
+ * Security-first presentation of one reviewed or community plugin catalog entry.
  *
- * The catalog is generated from a reviewed source directory. This component
- * exposes the manifest's declared capabilities without implying that a page
- * visit installs, trusts, or enables executable code.
+ * Community entries expose only repository-declared metadata and never imply
+ * that Jazz reviewed, hosts, or endorses executable code.
  */
 import type { PluginEntry } from "../lib/library";
 
@@ -16,6 +15,7 @@ interface Props {
 
 const { entry, manifest, manifestPath } = Astro.props;
 const hooks = [...entry.hooks, ...entry.policyHooks];
+const description = entry.sourceType === "community" ? entry.description : undefined;
 const capabilityCount =
   entry.tools.length +
   entry.commands.length +
@@ -24,25 +24,55 @@ const capabilityCount =
   entry.lifecycleHooks.length;
 ---
 
-<a class="back mono" href="/library#plugins">← all plugins</a>
-<p class="eyebrow mono">reviewed plugin</p>
+<a class="back mono" href={entry.sourceType === "reviewed" ? "/library#plugins" : "/library#community-plugins"}>
+  ← all plugins
+</a>
+<p class="eyebrow mono">{entry.sourceType === "reviewed" ? "reviewed plugin" : "community plugin"}</p>
 <h1 class="mono">{entry.name}</h1>
-<p class="lede">{entry.id}</p>
-<p class="meta mono">version {entry.version} · host API {entry.hostApi}</p>
+<p class="lede">{description ?? entry.id}</p>
+<p class="meta mono">
+  manifest {entry.version} · host API {entry.hostApi}
+  {entry.sourceType === "community" && <> · source {entry.defaultBranch}</>}
+</p>
 
 <div class="actions">
-  <a class="button mono" href={manifestPath}>raw manifest</a>
-  <a class="raw mono" href={entry.artifact}>packed artifact</a>
+  <a class="button mono" href={manifestPath}>source manifest</a>
+  {entry.sourceType === "reviewed" ? (
+    <a class="raw mono" href={entry.artifact}>packed artifact</a>
+  ) : (
+    <a class="raw mono" href={entry.repositoryUrl}>GitHub repository</a>
+  )}
 </div>
 
 <section class="notice">
-  <strong>Executable code</strong>
-  <p>
-    This entry comes from Jazz's reviewed first-party plugin catalog. Inspect its declarations and
-    digest before installing or enabling it. Visiting this page does not grant trust, load code, or
-    enable the plugin.
-  </p>
+  {entry.sourceType === "reviewed" ? (
+    <>
+      <strong>Reviewed executable code</strong>
+      <p>
+        This entry comes from Jazz's reviewed first-party plugin catalog. Inspect its declarations
+        and digest before installing or enabling it. Visiting this page does not grant trust, load
+        code, or enable the plugin.
+      </p>
+    </>
+  ) : (
+    <>
+      <strong>Community source · not reviewed by Jazz</strong>
+      <p>
+        Jazz lists this repository for discovery only. Jazz has not reviewed or audited its code,
+        does not host its artifact, and does not endorse it. The declarations below come from the
+        repository manifest and are not independent security findings.
+      </p>
+    </>
+  )}
 </section>
+
+{entry.sourceType === "community" && (
+  <section class="install-command">
+    <h2>Install from source</h2>
+    <code class="mono">jazz plugin add {entry.repository}@{entry.sourceSha}</code>
+    <p class="muted">Installation, trust, egress consent, and enablement remain separate local decisions.</p>
+  </section>
+)}
 
 <section>
   <h2>Declared surface</h2>
@@ -98,9 +128,20 @@ const capabilityCount =
 </section>
 
 <section>
-  <h2>Integrity</h2>
-  <p class="digest mono">sha256:{entry.sha256}</p>
-  <p class="muted">The digest identifies the exact packed artifact. It is not a substitute for reviewing the source or deciding whether to trust the publisher.</p>
+  <h2>{entry.sourceType === "reviewed" ? "Integrity" : "Source"}</h2>
+  {entry.sourceType === "reviewed" ? (
+    <>
+      <p class="digest mono">sha256:{entry.sha256}</p>
+      <p class="muted">The digest identifies the exact packed artifact. It is not a substitute for reviewing the source or deciding whether to trust the publisher.</p>
+    </>
+  ) : (
+    <>
+      <p class="digest mono">
+        <a href={`${entry.repositoryUrl}/commit/${entry.sourceSha}`}>{entry.sourceSha}</a>
+      </p>
+      <p class="muted">This is the commit observed at the repository's default branch when the catalog was built; it is provenance, not a Jazz security review.</p>
+    </>
+  )}
 </section>
 
 {entry.tools.length > 0 && (

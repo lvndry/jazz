@@ -17,9 +17,10 @@ interface Props {
 
 const { entry } = Astro.props;
 const manifest = JSON.stringify(entry, null, 2);
-const manifestPath = pluginManifestPath(entry.id);
+const manifestPath = entry.sourceType === "reviewed" ? pluginManifestPath(entry.id) : entry.manifestUrl;
+const listingType = entry.sourceType === "reviewed" ? "Reviewed" : "Community";
 ---
 
-<Library title={`${entry.name} — Jazz plugin`} description={`Reviewed Jazz plugin: ${entry.name}.`}>
+<Library title={`${entry.name} — Jazz plugin`} description={`${listingType} Jazz plugin: ${entry.name}.`}>
   <PluginDefinition entry={entry} manifest={manifest} manifestPath={manifestPath} />
 </Library>

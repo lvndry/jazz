@@ -50,14 +50,28 @@ export async function GET(): Promise<Response> {
     })),
     ...plugins.map((entry) => ({
       kind: "plugin" as const,
+      listingType: entry.sourceType,
       id: entry.id,
       name: entry.name,
-      description: `${entry.name} (${entry.id})`,
+      description:
+        entry.sourceType === "community" && entry.description !== undefined
+          ? entry.description
+          : `${entry.name} (${entry.id})`,
       page: pluginPath(entry.id),
-      source: pluginManifestPath(entry.id),
+      source: entry.sourceType === "reviewed" ? pluginManifestPath(entry.id) : entry.manifestUrl,
       version: entry.version,
-      sha256: entry.sha256,
       executable: true as const,
+      ...(entry.sourceType === "reviewed"
+        ? { sha256: entry.sha256 }
+        : {
+            trustTier: entry.trustTier,
+            repository: entry.repository,
+            repositoryUrl: entry.repositoryUrl,
+            defaultBranch: entry.defaultBranch,
+            sourceSha: entry.sourceSha,
+            manifestSha256: entry.manifestSha256,
+            install: `jazz plugin add ${entry.repository}@${entry.sourceSha}`,
+          }),
     })),
   ];
 

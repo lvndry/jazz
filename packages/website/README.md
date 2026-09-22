@@ -15,8 +15,9 @@ Three rules keep it honest:
   the browsable library and the catalogs consumed by `jazz persona browse`
   and `jazz workflow browse`. Repository-level `skills/**/SKILL.md` files are
   discovered during the website build and served with their frontmatter intact.
-  Reviewed plugins are read from the generated `.build/plugin-catalog` output;
-  the site does not accept or execute arbitrary uploads.
+  Reviewed plugins are read from the generated `.build/plugin-catalog` output, while
+  community-indexed plugins come from the checked-in `src/data/community-plugin-catalog.json`
+  snapshot; the site does not accept, build, or execute arbitrary uploads.
 - `/library/marketplace.json` is the unified metadata index for all four listing
   types. The type-specific JSON indexes remain available for existing CLI
   consumers and integrations.
