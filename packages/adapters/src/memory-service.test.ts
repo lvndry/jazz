@@ -457,6 +457,25 @@ describe("scope byte budget", () => {
 });
 
 describe("provenance", () => {
+  test("quarantines an unreadable sidecar on write instead of overwriting it", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/always/first.md", "first", writeContext));
+    const sidecar = path.join(tmpDir, "agent-1", ".provenance.json");
+    fs.writeFileSync(sidecar, "{not json");
+
+    await runEffect(service.create(scopes, "agent-1/always/second.md", "second", writeContext));
+
+    const quarantined = fs
+      .readdirSync(path.join(tmpDir, "agent-1"))
+      .filter((name) => name.startsWith(".provenance.json.corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(tmpDir, "agent-1", quarantined[0]!), "utf8")).toBe(
+      "{not json",
+    );
+    expect(await runEffect(service.provenance(scopes, "agent-1/always/second.md"))).toBeDefined();
+    expect(await runEffect(service.provenance(scopes, "agent-1/always/first.md"))).toBeUndefined();
+  });
+
   test("records creation, writes, and the writing agent", async () => {
     const service = makeService();
     await runEffect(service.create(scopes, "agent-1/notes.md", "hello", writeContext));
