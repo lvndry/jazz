@@ -104,7 +104,11 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
+): Effect.Effect<
+  { readonly scope: string; readonly summary: string }[],
+  never,
+  FileSystem.FileSystem
+> {
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
@@ -115,7 +119,7 @@ function resolveActivePreferences(
 
     return yield* Effect.gen(function* () {
       const entries = yield* memoryService.standingEntries(memoryScopes);
-      return entries.map((entry) => ({ summary: entry.summary }));
+      return entries.map((entry) => ({ scope: entry.scope, summary: entry.summary }));
     }).pipe(
       Effect.catchAll((error) =>
         logger
@@ -123,7 +127,7 @@ function resolveActivePreferences(
             scopes: memoryScopes,
             error: error instanceof Error ? error.message : String(error),
           })
-          .pipe(Effect.as<{ summary: string }[]>([])),
+          .pipe(Effect.as<{ readonly scope: string; readonly summary: string }[]>([])),
       ),
     );
   });

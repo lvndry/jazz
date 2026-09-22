@@ -729,10 +729,15 @@ export class MemoryServiceImpl implements MemoryService {
 
           for (const name of names.sort()) {
             if (name.startsWith(".")) continue;
+            const info = yield* fs
+              .stat(path.join(absolute, name))
+              .pipe(Effect.catchAll(() => Effect.succeed(null)));
+            if (info?.type !== "File") continue;
             const summary = yield* readEntrySummary(fs, path.join(absolute, name));
             if (summary === undefined) continue;
             entries.push({
               path: `${scope}/${ALWAYS_SEGMENT}/${name}`,
+              scope,
               topic: undefined,
               summary,
             });

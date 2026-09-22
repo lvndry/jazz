@@ -41,7 +41,12 @@ describe("standingEntries", () => {
       service.create(scopes, "personal/always/auto-open.md", "auto-open the render", writeContext),
     );
     expect(await runEffect(service.standingEntries(scopes))).toEqual([
-      { path: "personal/always/auto-open.md", topic: undefined, summary: "auto-open the render" },
+      {
+        path: "personal/always/auto-open.md",
+        scope: "personal",
+        topic: undefined,
+        summary: "auto-open the render",
+      },
     ]);
   });
 
@@ -67,7 +72,12 @@ describe("standingEntries", () => {
     const service = makeService();
     writeByHand("always/by-hand.md", "written in an editor\nmore detail\n");
     expect(await runEffect(service.standingEntries(scopes))).toEqual([
-      { path: "personal/always/by-hand.md", topic: undefined, summary: "written in an editor" },
+      {
+        path: "personal/always/by-hand.md",
+        scope: "personal",
+        topic: undefined,
+        summary: "written in an editor",
+      },
     ]);
   });
 

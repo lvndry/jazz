@@ -13,6 +13,8 @@ import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provena
 export interface MemoryEntryInForce {
   /** Scope-qualified path, as the memory tools address it. */
   readonly path: string;
+  /** The scope that contributed this entry. */
+  readonly scope: string;
   /** `undefined` means the entry is in force on every task. */
   readonly topic: string | undefined;
   /** First non-empty line: entries are one thought each, so this is the point. */
