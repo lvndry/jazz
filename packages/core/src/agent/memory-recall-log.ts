@@ -38,8 +38,6 @@ export interface MemoryRecallObservation {
   readonly viewedBeforeFirstAnswer: boolean;
   readonly viewCallCount: number;
   readonly writeCallCount: number;
-  /** Scope-qualified entries injected into the prompt before the run. */
-  readonly injectedMemoryPaths?: readonly string[];
 }
 
 export interface MemoryRecallEntry extends MemoryRecallObservation {
@@ -136,16 +134,12 @@ export function recordMemoryRecall(input: {
   readonly conversationId?: string;
   readonly messages: readonly ChatMessage[];
   readonly memoryToolsOffered: boolean;
-  readonly injectedMemoryPaths?: readonly string[];
 }): Effect.Effect<void, never> {
   return Effect.tryPromise({
     try: async () => {
       const entry: MemoryRecallEntry = {
         timestamp: new Date().toISOString(),
         surface: currentSurface(),
-        ...(input.injectedMemoryPaths === undefined
-          ? {}
-          : { injectedMemoryPaths: input.injectedMemoryPaths }),
         agentId: input.agentId,
         ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
         ...analyzeMemoryRecall(input.messages, input.memoryToolsOffered),

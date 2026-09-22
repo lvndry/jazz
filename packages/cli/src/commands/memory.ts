@@ -110,7 +110,7 @@ export function forgetMemoryCommand(identifier: string, memoryPath: string) {
   });
 }
 
-/** `jazz memory explain <agent> <path>` — show why an entry exists and how it performs. */
+/** `jazz memory explain <agent> <path>` — show stored entry provenance. */
 export function explainMemoryCommand(identifier: string, memoryPath: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -128,18 +128,8 @@ export function explainMemoryCommand(identifier: string, memoryPath: string) {
     yield* terminal.log(`Updated: ${provenance.updatedAt}`);
     yield* terminal.log(`Origin: ${provenance.origin ?? "unknown"}`);
     yield* terminal.log(`Writes: ${provenance.writeCount}`);
-    if (provenance.credit !== undefined) {
-      yield* terminal.log(
-        `Credit: helped ${provenance.credit.helped}, failed ${provenance.credit.failed}, missed ${provenance.credit.missed}`,
-      );
-    }
     if (provenance.failure !== undefined) {
-      yield* terminal.log(`Trigger: ${JSON.stringify(provenance.failure)}`);
-    }
-    if (provenance.evidence !== undefined) {
-      yield* terminal.log(
-        `Evidence: ${provenance.evidence.map((item) => item.summary).join("; ")}`,
-      );
+      yield* terminal.log(`Stored trigger: ${JSON.stringify(provenance.failure)}`);
     }
   });
 }
