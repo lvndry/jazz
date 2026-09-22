@@ -47,14 +47,27 @@ async function scanDirectory(
   const normalizedQuery = query.toLowerCase();
   const gitignore = await loadGitignore(basePath);
 
-  async function scan(directory: string, depth: number): Promise<void> {
-    if (depth > maxDepth || results.length >= maxResults) return;
+  /**
+   * Scan breadth-first so an early, match-heavy directory cannot crowd a
+   * shallow path out of the bounded result set before its parent is inspected.
+   * Filesystem enumeration order is not stable across platforms, so depth is
+   * the only reliable priority before applying the result cap.
+   */
+  const directories: Array<{ readonly path: string; readonly depth: number }> = [
+    { path: rootPath, depth: 0 },
+  ];
+  let nextDirectory = 0;
+
+  while (nextDirectory < directories.length && results.length < maxResults) {
+    const current = directories[nextDirectory];
+    nextDirectory += 1;
+    if (current === undefined || current.depth > maxDepth) continue;
 
     let entries: Dirent[];
     try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
+      entries = await fs.readdir(current.path, { withFileTypes: true });
     } catch {
-      return;
+      continue;
     }
 
     for (const entry of entries) {
@@ -69,7 +82,7 @@ async function scanDirectory(
         continue;
       }
 
-      const fullPath = path.join(directory, entry.name);
+      const fullPath = path.join(current.path, entry.name);
       const relativePath = path.relative(basePath, fullPath);
       if (relativePath.length > 0 && gitignore.ignores(relativePath)) continue;
       const matches =
@@ -80,7 +93,7 @@ async function scanDirectory(
         if (includeDirectories && matches) {
           results.push({ name: relativePath, path: fullPath, isDirectory: true });
         }
-        await scan(fullPath, depth + 1);
+        directories.push({ path: fullPath, depth: current.depth + 1 });
         continue;
       }
 
@@ -91,8 +104,6 @@ async function scanDirectory(
       if (matches) results.push({ name: relativePath, path: fullPath, isDirectory: false });
     }
   }
-
-  await scan(rootPath, 0);
 
   // Sort by path depth, then files before directories, then name length, then
   // alphabetically — otherwise `readdir` order determines ranking, which buries a
