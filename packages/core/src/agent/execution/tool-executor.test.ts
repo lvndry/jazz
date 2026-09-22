@@ -1022,3 +1022,82 @@ describe("a run's effective tool set as the execution boundary", () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe("ToolExecutor mandatory confirmation", () => {
+  function buildHarness() {
+    const receivedRequests: ApprovalRequest[] = [];
+    const executed: string[] = [];
+
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "publish_report",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "execute_publish_report",
+          riskLevel: "high-risk" as const,
+          requiresExplicitConfirmation: true,
+        }),
+      executeTool: (name: string) => {
+        if (name === "publish_report") {
+          return Effect.succeed({
+            success: true,
+            result: {
+              approvalRequired: true,
+              message: "Send this diagnostic report?",
+              executeToolName: "execute_publish_report",
+              executeArgs: { reportId: "report_1" },
+            },
+          });
+        }
+        executed.push(name);
+        return Effect.succeed({ success: true, result: { sent: true } });
+      },
+    } as unknown as ToolRegistry;
+
+    const presentationService = {
+      ...mockPresentationService,
+      requestApproval: (request: ApprovalRequest) => {
+        receivedRequests.push(request);
+        return Effect.succeed({ approved: true });
+      },
+    } as unknown as PresentationService;
+
+    const testLayer = makeTestLayer({
+      registry: mockToolRegistry,
+      presentation: presentationService,
+    });
+
+    return { testLayer, receivedRequests, executed };
+  }
+
+  it("asks the human under yolo and a session allowlist, and the prompt's re-check agrees", async () => {
+    const { testLayer, receivedRequests, executed } = buildHarness();
+
+    await Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        {
+          id: "call_publish_1",
+          type: "function",
+          function: { name: "publish_report", arguments: "{}" },
+        },
+        {
+          agentId: "agent-1",
+          unrestrictedTools: true,
+          getAutoApprovePolicy: () => true,
+          autoApprovedTools: ["publish_report"],
+        },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["publish_report"]),
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+
+    expect(receivedRequests).toHaveLength(1);
+    expect(receivedRequests[0]?.isAutoApproved?.()).toBe(false);
+    expect(executed).toEqual(["execute_publish_report"]);
+  });
+});

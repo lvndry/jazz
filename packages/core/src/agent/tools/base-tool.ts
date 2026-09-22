@@ -131,7 +131,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     disclosure: config.disclosure,
     egress: config.egress === true,
-    requiresExplicitConfirmation: config.requiresExplicitConfirmation === true,
+    ...(config.requiresExplicitConfirmation === true ? { requiresExplicitConfirmation: true } : {}),
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),
