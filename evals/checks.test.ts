@@ -9,6 +9,7 @@ import {
   fileStateCheck,
   machineSpecGroundingCheck,
   plausibleFreeDiskGB,
+  scopeCompositionCheck,
   toolGroundedAnswerCheck,
   toolUsedCheck,
 } from "./checks";
@@ -59,6 +60,20 @@ describe("constraintCheck", () => {
     const bad = constraintCheck(r, [{ name: "conflict", test: (a) => a.includes("tuesday") }]);
     expect(bad.pass).toBe(false);
     expect(bad.detail).toContain("conflict");
+  });
+});
+describe("scopeCompositionCheck", () => {
+  it("requires relevant signals and rejects leakage", () => {
+    const checked = scopeCompositionCheck(
+      "Three bullets. Run bun test evals.",
+      [
+        { name: "shape", pattern: /three bullets/i },
+        { name: "verification", pattern: /bun test evals/i },
+      ],
+      [/friend joke/i],
+    );
+    expect(checked.pass).toBe(true);
+    expect(checked.measurements?.standing_preference_coverage).toBe(1);
   });
 });
 

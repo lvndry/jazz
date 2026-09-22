@@ -54,6 +54,28 @@ export function constraintCheck(result: OneShotResult, constraints: Constraint[]
   };
 }
 
+/** Check that required personalization signals are present and forbidden leakage is absent. */
+export function scopeCompositionCheck(
+  answer: string,
+  required: readonly { readonly name: string; readonly pattern: RegExp }[],
+  forbidden: readonly RegExp[] = [],
+): CheckResult {
+  const matched = required.filter((item) => item.pattern.test(answer));
+  const leaked = forbidden.some((pattern) => pattern.test(answer));
+  const score = required.length === 0 ? 0 : matched.length / required.length;
+  return {
+    pass: score === 1 && !leaked,
+    score: leaked ? 0 : score,
+    detail: leaked
+      ? "an irrelevant memory pattern leaked into the answer"
+      : `matched ${matched.length}/${required.length} relevant memory signals`,
+    measurements: {
+      standing_preference_coverage: score,
+      standing_preference_leakage: leaked ? 1 : 0,
+    },
+  };
+}
+
 /**
  * The answer cites sources that actually exist in the fixture corpus and quotes
  * a snippet present in the cited file. v1 is deliberately simple: a source counts

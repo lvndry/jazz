@@ -1,5 +1,12 @@
 export type Domain =
-  "research" | "tooluse" | "planning" | "productivity" | "tutoring" | "grounding" | "continuity";
+  | "research"
+  | "tooluse"
+  | "planning"
+  | "productivity"
+  | "tutoring"
+  | "grounding"
+  | "continuity"
+  | "personalization";
 
 export interface OneShotResult {
   ok: boolean;
@@ -14,6 +21,7 @@ export interface CheckResult {
   pass: boolean;
   score: number; // 0..1
   detail: string;
+  measurements?: Readonly<Record<string, number>>;
 }
 
 export interface RubricSpec {
