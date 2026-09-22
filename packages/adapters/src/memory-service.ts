@@ -38,6 +38,7 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT } from "@jazz/core/memory/entry-path";
+import { applyMemoryOutcome } from "@jazz/core/memory/lifecycle";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -1084,6 +1085,50 @@ export class MemoryServiceImpl implements MemoryService {
             }.bind(this),
           ),
         );
+      }.bind(this),
+    );
+
+  readonly recordUsage: MemoryService["recordUsage"] = (updates) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const byScope = new Map<string, typeof updates>();
+        for (const update of updates) {
+          const existing = byScope.get(update.scope) ?? [];
+          byScope.set(update.scope, [...existing, update]);
+        }
+        for (const [scope, scopeUpdates] of byScope) {
+          yield* this.withValidatedScopeLock(
+            scope,
+            Effect.gen(
+              function* (this: MemoryServiceImpl) {
+                const fs = yield* FileSystem.FileSystem;
+                const root = path.join(this.baseMemoryDirectory, scope);
+                const provenance = yield* readProvenanceForWrite(fs, root);
+                const files = { ...provenance.files };
+                for (const update of scopeUpdates) {
+                  const relative = update.path.startsWith(`${scope}/`)
+                    ? update.path.slice(scope.length + 1)
+                    : update.path;
+                  const current = files[relative];
+                  if (current === undefined) continue;
+                  files[relative] = {
+                    ...applyMemoryOutcome(current, {
+                      recalled: update.recalled,
+                      triggerFired: update.triggerFired,
+                      runId: update.runId,
+                    }),
+                    updatedAt: new Date().toISOString(),
+                  };
+                }
+                yield* writeScopeProvenance(fs, root, { files });
+              }.bind(this),
+            ),
+          );
+        }
+        return {
+          success: true,
+          message: "Memory lifecycle recorded",
+        } satisfies MemoryMutationOutcome;
       }.bind(this),
     );
 

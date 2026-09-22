@@ -108,6 +108,17 @@ export interface MemoryService {
     scopes: readonly string[],
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
+  /** Persist lifecycle observations for recalled entries under per-scope locks. */
+  readonly recordUsage: (
+    updates: readonly {
+      readonly scope: string;
+      readonly path: string;
+      readonly recalled: boolean;
+      readonly triggerFired: boolean;
+      readonly runId: string;
+    }[],
+  ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
+
   readonly create: (
     scopes: readonly string[],
     virtualPath: string,

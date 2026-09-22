@@ -732,6 +732,9 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      activeMemoryPaths: activePreferences.map(
+        (entry) => `${entry.scope}/${entry.topic === undefined ? "always" : `when/${entry.topic}`}`,
+      ),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       runMetrics,
       provider,

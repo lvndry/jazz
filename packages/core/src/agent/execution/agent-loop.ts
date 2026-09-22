@@ -1511,6 +1511,7 @@ export function executeAgentLoop(
           conversationId: runContext.actualConversationId,
           messages: state.currentMessages,
           memoryToolsOffered: runContext.expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
+          injectedMemoryPaths: runContext.activeMemoryPaths,
         });
 
         return yield* finalizeRun(
