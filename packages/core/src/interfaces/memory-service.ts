@@ -21,6 +21,13 @@ export interface MemoryEntryInForce {
   readonly summary: string;
 }
 
+/** A scope-eligible file as observed before a model request, including files never delivered. */
+export interface MemoryEntryObservation extends MemoryEntryInForce {
+  readonly entryId: string;
+  /** SHA-256 of the full file content; it changes after an edit. */
+  readonly entryVersion: string;
+}
+
 export interface MemoryDirectoryEntry {
   readonly name: string;
   readonly kind: "file" | "directory";
@@ -96,6 +103,10 @@ export interface MemoryWriteContext {
  * namespace the caller can address freely.
  */
 export interface MemoryService {
+  /** Enumerate accessible entries and assign stable IDs to files without provenance. */
+  readonly observeEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryObservation[], Error, FileSystem.FileSystem>;
   readonly view: (
     scopes: readonly string[],
     virtualPath: string,

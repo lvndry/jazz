@@ -70,6 +70,8 @@ export const EMPTY_MEMORY_ENTRY_CREDIT: MemoryEntryCredit = {
 export type MemoryEntryOrigin = "auto" | "user";
 
 export interface MemoryFileProvenance {
+  /** Stable through Jazz-managed edits and renames; first observation assigns legacy files an ID. */
+  readonly entryId?: string;
   /** ISO 8601. */
   readonly createdAt: string;
   /** ISO 8601, bumped on every successful write. */

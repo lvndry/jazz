@@ -44,6 +44,13 @@ interface TurnMeasurement {
   readonly toolNames: readonly string[];
   readonly memory: readonly string[];
   readonly memoryPaths: readonly string[];
+  readonly receipts: {
+    readonly total: number;
+    readonly pending: number;
+    readonly injected: number;
+    readonly viewed: number;
+    readonly unshown: number;
+  };
   readonly error?: string;
 }
 
@@ -65,6 +72,46 @@ function memoryPaths(root: string): string[] {
   }
   scan(base);
   return paths;
+}
+
+interface StoredReceipt {
+  readonly receiptId: string;
+  readonly status: string;
+  readonly exposures: readonly { readonly kind: string }[];
+}
+
+function storedReceipts(root: string): StoredReceipt[] {
+  const receipts: StoredReceipt[] = [];
+  function scan(dir: string): void {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(file);
+      } else if (entry.name.endsWith(".json")) {
+        receipts.push(JSON.parse(readFileSync(file, "utf8")) as StoredReceipt);
+      }
+    }
+  }
+  scan(join(root, "memory-receipts"));
+  return receipts;
+}
+
+function receiptCounts(receipts: readonly StoredReceipt[]): TurnMeasurement["receipts"] {
+  const counts = { total: 0, pending: 0, injected: 0, viewed: 0, unshown: 0 };
+  for (const receipt of receipts) {
+    counts.total += 1;
+    if (receipt.status === "pending") counts.pending += 1;
+    if (receipt.exposures.length === 0) counts.unshown += 1;
+    counts.injected += receipt.exposures.filter((exposure) => exposure.kind === "injected").length;
+    counts.viewed += receipt.exposures.filter((exposure) => exposure.kind === "viewed").length;
+  }
+  return counts;
 }
 
 function memoryContents(root: string): string[] {
@@ -189,6 +236,9 @@ async function journey(
 
     for (const step of STEPS) {
       const before = memoryContents(jazzHome);
+      const beforeReceiptIds = new Set(
+        storedReceipts(jazzHome).map((receipt) => receipt.receiptId),
+      );
       const started = performance.now();
       const runId = `personal-memory-${sample}-${variant}-${step.id}`;
       try {
@@ -206,11 +256,17 @@ async function journey(
         });
         const after = memoryContents(jazzHome);
         const afterPaths = memoryPaths(jazzHome);
+        const allReceipts = storedReceipts(jazzHome);
+        const receipts = receiptCounts(
+          allReceipts.filter((receipt) => !beforeReceiptIds.has(receipt.receiptId)),
+        );
+        const scored = score(step.id, result, before, after, afterPaths);
         const measurement: TurnMeasurement = {
           sample,
           variant,
           step: step.id,
-          ...score(step.id, result, before, after, afterPaths),
+          ...scored,
+          pass: scored.pass && (step.id !== "forget" || allReceipts.length === 0),
           durationMs: Math.round(performance.now() - started),
           costUSD: result.costUSD,
           costKnown: result.costKnown === true,
@@ -219,6 +275,7 @@ async function journey(
           toolNames: result.toolCalls.map((call) => call.name),
           memory: after,
           memoryPaths: afterPaths,
+          receipts,
         };
         results.push(measurement);
         console.log(
@@ -241,6 +298,9 @@ async function journey(
           toolNames: [],
           memory: memoryContents(jazzHome),
           memoryPaths: memoryPaths(jazzHome),
+          receipts: receiptCounts(
+            storedReceipts(jazzHome).filter((receipt) => !beforeReceiptIds.has(receipt.receiptId)),
+          ),
           error: error instanceof Error ? error.message : String(error),
         });
       }

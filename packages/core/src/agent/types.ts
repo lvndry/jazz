@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
+import type { MemoryEntryObservation } from "@/core/interfaces/memory-service";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
@@ -372,6 +373,8 @@ export interface AgentRunContext {
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
+  /** Snapshot scope-eligible memory before each model request for shadow observations. */
+  readonly observeMemory?: () => Effect.Effect<readonly MemoryEntryObservation[], never>;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.
