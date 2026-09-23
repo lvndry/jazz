@@ -12,6 +12,10 @@ export default defineConfig({
   // domain-agnostic, this one constant is the only thing to change.
   site: "https://jazz-cli.vercel.app",
   trailingSlash: "never",
+  // The compressor drops the whitespace between a word and an inline tag
+  // that starts the next source line ("a\n<code>WORKFLOW.md</code>" rendered
+  // as "aWORKFLOW.md"). Costs ~12% larger HTML, ~1 KB gzipped per page.
+  compressHTML: false,
   build: {
     format: "file",
   },
