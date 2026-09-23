@@ -12,6 +12,7 @@ import {
   bumpPromotionThreshold,
   type CommandApprovals,
 } from "@jazz/adapters/command-approval-tracker";
+import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
@@ -55,6 +56,7 @@ import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
+import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { store } from "@/cli/ui/store";
 import {
   handleSpecialCommand,
@@ -85,6 +87,7 @@ export class ChatServiceImpl implements ChatService {
     options?: {
       stream?: boolean;
       initialHistory?: ChatMessage[];
+      initialUiTranscript?: readonly ConversationUiEntry[];
       maxIterations?: number;
       ephemeral?: boolean;
     },
@@ -194,7 +197,9 @@ export class ChatServiceImpl implements ChatService {
         );
 
       yield* emitLifecycle("session-start");
-      if (conversationHistory.length > 0) {
+      if (options?.initialUiTranscript?.length) {
+        hydrateTranscriptFromUiEntries(options.initialUiTranscript);
+      } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory);
       }
       let loggedMessageCount = 0;
@@ -376,6 +381,20 @@ export class ChatServiceImpl implements ChatService {
               specialCommand,
               context,
             );
+
+            // Slash commands are UI interactions, not model turns. Snapshot the rendered
+            // text separately so resume restores their invocation and result without
+            // inserting operational output into the next LLM request.
+            store.flushOutputBatchNow();
+            const uiTranscript = uiTranscriptFromStore();
+            yield* persistConversationIfNeeded({
+              ephemeral,
+              conversationHistory,
+              conversationId,
+              agentId: agent.id,
+              startedAt,
+              uiTranscript,
+            });
 
             if (commandResult.saveCurrentHistory) {
               yield* persistConversationIfNeeded({
@@ -743,6 +762,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               agentId: agent.id,
               startedAt,
+              uiTranscript: uiTranscriptFromStore(),
             });
           }
 
@@ -798,9 +818,20 @@ export class ChatServiceImpl implements ChatService {
         conversationId,
         agentId: agent.id,
         startedAt,
+        uiTranscript: uiTranscriptFromStore(),
       });
     }).pipe(Effect.catchAll(() => Effect.void));
   }
+}
+
+/** Snapshot only serializable UI entries; Ink nodes remain a live-renderer concern. */
+function uiTranscriptFromStore(): ConversationUiEntry[] {
+  store.flushOutputBatchNow();
+  return store
+    .getOutputSnapshot()
+    .entries.flatMap((entry) =>
+      typeof entry.message === "string" ? [{ type: entry.type, message: entry.message }] : [],
+    );
 }
 
 /**
