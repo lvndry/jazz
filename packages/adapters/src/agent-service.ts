@@ -9,7 +9,6 @@ import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/storage";
 import { CommonSuggestions } from "@jazz/core/presentation/error-handler";
-import { isReasoningEffort, REASONING_EFFORTS } from "@jazz/core/types/agent";
 import { isWebSearchProviderName, WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
@@ -20,6 +19,7 @@ import {
 } from "@jazz/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
+import { isReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
@@ -409,15 +409,16 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const reasoningEffort: unknown = config.reasoningEffort;
-      if (reasoningEffort !== undefined && reasoningEffort !== null) {
-        if (typeof reasoningEffort !== "string" || !isReasoningEffort(reasoningEffort)) {
+      const reasoning: unknown = config.reasoning;
+      if (reasoning !== undefined && reasoning !== null) {
+        if (!isReasoningSelection(reasoning)) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: "config.reasoningEffort",
-              message: `Invalid reasoningEffort ${JSON.stringify(reasoningEffort)}`,
-              suggestion: `Use one of: ${REASONING_EFFORTS.join(", ")}.`,
+              field: "config.reasoning",
+              message: `Invalid reasoning selection ${JSON.stringify(reasoning)}`,
+              suggestion:
+                "Use a structured reasoning selection: disabled, toggle, effort, manual, or adaptive.",
             }),
           );
         }

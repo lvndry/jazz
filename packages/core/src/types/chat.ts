@@ -4,6 +4,7 @@
  */
 import type { ProviderName } from "@/core/constants/models";
 import type { GeneratedArtifact } from "@/core/types/artifact";
+import type { ReasoningSelection } from "@/core/types/model-capabilities";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
@@ -52,7 +53,8 @@ export interface ChatCompletionOptions {
   tools?: ToolDefinition[];
   toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
   stream?: boolean;
-  reasoning_effort?: "disable" | "low" | "medium" | "high";
+  /** Provider-neutral reasoning request, validated against the resolved model profile by the adapter. */
+  reasoning?: ReasoningSelection;
   /** Ollama runtime context window, sent as `num_ctx`. Ignored by other providers. */
   num_ctx?: number;
   /** Optional per-request API key overrides by provider (typically from agent config). */

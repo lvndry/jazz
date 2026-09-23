@@ -174,7 +174,7 @@ interface BridgeConfig extends AccessConfig {
   readonly baseAgentId: string;
   readonly provider: string;
   readonly model: string;
-  readonly reasoningEffort: string;
+  readonly reasoning: string;
   readonly approvalPolicy: string;
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
@@ -273,7 +273,7 @@ function loadConfig(): BridgeConfig {
     baseAgentId: process.env["JAZZ_DISCORD_AGENT"]?.trim() || "discord",
     provider: process.env["JAZZ_DISCORD_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_DISCORD_MODEL"]?.trim() || "gpt-5.4",
-    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
+    reasoning: process.env["JAZZ_REASONING"]?.trim() || "medium",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
       .split(",")
@@ -1090,7 +1090,7 @@ function ensureSuggestAgent(config: BridgeConfig, sandbox: ChatSandbox): void {
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
   template.config["tools"] = [];
-  template.config.reasoningEffort = "disable";
+  template.config.reasoning = "disable";
   writeChatAgentFile(sandbox, template);
 }
 
@@ -1389,7 +1389,7 @@ async function handleCommand(
       ...(isIncognito(config.jazzHome, INCOGNITO_FILE, channelId)
         ? ["🕶️ Incognito — nothing being saved right now"]
         : []),
-      `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoningEffort})`,
+      `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoning})`,
       `Timezone: \`${tzForChat(config.jazzHome, TZ_FILE, channelId)}\`${hasChatTz(config.jazzHome, TZ_FILE, channelId) ? "" : " (default)"}`,
       `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, channelId)]}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
@@ -1414,14 +1414,14 @@ async function handleCommand(
       agent.config.llmProvider = parsed.provider;
       agent.config.llmModel = parsed.model;
       if (metadata !== undefined) {
-        agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
+        agent.config.reasoning = metadata.isReasoningModel ? "medium" : "disable";
       }
       writeChatAgentFile(sandbox, agent);
       return {
         content:
           `✅ Model → ${parsed.provider}/${parsed.model}` +
           (metadata !== undefined
-            ? `\nReasoning: ${agent.config.reasoningEffort}`
+            ? `\nReasoning: ${agent.config.reasoning}`
             : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
       };
     }
@@ -1505,7 +1505,7 @@ async function applyModelChoice(
     ? "medium"
     : "disable";
   agent.config.llmModel = model;
-  agent.config.reasoningEffort = reasoning;
+  agent.config.reasoning = reasoning;
   writeChatAgentFile(sandbox, agent);
   return `✅ Model → ${model}\nReasoning: ${reasoning}`;
 }
@@ -2020,12 +2020,12 @@ function start(): void {
       description: "Everyday assistant reachable from Discord.",
       provider: config.provider,
       model: config.model,
-      reasoningEffort: config.reasoningEffort,
+      reasoning: config.reasoning,
     })
   ) {
     console.log(
       `Seeded agent '${config.baseAgentId}' (${config.provider}/${config.model}, ` +
-        `reasoning=${config.reasoningEffort}) into ${config.jazzHome}/agents`,
+        `reasoning=${config.reasoning}) into ${config.jazzHome}/agents`,
     );
   }
   for (const home of [

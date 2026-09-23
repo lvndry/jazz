@@ -10,6 +10,7 @@ import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
+import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -370,7 +371,7 @@ function startChatWithAgent(agent: Agent, options?: { initialHistory?: ChatMessa
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
     yield* terminal.log(`Working directory: ${process.cwd().replace(os.homedir(), "~")}`);
     yield* terminal.log(
-      `${agentModelString(agent.config)} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
+      `${agentModelString(agent.config)} - Reasoning: ${formatReasoningSelection(agent.config.reasoning)}`,
     );
     if (agent.description) {
       yield* terminal.log(`Description: ${agent.description}`);

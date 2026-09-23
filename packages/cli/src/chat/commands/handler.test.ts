@@ -259,7 +259,7 @@ describe("handleSpecialCommand shell escape", () => {
 
 describe("handleSpecialCommand /reasoning", () => {
   const baseContext: CommandContext = {
-    agent: { ...testAgent, config: { ...testAgent.config, reasoningEffort: "disable" } },
+    agent: { ...testAgent, config: { ...testAgent.config, reasoning: "disable" } },
     conversationHistory: [],
     conversationId: "test-session",
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -289,9 +289,9 @@ describe("handleSpecialCommand /reasoning", () => {
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
-    expect(result.newAgent?.config.reasoningEffort).toBe("high");
+    expect(result.newAgent?.config.reasoning).toBe("high");
     // The change is session-scoped: the original agent object is untouched.
-    expect(baseContext.agent.config.reasoningEffort).toBe("disable");
+    expect(baseContext.agent.config.reasoning).toBe("disable");
     expect(success).toHaveBeenCalled();
   });
 
@@ -339,7 +339,7 @@ describe("handleSpecialCommand /reasoning", () => {
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
-    expect(result.newAgent?.config.reasoningEffort).toBe("medium");
+    expect(result.newAgent?.config.reasoning).toBe("medium");
   });
 });
 
@@ -589,7 +589,7 @@ describe("handleSpecialCommand /agents", () => {
             ...testAgent,
             id: "other-agent-id",
             name: "Other",
-            config: { ...testAgent.config, reasoningEffort: "disable" },
+            config: { ...testAgent.config, reasoning: { mode: "disabled" } },
           },
         ]),
       getAgent: () =>
@@ -597,7 +597,7 @@ describe("handleSpecialCommand /agents", () => {
           ...testAgent,
           id: "other-agent-id",
           name: "Other",
-          config: { ...testAgent.config, reasoningEffort: "disable" },
+          config: { ...testAgent.config, reasoning: { mode: "disabled" } },
         }),
     } as unknown as import("@jazz/core/interfaces/agent-service").AgentService;
     const agentServiceTag = (await import("@jazz/core/interfaces/agent-service")).AgentServiceTag;

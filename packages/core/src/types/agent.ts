@@ -13,6 +13,7 @@
 import type { ProviderName } from "@/core/constants/models";
 import type { WebSearchProviderName } from "@/core/types/config";
 import type { CompanionRole } from "@/core/types/llm";
+import type { ReasoningSelection } from "@/core/types/model-capabilities";
 
 /**
  * Core Agent entity representing an AI agent configuration
@@ -28,14 +29,6 @@ export interface Agent {
   readonly config: AgentConfig;
   readonly createdAt: Date;
   readonly updatedAt: Date;
-}
-
-export const REASONING_EFFORTS = ["disable", "low", "medium", "high"] as const;
-
-export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
-
-export function isReasoningEffort(value: string): value is ReasoningEffort {
-  return (REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
 /**
@@ -68,7 +61,11 @@ export interface AgentConfig {
   readonly summarizerModel?: string;
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
-  readonly reasoningEffort?: ReasoningEffort;
+  /**
+   * The model-neutral reasoning control requested for this agent. The selected
+   * provider/model capability profile validates and serializes it at request time.
+   */
+  readonly reasoning?: ReasoningSelection;
   /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
   readonly numCtx?: number;
   /**

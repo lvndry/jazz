@@ -11,10 +11,12 @@ import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interf
 import type { Agent } from "@jazz/core/types/agent";
 import { CLIError, StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MediaModality } from "@jazz/core/types/llm";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import chalk from "chalk";
 import { Effect } from "effect";
 import React from "react";
+import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import {
   formatIsoShort,
@@ -37,7 +39,7 @@ function formatAgentsListBlock(
     readonly config: {
       readonly llmProvider: string;
       readonly llmModel: string;
-      readonly reasoningEffort?: string | undefined;
+      readonly reasoning?: ReasoningSelection | undefined;
       readonly persona?: string | undefined;
       readonly tools?: readonly string[] | undefined;
     };
@@ -97,7 +99,7 @@ function formatAgentsListBlock(
     const idx = String(index + 1);
     const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
     const persona = agent.config.persona ?? "default";
-    const reasoning = agent.config.reasoningEffort ?? "—";
+    const reasoning = formatReasoningSelection(agent.config.reasoning);
 
     const row =
       padRight(idx, idxW) +
@@ -380,7 +382,7 @@ export function getAgentCommand(
                 persona: agent.config.persona,
                 llmProvider: agent.config.llmProvider,
                 llmModel: agent.config.llmModel,
-                reasoningEffort: agent.config.reasoningEffort,
+                reasoning: agent.config.reasoning,
                 tools: agent.config.tools ?? [],
               },
             },
@@ -405,7 +407,7 @@ function formatAgentDetailsBlock(agent: {
     readonly persona?: string | undefined;
     readonly llmProvider: string;
     readonly llmModel: string;
-    readonly reasoningEffort?: string | undefined;
+    readonly reasoning?: ReasoningSelection | undefined;
     readonly tools?: readonly string[] | undefined;
   };
 }): string {
@@ -438,9 +440,7 @@ function formatAgentDetailsBlock(agent: {
   lines.push(kv("Persona:", agent.config.persona ?? "default"));
   lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
   lines.push(kv("LLM model:", agent.config.llmModel));
-  lines.push(
-    kv("Reasoning:", agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "-"),
-  );
+  lines.push(kv("Reasoning:", formatReasoningSelection(agent.config.reasoning)));
 
   lines.push(chalk.dim(sep));
   lines.push(

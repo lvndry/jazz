@@ -45,7 +45,7 @@ export interface CLIRendererConfig {
   readonly streamingConfig: StreamingConfig;
   readonly showMetrics: boolean;
   readonly agentName: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high" | undefined;
+  readonly reasoning?: string | undefined;
 }
 
 /**
@@ -242,8 +242,8 @@ export class CLIRenderer {
     // Reset markdown streaming buffer for new stream
     this.resetStreamingBuffer();
 
-    const reasoningInfo = this.config.reasoningEffort
-      ? this.theme.colors.dim(` [Reasoning: ${this.config.reasoningEffort}]`)
+    const reasoningInfo = this.config.reasoning
+      ? this.theme.colors.dim(` [Reasoning: ${this.config.reasoning}]`)
       : "";
 
     return (

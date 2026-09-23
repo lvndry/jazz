@@ -15,7 +15,15 @@ export function isApprovalPolicyFlag(value: string): value is ApprovalPolicyFlag
   return (VALID_APPROVAL_POLICIES as readonly string[]).includes(value);
 }
 
-const VALID_REASONING_EFFORTS = ["disable", "low", "medium", "high"] as const;
+const VALID_REASONING_EFFORTS = [
+  "disable",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 export type ReasoningEffort = (typeof VALID_REASONING_EFFORTS)[number];
 
 export function isReasoningEffortFlag(value: string): value is ReasoningEffort {

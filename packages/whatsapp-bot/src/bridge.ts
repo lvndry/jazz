@@ -62,7 +62,7 @@ interface BridgeConfig extends AccessConfig {
   readonly dailyCostCapUsd: number;
   readonly provider: string;
   readonly model: string;
-  readonly reasoningEffort: string;
+  readonly reasoning: string;
   readonly showReasoning: boolean;
 }
 
@@ -176,7 +176,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     provider: process.env["JAZZ_WHATSAPP_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_WHATSAPP_MODEL"]?.trim() || "gpt-5.4",
-    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
+    reasoning: process.env["JAZZ_REASONING"]?.trim() || "medium",
     showReasoning: envFlag("JAZZ_WHATSAPP_SHOW_REASONING", false),
   };
 }
@@ -307,7 +307,7 @@ export async function startBridge(): Promise<void> {
       description: "Everyday assistant reachable from WhatsApp.",
       provider: config.provider,
       model: config.model,
-      reasoningEffort: config.reasoningEffort,
+      reasoning: config.reasoning,
     })
   ) {
     console.error(
