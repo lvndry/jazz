@@ -11,6 +11,7 @@ import { FileSystem } from "@effect/platform";
 import {
   saveConversation,
   type Conversation,
+  type ConversationUiEntry,
 } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { Effect } from "effect";
@@ -21,10 +22,15 @@ export interface PersistConversationInput {
   readonly conversationId: string;
   readonly agentId: string;
   readonly startedAt: string;
+  readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
 export function shouldPersistConversation(input: PersistConversationInput): boolean {
-  return !input.ephemeral && input.conversationHistory.some((message) => message.role === "user");
+  return (
+    !input.ephemeral &&
+    (input.conversationHistory.some((message) => message.role === "user") ||
+      input.uiTranscript?.some((entry) => entry.type === "user") === true)
+  );
 }
 
 /**
@@ -55,6 +61,7 @@ export function persistConversationIfNeeded(
     startedAt: input.startedAt,
     endedAt: new Date().toISOString(),
     messages: [...input.conversationHistory],
+    ...(input.uiTranscript !== undefined ? { uiTranscript: input.uiTranscript } : {}),
   };
 
   return saveConversation(conversation, dir).pipe(Effect.catchAll(() => Effect.void));

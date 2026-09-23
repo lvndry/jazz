@@ -31,7 +31,7 @@ import {
   type ConversationSummary,
 } from "./conversation-log";
 
-export type { Conversation, ConversationSummary } from "./conversation-log";
+export type { Conversation, ConversationSummary, ConversationUiEntry } from "./conversation-log";
 
 export interface AgentConversationHistory {
   readonly agentId: string;
@@ -75,6 +75,9 @@ export function saveConversation(
             startedAt: conversation.startedAt,
             endedAt: conversation.endedAt,
             messages: conversation.messages,
+            ...(conversation.uiTranscript !== undefined
+              ? { uiTranscript: conversation.uiTranscript }
+              : {}),
           },
           dir,
         );

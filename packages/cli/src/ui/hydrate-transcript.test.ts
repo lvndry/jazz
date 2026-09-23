@@ -1,6 +1,10 @@
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, test } from "bun:test";
-import { hydrateTranscriptFromHistory, outputEntriesFromHistory } from "./hydrate-transcript";
+import {
+  hydrateTranscriptFromHistory,
+  hydrateTranscriptFromUiEntries,
+  outputEntriesFromHistory,
+} from "./hydrate-transcript";
 import type { OutputEntry } from "./types";
 
 function messages(list: readonly ChatMessage[]): readonly ChatMessage[] {
@@ -107,5 +111,29 @@ describe("hydrateTranscriptFromHistory", () => {
 
     expect(cleared).toBe(true);
     expect(printed).toEqual([]);
+  });
+});
+
+describe("hydrateTranscriptFromUiEntries", () => {
+  test("restores command entries without manufacturing model messages", () => {
+    const printed: OutputEntry[] = [];
+    hydrateTranscriptFromUiEntries(
+      [
+        { type: "user", message: "/info" },
+        { type: "log", message: "Conversation info" },
+      ],
+      {
+        clearOutputs: () => undefined,
+        printOutput: (entry) => {
+          printed.push(entry);
+          return "id";
+        },
+        flushOutputBatchNow: () => undefined,
+      },
+    );
+    expect(printed.map((entry) => ({ type: entry.type, message: entry.message }))).toEqual([
+      { type: "user", message: "/info" },
+      { type: "log", message: "Conversation info" },
+    ]);
   });
 });
