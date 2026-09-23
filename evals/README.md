@@ -21,7 +21,8 @@ bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 
 The current acceptance journey tests same-turn capture, unrelated and hypothetical turns,
 shopping-list recall, tool-output injection, correction, and forgetting across new conversations
-in a private `JAZZ_HOME` per sample:
+in a private `JAZZ_HOME` per sample. It also checks that the favorite-fruit fact is topic scoped,
+so a good answer on the unrelated turn cannot hide an `always/` prompt injection:
 
 ```bash
 bun evals/personal-memory-journey.ts --samples 3 --model gemma4:31b-cloud

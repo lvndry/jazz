@@ -8,7 +8,7 @@
 
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { runJazzOnce } from "./run-jazz";
 import type { OneShotResult } from "./types";
 
@@ -43,7 +43,28 @@ interface TurnMeasurement {
   readonly answer: string;
   readonly toolNames: readonly string[];
   readonly memory: readonly string[];
+  readonly memoryPaths: readonly string[];
   readonly error?: string;
+}
+
+function memoryPaths(root: string): string[] {
+  const base = join(root, "memory");
+  const paths: string[] = [];
+  function scan(dir: string): void {
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) scan(file);
+      else if (entry.isFile() && entry.name.endsWith(".md")) paths.push(relative(base, file));
+    }
+  }
+  scan(base);
+  return paths;
 }
 
 function memoryContents(root: string): string[] {
@@ -72,6 +93,7 @@ function score(
   result: OneShotResult,
   before: readonly string[],
   after: readonly string[],
+  afterPaths: readonly string[],
 ): Pick<TurnMeasurement, "pass" | "falseWrite" | "irrelevantRecall"> {
   const answer = result.answer.toLowerCase();
   const contents = after.join("\n").toLowerCase();
@@ -86,11 +108,16 @@ function score(
   const irrelevantRecall =
     step === "unrelated" &&
     (result.toolCalls.some((call) => call.name === "view_memory") ||
-      /banana|favorite fruit/.test(answer));
+      /banana|favorite fruit/.test(answer) ||
+      afterPaths.some((path) => path.includes("/always/")));
   const pass = (() => {
     switch (step) {
       case "capture":
-        return /banana/.test(contents);
+        return (
+          /banana/.test(contents) &&
+          afterPaths.some((path) => path.includes("/when/")) &&
+          !afterPaths.some((path) => path.includes("/always/"))
+        );
       case "unrelated":
         return /union/.test(answer) && !irrelevantRecall && !falseWrite;
       case "hypothetical":
@@ -178,11 +205,12 @@ async function journey(
           useWebCassette: false,
         });
         const after = memoryContents(jazzHome);
+        const afterPaths = memoryPaths(jazzHome);
         const measurement: TurnMeasurement = {
           sample,
           variant,
           step: step.id,
-          ...score(step.id, result, before, after),
+          ...score(step.id, result, before, after, afterPaths),
           durationMs: Math.round(performance.now() - started),
           costUSD: result.costUSD,
           costKnown: result.costKnown === true,
@@ -190,6 +218,7 @@ async function journey(
           answer: result.answer,
           toolNames: result.toolCalls.map((call) => call.name),
           memory: after,
+          memoryPaths: afterPaths,
         };
         results.push(measurement);
         console.log(
@@ -211,6 +240,7 @@ async function journey(
           answer: "",
           toolNames: [],
           memory: memoryContents(jazzHome),
+          memoryPaths: memoryPaths(jazzHome),
           error: error instanceof Error ? error.message : String(error),
         });
       }

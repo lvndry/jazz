@@ -183,6 +183,11 @@ sub-agent prompts cannot become user facts by claiming to be one. The saved entr
 user's quoted words. `amend` replaces an existing entry with a newly cited statement; `delete`
 and `rename` require an explicit direct user request.
 
+Creating an entry also requires an explicit relevance topic. A favorite fruit can be filed under
+`food` for later shopping or meal tasks. The literal topic `always` is reserved for a preference
+that should affect nearly every task, such as concise replies. This choice is made by the agent
+and remains measurable; an incorrect topic can still cause missed or irrelevant recall.
+
 When a sourced fact is corrected or forgotten, a hidden source ledger revokes the old
 user message ID before the file changes. Later compaction cannot re-save the old claim from that
 same conversation source. A fresh user statement has a new source ID and can be remembered again.

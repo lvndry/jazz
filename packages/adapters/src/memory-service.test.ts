@@ -437,6 +437,25 @@ describe("path safety", () => {
 });
 
 describe("root listing", () => {
+  test("reveals topic-scoped file paths in the first discovery call", async () => {
+    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    await runEffect(
+      service.create(["personal"], "personal/when/food/favorite-fruit.md", "banana", writeContext),
+    );
+    for (const virtualPath of ["", "personal"]) {
+      const outcome = await runEffect(service.view(["personal"], virtualPath));
+      expect(outcome.kind).toBe("directory");
+      if (outcome.kind === "directory") {
+        const names = outcome.entries.map((entry) => entry.name);
+        expect(names).toContain(
+          virtualPath === ""
+            ? "personal/when/food/favorite-fruit.md"
+            : "when/food/favorite-fruit.md",
+        );
+      }
+    }
+  });
+
   test("lists the files inside every accessible scope in one call", async () => {
     const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
     const twoScopes = ["personal", "work"];

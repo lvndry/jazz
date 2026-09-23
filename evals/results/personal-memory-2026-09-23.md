@@ -26,8 +26,11 @@ reports remain in the local ignored `evals/report/` directory; the table uses th
 rubric. No model output was changed.
 
 The irrelevant-recall check observed explicit `view_memory` calls on the unrelated turn and
-answer contamination. It could not detect a preflight entry injected into a prompt but unused.
-Shadow receipts need to close that gap. The reported cost is Jazz's pricing estimate and may
+answer contamination. It could not detect standing entries injected into prompts or a preflight
+entry injected but unused. A later shadow-receipt run found that the agent had filed favorite
+fruit under `always/` and exposed it on unrelated turns. The table's zero therefore means
+_zero observed tool calls or answer contamination_, not zero irrelevant model exposure. The
+reported cost is Jazz's pricing estimate and may
 differ from a provider bill. These small samples do not establish equivalence on other tasks;
 they do show no measured task lift to justify the extra preflight latency here. Agent-driven
 recall remains the selected path for the first personal-memory slice.
@@ -39,3 +42,13 @@ irrelevant recall. This is an acceptance check of the selected path, not a new p
 Its aggregate wall time was 172.6 seconds and it used 395,056 tokens. The run parser initially
 coerced unknown price to `$0`; `costKnown` is now retained so future reports can distinguish an
 unpriced run from a free one.
+
+A shadow receipt check then exposed a gap in that claim: the agent had saved favorite fruit under
+`always/`, so it was injected on unrelated turns even though no `view_memory` call or answer text
+revealed it. The capture contract now requires a deliberate relevance topic, and the root memory
+listing exposes `when/<topic>/<file>` paths in one discovery call. The revised journey checks
+that banana is stored under `when/food/`, not `always/`. Three new isolated, eight-turn samples
+passed 24/24 turns with zero false writes and zero observed irrelevant recall. Aggregate wall time
+was 113.9 seconds, estimated cost $0.238 across 24 priced turns, and 409,459 tokens. This small
+acceptance sample does not establish a population error rate; prompt-level exposure measurement
+continues in the separate shadow receipt work.

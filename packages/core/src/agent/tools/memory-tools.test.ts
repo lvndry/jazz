@@ -53,6 +53,25 @@ describe("view_memory", () => {
 describe("manage_memory", () => {
   const citation = { source_ref: "user:1", source_quote: "My favorite fruit is banana." };
 
+  test("requires an explicit relevance choice before creating a memory", async () => {
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Favorite fruit", ...citation },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(writes).toBe(0);
+  });
+
   test("stores only the exact authenticated claim in a topic-scoped entry", async () => {
     const calls: unknown[][] = [];
     const service: Partial<MemoryService> = {
@@ -75,6 +94,32 @@ describe("manage_memory", () => {
       sourceRef: "user:1",
       entry: { origin: "user" },
     });
+  });
+
+  test("allows an explicit global instruction to live in always", async () => {
+    const calls: unknown[][] = [];
+    const service: Partial<MemoryService> = {
+      create: (...args) => {
+        calls.push(args);
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const quote = "I prefer concise replies.";
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "Reply length",
+          topic: "always",
+          source_ref: "user:concise",
+          source_quote: quote,
+        },
+        { ...context, memoryUserSources: [{ id: "user:concise", text: quote }] },
+      ),
+    );
+    expect(result.success).toBe(true);
+    expect(calls[0]?.[1]).toBe("personal/always/reply-length.md");
   });
 
   test("rejects tool claims and forged source refs before calling storage", async () => {
@@ -116,6 +161,7 @@ describe("manage_memory", () => {
         {
           command: "create",
           subject: "API key",
+          topic: "security",
           source_ref: "user:secret",
           source_quote: claim,
         },
@@ -140,6 +186,7 @@ describe("manage_memory", () => {
         {
           command: "create",
           subject: "favorite fruit",
+          topic: "food",
           source_ref: "user:forget",
           source_quote: "Forget my favorite fruit.",
         },

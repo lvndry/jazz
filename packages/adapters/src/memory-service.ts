@@ -659,7 +659,9 @@ export class MemoryServiceImpl implements MemoryService {
             if (!isValidScope) continue;
 
             const scopeRoot = path.join(this.baseMemoryDirectory, name);
-            const nested = yield* listDirectoryEntries(fs, scopeRoot, 2);
+            // Include when/<topic>/<file> so the first discovery call shows
+            // topic-scoped entries without a chain of directory requests.
+            const nested = yield* listDirectoryEntries(fs, scopeRoot, 3);
             for (const child of nested) {
               entries.push({ ...child, name: `${name}/${child.name}` });
             }
@@ -690,7 +692,7 @@ export class MemoryServiceImpl implements MemoryService {
         }
 
         if (info.type === "Directory") {
-          const entries = yield* listDirectoryEntries(fs, target, 2);
+          const entries = yield* listDirectoryEntries(fs, target, target === root ? 3 : 2);
           return {
             kind: "directory",
             path: abbreviateHomePath(target),
