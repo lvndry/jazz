@@ -47,6 +47,75 @@ describe("StreamProcessor", () => {
     expect(events.some((e) => e.type === "complete")).toBe(true);
   });
 
+  it("measures tokens per second over output tokens and the decode window only", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+
+    const prefillMs = 10_000;
+    const decodeMs = 100;
+    const outputTokens = 10;
+    const processor = new StreamProcessor(
+      {
+        providerName: "p1",
+        modelName: "m1",
+        hasReasoningEnabled: false,
+        startTime: Date.now() - prefillMs,
+      },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "Hello" };
+        await new Promise((resolve) => setTimeout(resolve, decodeMs));
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 100_000,
+        outputTokens,
+        totalTokens: 100_000 + outputTokens,
+      }),
+    } as any;
+
+    await processor.process(mockResult);
+
+    const complete = events.find((e) => e.type === "complete");
+    const upperBound = (outputTokens / decodeMs) * 1000;
+    expect(complete.metrics.tokensPerSecond).toBeLessThanOrEqual(upperBound);
+    expect(complete.metrics.tokensPerSecond).toBeGreaterThan(upperBound / 3);
+  });
+
+  it("omits tokens per second when the provider reports no output tokens", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      emit,
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "Hello" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({}),
+    } as any;
+
+    await processor.process(mockResult);
+
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete.metrics.tokensPerSecond).toBeUndefined();
+  });
+
   it("should handle reasoning deltas when enabled", async () => {
     const events: any[] = [];
     const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {

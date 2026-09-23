@@ -897,6 +897,7 @@ function selectModel(
       const llamacpp = createOpenAICompatible({
         name: "llamacpp",
         baseURL,
+        includeUsage: true,
         ...(headers ? { headers } : {}),
       });
       model = llamacpp(modelId);
@@ -928,6 +929,7 @@ function selectModel(
       const orcarouter = createOpenAICompatible({
         name: "orcarouter",
         baseURL: "https://api.orcarouter.ai/v1",
+        includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       model = orcarouter(modelId);

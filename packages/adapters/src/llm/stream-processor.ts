@@ -718,8 +718,13 @@ export class StreamProcessor {
         metrics.firstReasoningLatencyMs = this.state.firstReasoningTime - this.config.startTime;
       }
 
+      const generationMs = endTime - this.state.firstTokenTime;
+      const completionTokens = response.usage?.completionTokens ?? 0;
+      if (completionTokens > 0 && generationMs > 0) {
+        metrics.tokensPerSecond = (completionTokens / generationMs) * 1000;
+      }
+
       if (response.usage?.totalTokens) {
-        metrics.tokensPerSecond = (response.usage.totalTokens / totalDurationMs) * 1000;
         metrics.totalTokens = response.usage.totalTokens;
       }
     }

@@ -723,11 +723,54 @@ describe("InkStreamingRenderer", () => {
           .map((entry) => entry.text)
           .join("");
         expect(combined).toContain("42 tok");
+        expect(combined).not.toContain("tok/s");
 
         const debugScrollbackEntries = printOutputCalls
           .slice(scrollbackBaseline)
           .filter((e) => e.type === "debug");
         expect(debugScrollbackEntries).toHaveLength(0);
+      } finally {
+        store.appendEphemeral = originalAppend;
+        Effect.runSync(renderer.reset());
+      }
+    });
+  });
+
+  describe("metrics outro", () => {
+    test("shows decode speed as tok/s when the stream reports it", async () => {
+      const ephemeralAppends: Array<{ id: string; text: string }> = [];
+      const originalAppend = store.appendEphemeral;
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push({ id, text });
+        return originalAppend(id, text);
+      };
+
+      const renderer = new InkStreamingRenderer(
+        "SubAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+        0,
+        { kind: "ephemeral", regionId: "eph-tps" },
+      );
+
+      try {
+        emitStreamStart(renderer);
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: completeResponse("done"),
+            totalDurationMs: 100,
+            metrics: { firstTokenLatencyMs: 10, totalTokens: 42, tokensPerSecond: 41.26 },
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+
+        const combined = ephemeralAppends
+          .filter((entry) => entry.id === "eph-tps")
+          .map((entry) => entry.text)
+          .join("");
+        expect(combined).toContain("41.3 tok/s");
       } finally {
         store.appendEphemeral = originalAppend;
         Effect.runSync(renderer.reset());
