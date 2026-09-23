@@ -91,9 +91,17 @@ describe("localServerUnreachableMessage", () => {
     expect(message).not.toContain("127.0.0.1:8080");
   });
 
-  it("treats the default URL with its API path as the default", () => {
-    const message = localServerUnreachableMessage("llamacpp", "http://127.0.0.1:8080/v1");
+  it("gives the start hint for any loopback server, shown without its API path", () => {
+    const message = localServerUnreachableMessage("llamacpp", "http://localhost:8090/v1");
     expect(message).toContain("llama-server -m");
+    expect(message).toContain("http://localhost:8090)");
+    expect(message).not.toContain("/v1");
+  });
+
+  it("asks a remote server to be checked rather than started", () => {
+    const message = localServerUnreachableMessage("llamacpp", "http://172.17.0.1:8090/v1");
+    expect(message).toContain("at http://172.17.0.1:8090.");
+    expect(message).not.toContain("llama-server -m");
   });
 
   it("shows the actual URL when LLAMACPP_BASE_URL is set", () => {

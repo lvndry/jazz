@@ -9,6 +9,7 @@
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
 import {
   LOCAL_SERVER_PROVIDERS,
+  localServerAddress,
   type LocalServerProvider,
 } from "@jazz/core/constants/local-providers";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -18,7 +19,7 @@ import { Effect } from "effect";
 
 export type LocalProviderUrlPromptResult = "saved" | "already-set" | "cancelled";
 
-function isValidServerAddress(input: string): boolean | string {
+export function isValidServerAddress(input: string): boolean | string {
   const value = input.trim();
   if (value.length === 0) return true;
 
@@ -58,7 +59,9 @@ export async function ensureLocalProviderBaseUrl(options: {
   }
 
   const providerDisplayName = formatProviderDisplayName(options.provider);
-  const defaultUrl = configuredUrl || LOCAL_SERVER_PROVIDERS[options.provider].defaultUrl;
+  const defaultUrl = localServerAddress(
+    configuredUrl || LOCAL_SERVER_PROVIDERS[options.provider].defaultUrl,
+  );
   const address = await Effect.runPromise(
     options.terminal.ask(
       `${providerDisplayName} server URL (host:port or full URL; default ${defaultUrl}):`,
@@ -80,7 +83,9 @@ export async function ensureLocalProviderBaseUrl(options: {
     options.configService.set(`llm.${options.provider}.base_url`, normalized),
   );
   await Effect.runPromise(
-    options.terminal.success(`${providerDisplayName} server set to ${normalized}.`),
+    options.terminal.success(
+      `${providerDisplayName} server set to ${localServerAddress(normalized)}.`,
+    ),
   );
   return "saved";
 }
