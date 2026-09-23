@@ -295,6 +295,7 @@ interface LoopDeps {
    */
   supportedAttachmentKinds: readonly AttachmentKind[];
   observeMemory: AgentRunContext["observeMemory"];
+  memoryViewOffered: boolean;
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -784,9 +785,12 @@ function handleToolPhase(
 
     // Validate all tool calls have results
     const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
+    const successMap = new Map(toolResults.map((r) => [r.toolCallId, r.success]));
     for (const [duplicateId, canonicalId] of aliases) {
       const canonicalResult = resultMap.get(canonicalId);
       if (canonicalResult !== undefined) resultMap.set(duplicateId, canonicalResult);
+      const canonicalSuccess = successMap.get(canonicalId);
+      if (canonicalSuccess !== undefined) successMap.set(duplicateId, canonicalSuccess);
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -832,12 +836,11 @@ function handleToolPhase(
           const formattedResult = formatToolResultForContext(toolCall.function.name, result);
           const memoryOutcome =
             toolCall.function.name === VIEW_MEMORY_TOOL_NAME &&
+            successMap.get(toolCall.id) === true &&
             typeof result === "object" &&
             result !== null &&
-            "success" in result &&
-            result.success === true &&
-            "result" in result
-              ? (result.result as { outcome?: MemoryViewOutcome } | undefined)?.outcome
+            "outcome" in result
+              ? (result as { outcome?: MemoryViewOutcome }).outcome
               : undefined;
           let memoryDelivery: ChatMessage["memoryDelivery"];
           if (memoryOutcome?.kind === "file") {
@@ -1187,6 +1190,7 @@ function runIteration(
           iteration: iterationIndex,
           entries: memoryEntries,
           messages: messagesForLLM,
+          viewMemoryOffered: deps.memoryViewOffered,
         }),
       catch: () => [] as const,
     }).pipe(Effect.catchAll(() => Effect.succeed([] as const)));
@@ -1530,6 +1534,7 @@ export function executeAgentLoop(
           runRecursive,
           supportedAttachmentKinds,
           observeMemory,
+          memoryViewOffered: runContext.expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
         };
 
         // A resumed run rejoins a turn that stopped between a tool call and its result.

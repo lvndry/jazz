@@ -85,7 +85,8 @@ Legacy entries without source IDs cannot revoke their original conversation sour
 Shadow memory receipts retain paths, source IDs, and hashes rather than transcript or tool text.
 Hashes of short facts may still be guessable, so the receipt store remains private under
 `JAZZ_HOME`. Forgetting any entry erases the whole scope's receipt window before deleting the
-memory file. The observation writer has no path to memory credit, skills, or policy mutation.
+memory file. A scope generation prevents an in-flight observation from restoring old receipts.
+The observation writer has no path to memory credit, skills, or policy mutation.
 
 ### Remote entry points
 

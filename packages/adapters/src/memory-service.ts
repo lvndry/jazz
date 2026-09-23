@@ -9,7 +9,10 @@ import { createHash, randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { eraseMemoryOpportunityReceiptsForScope } from "@jazz/core/agent/memory-observation-receipts";
+import {
+  eraseMemoryOpportunityReceiptsForScope,
+  readMemoryReceiptEpoch,
+} from "@jazz/core/agent/memory-observation-receipts";
 import {
   MAX_MEMORY_FILE_BYTES,
   MAX_MEMORY_FILES_PER_SCOPE,
@@ -707,6 +710,10 @@ export class MemoryServiceImpl implements MemoryService {
               const observations: MemoryEntryObservation[] = [];
               for (const scope of allowed) {
                 const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+                const receiptEpoch = yield* Effect.tryPromise({
+                  try: () => readMemoryReceiptEpoch(scope, path.dirname(this.baseMemoryDirectory)),
+                  catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+                });
                 const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
                 const files = { ...provenance.files };
                 let changed = false;
@@ -735,6 +742,7 @@ export class MemoryServiceImpl implements MemoryService {
                     ...candidate,
                     entryId,
                     entryVersion: createHash("sha256").update(content).digest("hex"),
+                    receiptEpoch,
                   });
                 }
                 if (changed) {

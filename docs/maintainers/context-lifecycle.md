@@ -127,8 +127,9 @@ listings, cleared results, and merely selected candidates have no exposure. Ever
 starts with relevance `unknown`; these receipts never update legacy credit counters. A failed
 provider call leaves pending receipts, so a crash cannot appear as a success.
 
-The store keeps at most 128 receipts per entry. Forgetting a file removes the whole scope's
-receipt window, which also handles missing or stale provenance IDs. `memory explain` shows five
+The store keeps at most 128 receipts per entry. Forgetting a file advances a locked scope
+generation and removes the whole scope's receipt window; tickets from an older generation cannot
+write after deletion. This also handles missing or stale provenance IDs. `memory explain` shows five
 recent records without raw memory text. Calibration must use independent labels before any
 observation can drive lesson changes or skill proposals.
 

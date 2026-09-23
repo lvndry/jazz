@@ -14,6 +14,7 @@ import {
   beginMemoryOpportunities,
   completeMemoryOpportunities,
   eraseMemoryOpportunityReceiptsForScope,
+  readMemoryReceiptEpoch,
   readMemoryOpportunityReceipts,
 } from "./memory-observation-receipts";
 
@@ -34,6 +35,7 @@ describe("memory observation receipts", () => {
     const standing: MemoryEntryObservation = {
       entryId: randomUUID(),
       entryVersion: hash("Prefer concise replies"),
+      receiptEpoch: "0",
       path: "personal/always/style.md",
       scope: "personal",
       topic: undefined,
@@ -42,6 +44,7 @@ describe("memory observation receipts", () => {
     const conditional: MemoryEntryObservation = {
       entryId: randomUUID(),
       entryVersion: hash("My favorite fruit is banana"),
+      receiptEpoch: "0",
       path: "personal/when/shopping/fruit.md",
       scope: "personal",
       topic: "shopping",
@@ -50,6 +53,7 @@ describe("memory observation receipts", () => {
     const unseen: MemoryEntryObservation = {
       entryId: randomUUID(),
       entryVersion: hash("Use metric units"),
+      receiptEpoch: "0",
       path: "personal/when/cooking/units.md",
       scope: "personal",
       topic: "cooking",
@@ -123,6 +127,7 @@ describe("memory observation receipts", () => {
     const entry: MemoryEntryObservation = {
       entryId: randomUUID(),
       entryVersion: hash("banana"),
+      receiptEpoch: "0",
       path: "personal/when/shopping/fruit.md",
       scope: "personal",
       topic: "shopping",
@@ -155,9 +160,57 @@ describe("memory observation receipts", () => {
       (await readMemoryOpportunityReceipts("personal", entry.entryId, 5, homeDirectory))[0]
         ?.exposures,
     ).toEqual([]);
+    await beginMemoryOpportunities(input);
+    expect(
+      (await readMemoryOpportunityReceipts("personal", entry.entryId, 5, homeDirectory))[0]?.status,
+    ).toBe("observed");
     await eraseMemoryOpportunityReceiptsForScope("personal", homeDirectory);
     expect(
       await readMemoryOpportunityReceipts("personal", entry.entryId, 5, homeDirectory),
     ).toEqual([]);
+  });
+
+  test("marks conditional memory ineligible when view_memory was not offered", async () => {
+    const entry: MemoryEntryObservation = {
+      entryId: randomUUID(),
+      entryVersion: hash("banana"),
+      receiptEpoch: "0",
+      path: "personal/when/food/fruit.md",
+      scope: "personal",
+      topic: "food",
+      summary: "banana",
+    };
+    const tickets = await beginMemoryOpportunities({
+      runId: "no-tool",
+      iteration: 0,
+      entries: [entry],
+      messages: [{ role: "user", content: "shopping" }],
+      homeDirectory,
+      viewMemoryOffered: false,
+    });
+    expect(tickets[0]?.receipt.eligibility).toBe("ineligible");
+    expect(tickets[0]?.receipt.eligibilityEvidence).toBe("view_memory_not_offered");
+  });
+
+  test("an in-flight request cannot restore a receipt after forgetting", async () => {
+    const entry: MemoryEntryObservation = {
+      entryId: randomUUID(),
+      entryVersion: hash("banana"),
+      receiptEpoch: "0",
+      path: "personal/when/food/fruit.md",
+      scope: "personal",
+      topic: "food",
+      summary: "banana",
+    };
+    const messages: ChatMessage[] = [{ role: "user", content: "shopping" }];
+    const input = { runId: "in-flight", iteration: 0, entries: [entry], messages, homeDirectory };
+    const tickets = await beginMemoryOpportunities(input);
+    await eraseMemoryOpportunityReceiptsForScope("personal", homeDirectory);
+    await completeMemoryOpportunities(tickets, messages);
+    await beginMemoryOpportunities(input);
+    expect(
+      await readMemoryOpportunityReceipts("personal", entry.entryId, 5, homeDirectory),
+    ).toEqual([]);
+    expect(await readMemoryReceiptEpoch("personal", homeDirectory)).not.toBe("0");
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Shadow-only memory opportunity receipts. Each scope-eligible entry gets a
- * bounded, source-free receipt before a model request. A successful response
+ * bounded receipt without source text before a model request. A successful response
  * finalizes the same receipt with only exposures whose exact prompt or tool
  * result bytes survived into that request. Pending receipts survive crashes as
  * unknown observations; nothing here changes memory credit or agent behavior.
@@ -15,6 +15,8 @@ import { getJazzHomeDirectory } from "@/core/utils/paths";
 const MAX_RECEIPTS_PER_ENTRY = 128;
 const ENTRY_ID_PATTERN = /^[a-f0-9-]{36}$/i;
 const SCOPE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const LOCK_RETRY_MS = 20;
+const LOCK_STALE_MS = 60_000;
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -22,6 +24,74 @@ function digest(value: string): string {
 
 function receiptRoot(homeDirectory = getJazzHomeDirectory()): string {
   return path.join(homeDirectory, "memory-receipts");
+}
+
+function scopeRoot(scope: string, homeDirectory: string): string {
+  if (!SCOPE_PATTERN.test(scope)) throw new Error("Invalid memory receipt scope.");
+  return path.join(receiptRoot(homeDirectory), scope);
+}
+
+/** Read the generation that a memory snapshot must carry into receipt writes. */
+export async function readMemoryReceiptEpoch(
+  scope: string,
+  homeDirectory = getJazzHomeDirectory(),
+): Promise<string> {
+  const file = path.join(scopeRoot(scope, homeDirectory), ".epoch");
+  try {
+    const epoch = (await fs.readFile(file, "utf8")).trim();
+    if (!/^[a-f0-9-]{36}$/i.test(epoch)) throw new Error("Invalid memory receipt epoch.");
+    return epoch;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "0";
+    throw error;
+  }
+}
+
+/** Serialize receipt creation and scope erasure across runs and processes. */
+async function withScopeLock<A>(
+  scope: string,
+  homeDirectory: string,
+  operation: () => Promise<A>,
+): Promise<A> {
+  if (!SCOPE_PATTERN.test(scope)) throw new Error("Invalid memory receipt scope.");
+  const root = receiptRoot(homeDirectory);
+  await fs.mkdir(root, { recursive: true });
+  const lock = path.join(root, `.lock-${scope}`);
+  let acquired = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      await fs.mkdir(lock);
+      acquired = true;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const stat = await fs.stat(lock).catch(() => undefined);
+      if (stat !== undefined && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+        await fs.rm(lock, { recursive: true, force: true });
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      }
+    }
+  }
+  if (!acquired) throw new Error("Memory receipt scope lock timed out.");
+  try {
+    return await operation();
+  } finally {
+    await fs.rm(lock, { recursive: true, force: true });
+  }
+}
+
+function groupTickets(
+  tickets: readonly MemoryOpportunityTicket[],
+): Map<string, MemoryOpportunityTicket[]> {
+  const groups = new Map<string, MemoryOpportunityTicket[]>();
+  for (const ticket of tickets) {
+    const key = `${ticket.homeDirectory}\u0000${ticket.entry.scope}`;
+    const group = groups.get(key) ?? [];
+    group.push(ticket);
+    groups.set(key, group);
+  }
+  return groups;
 }
 
 /** A record of a model opportunity, not an assessment of memory usefulness. */
@@ -32,8 +102,8 @@ export interface MemoryOpportunityReceipt {
   readonly entryVersion: string;
   readonly pathAtOpportunity: string;
   readonly scope: string;
-  readonly eligibility: "eligible";
-  readonly eligibilityEvidence: "scope_allowlist";
+  readonly eligibility: "eligible" | "ineligible";
+  readonly eligibilityEvidence: "scope_allowlist" | "view_memory_not_offered";
   readonly relevanceDecision: "unknown";
   readonly relevanceEvidence: readonly [];
   readonly opportunityId: string;
@@ -67,6 +137,7 @@ function receiptPath(receipt: MemoryOpportunityReceipt, homeDirectory: string): 
 async function storeReceipt(
   receipt: MemoryOpportunityReceipt,
   homeDirectory: string,
+  overwrite = true,
 ): Promise<void> {
   if (!ENTRY_ID_PATTERN.test(receipt.entryId) || !SCOPE_PATTERN.test(receipt.scope)) return;
   const target = receiptPath(receipt, homeDirectory);
@@ -75,7 +146,13 @@ async function storeReceipt(
   const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(temp, `${JSON.stringify(receipt)}\n`, "utf8");
-    await fs.rename(temp, target);
+    if (overwrite) {
+      await fs.rename(temp, target);
+    } else {
+      await fs.link(temp, target).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      });
+    }
   } finally {
     await fs.rm(temp, { force: true }).catch(() => undefined);
   }
@@ -102,6 +179,7 @@ export async function beginMemoryOpportunities(input: {
   readonly entries: readonly MemoryEntryObservation[];
   readonly messages: readonly ChatMessage[];
   readonly homeDirectory?: string;
+  readonly viewMemoryOffered?: boolean;
 }): Promise<readonly MemoryOpportunityTicket[]> {
   const homeDirectory = input.homeDirectory ?? getJazzHomeDirectory();
   const requestFingerprint = digest(
@@ -126,8 +204,12 @@ export async function beginMemoryOpportunities(input: {
       entryVersion: entry.entryVersion,
       pathAtOpportunity: entry.path,
       scope: entry.scope,
-      eligibility: "eligible",
-      eligibilityEvidence: "scope_allowlist",
+      eligibility:
+        entry.topic === undefined || input.viewMemoryOffered !== false ? "eligible" : "ineligible",
+      eligibilityEvidence:
+        entry.topic === undefined || input.viewMemoryOffered !== false
+          ? "scope_allowlist"
+          : "view_memory_not_offered",
       relevanceDecision: "unknown",
       relevanceEvidence: [],
       opportunityId,
@@ -138,7 +220,20 @@ export async function beginMemoryOpportunities(input: {
     };
     return { receipt, entry, homeDirectory };
   });
-  await Promise.all(tickets.map(({ receipt }) => storeReceipt(receipt, homeDirectory)));
+  await Promise.all(
+    [...groupTickets(tickets).values()].map(async (group) => {
+      const scope = group[0]?.entry.scope;
+      if (scope === undefined) return;
+      await withScopeLock(scope, homeDirectory, async () => {
+        const epoch = await readMemoryReceiptEpoch(scope, homeDirectory);
+        for (const ticket of group) {
+          if (ticket.entry.receiptEpoch === epoch) {
+            await storeReceipt(ticket.receipt, homeDirectory, false);
+          }
+        }
+      });
+    }),
+  );
   return tickets;
 }
 
@@ -151,36 +246,45 @@ export async function completeMemoryOpportunities(
   const system = messages.find((message) => message.role === "system")?.content ?? "";
   const systemLines = new Set(system.split("\n"));
   await Promise.all(
-    tickets.map(({ receipt, entry, homeDirectory }) => {
-      const exposures: MemoryOpportunityReceipt["exposures"][number][] = [];
-      const injectedLine = `- [${entry.scope}] ${entry.summary}`;
-      if (entry.topic === undefined && systemLines.has(injectedLine)) {
-        exposures.push({
-          kind: "injected",
-          modelRequestId: receipt.opportunityId,
-          deliveredVersion: digest(injectedLine),
-          deliveredFingerprint: digest(injectedLine),
-          at,
-        });
-      }
-      for (const message of messages) {
-        const delivery = message.memoryDelivery;
-        if (
-          message.role !== "tool" ||
-          message.cleared ||
-          delivery?.path !== entry.path ||
-          delivery.messageFingerprint !== digest(message.content)
-        )
-          continue;
-        exposures.push({
-          kind: "viewed",
-          modelRequestId: receipt.opportunityId,
-          deliveredVersion: delivery.deliveredVersion,
-          deliveredFingerprint: delivery.deliveredFingerprint,
-          at,
-        });
-      }
-      return storeReceipt({ ...receipt, status: "observed", exposures }, homeDirectory);
+    [...groupTickets(tickets).values()].map(async (group) => {
+      const scope = group[0]?.entry.scope;
+      const homeDirectory = group[0]?.homeDirectory;
+      if (scope === undefined || homeDirectory === undefined) return;
+      await withScopeLock(scope, homeDirectory, async () => {
+        const epoch = await readMemoryReceiptEpoch(scope, homeDirectory);
+        for (const { receipt, entry } of group) {
+          if (entry.receiptEpoch !== epoch) continue;
+          const exposures: MemoryOpportunityReceipt["exposures"][number][] = [];
+          const injectedLine = `- [${entry.scope}] ${entry.summary}`;
+          if (entry.topic === undefined && systemLines.has(injectedLine)) {
+            exposures.push({
+              kind: "injected",
+              modelRequestId: receipt.opportunityId,
+              deliveredVersion: digest(injectedLine),
+              deliveredFingerprint: digest(injectedLine),
+              at,
+            });
+          }
+          for (const message of messages) {
+            const delivery = message.memoryDelivery;
+            if (
+              message.role !== "tool" ||
+              message.cleared ||
+              delivery?.path !== entry.path ||
+              delivery.messageFingerprint !== digest(message.content)
+            )
+              continue;
+            exposures.push({
+              kind: "viewed",
+              modelRequestId: receipt.opportunityId,
+              deliveredVersion: delivery.deliveredVersion,
+              deliveredFingerprint: delivery.deliveredFingerprint,
+              at,
+            });
+          }
+          await storeReceipt({ ...receipt, status: "observed", exposures }, homeDirectory);
+        }
+      });
     }),
   );
 }
@@ -227,6 +331,21 @@ export async function eraseMemoryOpportunityReceiptsForScope(
   scope: string,
   homeDirectory = getJazzHomeDirectory(),
 ): Promise<void> {
-  if (!SCOPE_PATTERN.test(scope)) throw new Error("Invalid memory receipt scope.");
-  await fs.rm(path.join(receiptRoot(homeDirectory), scope), { recursive: true, force: true });
+  await withScopeLock(scope, homeDirectory, async () => {
+    const root = scopeRoot(scope, homeDirectory);
+    await fs.mkdir(root, { recursive: true });
+    const temp = path.join(root, `.epoch.${randomUUID()}.tmp`);
+    try {
+      await fs.writeFile(temp, `${randomUUID()}\n`, "utf8");
+      await fs.rename(temp, path.join(root, ".epoch"));
+    } finally {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+    }
+    const names = await fs.readdir(root);
+    await Promise.all(
+      names
+        .filter((name) => name !== ".epoch")
+        .map((name) => fs.rm(path.join(root, name), { recursive: true, force: true })),
+    );
+  });
 }

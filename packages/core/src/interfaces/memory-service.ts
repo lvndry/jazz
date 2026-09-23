@@ -26,6 +26,8 @@ export interface MemoryEntryObservation extends MemoryEntryInForce {
   readonly entryId: string;
   /** SHA-256 of the full file content; it changes after an edit. */
   readonly entryVersion: string;
+  /** Receipt generation captured while the memory write lock was held. */
+  readonly receiptEpoch: string;
 }
 
 export interface MemoryDirectoryEntry {

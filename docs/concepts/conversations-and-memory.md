@@ -207,9 +207,11 @@ relevance remains `unknown` until separately assessed.
 
 Receipts contain entry IDs, content and delivery hashes, paths, timestamps, source IDs, and
 exposure kinds. They contain no user quotes or transcript text. Each entry retains its newest
-128 receipts; `jazz memory explain` shows the latest five. A forget operation erases all shadow
+128 receipts; `jazz memory explain` shows the latest five. A forget operation advances a scope
+generation and erases all shadow
 receipts in that scope, including records whose old entry IDs can no longer be recovered. This
-conservative erasure also removes observations for other entries in the same scope. The receipts
+prevents an in-flight run from restoring old receipts. The conservative erasure also removes
+observations for other entries in the same scope. The receipts
 do not award `helped`, `failed`, or `missed` credit and do not change recall or memory content.
 
 These gates authenticate the source of the words. They do not prove a statement is durable or
