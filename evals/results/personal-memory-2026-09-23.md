@@ -52,3 +52,11 @@ passed 24/24 turns with zero false writes and zero observed irrelevant recall. A
 was 113.9 seconds, estimated cost $0.238 across 24 priced turns, and 409,459 tokens. This small
 acceptance sample does not establish a population error rate; prompt-level exposure measurement
 continues in the separate shadow receipt work.
+
+After the symlink read guard, one additional isolated eight-turn sample passed only 5/8 turns.
+The model called `manage_memory` during capture and correction but saved no fact, so the corrected
+shopping answer had no preference to retrieve. Tool outcomes were not retained by this runner,
+and the cause remains unknown. Ten subsequent isolated capture turns passed 10/10, followed by
+three complete journeys that passed 24/24 with zero rubric-detected false writes or irrelevant
+recall (125.9 seconds total, estimated $0.234, 402,047 tokens). These later runs did not reproduce
+the miss; they do not erase it or justify automatic memory credit.
