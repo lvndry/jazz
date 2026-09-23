@@ -85,6 +85,17 @@ describe("localServerUnreachableMessage", () => {
     expect(localServerUnreachableMessage("openai")).toBeUndefined();
   });
 
+  it("names the URL that was actually attempted, such as one saved in config", () => {
+    const message = localServerUnreachableMessage("llamacpp", "http://gpu.example:8000/v1");
+    expect(message).toContain("gpu.example:8000");
+    expect(message).not.toContain("127.0.0.1:8080");
+  });
+
+  it("treats the default URL with its API path as the default", () => {
+    const message = localServerUnreachableMessage("llamacpp", "http://127.0.0.1:8080/v1");
+    expect(message).toContain("llama-server -m");
+  });
+
   it("shows the actual URL when LLAMACPP_BASE_URL is set", () => {
     const original = process.env["LLAMACPP_BASE_URL"];
     try {

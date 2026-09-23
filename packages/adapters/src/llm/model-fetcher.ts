@@ -638,7 +638,7 @@ export function createModelFetcher(): ModelFetcherService {
         },
         catch: (error) => {
           if (isConnectionError(error)) {
-            const localMessage = localServerUnreachableMessage(providerName);
+            const localMessage = localServerUnreachableMessage(providerName, baseUrl);
             if (localMessage) {
               return new LLMConfigurationError({ provider: providerName, message: localMessage });
             }

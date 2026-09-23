@@ -298,15 +298,26 @@ function isProviderAuthFailure(statusCode: number | undefined, message: string):
   return !isBillingOrPlanError(message);
 }
 
-// Start-the-server guidance for local providers; undefined for everything else.
-export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
+function stripLocalApiPath(url: string): string {
+  return url.replace(/\/(v1|api)\/?$/, "").replace(/\/$/, "");
+}
+
+/**
+ * Start-the-server guidance for local providers; undefined for everything else.
+ *
+ * `attemptedUrl` is the base URL the failed request actually used (config, env, or default).
+ * Without it the env var or the default is reported, which misnames a URL saved in config.
+ */
+export function localServerUnreachableMessage(
+  providerName: ProviderName,
+  attemptedUrl?: string,
+): string | undefined {
   if (!isLocalServerProvider(providerName)) {
     return undefined;
   }
   const local = LOCAL_SERVER_PROVIDERS[providerName];
-  const envUrl = process.env[local.envVar];
-  const targetUrl = envUrl || local.defaultUrl;
-  const isCustomUrl = envUrl && envUrl !== local.defaultUrl;
+  const targetUrl = attemptedUrl || process.env[local.envVar] || local.defaultUrl;
+  const isCustomUrl = stripLocalApiPath(targetUrl) !== local.defaultUrl;
   if (isCustomUrl) {
     return `Cannot reach the ${local.name} server at ${targetUrl}. Make sure it is running and reachable from this host.`;
   }

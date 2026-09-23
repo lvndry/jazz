@@ -31,32 +31,38 @@ function isValidServerAddress(input: string): boolean | string {
 }
 
 /**
- * Ask for and persist a local provider's server URL when no URL is configured yet.
+ * Ask for and persist a local provider's server URL.
+ *
+ * Without `force` this only prompts when no URL is configured yet. With `force` it re-prompts
+ * even over a saved URL, so a caller can recover after the saved server turned out unreachable.
+ * An env-var URL overrides config, so it is never prompted over: re-saving config would change
+ * nothing.
  *
  * The visible default intentionally omits the provider REST path: users think in terms of the
- * server address, while normalization adds `/api` for Ollama and `/v1` for llama.cpp. An empty
- * submission therefore means the loopback default, and an Escape returns to provider selection.
+ * server address, while normalization adds `/api` for Ollama and `/v1` for llama.cpp. The default
+ * is a placeholder rather than prefilled text so typing replaces it instead of appending to it; an
+ * empty submission means that placeholder, and an Escape returns to provider selection.
  */
 export async function ensureLocalProviderBaseUrl(options: {
   readonly configService: AgentConfigService;
   readonly terminal: TerminalService;
   readonly provider: LocalServerProvider;
+  readonly force?: boolean;
 }): Promise<LocalProviderUrlPromptResult> {
   const config = await Effect.runPromise(options.configService.appConfig);
   const configuredUrl = config.llm?.[options.provider]?.base_url?.trim();
   const envUrl = process.env[LOCAL_SERVER_PROVIDERS[options.provider].envVar]?.trim();
 
-  if (configuredUrl || envUrl) {
+  if (envUrl || (configuredUrl && !options.force)) {
     return "already-set";
   }
 
   const providerDisplayName = formatProviderDisplayName(options.provider);
-  const defaultUrl = LOCAL_SERVER_PROVIDERS[options.provider].defaultUrl;
+  const defaultUrl = configuredUrl || LOCAL_SERVER_PROVIDERS[options.provider].defaultUrl;
   const address = await Effect.runPromise(
     options.terminal.ask(
       `${providerDisplayName} server URL (host:port or full URL; default ${defaultUrl}):`,
       {
-        defaultValue: defaultUrl,
         validate: isValidServerAddress,
         cancellable: true,
         simple: true,
@@ -69,7 +75,7 @@ export async function ensureLocalProviderBaseUrl(options: {
     return "cancelled";
   }
 
-  const normalized = normalizeLocalProviderBaseUrl(options.provider, address || defaultUrl);
+  const normalized = normalizeLocalProviderBaseUrl(options.provider, address.trim() || defaultUrl);
   await Effect.runPromise(
     options.configService.set(`llm.${options.provider}.base_url`, normalized),
   );

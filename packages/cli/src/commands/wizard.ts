@@ -141,7 +141,6 @@ export function wizardCommand() {
           if (creationResult._tag === "Left") {
             // Creation failed
             yield* terminal.error(`Failed to create agent: ${String(creationResult.left)}`);
-            yield* terminal.clear();
             break;
           }
 
