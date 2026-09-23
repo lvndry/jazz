@@ -437,6 +437,37 @@ describe("path safety", () => {
 });
 
 describe("root listing", () => {
+  test("omits linked files and directories from memory discovery", async () => {
+    const service = makeService();
+    const scopeRoot = path.join(tmpDir, "agent-1");
+    fs.mkdirSync(scopeRoot);
+    const outside = path.join(tmpDir, "outside.txt");
+    fs.writeFileSync(outside, "external instruction");
+    fs.symlinkSync(outside, path.join(scopeRoot, "linked.md"));
+    fs.symlinkSync(tmpDir, path.join(scopeRoot, "linked-dir"));
+
+    const result = await runEffect(service.view(scopes, ""));
+    expect(result.kind).toBe("directory");
+    if (result.kind === "directory") {
+      expect(result.entries).toEqual([{ name: "agent-1/", kind: "directory", sizeBytes: 0 }]);
+    }
+  });
+
+  test("rejects a linked scope root before reading its files", async () => {
+    const service = makeService();
+    const outsideDir = path.join(tmpDir, "outside-scope");
+    fs.mkdirSync(outsideDir);
+    fs.writeFileSync(path.join(outsideDir, "secret.md"), "external instruction");
+    fs.symlinkSync(outsideDir, path.join(tmpDir, "agent-1"));
+
+    const listing = await runEffect(service.view(scopes, ""));
+    expect(listing.kind).toBe("directory");
+    if (listing.kind === "directory") {
+      expect(listing.entries).toEqual([{ name: "agent-1/", kind: "directory", sizeBytes: 0 }]);
+    }
+    expect((await runEither(service.view(scopes, "agent-1/secret.md")))._tag).toBe("Left");
+  });
+
   test("reveals topic-scoped file paths in the first discovery call", async () => {
     const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
     await runEffect(

@@ -88,6 +88,16 @@ describe("standingEntries", () => {
     expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
   });
 
+  test("does not inject files reached through memory symlinks", async () => {
+    const service = makeService();
+    const outsideFile = path.join(tmpDir, "outside.txt");
+    fs.writeFileSync(outsideFile, "external instruction");
+    fs.mkdirSync(path.join(tmpDir, "personal", "always"), { recursive: true });
+    fs.symlinkSync(outsideFile, path.join(tmpDir, "personal", "always", "linked.md"));
+
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+  });
+
   test("survives a corrupt sidecar", async () => {
     const service = makeService();
     await runEffect(service.create(scopes, "personal/always/a.md", "still here", writeContext));
@@ -154,5 +164,16 @@ describe("standingEntries", () => {
         summary: "Be professional",
       },
     ]);
+  });
+
+  test("does not discover conditional memories through a linked topic", async () => {
+    const service = makeService();
+    const outsideTopic = path.join(tmpDir, "outside-topic");
+    fs.mkdirSync(outsideTopic);
+    fs.writeFileSync(path.join(outsideTopic, "instruction.md"), "external instruction");
+    fs.mkdirSync(path.join(tmpDir, "personal", "when"), { recursive: true });
+    fs.symlinkSync(outsideTopic, path.join(tmpDir, "personal", "when", "food"));
+
+    expect(await runEffect(service.conditionalEntries(scopes))).toEqual([]);
   });
 });

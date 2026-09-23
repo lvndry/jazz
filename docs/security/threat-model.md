@@ -74,6 +74,10 @@ path through memory tools. The runner marks direct terminal and `jazz run` promp
 input; callers that wrap untrusted text in a headless prompt are responsible for separating it
 before invoking Jazz.
 
+Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
+Memory path reads and writes reject linked path components, so a linked external file cannot
+be surfaced as a saved preference.
+
 Exact quotation authenticates where words came from, not whether they are a durable personal
 fact or which existing entry they should update. A model can still misjudge those questions.
 Legacy entries without source IDs cannot revoke their original conversation source on deletion.

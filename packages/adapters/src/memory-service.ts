@@ -110,13 +110,16 @@ function walkMemoryTree(
       // budget — and they are excluded from listings for the same reason.
       if (name.startsWith(".")) continue;
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
-      if (!info) continue;
-      if (info.type === "Directory") {
+      const info = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(entryPath),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (!info || info.isSymbolicLink()) continue;
+      if (info.isDirectory()) {
         const nested = yield* walkMemoryTree(fs, entryPath);
         totalBytes += nested.totalBytes;
         fileCount += nested.fileCount;
-      } else if (info.type === "File") {
+      } else if (info.isFile()) {
         totalBytes += Number(info.size);
         fileCount += 1;
       }
@@ -139,10 +142,14 @@ function listDirectoryEntries(
     const entries: MemoryDirectoryEntry[] = [];
     for (const name of visible) {
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const info = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(entryPath),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info) continue;
+      if (info.isSymbolicLink()) continue;
 
-      if (info.type === "Directory") {
+      if (info.isDirectory()) {
         entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
         if (depthRemaining > 1) {
           const nested = yield* listDirectoryEntries(fs, entryPath, depthRemaining - 1);
@@ -150,7 +157,7 @@ function listDirectoryEntries(
             entries.push({ ...child, name: `${name}/${child.name}` });
           }
         }
-      } else if (info.type === "File") {
+      } else if (info.isFile()) {
         entries.push({ name, kind: "file", sizeBytes: Number(info.size) });
       }
     }
@@ -361,6 +368,32 @@ function readEntrySummary(
   );
 }
 
+/** Ignore symlinks during recall discovery, including intermediate topic directories. */
+function existingSafeMemoryPath(
+  scopeRoot: string,
+  relativePath: string,
+  kind: "file" | "directory",
+): Effect.Effect<string | undefined, never> {
+  return Effect.gen(function* () {
+    const rootInfo = yield* Effect.tryPromise({
+      try: () => nodeFs.lstat(scopeRoot),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) return undefined;
+    const target = yield* resolveMemoryPath(scopeRoot, relativePath).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined)),
+    );
+    if (target === undefined) return undefined;
+    const info = yield* Effect.tryPromise({
+      try: () => nodeFs.lstat(target),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (info?.isSymbolicLink()) return undefined;
+    if (kind === "file") return info?.isFile() ? target : undefined;
+    return info?.isDirectory() ? target : undefined;
+  });
+}
+
 /**
  * Records a write against `relativePath`, creating its entry if it is new.
  *
@@ -544,6 +577,15 @@ export class MemoryServiceImpl implements MemoryService {
       yield* fs
         .makeDirectory(rawRoot, { recursive: true })
         .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+      const rootInfo = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(rawRoot),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      });
+      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation("Memory scope roots cannot be symlinks."),
+        );
+      }
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -658,7 +700,12 @@ export class MemoryServiceImpl implements MemoryService {
             const isValidScope = isValidStorageKey(name);
             if (!isValidScope) continue;
 
-            const scopeRoot = path.join(this.baseMemoryDirectory, name);
+            const scopeRoot = yield* existingSafeMemoryPath(
+              this.baseMemoryDirectory,
+              name,
+              "directory",
+            );
+            if (scopeRoot === undefined) continue;
             // Include when/<topic>/<file> so the first discovery call shows
             // topic-scoped entries without a chain of directory requests.
             const nested = yield* listDirectoryEntries(fs, scopeRoot, 3);
@@ -746,28 +793,33 @@ export class MemoryServiceImpl implements MemoryService {
         const entries: MemoryEntryInForce[] = [];
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
-          const topicRoot = path.join(this.baseMemoryDirectory, scope, WHEN_SEGMENT);
+          const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+          const topicRoot = yield* existingSafeMemoryPath(scopeRoot, WHEN_SEGMENT, "directory");
+          if (topicRoot === undefined) continue;
           const topics = yield* fs
             .readDirectory(topicRoot)
             .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
           for (const topic of topics.sort()) {
             if (topic.startsWith(".")) continue;
             if (isRelevantTopic !== undefined && !isRelevantTopic(topic)) continue;
-            const topicPath = path.join(topicRoot, topic);
-            const topicInfo = yield* fs
-              .stat(topicPath)
-              .pipe(Effect.catchAll(() => Effect.succeed(null)));
-            if (topicInfo?.type !== "Directory") continue;
+            const topicPath = yield* existingSafeMemoryPath(
+              scopeRoot,
+              `${WHEN_SEGMENT}/${topic}`,
+              "directory",
+            );
+            if (topicPath === undefined) continue;
             const names = yield* fs
               .readDirectory(topicPath)
               .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
             for (const name of names.sort()) {
               if (name.startsWith(".")) continue;
-              const info = yield* fs
-                .stat(path.join(topicPath, name))
-                .pipe(Effect.catchAll(() => Effect.succeed(null)));
-              if (info?.type !== "File") continue;
-              const summary = yield* readEntrySummary(fs, path.join(topicPath, name));
+              const filePath = yield* existingSafeMemoryPath(
+                scopeRoot,
+                `${WHEN_SEGMENT}/${topic}/${name}`,
+                "file",
+              );
+              if (filePath === undefined) continue;
+              const summary = yield* readEntrySummary(fs, filePath);
               if (summary === undefined) continue;
               entries.push({
                 path: `${scope}/${WHEN_SEGMENT}/${topic}/${name}`,
@@ -789,17 +841,21 @@ export class MemoryServiceImpl implements MemoryService {
         const entries: MemoryEntryInForce[] = [];
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
-          const absolute = path.join(this.baseMemoryDirectory, scope, ALWAYS_SEGMENT);
+          const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+          const absolute = yield* existingSafeMemoryPath(scopeRoot, ALWAYS_SEGMENT, "directory");
+          if (absolute === undefined) continue;
           const names = yield* fs
             .readDirectory(absolute)
             .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
           for (const name of names.sort()) {
             if (name.startsWith(".")) continue;
-            const info = yield* fs
-              .stat(path.join(absolute, name))
-              .pipe(Effect.catchAll(() => Effect.succeed(null)));
-            if (info?.type !== "File") continue;
-            const summary = yield* readEntrySummary(fs, path.join(absolute, name));
+            const filePath = yield* existingSafeMemoryPath(
+              scopeRoot,
+              `${ALWAYS_SEGMENT}/${name}`,
+              "file",
+            );
+            if (filePath === undefined) continue;
+            const summary = yield* readEntrySummary(fs, filePath);
             if (summary === undefined) continue;
             entries.push({
               path: `${scope}/${ALWAYS_SEGMENT}/${name}`,
