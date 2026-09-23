@@ -62,6 +62,20 @@ describe("shouldPersistConversation", () => {
   test("is false when history is empty", () => {
     expect(shouldPersistConversation(makeInput({ conversationHistory: [] }))).toBe(false);
   });
+
+  test("is true for a slash command before the first model turn", () => {
+    expect(
+      shouldPersistConversation(
+        makeInput({
+          conversationHistory: [],
+          uiTranscript: [
+            { type: "user", message: "/info" },
+            { type: "log", message: "Conversation info" },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("persistConversationIfNeeded", () => {

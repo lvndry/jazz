@@ -17,6 +17,24 @@ export interface TerminalInkNode {
  */
 export type TerminalOutput = string | TerminalInkNode;
 
+/** Stable presentation categories shared by live and persisted terminal output. */
+export const TERMINAL_OUTPUT_KINDS = [
+  "info",
+  "success",
+  "warn",
+  "error",
+  "debug",
+  "log",
+  "user",
+  "streamContent",
+] as const;
+
+export type TerminalOutputKind = (typeof TERMINAL_OUTPUT_KINDS)[number];
+
+export function isTerminalOutputKind(value: unknown): value is TerminalOutputKind {
+  return typeof value === "string" && TERMINAL_OUTPUT_KINDS.includes(value as TerminalOutputKind);
+}
+
 /**
  * Helper to wrap an Ink React node for terminal rendering.
  */
