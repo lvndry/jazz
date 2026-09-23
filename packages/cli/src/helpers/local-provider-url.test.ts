@@ -29,7 +29,7 @@ function terminal(options: {
 
 describe("ensureLocalProviderBaseUrl", () => {
   it("asks once and normalizes a llama.cpp host:port", async () => {
-    const asked: Array<{ message: string; defaultValue?: string }> = [];
+    const asked: Array<{ message: string; defaultValue?: string; placeholder?: string }> = [];
     const saved: Array<{ key: string; value: unknown }> = [];
 
     const result = await ensureLocalProviderBaseUrl({
@@ -40,9 +40,14 @@ describe("ensureLocalProviderBaseUrl", () => {
       }),
       terminal: terminal({
         ask: (message, options) => {
-          const entry: { message: string; defaultValue?: string } = { message };
+          const entry: { message: string; defaultValue?: string; placeholder?: string } = {
+            message,
+          };
           if (options?.defaultValue !== undefined) {
             entry.defaultValue = options.defaultValue;
+          }
+          if (options?.placeholder !== undefined) {
+            entry.placeholder = options.placeholder;
           }
           asked.push(entry);
           return Effect.succeed("gpu.example:8000");
@@ -51,7 +56,8 @@ describe("ensureLocalProviderBaseUrl", () => {
     });
 
     expect(result).toBe("saved");
-    expect(asked[0]?.defaultValue).toBe("http://127.0.0.1:8080");
+    expect(asked[0]?.defaultValue).toBeUndefined();
+    expect(asked[0]?.placeholder).toBe("http://127.0.0.1:8080");
     expect(saved).toEqual([{ key: "llm.llamacpp.base_url", value: "http://gpu.example:8000/v1" }]);
   });
 
@@ -89,5 +95,57 @@ describe("ensureLocalProviderBaseUrl", () => {
 
     expect(result).toBe("already-set");
     expect(promptCount).toBe(0);
+  });
+
+  it("re-prompts over a saved URL when forced, offering the saved one as the default", async () => {
+    const placeholders: Array<string | undefined> = [];
+    const saved: Array<{ key: string; value: unknown }> = [];
+
+    const result = await ensureLocalProviderBaseUrl({
+      provider: "llamacpp",
+      force: true,
+      configService: configService({
+        appConfig: { llm: { llamacpp: { base_url: "http://gpu.example:8000/v1" } } },
+        set: (key, value) => saved.push({ key, value }),
+      }),
+      terminal: terminal({
+        ask: (_message, options) => {
+          placeholders.push(options?.placeholder);
+          return Effect.succeed("gpu.example:9000");
+        },
+      }),
+    });
+
+    expect(result).toBe("saved");
+    expect(placeholders).toEqual(["http://gpu.example:8000/v1"]);
+    expect(saved).toEqual([{ key: "llm.llamacpp.base_url", value: "http://gpu.example:9000/v1" }]);
+  });
+
+  it("never prompts over an env-var URL, even when forced", async () => {
+    const original = process.env["LLAMACPP_BASE_URL"];
+    let promptCount = 0;
+    try {
+      process.env["LLAMACPP_BASE_URL"] = "http://gpu.example:8000/v1";
+      const result = await ensureLocalProviderBaseUrl({
+        provider: "llamacpp",
+        force: true,
+        configService: configService({ appConfig: {}, set: () => {} }),
+        terminal: terminal({
+          ask: () => {
+            promptCount += 1;
+            return Effect.succeed("should-not-be-used");
+          },
+        }),
+      });
+
+      expect(result).toBe("already-set");
+      expect(promptCount).toBe(0);
+    } finally {
+      if (original === undefined) {
+        delete process.env["LLAMACPP_BASE_URL"];
+      } else {
+        process.env["LLAMACPP_BASE_URL"] = original;
+      }
+    }
   });
 });

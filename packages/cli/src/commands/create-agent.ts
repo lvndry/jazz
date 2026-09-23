@@ -9,7 +9,11 @@ import {
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
-import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
+import {
+  isLocalServerProvider,
+  LOCAL_SERVER_PROVIDERS,
+  type LocalServerProvider,
+} from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
@@ -392,6 +396,57 @@ function personaBackStep(state: WizardState): WizardStep {
 }
 
 /**
+ * Resolve a local server's URL and load the models it serves.
+ *
+ * An unreachable server or one serving no models shows the reason and re-asks for the URL, so a
+ * wrong saved address can be corrected in place instead of aborting the wizard. When the URL
+ * comes from an env var it cannot be re-prompted over, so the wizard falls back to provider
+ * selection.
+ */
+async function connectLocalProvider(
+  provider: LocalServerProvider,
+  llmService: LLMService,
+  configService: AgentConfigService,
+  terminal: TerminalService,
+): Promise<LLMProvider | "cancelled"> {
+  const providerDisplayName = formatProviderDisplayName(provider);
+  let force = false;
+  while (true) {
+    const urlResult = await ensureLocalProviderBaseUrl({
+      configService,
+      terminal,
+      provider,
+      force,
+    });
+    if (urlResult === "cancelled") {
+      return "cancelled";
+    }
+    if (force && urlResult === "already-set") {
+      await Effect.runPromise(
+        terminal.warn(
+          `${LOCAL_SERVER_PROVIDERS[provider].envVar} overrides the configured URL — fix it and try again.`,
+        ),
+      );
+      return "cancelled";
+    }
+
+    const outcome = await Effect.runPromise(llmService.getProvider(provider).pipe(Effect.either));
+    if (outcome._tag === "Right" && outcome.right.supportedModels.length > 0) {
+      return outcome.right;
+    }
+
+    await Effect.runPromise(
+      terminal.error(
+        outcome._tag === "Left"
+          ? outcome.left.message
+          : `The ${providerDisplayName} server is reachable but serves no models.`,
+      ),
+    );
+    force = true;
+  }
+}
+
+/**
  * Prompt for basic agent information with ESC-based back navigation.
  *
  * Each step allows pressing ESC to go back to the previous step.
@@ -447,27 +502,31 @@ export async function promptForAgentInfo(
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
         if (isLocalServerProvider(result)) {
-          const urlResult = await ensureLocalProviderBaseUrl({
+          const localProvider = await connectLocalProvider(
+            result,
+            llmService,
             configService,
             terminal,
-            provider: result,
-          });
-          if (urlResult === "cancelled") {
+          );
+          if (localProvider === "cancelled") {
             await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
             break;
           }
-        } else {
-          const keyResult = await ensureProviderApiKey({
-            configService,
-            terminal,
-            provider: result,
-            displayName: providerDisplayName,
-            required: true,
-          });
-          if (keyResult === "cancelled") {
-            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
-            break;
-          }
+          state.providerInfo = localProvider;
+          state.step = "model";
+          break;
+        }
+
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: result,
+          displayName: providerDisplayName,
+          required: true,
+        });
+        if (keyResult === "cancelled") {
+          await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+          break;
         }
 
         // Cache provider info for next step
