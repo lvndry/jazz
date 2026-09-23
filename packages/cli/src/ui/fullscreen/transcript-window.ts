@@ -1,3 +1,10 @@
+/**
+ * Vertical allocation and scroll-window arithmetic for the fullscreen shell.
+ *
+ * `allocateRegions` gives the transcript, live-work band, and composer a
+ * bounded share of the current viewport; the scroll helpers keep transcript
+ * navigation within the rows that allocation leaves visible.
+ */
 import { inputRows } from "./Input";
 import { reservedHeight } from "./LiveZone";
 import type { InputModel, LiveModel, Viewport } from "./types";
@@ -69,8 +76,8 @@ export interface RegionHeights {
  *
  * Every region below the header is `flexShrink: 0`, so this arithmetic is the
  * only thing standing between a cramped terminal and a footer pushed off the
- * bottom of the screen. At 60x12 — the smallest geometry the interface will
- * start in — an open command list alone wants more rows than exist.
+ * bottom of the screen. At the compact 32x10 floor, an open command list alone
+ * wants more rows than exist, so the list is windowed around its selection.
  *
  * The order of service is the design: the composer is under the user's hands,
  * so it is served first, but never down to the last transcript row; the live

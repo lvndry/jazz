@@ -40,9 +40,17 @@ export const METADATA_RESERVE = 20;
  */
 export const LIVE_ZONE_MAX_ROWS = 12;
 
-/** Below this the interface refuses to draw a partial frame. */
-export const MIN_WIDTH = 60;
-export const MIN_HEIGHT = 12;
+/** Dense cards shed spacing below these dimensions. */
+export const COMPACT_WIDTH = 60;
+export const COMPACT_HEIGHT = 12;
+
+/**
+ * Smallest viewport where the conversation and approval controls remain usable.
+ * At this floor, the transcript still gets a row and approval actions and
+ * detail-navigation keys fit in the compact approval legend.
+ */
+export const MIN_WIDTH = 32;
+export const MIN_HEIGHT = 10;
 
 // ─── Blocks ──────────────────────────────────────────────────────────────────
 
@@ -339,9 +347,12 @@ export interface Viewport {
   readonly height: number;
 }
 
-/** Running text takes the content column; a short strip on the right is metadata. */
+/**
+ * Running text takes the available content column; a short strip on the right
+ * becomes metadata only when the terminal is wide enough to afford it.
+ */
 export function measureFor(width: number): { prose: number; metadata: number } {
-  const content = Math.max(MIN_WIDTH, width) - 4;
+  const content = Math.max(1, width - 4);
   const metadata = Math.min(METADATA_RESERVE, Math.max(0, content - PROSE_MEASURE));
   return { prose: content - metadata, metadata };
 }

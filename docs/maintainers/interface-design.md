@@ -71,6 +71,21 @@ Animation runs at roughly 6 frames per second, and is replaced rather than merel
 slowed when there is no TTY: a spinner written to a pipe produces thousands of
 junk frames, so headless emits one line per state transition instead.
 
+## Small terminals
+
+The fullscreen conversation supports terminals down to **32 columns by 10 rows**.
+Text measures the real viewport width, while the header, footer, and live-work
+band give up space before the composer or the last visible transcript row does.
+The input suggestion list is windowed around its selection when it cannot fit.
+
+Below 60 columns or 12 rows, an approval fills the viewport, moves the account
+into the scrollable details, shows long field values in full, and uses a second
+control row for scrolling and the always-allow action. That keeps the action,
+account, fields, consequence, and accept/reject controls inspectable without
+requiring the former 60×12 layout. Below 32×10 there is not enough room for a
+transcript row and those approval controls together: startup uses the append-only
+CLI presentation, and a live resize shows a clipped resize hint.
+
 ---
 
 ## Identity
