@@ -248,6 +248,7 @@ export interface LLMConfig {
   readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
   readonly xai?: LLMProviderConfig;
+  readonly yolo_auto?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;
 }
 

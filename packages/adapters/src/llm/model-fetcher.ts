@@ -457,6 +457,19 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       },
     }));
   },
+  yolo_auto: (data: unknown) => {
+    const response = data as { data?: { id: string; name?: string }[] };
+    // OpenAI-shaped listing: ids (and sometimes a display name) only, so the catalog is
+    // whatever the key can reach. Tool support is part of the endpoint's chat-completions
+    // contract rather than a per-model field, so it is the one thing worth defaulting.
+    return (response.data ?? []).map((model) => ({
+      id: model.id,
+      displayName: model.name ?? model.id,
+      fallback: {
+        supportsTools: true,
+      },
+    }));
+  },
   togetherai: (data: unknown) => {
     const models = data as {
       id: string;

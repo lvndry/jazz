@@ -42,6 +42,7 @@ export const AVAILABLE_PROVIDERS = [
   "ollama",
   "orcarouter",
   "togetherai",
+  "yolo_auto",
   "zhipuai",
 ] as const;
 
