@@ -1101,11 +1101,7 @@ function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet): Segment[] {
   return segments;
 }
 
-/**
- * Consecutive settled receipts pack onto shared rows; anything that failed, was
- * denied, or is expanded takes its own row, because those are the ones a reader
- * has to stop on.
- */
+/** Pack short receipts; wrap any tool call that needs more than one row. */
 function receiptRows(
   blocks: readonly ToolReceiptBlock[],
   geometry: Geometry,
@@ -1131,9 +1127,13 @@ function receiptRows(
 
   for (const block of blocks) {
     const segments = receiptSegments(block, glyphs);
-    const solo = block.status !== "ok" || block.expanded === true;
+    const needsOwnRows =
+      block.status !== "ok" ||
+      block.expanded === true ||
+      segments.some((segment) => segment.text.includes("\n")) ||
+      terminalSegmentsWidth(segments) > geometry.prose;
 
-    if (solo) {
+    if (needsOwnRows) {
       flush();
       const marker =
         block.status === "denied"

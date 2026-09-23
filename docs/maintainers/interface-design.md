@@ -328,6 +328,11 @@ wide enough that they would otherwise sit on the sentence. Tool output,
 entity lists, tables and code fences take the same full content width,
 because those are scanned rather than read.
 
+Settled tool calls show their arguments and up to three lines of result text.
+Short receipts share a row; a receipt that exceeds the content width wraps onto
+its own rows, so a long command or todo item is readable instead of disappearing
+at the right edge. Longer result bodies retain the Ctrl+O expansion affordance.
+
 ---
 
 ## The approval card
