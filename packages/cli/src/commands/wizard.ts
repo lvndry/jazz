@@ -356,7 +356,13 @@ function selectAgent(
 /**
  * Start a chat session with an agent and save as last used
  */
-function startChatWithAgent(agent: Agent, options?: { initialHistory?: ChatMessage[] }) {
+function startChatWithAgent(
+  agent: Agent,
+  options?: {
+    initialHistory?: ChatMessage[];
+    initialUiTranscript?: readonly import("@jazz/adapters/history/conversation-history-service").ConversationUiEntry[];
+  },
+) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const jazzState = yield* JazzStateServiceTag;
@@ -453,6 +459,9 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     yield* startChatWithAgent(selected.agent, {
       initialHistory: conversation?.messages ?? [],
+      ...(conversation?.uiTranscript !== undefined
+        ? { initialUiTranscript: conversation.uiTranscript }
+        : {}),
     });
   });
 }

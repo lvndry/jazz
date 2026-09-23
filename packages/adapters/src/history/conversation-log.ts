@@ -27,6 +27,7 @@
 import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
@@ -114,8 +115,24 @@ export interface ConversationLogRewrite {
   readonly at: string;
 }
 
+/** UI-only scrollback, deliberately separate from model-facing messages. */
+export interface ConversationLogUiTranscript {
+  readonly type: "ui-transcript";
+  readonly at: string;
+  readonly entries: readonly ConversationUiEntry[];
+}
+
 export type ConversationLogEvent =
-  ConversationLogHeader | ConversationLogMessage | ConversationLogMeta | ConversationLogRewrite;
+  | ConversationLogHeader
+  | ConversationLogMessage
+  | ConversationLogMeta
+  | ConversationLogRewrite
+  | ConversationLogUiTranscript;
+
+export interface ConversationUiEntry {
+  readonly type: TerminalOutputKind;
+  readonly message: string;
+}
 
 /** A conversation and everything said in it. */
 export interface Conversation {
@@ -125,6 +142,8 @@ export interface Conversation {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly messages: ChatMessage[];
+  /** Text-only UI scrollback snapshot, kept separate from messages and never sent to the model. */
+  readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
 /**
@@ -217,6 +236,17 @@ export function parseConversationLogLine(line: string): ConversationLogEvent | n
     }
     case "rewrite":
       return { type: "rewrite", at };
+    case "ui-transcript": {
+      const entries = parsed["entries"];
+      if (!Array.isArray(entries)) return null;
+      const accepted = entries.flatMap((entry): ConversationUiEntry[] => {
+        if (!isRecordObject(entry) || typeof entry["message"] !== "string") return [];
+        const type = entry["type"];
+        if (!isTerminalOutputKind(type)) return [];
+        return [{ type, message: entry["message"] }];
+      });
+      return { type: "ui-transcript", at, entries: accepted };
+    }
     default:
       return null;
   }
@@ -246,6 +276,7 @@ export function reduceConversationLog(
   let title: string | undefined;
   let endedAt: string | null = null;
   let messages: ChatMessage[] = [];
+  let uiTranscript: ConversationUiEntry[] = [];
 
   for (const event of events) {
     switch (event.type) {
@@ -263,6 +294,9 @@ export function reduceConversationLog(
       case "rewrite":
         messages = [];
         break;
+      case "ui-transcript":
+        uiTranscript = [...event.entries];
+        break;
     }
   }
 
@@ -274,6 +308,7 @@ export function reduceConversationLog(
     startedAt: header.startedAt,
     endedAt,
     messages,
+    uiTranscript,
   };
 }
 
@@ -467,6 +502,7 @@ export interface ConversationTranscriptInput {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly messages: readonly ChatMessage[];
+  readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
 /**
@@ -549,6 +585,10 @@ export function recordConversationTranscript(
           ...(endedAtChanged && input.endedAt !== null ? { endedAt: input.endedAt } : {}),
         }),
       );
+    }
+
+    if (input.uiTranscript !== undefined) {
+      chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: input.uiTranscript }));
     }
 
     if (chunks.length > 0) {

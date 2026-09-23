@@ -1,7 +1,6 @@
-import type { TerminalOutput } from "@jazz/core/interfaces/terminal";
+import type { TerminalOutput, TerminalOutputKind } from "@jazz/core/interfaces/terminal";
 
-export type OutputType =
-  "info" | "success" | "warn" | "error" | "debug" | "log" | "user" | "streamContent";
+export type OutputType = TerminalOutputKind;
 
 /** Input type for adding output entries - id is auto-generated */
 export interface OutputEntry {

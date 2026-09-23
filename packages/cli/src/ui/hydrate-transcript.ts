@@ -4,6 +4,7 @@
  * from a blank transcript.
  */
 
+import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { store } from "./store";
 import type { OutputEntry } from "./types";
@@ -47,6 +48,18 @@ export function hydrateTranscriptFromHistory(
   target.clearOutputs();
   for (const entry of outputEntriesFromHistory(messages)) {
     target.printOutput(entry);
+  }
+  target.flushOutputBatchNow();
+}
+
+/** Restore UI-only command output without feeding it back into the model. */
+export function hydrateTranscriptFromUiEntries(
+  entries: readonly ConversationUiEntry[],
+  target: TranscriptSink = store,
+): void {
+  target.clearOutputs();
+  for (const entry of entries) {
+    target.printOutput({ ...entry, timestamp: new Date() });
   }
   target.flushOutputBatchNow();
 }

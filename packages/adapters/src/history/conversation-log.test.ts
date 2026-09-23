@@ -197,6 +197,28 @@ describe("recordConversationTranscript", () => {
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.startedAt).toBe("2026-08-01T10:00:00.000Z");
   });
+
+  test("persists a UI-only transcript without adding it to model messages", async () => {
+    await runEffect(
+      recordConversationTranscript(
+        {
+          ...record([userMessage("hi")]),
+          uiTranscript: [
+            { type: "user", message: "/info" },
+            { type: "log", message: "Conversation info" },
+          ],
+        },
+        tmpDir,
+      ),
+    );
+
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.messages).toEqual([userMessage("hi")]);
+    expect(session?.uiTranscript).toEqual([
+      { type: "user", message: "/info" },
+      { type: "log", message: "Conversation info" },
+    ]);
+  });
 });
 
 describe("readConversationLog", () => {
