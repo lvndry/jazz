@@ -20,12 +20,13 @@ import { Question, type QuestionModel } from "./Question";
 import { TextPrompt, type TextPromptModel } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
-import type { Viewport } from "../types";
+import { MIN_HEIGHT, MIN_WIDTH, type Viewport } from "../types";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const MEDIUM: Viewport = { width: 80, height: 24 };
 const SMALL: Viewport = { width: 60, height: 20 };
 const NARROW: Viewport = { width: 70, height: 18 };
+const COMPACT: Viewport = { width: MIN_WIDTH, height: MIN_HEIGHT };
 
 /**
  * U+2550–U+2570: the double-line box drawing family and the four rounded
@@ -864,6 +865,30 @@ describe("file picker overlay", () => {
     expect(keys).not.toContain("tab");
 
     renderer.destroy();
+  });
+
+  it("fits the prompt cards at the compact floor", async () => {
+    await expectRectangular(
+      <Question
+        model={QUESTION}
+        viewport={COMPACT}
+      />,
+      COMPACT,
+    );
+    await expectRectangular(
+      <TextPrompt
+        model={TEXT}
+        viewport={COMPACT}
+      />,
+      COMPACT,
+    );
+    await expectRectangular(
+      <FilePicker
+        model={FILES}
+        viewport={COMPACT}
+      />,
+      COMPACT,
+    );
   });
 
   it("holds a rectangular frame at every supported width", async () => {
