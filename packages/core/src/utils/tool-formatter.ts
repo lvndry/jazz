@@ -150,7 +150,7 @@ export function formatToolDisplayName(
   return provider ? `${toolName}(${provider})` : toolName;
 }
 
-const MAX_ARG_VALUE_LENGTH = 120;
+const MAX_ARG_VALUE_LENGTH = 240;
 
 function formatArgValue(value: unknown, maxLength: number = MAX_ARG_VALUE_LENGTH): string {
   if (value === null || value === undefined) return "";
@@ -802,15 +802,15 @@ export function formatToolResult(toolName: string, result: string): string {
   }
 }
 
-const SNIPPET_MAX_CHARS = 88;
-const SNIPPET_MAX_LINES = 2;
+const SNIPPET_MAX_CHARS = 240;
+const SNIPPET_MAX_LINES = 3;
 
 function isStructuralJsonLine(line: string): boolean {
   return line === "{" || line === "}" || line === "[" || line === "]" || line === "{},";
 }
 
 /**
- * One or two content lines from a formatted tool result, for a receipt row.
+ * Up to three content lines from a formatted tool result for a settled receipt.
  * Skips brace-only JSON so a pretty-printed object cannot collapse to `{`.
  */
 export function toolResultSnippet(text: string): string {
