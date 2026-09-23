@@ -97,7 +97,7 @@ describe("ensureLocalProviderBaseUrl", () => {
     expect(promptCount).toBe(0);
   });
 
-  it("re-prompts over a saved URL when forced, offering the saved one as the default", async () => {
+  it("re-prompts over a saved URL when forced, offering its address as the default", async () => {
     const placeholders: Array<string | undefined> = [];
     const saved: Array<{ key: string; value: unknown }> = [];
 
@@ -117,7 +117,7 @@ describe("ensureLocalProviderBaseUrl", () => {
     });
 
     expect(result).toBe("saved");
-    expect(placeholders).toEqual(["http://gpu.example:8000/v1"]);
+    expect(placeholders).toEqual(["http://gpu.example:8000"]);
     expect(saved).toEqual([{ key: "llm.llamacpp.base_url", value: "http://gpu.example:9000/v1" }]);
   });
 

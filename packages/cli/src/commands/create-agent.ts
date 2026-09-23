@@ -398,10 +398,11 @@ function personaBackStep(state: WizardState): WizardStep {
 /**
  * Resolve a local server's URL and load the models it serves.
  *
- * An unreachable server or one serving no models shows the reason and re-asks for the URL, so a
- * wrong saved address can be corrected in place instead of aborting the wizard. When the URL
- * comes from an env var it cannot be re-prompted over, so the wizard falls back to provider
- * selection.
+ * Each failure is shown and re-asks for whatever can fix it: a server that rejects the request
+ * (401/403) re-asks for its API key, and an unreachable server or one serving no models re-asks
+ * for the URL. A wrong saved value is corrected in place instead of aborting the wizard. When
+ * the URL comes from an env var it cannot be re-prompted over, so the wizard falls back to
+ * provider selection.
  */
 async function connectLocalProvider(
   provider: LocalServerProvider,
@@ -410,29 +411,49 @@ async function connectLocalProvider(
   terminal: TerminalService,
 ): Promise<LLMProvider | "cancelled"> {
   const providerDisplayName = formatProviderDisplayName(provider);
-  let force = false;
+  let forceUrl = false;
+  let askUrl = true;
   while (true) {
-    const urlResult = await ensureLocalProviderBaseUrl({
-      configService,
-      terminal,
-      provider,
-      force,
-    });
-    if (urlResult === "cancelled") {
-      return "cancelled";
-    }
-    if (force && urlResult === "already-set") {
-      await Effect.runPromise(
-        terminal.warn(
-          `${LOCAL_SERVER_PROVIDERS[provider].envVar} overrides the configured URL — fix it and try again.`,
-        ),
-      );
-      return "cancelled";
+    if (askUrl) {
+      const urlResult = await ensureLocalProviderBaseUrl({
+        configService,
+        terminal,
+        provider,
+        force: forceUrl,
+      });
+      if (urlResult === "cancelled") {
+        return "cancelled";
+      }
+      if (forceUrl && urlResult === "already-set") {
+        await Effect.runPromise(
+          terminal.warn(
+            `${LOCAL_SERVER_PROVIDERS[provider].envVar} overrides the configured URL — fix it and try again.`,
+          ),
+        );
+        return "cancelled";
+      }
     }
 
     const outcome = await Effect.runPromise(llmService.getProvider(provider).pipe(Effect.either));
     if (outcome._tag === "Right" && outcome.right.supportedModels.length > 0) {
       return outcome.right;
+    }
+
+    if (outcome._tag === "Left" && outcome.left.reason === "unauthorized") {
+      const keyResult = await ensureProviderApiKey({
+        configService,
+        terminal,
+        provider,
+        displayName: providerDisplayName,
+        required: true,
+        force: true,
+        reason: outcome.left.message,
+      });
+      if (keyResult === "cancelled") {
+        return "cancelled";
+      }
+      askUrl = false;
+      continue;
     }
 
     await Effect.runPromise(
@@ -442,7 +463,8 @@ async function connectLocalProvider(
           : `The ${providerDisplayName} server is reachable but serves no models.`,
       ),
     );
-    force = true;
+    forceUrl = true;
+    askUrl = true;
   }
 }
 

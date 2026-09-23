@@ -43,6 +43,18 @@ export function isLocalServerProvider(provider: string): provider is LocalServer
 }
 
 /**
+ * The address a user types and reads for a local server: its base URL without the REST path
+ * (`/v1` for llama.cpp, `/api` for Ollama). Stored URLs carry that path because the clients need
+ * it; showing it back invites users to type it, and a bare `host:port` is what the prompts accept.
+ */
+export function localServerAddress(baseUrl: string): string {
+  return baseUrl
+    .trim()
+    .replace(/\/(v1|api)\/?$/, "")
+    .replace(/\/+$/, "");
+}
+
+/**
  * Whether a run on this model genuinely costs nothing when no pricing metadata
  * exists. Ollama models with a cloud tag bill remotely despite the local
  * provider name, so they are excluded.
