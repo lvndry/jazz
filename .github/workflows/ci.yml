@@ -91,9 +91,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # ESLint's content strategy makes this safe across fresh checkouts: unchanged files are
-      # skipped, while changed source is always linted. A unique key lets each successful run
-      # publish its updated cache; the prefix restores the most recent compatible one.
       - name: Restore ESLint cache
         uses: actions/cache@v5
         with:
