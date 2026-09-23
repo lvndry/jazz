@@ -393,6 +393,9 @@ selection layer. Releasing a highlight copies it immediately and the footer says
 selected. Shift+drag still reaches native selection on many hosts. Copy also uses
 OSC 52 where the terminal supports it.
 
+Submitting a chat message returns the transcript to the live edge, so the sent
+message stays visible even if the reader had scrolled up to inspect earlier turns.
+
 ### Headless
 
 Every state carries a word. `ok`, `failed`, `running`, `asking`, `renew`,
