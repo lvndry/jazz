@@ -44,6 +44,11 @@ import type {
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
+import {
+  CAPABILITY_REASONING_EFFORTS,
+  type ModelCapabilityOverride,
+  type ReasoningControlSurface,
+} from "@/core/types/model-capabilities";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
 import type { StreamingConfig } from "@/core/types/streaming";
@@ -90,6 +95,7 @@ const unsafePathSegments: ReadonlySet<string> = new Set(["__proto__", "construct
 const safeRecordKey = z.string().refine((key) => !unsafePathSegments.has(key), {
   message: "reserved object key",
 });
+const nonEmptySafeRecordKey = safeRecordKey.min(1);
 
 function described<T extends z.ZodType>(schema: T, expected: string): T {
   expectedDescriptions.set(schema, expected);
@@ -119,8 +125,105 @@ const apiKeyOnly = z
   .strictObject({ api_key: text.exactOptional() } satisfies SchemaShape<LLMProviderConfig>)
   .exactOptional();
 
+const capabilityReasoningEfforts = z.array(z.enum(CAPABILITY_REASONING_EFFORTS)).min(1);
+
+const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported") });
+
+const toggleReasoningSchema = z.strictObject({
+  kind: z.literal("toggle"),
+  transport: z.enum(["ollama.chat.think", "llamacpp.chat.enable-thinking"]),
+  canDisable: flag,
+});
+
+const effortReasoningSchema = z.strictObject({
+  kind: z.literal("effort"),
+  transport: z.literal("openai.responses.reasoning-effort"),
+  efforts: capabilityReasoningEfforts,
+  canDisable: flag,
+});
+
+const manualReasoningSchema = z
+  .strictObject({
+    kind: z.literal("manual"),
+    transport: z.literal("anthropic.messages.extended-thinking"),
+    minimumBudgetTokens: positiveWholeNumber,
+    maximumBudgetTokens: positiveWholeNumber.exactOptional(),
+    efforts: capabilityReasoningEfforts.exactOptional(),
+    canDisable: flag,
+  })
+  .superRefine((value, refinement) => {
+    if (
+      value.maximumBudgetTokens !== undefined &&
+      value.maximumBudgetTokens < value.minimumBudgetTokens
+    ) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["maximumBudgetTokens"],
+        message: "must be greater than or equal to minimumBudgetTokens",
+      });
+    }
+  });
+
+const adaptiveReasoningSchema = z.strictObject({
+  kind: z.literal("adaptive"),
+  transport: z.literal("anthropic.messages.adaptive-thinking"),
+  efforts: capabilityReasoningEfforts,
+  canDisable: flag,
+});
+
+const budgetReasoningSchema = z
+  .strictObject({
+    kind: z.literal("budget"),
+    transport: z.literal("llamacpp.chat.thinking-budget"),
+    minimumBudgetTokens: positiveWholeNumber,
+    maximumBudgetTokens: positiveWholeNumber.exactOptional(),
+    canDisable: flag,
+  })
+  .superRefine((value, refinement) => {
+    if (
+      value.maximumBudgetTokens !== undefined &&
+      value.maximumBudgetTokens < value.minimumBudgetTokens
+    ) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["maximumBudgetTokens"],
+        message: "must be greater than or equal to minimumBudgetTokens",
+      });
+    }
+  });
+
+const reasoningControlSurfaceSchema: z.ZodType<ReasoningControlSurface> = z.discriminatedUnion(
+  "kind",
+  [
+    unsupportedReasoningSchema,
+    toggleReasoningSchema,
+    effortReasoningSchema,
+    manualReasoningSchema,
+    adaptiveReasoningSchema,
+    budgetReasoningSchema,
+  ],
+);
+
+const modelCapabilityOverrideSchema = z.strictObject({
+  reasoning: reasoningControlSurfaceSchema.exactOptional(),
+  supportsTools: flag.exactOptional(),
+} satisfies SchemaShape<ModelCapabilityOverride>);
+
+type CapabilityOverrides = NonNullable<LLMConfig["capabilityOverrides"]>;
+
+const capabilityOverridesShape = Object.fromEntries(
+  AVAILABLE_PROVIDERS.map((provider) => [
+    provider,
+    z.record(nonEmptySafeRecordKey, modelCapabilityOverrideSchema).exactOptional(),
+  ]),
+) as unknown as SchemaShape<CapabilityOverrides>;
+
+const capabilityOverridesSchema: z.ZodType<FileShape<CapabilityOverrides>> =
+  z.strictObject(capabilityOverridesShape);
+
 const llmShape = {
   streamIdleTimeoutMs: positiveWholeNumber.exactOptional(),
+  capabilityOverrides: capabilityOverridesSchema.exactOptional(),
   ai_gateway: apiKeyOnly,
   alibaba: apiKeyOnly,
   anthropic: z

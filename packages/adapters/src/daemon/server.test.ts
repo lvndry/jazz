@@ -9,7 +9,6 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { StorageService } from "@jazz/core/interfaces/storage";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { ToolRegistry } from "@jazz/core/interfaces/tool-registry";
-import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
@@ -18,6 +17,7 @@ import {
   StorageNotFoundError,
 } from "@jazz/core/types/errors";
 import { COMPANION_ROLES } from "@jazz/core/types/llm";
+import { CAPABILITY_REASONING_EFFORTS } from "@jazz/core/types/model-capabilities";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
@@ -1036,7 +1036,7 @@ describe("the menus an agent editor is built from", () => {
     // served here — which would make the menu narrower than what is accepted — fails.
     expect(body.providers).toEqual([...AVAILABLE_PROVIDERS]);
     expect(body.webSearchProviders).toEqual([...WEB_SEARCH_PROVIDERS]);
-    expect(body.reasoningEfforts).toEqual([...REASONING_EFFORTS]);
+    expect(body.reasoningEfforts).toEqual([...CAPABILITY_REASONING_EFFORTS]);
   });
 
   it("names the roles a companion can be bound for", async () => {

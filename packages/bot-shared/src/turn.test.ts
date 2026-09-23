@@ -110,7 +110,7 @@ describe("turn runner", () => {
         config: {
           llmProvider: "openai",
           llmModel: "gpt-5.4",
-          reasoningEffort: "medium",
+          reasoning: "medium",
           persona: "default",
         },
       }),

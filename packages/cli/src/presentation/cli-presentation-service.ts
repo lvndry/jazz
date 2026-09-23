@@ -166,7 +166,7 @@ export class CLIPresentationService implements PresentationService {
         streamingConfig: config.streamingConfig,
         showMetrics: config.showMetrics,
         agentName: config.agentName,
-        reasoningEffort: config.reasoningEffort,
+        reasoning: config.reasoning,
       };
       const renderer = new CLIRenderer(rendererConfig);
       const streamingRenderer: StreamingRenderer = {

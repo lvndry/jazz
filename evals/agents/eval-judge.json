@@ -6,7 +6,7 @@
     "persona": "default",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "low",
+    "reasoning": "low",
     "tools": []
   },
   "createdAt": "2026-07-18T00:00:00.000Z",

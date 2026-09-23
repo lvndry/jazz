@@ -340,7 +340,7 @@ function initializeAgentRun(
       conversationId: actualConversationId,
       provider,
       model,
-      reasoningEffort: agent.config.reasoningEffort ?? "disable",
+      reasoningEffort: agent.config.reasoning ?? "disable",
       maxIterations: resolvedMaxIterations,
       maxCostUSD: resolvedMaxCostUSD,
     });

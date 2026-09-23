@@ -6,7 +6,7 @@
     "persona": "default",
     "llmProvider": "openrouter",
     "llmModel": "qwen/qwen3-next-80b-a3b-instruct:free",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "tools": [
       "ls",
       "cd",

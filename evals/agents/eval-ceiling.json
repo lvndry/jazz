@@ -6,7 +6,7 @@
     "persona": "default",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "tools": [
       "ls",
       "cd",

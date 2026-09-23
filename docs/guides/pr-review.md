@@ -42,7 +42,7 @@ The checked-in reviewer currently pins the provider and model in `.github/jazz/a
   "config": {
     "llmProvider": "openrouter",
     "llmModel": "openrouter/free",
-    "reasoningEffort": "medium"
+    "reasoning": "medium"
   }
 }
 ```
@@ -70,7 +70,7 @@ Change the reviewer agent:
     "llmProvider": "ollama",
     "llmModel": "qwen3-coder",
     "numCtx": 32768,
-    "reasoningEffort": "medium"
+    "reasoning": "medium"
   }
 }
 ```

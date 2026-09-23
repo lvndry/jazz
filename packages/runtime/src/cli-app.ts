@@ -330,7 +330,7 @@ function registerRunCommand(program: Command): void {
                   : {}),
                 ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
-                  ? { reasoningEffort: options.reasoning }
+                  ? { reasoning: options.reasoning }
                   : {}),
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(options.maxIterations !== undefined

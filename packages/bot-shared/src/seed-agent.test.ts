@@ -11,7 +11,7 @@ const SPEC = {
   description: "Everyday assistant reachable from Telegram.",
   provider: "openai",
   model: "gpt-5.4",
-  reasoningEffort: "medium",
+  reasoning: "medium",
 } as const;
 
 function home(): string {
@@ -36,7 +36,7 @@ describe("ensureSeedAgent", () => {
         agentType: "default",
         llmProvider: "openai",
         llmModel: "gpt-5.4",
-        reasoningEffort: "medium",
+        reasoning: "medium",
         persona: "default",
         tools: [...DEFAULT_BRIDGE_TOOLS],
       },

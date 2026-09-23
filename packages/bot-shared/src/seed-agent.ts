@@ -52,10 +52,10 @@ export interface SeedAgentSpec {
   readonly provider: string;
   readonly model: string;
   /**
-   * Keep in step with the model: reasoning-capable models take low|medium|high,
+   * Keep in step with the model: reasoning-capable models take an effort string,
    * and models without it reject anything but "disable".
    */
-  readonly reasoningEffort: string;
+  readonly reasoning: string;
   readonly persona?: string;
   readonly tools?: readonly string[];
 }
@@ -81,7 +81,7 @@ export function ensureSeedAgent(dataDir: string, spec: SeedAgentSpec): boolean {
       agentType: "default",
       llmProvider: spec.provider,
       llmModel: spec.model,
-      reasoningEffort: spec.reasoningEffort,
+      reasoning: spec.reasoning,
       persona: spec.persona ?? "default",
       tools: [...(spec.tools ?? DEFAULT_BRIDGE_TOOLS)],
     },

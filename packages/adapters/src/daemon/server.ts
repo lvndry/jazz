@@ -40,7 +40,6 @@ import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
-import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent, AgentConfig } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
@@ -55,6 +54,7 @@ import {
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ModelInfo } from "@jazz/core/types/llm";
+import { CAPABILITY_REASONING_EFFORTS } from "@jazz/core/types/model-capabilities";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { Persona } from "@jazz/core/types/persona";
@@ -1352,7 +1352,7 @@ function listCatalog(): Response {
     ok: true,
     providers: AVAILABLE_PROVIDERS,
     webSearchProviders: WEB_SEARCH_PROVIDERS,
-    reasoningEfforts: REASONING_EFFORTS,
+    reasoningEfforts: CAPABILITY_REASONING_EFFORTS,
     // The roles an agent can bind a companion for, each `"<action>:<modality>"`. Served
     // rather than left to each client to spell out, for the same reason as every other
     // list here. Action is part of the key because reading a modality and producing it
