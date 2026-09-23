@@ -70,14 +70,6 @@ export const EMPTY_MEMORY_ENTRY_CREDIT: MemoryEntryCredit = {
 /** Whether an entry was written by the extraction pass or by a person. */
 export type MemoryEntryOrigin = "auto" | "user";
 
-/** One observation behind a credit change, kept so a score can be explained. */
-export interface MemoryEvidence {
-  readonly kind: "correction" | "misfire" | "run";
-  readonly summary: string;
-  readonly recordedAt: string;
-  readonly runId?: string;
-}
-
 export interface MemoryFileProvenance {
   /** ISO 8601. */
   readonly createdAt: string;
@@ -103,8 +95,6 @@ export interface MemoryFileProvenance {
   readonly summary?: string;
   readonly failure?: MemoryFailureSignature;
   readonly credit?: MemoryEntryCredit;
-  /** The most recent lifecycle observations, newest last, capped at `MAX_MEMORY_EVIDENCE`. */
-  readonly evidence?: readonly MemoryEvidence[];
   readonly origin?: MemoryEntryOrigin;
   /** Name of the skill this lesson was distilled into, if any. */
   readonly compiledInto?: string;

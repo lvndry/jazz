@@ -35,11 +35,6 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import {
-  resolveRelevantMemories,
-  topicMatchesDimensions,
-  type MemoryTaskDimensions,
-} from "@/core/memory/relevance";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -115,9 +110,8 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-  dimensions?: MemoryTaskDimensions,
 ): Effect.Effect<
-  { readonly scope: string; readonly topic?: string; readonly summary: string }[],
+  { readonly scope: string; readonly summary: string }[],
   never,
   FileSystem.FileSystem
 > {
@@ -130,17 +124,8 @@ function resolveActivePreferences(
     const memoryService = memoryServiceOption.value;
     return yield* Effect.gen(function* () {
       const standing = yield* memoryService.standingEntries(memoryScopes);
-      const conditional = dimensions
-        ? resolveRelevantMemories(
-            yield* memoryService.conditionalEntries(memoryScopes, (topic) =>
-              topicMatchesDimensions(topic, dimensions),
-            ),
-            dimensions,
-          )
-        : [];
-      return [...standing, ...conditional].map((entry) => ({
+      return standing.map((entry) => ({
         scope: entry.scope,
-        ...(entry.topic === undefined ? {} : { topic: entry.topic }),
         summary: entry.summary,
       }));
     }).pipe(
@@ -150,11 +135,7 @@ function resolveActivePreferences(
             scopes: memoryScopes,
             error: error instanceof Error ? error.message : String(error),
           })
-          .pipe(
-            Effect.as<
-              { readonly scope: string; readonly topic?: string; readonly summary: string }[]
-            >([]),
-          ),
+          .pipe(Effect.as<{ readonly scope: string; readonly summary: string }[]>([])),
       ),
     );
   });
@@ -633,7 +614,6 @@ function initializeAgentRun(
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
-      options.memoryTaskDimensions,
     );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
