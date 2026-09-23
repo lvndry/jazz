@@ -35,13 +35,15 @@ and the action boundary: `record` is invalid for a memory gap or unknown cause. 
 production memory, provenance, receipts, skills, or policy. The curated labels were authored
 separately from the judge prompt, but have not been reviewed by a human user.
 
-| Label set                                   | Cases | Cause labels correct | Actions correct | False personal write proposals | Notable error                                                                  |
-| ------------------------------------------- | ----: | -------------------: | --------------: | -----------------------------: | ------------------------------------------------------------------------------ |
-| Development, before the tighter action gate |    12 |                   10 |               8 |                              1 | The model proposed `record` for a memory gap; the validator now rejects it.    |
-| Held-out, after the gate and prompt update  |    10 |                    9 |               9 |                              0 | It treated memory whose read tool was unavailable as an actionable memory gap. |
+| Label set                                   | Cases | Cause labels correct | Actions correct | False personal write proposals | Notable error                                                                      |
+| ------------------------------------------- | ----: | -------------------: | --------------: | -----------------------------: | ---------------------------------------------------------------------------------- |
+| Development, before the tighter action gate |    12 |                   10 |               8 |                              1 | The model proposed `record` for a memory gap; the validator now rejects it.        |
+| Held-out, after the gate and prompt update  |    10 |                    9 |               9 |                              0 | It treated memory whose read tool was unavailable as an actionable memory gap.     |
+| Held-out, repeat with the same gate         |    10 |                    8 |               9 |                              0 | The tool-unavailable case recurred; it also called quoted web text an agent error. |
 
-The held-out run cost an estimated $0.060 over 104,546 tokens. Its one error and the small,
-non-human-labeled sample are enough to keep automatic lesson changes and skill proposals off.
+The first held-out run cost an estimated $0.060 over 104,546 tokens; the repeat cost $0.033
+over 56,082 tokens. The differing cause accuracy and small, non-human-labeled sample are enough
+to keep automatic lesson changes and skill proposals off.
 The shadow receipts deliberately leave relevance `unknown` and award no `helped`, `failed`, or
 `missed` credit. More diverse user-reviewed labels and independently checked downstream task
 outcomes are needed before any promotion gate can be considered.
