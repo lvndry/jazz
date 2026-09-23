@@ -709,7 +709,12 @@ export class MemoryServiceImpl implements MemoryService {
               ];
               const observations: MemoryEntryObservation[] = [];
               for (const scope of allowed) {
-                const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+                const scopeRoot = yield* existingSafeMemoryPath(
+                  this.baseMemoryDirectory,
+                  scope,
+                  "directory",
+                );
+                if (scopeRoot === undefined) continue;
                 const receiptEpoch = yield* Effect.tryPromise({
                   try: () => readMemoryReceiptEpoch(scope, path.dirname(this.baseMemoryDirectory)),
                   catch: (error) => (error instanceof Error ? error : new Error(String(error))),
@@ -720,8 +725,10 @@ export class MemoryServiceImpl implements MemoryService {
                 for (const candidate of candidates) {
                   if (candidate.scope !== scope) continue;
                   const relativePath = candidate.path.slice(scope.length + 1);
+                  const safeFile = yield* existingSafeMemoryPath(scopeRoot, relativePath, "file");
+                  if (safeFile === undefined) continue;
                   const content = yield* fs
-                    .readFileString(path.join(scopeRoot, relativePath))
+                    .readFileString(safeFile)
                     .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
                   if (content === undefined) continue;
                   const existing = files[relativePath];

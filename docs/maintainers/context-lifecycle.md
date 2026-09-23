@@ -119,6 +119,7 @@ estimate.
 ### Memory observations at the request boundary
 
 The runner snapshots every file in the agent's allowed memory scopes before each model request.
+The snapshot skips linked scopes and files so external paths cannot enter receipts or provenance.
 The store assigns an ID on first observation and hashes the current file content as its version.
 The loop writes pending opportunity receipts before calling the provider, then marks them observed
 after a response. It detects actual exposure from the rendered standing line or a successful

@@ -188,6 +188,18 @@ describe("standingEntries", () => {
 });
 
 describe("observeEntries", () => {
+  test("skips a linked scope without reading or writing its provenance", async () => {
+    const service = makeService();
+    const outside = path.join(tmpDir, "outside-scope");
+    fs.mkdirSync(path.join(outside, "always"), { recursive: true });
+    fs.writeFileSync(path.join(outside, "always", "note.md"), "external instruction");
+    fs.writeFileSync(path.join(outside, ".provenance.json"), "{invalid json");
+    fs.symlinkSync(outside, path.join(tmpDir, "personal"));
+
+    expect(await runEffect(service.observeEntries(scopes))).toEqual([]);
+    expect(fs.readFileSync(path.join(outside, ".provenance.json"), "utf8")).toBe("{invalid json");
+  });
+
   test("forget erases retained receipts for the scope before removing memory", async () => {
     const service = new MemoryServiceImpl({ baseMemoryDirectory: path.join(tmpDir, "memory") });
     expect(
