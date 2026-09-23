@@ -218,8 +218,9 @@ const capabilityOverridesShape = Object.fromEntries(
   ]),
 ) as unknown as SchemaShape<CapabilityOverrides>;
 
-const capabilityOverridesSchema: z.ZodType<FileShape<CapabilityOverrides>> =
-  z.strictObject(capabilityOverridesShape);
+const capabilityOverridesSchema: z.ZodType<FileShape<CapabilityOverrides>> = z.strictObject(
+  capabilityOverridesShape,
+) as unknown as z.ZodType<FileShape<CapabilityOverrides>>;
 
 const llmShape = {
   streamIdleTimeoutMs: positiveWholeNumber.exactOptional(),
