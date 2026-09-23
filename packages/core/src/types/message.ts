@@ -34,6 +34,8 @@ export interface StoredReasoningPart {
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Host-authenticated user text, retained through compaction without promoting tool output. */
+  trustedUserSource?: { readonly id: string; readonly text: string };
   name?: string;
   /**
    * For role === "tool": the id of the tool call this message responds to

@@ -613,10 +613,18 @@ export class MemoryServiceImpl implements MemoryService {
     operation: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | MemoryGuardrailViolation | Error, R | FileSystem.FileSystem> {
     const lockPath = this.memoryLockPath(scope);
-    return Effect.gen(function* () {
-      yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
-      return yield* withLock(lockPath, operation);
-    });
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs
+          .makeDirectory(this.baseMemoryDirectory, { recursive: true })
+          .pipe(
+            Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
+          );
+        return yield* withLock(lockPath, operation);
+      }.bind(this),
+    );
   }
 
   readonly view: MemoryService["view"] = (scopes, virtualPath, viewRange) =>
@@ -845,7 +853,7 @@ export class MemoryServiceImpl implements MemoryService {
                   success: false,
                   message: [
                     `Error: ${abbreviateHomePath(target)} already exists.`,
-                    "Amend it with str_replace rather than adding a second entry.",
+                    "Amend the existing entry rather than adding a second one.",
                     ...(existingText.length > 0
                       ? [
                           "",

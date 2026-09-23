@@ -537,6 +537,19 @@ export class AgentServiceImpl implements AgentService {
           }
         }
       }
+      if (
+        config.experimentalMemoryPreflight !== undefined &&
+        typeof config.experimentalMemoryPreflight !== "boolean"
+      ) {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.experimentalMemoryPreflight",
+            message: "experimentalMemoryPreflight must be a boolean",
+            suggestion: "Set it to true for a measured preflight variant or omit it.",
+          }),
+        );
+      }
     });
   }
 }

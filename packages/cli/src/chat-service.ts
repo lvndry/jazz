@@ -339,6 +339,7 @@ export class ChatServiceImpl implements ChatService {
         }
 
         let messageForAgent = userMessage;
+        let authenticatedMessage = true;
 
         // A message with interior newlines (multi-line composition or a
         // combined prose drain) is prose even when it starts with "/" or "!" —
@@ -360,6 +361,7 @@ export class ChatServiceImpl implements ChatService {
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
           } else {
+            authenticatedMessage = false;
             const latestConfig = yield* configService.appConfig;
             const context: CommandContext = {
               agent,
@@ -543,6 +545,7 @@ export class ChatServiceImpl implements ChatService {
           const runnerOptions: AgentRunnerOptions = {
             agent,
             userInput: messageForAgent,
+            authenticatedUserInput: authenticatedMessage,
             conversationId,
             conversationHistory,
             onFailedTurn: (messages) => {

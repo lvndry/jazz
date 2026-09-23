@@ -167,13 +167,29 @@ flowchart TB
 **Standing entries** (`always/`) are injected into the system prompt every turn. The agent never
 has to ask for them — a preference the user stated is not something they should have to restate.
 
-**Topic-scoped entries** (`when/<topic>/`) are the agent's responsibility to discover. The agent
-calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest. This
-is deliberate: automatic topic matching cannot do semantic association ("squats" does not match
-"workout" lexically), and injecting a topic list biases the agent toward shoehorning into
-existing topics instead of creating new ones when they're needed.
+**Topic-scoped entries** (`when/<topic>/`) are normally the agent's responsibility to discover.
+The agent calls `view_memory` to browse what exists, reads what looks relevant, and ignores the
+rest. The experimental `experimentalMemoryPreflight` agent setting instead makes one bounded
+model decision before each authenticated user turn: it can capture one direct user fact and
+select up to five relevant existing entries for that turn. It reads at most 32 entry summaries
+and falls back to agent-driven recall if the decision fails. This setting is off by default
+while paired multi-session evals compare its quality, latency, and cost.
 
 The cost of recall tracks how much is relevant, not how much has ever been remembered.
+
+### Trusted capture and correction
+
+`manage_memory` requires a source ID and an exact quote from an authenticated user message for
+every write. Jazz validates both against the original input supplied by the terminal or direct
+`run` command. Tool output, web pages, model summaries, replayed chat commands, and synthetic
+sub-agent prompts cannot become user facts by claiming to be one. The saved entry contains the
+user's quoted words. `amend` replaces an existing entry with a newly cited statement; `delete`
+and `rename` require an explicit direct user request. The experimental preflight uses the same
+quote gate and checks selected paths against the bounded candidate set before writing.
+
+These gates authenticate the source of the words. They do not prove a statement is durable or
+that it belongs in the selected entry; those decisions still require evaluation. Silent changes
+in the person's preferences are outside this first slice until there is a trustworthy signal.
 
 ### Automatic extraction at compaction
 

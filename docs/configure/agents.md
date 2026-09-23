@@ -128,6 +128,12 @@ is `["personal"]` — a single shared scope so that preferences follow the perso
 Override it when an agent should see project-specific or role-specific memory instead.
 Conversation history remains separate.
 
+`experimentalMemoryPreflight: true` enables a measured personal-memory candidate. Before each
+direct terminal or `jazz run` user turn, Jazz makes one bounded model decision to capture a
+clear user fact and select relevant conditional entries. The setting defaults to `false`; the
+usual agent-driven `view_memory` path remains available. See
+[Conversations, state, and memory](../concepts/conversations-and-memory.md#recall-what-reaches-the-model).
+
 The memory tools (`view_memory`, `manage_memory`) are part of every agent's built-in bundle, like
 the scratchpad, so they cannot be unticked in `jazz agent create`. To keep an agent from writing
 memory, deny `manage_memory` in its persona, or run it with `jazz run --ephemeral`.

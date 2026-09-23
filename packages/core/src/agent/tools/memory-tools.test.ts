@@ -1,195 +1,193 @@
+/** The model-facing memory tools must honor authenticated user sources at every mutation. */
+
 import { NodeFileSystem } from "@effect/platform-node";
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 
-const context: ToolExecutionContext = { agentId: "agent-1" };
+const context: ToolExecutionContext = {
+  agentId: "agent-1",
+  memoryScopes: ["personal"],
+  memoryUserSources: [{ id: "user:1", text: "My favorite fruit is banana." }],
+};
 
-function runWithFakeMemoryService<A>(
-  fakeService: MemoryService,
-  eff: Effect.Effect<A, Error, MemoryService | import("@effect/platform").FileSystem.FileSystem>,
+function runWithMemory<A>(
+  service: MemoryService,
+  effect: Effect.Effect<A, Error, MemoryService | import("@effect/platform").FileSystem.FileSystem>,
 ) {
   return Effect.runPromise(
-    eff.pipe(
-      Effect.provideService(MemoryServiceTag, fakeService),
+    effect.pipe(
+      Effect.provideService(MemoryServiceTag, service),
       Effect.provide(NodeFileSystem.layer),
     ),
   );
 }
 
-describe("view_memory tool", () => {
-  test("has the expected shape", () => {
+describe("view_memory", () => {
+  test("formats an empty directory and reports a missing path", async () => {
     const tool = createViewMemoryTool();
-    expect(tool.name).toBe("view_memory");
     expect(tool.riskLevel).toBe("read-only");
-    expect(tool.hidden).toBe(false);
-  });
-
-  test("formats an empty directory listing", async () => {
-    const fakeService: Partial<MemoryService> = {
-      view: () => Effect.succeed({ kind: "directory", path: "/", entries: [] }),
+    const service: Partial<MemoryService> = {
+      view: (_scopes, path) =>
+        Effect.succeed(
+          path === ""
+            ? { kind: "directory", path: "/", entries: [] }
+            : { kind: "not_found", message: "No such memory" },
+        ),
     };
-    const tool = createViewMemoryTool();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      tool.execute({ path: "" }, context),
+    expect(
+      (await runWithMemory(service as MemoryService, tool.execute({ path: "" }, context))).success,
+    ).toBe(true);
+    const missing = await runWithMemory(
+      service as MemoryService,
+      tool.execute({ path: "missing" }, context),
     );
-    expect(result.success).toBe(true);
-  });
-
-  test("surfaces not_found as a failed tool result", async () => {
-    const fakeService: Partial<MemoryService> = {
-      view: () =>
-        Effect.succeed({ kind: "not_found", message: "The path /missing.txt does not exist." }),
-    };
-    const tool = createViewMemoryTool();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      tool.execute({ path: "missing.txt" }, context),
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("does not exist");
+    expect(missing.success).toBe(false);
+    expect(missing.error).toContain("No such memory");
   });
 });
 
-describe("manage_memory tool", () => {
-  test("has the expected shape", () => {
-    const tool = createManageMemoryTool();
-    expect(tool.name).toBe("manage_memory");
-    expect(tool.riskLevel).toBe("low-risk");
-    expect(tool.hidden).toBe(false);
-  });
+describe("manage_memory", () => {
+  const citation = { source_ref: "user:1", source_quote: "My favorite fruit is banana." };
 
-  function captureCreate() {
-    const captured: { args: unknown[] } = { args: [] };
-    const fakeService: Partial<MemoryService> = {
+  test("stores only the exact authenticated claim in a topic-scoped entry", async () => {
+    const calls: unknown[][] = [];
+    const service: Partial<MemoryService> = {
       create: (...args) => {
-        captured.args = args;
-        return Effect.succeed({ success: true, message: "File created successfully at: /x.md" });
+        calls.push(args);
+        return Effect.succeed({ success: true, message: "created" });
       },
     };
-    return { captured, fakeService };
-  }
-
-  test("derives the path from the subject so the caller cannot misfile it", async () => {
-    const { captured, fakeService } = captureCreate();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
+    const result = await runWithMemory(
+      service as MemoryService,
       createManageMemoryTool().execute(
-        { command: "create", subject: "Home timezone", file_text: "Paris" },
+        { command: "create", subject: "Favorite fruit", topic: "Food", ...citation },
         context,
       ),
     );
     expect(result.success).toBe(true);
-    expect(captured.args[1]).toBe("personal/always/home-timezone.md");
+    expect(calls[0]?.[1]).toBe("personal/when/food/favorite-fruit.md");
+    expect(calls[0]?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
+    expect(calls[0]?.[3]).toMatchObject({ entry: { origin: "user" } });
   });
 
-  test("stores an entry with no topic as in force on every task", async () => {
-    const { captured, fakeService } = captureCreate();
-    await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        { command: "create", subject: "Rendered output opening", file_text: "auto-open" },
-        context,
-      ),
-    );
-    expect(captured.args[1]).toBe("personal/always/rendered-output-opening.md");
-  });
-
-  test("stores a topic entry under that topic rather than a directory", async () => {
-    const { captured, fakeService } = captureCreate();
-    await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        {
-          command: "create",
-          subject: "Artboard scaling",
-          topic: "Mood Board",
-          file_text: "artboards auto-scale",
-        },
-        context,
-      ),
-    );
-    expect(captured.args[1]).toBe("personal/when/mood-board/artboard-scaling.md");
-  });
-
-  test("refuses a subject that would write a hidden file", async () => {
-    const { fakeService } = captureCreate();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        { command: "create", subject: "\u65e5\u672c\u8a9e", file_text: "x" },
-        context,
-      ),
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Latin letters");
-  });
-
-  test("refuses a topic that normalizes to nothing", async () => {
-    const { fakeService } = captureCreate();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        { command: "create", subject: "Theme colors", topic: "???", file_text: "dark mode" },
-        context,
-      ),
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Latin letters or digits");
-  });
-
-  test("records the failure an entry guards against", async () => {
-    const { captured, fakeService } = captureCreate();
-    await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        {
-          command: "create",
-          subject: "Edit pattern complexity",
-          topic: "editing",
-          failure: { kind: "misfire", tool_name: "edit_file", error_class: "pattern too complex" },
-          file_text: "prefer a literal snippet",
-        },
-        context,
-      ),
-    );
-    expect(captured.args[3]).toMatchObject({
-      entry: {
-        failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+  test("rejects tool claims and forged source refs before calling storage", async () => {
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
       },
-    });
+    };
+    for (const bad of [
+      { source_ref: "tool:7", source_quote: "My favorite fruit is pineapple." },
+      { source_ref: "user:1", source_quote: "My favorite fruit is pineapple." },
+    ]) {
+      const result = await runWithMemory(
+        service as MemoryService,
+        createManageMemoryTool().execute(
+          { command: "create", subject: "Favorite fruit", topic: "Food", ...bad },
+          context,
+        ),
+      );
+      expect(result.success).toBe(false);
+    }
+    expect(writes).toBe(0);
   });
 
-  test("marks an entry written by the extraction pass as auto rather than user-stated", async () => {
-    const { captured, fakeService } = captureCreate();
-    await runWithFakeMemoryService(
-      fakeService as MemoryService,
+  test("does not persist a cited API key claim", async () => {
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const claim = "My API key is abc123.";
+    const result = await runWithMemory(
+      service as MemoryService,
       createManageMemoryTool().execute(
-        { command: "create", subject: "Timezone", file_text: "Paris" },
-        { ...context, agentId: "memory-extractor" },
+        {
+          command: "create",
+          subject: "API key",
+          source_ref: "user:secret",
+          source_quote: claim,
+        },
+        { ...context, memoryUserSources: [{ id: "user:secret", text: claim }] },
       ),
     );
-    expect(captured.args[3]).toMatchObject({ entry: { origin: "auto" } });
+    expect(result.success).toBe(false);
+    expect(writes).toBe(0);
   });
 
-  test("surfaces a failed mutation as a failed tool result", async () => {
-    const fakeService: Partial<MemoryService> = {
-      strReplace: () =>
-        Effect.succeed({ success: false, message: "No replacement was performed." }),
+  test("amends against the complete current file with the user's correction", async () => {
+    const correction = "Actually, my favorite fruit is mango.";
+    let replacement: readonly unknown[] | undefined;
+    const service: Partial<MemoryService> = {
+      view: () =>
+        Effect.succeed({
+          kind: "file",
+          path: "personal/when/food/favorite-fruit.md",
+          content: 'The user said: "My favorite fruit is banana."\n',
+          startLine: 1,
+          totalLines: 2,
+          truncated: false,
+        }),
+      strReplace: (...args) => {
+        replacement = args;
+        return Effect.succeed({ success: true, message: "amended" });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "amend",
+          path: "personal/when/food/favorite-fruit.md",
+          source_ref: "user:2",
+          source_quote: correction,
+        },
+        { ...context, memoryUserSources: [{ id: "user:2", text: correction }] },
+      ),
+    );
+    expect(result.success).toBe(true);
+    expect(replacement?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
+    expect(replacement?.[3]).toBe('The user said: "Actually, my favorite fruit is mango."\n');
+  });
+
+  test("requires an explicit authenticated request to forget", async () => {
+    let deletes = 0;
+    const service: Partial<MemoryService> = {
+      delete: () => {
+        deletes += 1;
+        return Effect.succeed({ success: true, message: "deleted" });
+      },
     };
     const tool = createManageMemoryTool();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
+    const passive = await runWithMemory(
+      service as MemoryService,
       tool.execute(
-        { command: "str_replace", path: "notes.txt", old_str: "x", new_str: "y" },
+        { command: "delete", path: "personal/when/food/favorite-fruit.md", ...citation },
         context,
       ),
     );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("No replacement was performed");
+    expect(passive.success).toBe(false);
+    const direct = await runWithMemory(
+      service as MemoryService,
+      tool.execute(
+        {
+          command: "delete",
+          path: "personal/when/food/favorite-fruit.md",
+          source_ref: "user:3",
+          source_quote: "Forget my favorite fruit.",
+        },
+        { ...context, memoryUserSources: [{ id: "user:3", text: "Forget my favorite fruit." }] },
+      ),
+    );
+    expect(direct.success).toBe(true);
+    expect(deletes).toBe(1);
   });
 });

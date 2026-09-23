@@ -64,8 +64,9 @@ export interface MemoryMutationOutcome {
  * Who is writing. Required on every mutating call so a shared scope can report
  * which agents have touched a file.
  *
- * Whether a write is *allowed* is decided before this, in `manage_memory`: a
- * run that has ingested untrusted external content cannot write memory at all.
+ * Whether a model-facing write is *allowed* is decided before this, in
+ * `manage_memory`: the source ID and exact quote must match authenticated user
+ * input. Other callers, such as the bounded preflight, enforce that same gate.
  */
 export interface MemoryWriteContext {
   readonly agentId: string;

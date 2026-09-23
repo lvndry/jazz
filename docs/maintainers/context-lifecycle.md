@@ -259,6 +259,11 @@ replace stale facts instead of appending duplicates. The scopes are the parent a
 writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
 the agent wrote at the user's direct request.
 
+The extractor receives authenticated source IDs for the original user messages in the chunk.
+The write tool checks an exact quoted span against those messages. A chunk with no authenticated
+user source is skipped, and text inside tool output or a rendered transcript cannot create its
+own user source.
+
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own
 inferences, in-progress task state, tentative thoughts, secrets, and small talk do not.

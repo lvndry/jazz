@@ -33,6 +33,10 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
+  /** The host has authenticated `userInput` as a direct user message. */
+  readonly authenticatedUserInput?: boolean;
+  /** Original authenticated messages supplied to an internal memory extractor. */
+  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
   /**
    * Attachments placed directly on this run's first user message.
    *

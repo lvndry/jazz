@@ -269,6 +269,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /** Exact user messages authenticated by the host; tool output cannot add to this set. */
+  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
   /** Memory scopes available to this run. */
   readonly memoryScopes?: readonly string[];
   readonly conversationId?: string;

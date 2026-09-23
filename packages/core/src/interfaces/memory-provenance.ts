@@ -1,6 +1,7 @@
 /**
  * Provenance and typing for memory files: what an entry is, who asserted it,
- * when it was written, when it was last read back, and how well it has served.
+ * when it was written, and when it was last read back. Legacy credit fields
+ * remain readable but are not updated from quiet runs or automatic scoring.
  *
  * Kept in a hidden per-scope sidecar rather than in the memory files
  * themselves. Memory files are the artifact a person edits directly — with
@@ -9,17 +10,15 @@
  * longer the injected one and shift every line number `str_replace` and
  * `insert` address.
  *
- * There is no trust field: memory holds facts about a person, so a fact the
- * person never stated has no business being here at all. Rather than record a
- * tier and warn on read, `manage_memory` refuses to write once untrusted
- * external content has entered the run, which is why everything stored is
- * first-hand by construction.
+ * There is no trust field. Model-facing writes validate an exact quote against
+ * host-authenticated user input at the tool or preflight boundary. Source
+ * authentication does not prove a statement is durable or its topic is right.
  *
  * Nothing here is load-bearing for recall. Recall reads the tree, so an entry
  * found or missing on disk behaves the same whether or not this file knows
  * about it, and a sidecar that is lost or corrupt costs history rather than
- * memory. Only what the files cannot express lives here: who wrote an entry,
- * the failure it guards against, and how well it has served.
+ * memory. Only what the files cannot express lives here: who wrote an entry
+ * and legacy lesson metadata. Outcome credit is dormant pending calibration.
  */
 
 /**
