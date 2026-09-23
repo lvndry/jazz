@@ -1,9 +1,9 @@
 /**
  * A record of whether each run actually consulted memory before answering.
  *
- * This log measures explicit `view_memory` calls. Standing entries and the
- * experimental preflight can also expose memory without a tool call, so these
- * counts must not be interpreted as total exposure or outcome credit.
+ * This log measures explicit `view_memory` calls. Standing entries can also
+ * expose memory without a tool call, so these counts must not be interpreted
+ * as total exposure or outcome credit.
  *
  * Append-only JSONL, unparseable lines skipped, failures swallowed — the same
  * discipline as the misfire log, for the same reason: losing a recall entry must

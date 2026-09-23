@@ -34,6 +34,89 @@ const scopes = ["agent-1"];
 
 const writeContext = { agentId: "agent-1" } as const;
 
+describe("authenticated source revocation", () => {
+  test("a forgotten source cannot recreate its fact during compaction, but a new user turn can", async () => {
+    const service = makeService();
+    const oldSource = { agentId: "agent-1", sourceRef: "user:banana-turn" };
+    const newSource = { agentId: "agent-1", sourceRef: "user:new-banana-turn" };
+    const text = 'The user said: "My favorite fruit is banana."\n';
+
+    expect(
+      (await runEffect(service.create(scopes, "agent-1/when/food/fruit.md", text, oldSource)))
+        .success,
+    ).toBe(true);
+    expect((await runEffect(service.delete(scopes, "agent-1/when/food/fruit.md"))).success).toBe(
+      true,
+    );
+    const replay = await runEffect(
+      service.create(scopes, "agent-1/when/food/fruit.md", text, oldSource),
+    );
+    expect(replay.success).toBe(false);
+    expect(replay.message).toContain("forgotten or superseded");
+    expect(
+      (
+        await runEffect(
+          service.create(["agent-1", "other"], "other/when/food/fruit.md", text, oldSource),
+        )
+      ).success,
+    ).toBe(false);
+    expect(
+      (await runEffect(service.create(scopes, "agent-1/when/food/fruit.md", text, newSource)))
+        .success,
+    ).toBe(true);
+  });
+
+  test("a correction revokes the old source and a rename preserves deletion protection", async () => {
+    const service = makeService();
+    const banana = 'The user said: "My favorite fruit is banana."\n';
+    const mango = 'The user said: "Actually, my favorite fruit is mango."\n';
+    const oldSource = { agentId: "agent-1", sourceRef: "user:banana" };
+    const newSource = { agentId: "agent-1", sourceRef: "user:mango" };
+    const original = "agent-1/when/food/fruit.md";
+    const moved = "agent-1/when/food/favorite-fruit.md";
+
+    await runEffect(service.create(scopes, original, banana, oldSource));
+    expect(
+      (await runEffect(service.strReplace(scopes, original, banana, mango, newSource))).success,
+    ).toBe(true);
+    expect(
+      (await runEffect(service.create(scopes, "agent-1/when/food/banana.md", banana, oldSource)))
+        .success,
+    ).toBe(false);
+    expect((await runEffect(service.rename(scopes, original, moved, newSource))).success).toBe(
+      true,
+    );
+    expect((await runEffect(service.delete(scopes, moved))).success).toBe(true);
+    expect((await runEffect(service.create(scopes, moved, mango, newSource))).success).toBe(false);
+  });
+
+  test("a corrupt source ledger fails closed for cited writes", async () => {
+    const service = makeService();
+    fs.writeFileSync(path.join(tmpDir, ".source-ledger.json"), "{bad json");
+    const result = await runEither(
+      service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
+        agentId: "agent-1",
+        sourceRef: "user:banana",
+      }),
+    );
+    expect(result._tag).toBe("Left");
+    expect(fs.existsSync(path.join(tmpDir, "agent-1", "when", "food", "fruit.md"))).toBe(false);
+  });
+
+  test("memory tools cannot erase the hidden source ledger", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
+        agentId: "agent-1",
+        sourceRef: "user:banana",
+      }),
+    );
+    const result = await runEither(service.delete(scopes, "agent-1/.provenance.json"));
+    expect(result._tag).toBe("Left");
+    expect(fs.existsSync(path.join(tmpDir, ".source-ledger.json"))).toBe(true);
+  });
+});
+
 describe("view", () => {
   test("lists the accessible scopes at the root path", async () => {
     const service = makeService();

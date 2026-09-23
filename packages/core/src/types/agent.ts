@@ -129,8 +129,6 @@ export interface AgentConfig {
   readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>>;
   /** Memory scopes this agent can access. */
   readonly memoryScopes?: readonly string[];
-  /** Experimental paired-eval variant: one bounded capture and recall preflight per user turn. */
-  readonly experimentalMemoryPreflight?: boolean;
 }
 
 /**

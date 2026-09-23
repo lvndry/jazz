@@ -71,7 +71,10 @@ describe("manage_memory", () => {
     expect(result.success).toBe(true);
     expect(calls[0]?.[1]).toBe("personal/when/food/favorite-fruit.md");
     expect(calls[0]?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
-    expect(calls[0]?.[3]).toMatchObject({ entry: { origin: "user" } });
+    expect(calls[0]?.[3]).toMatchObject({
+      sourceRef: "user:1",
+      entry: { origin: "user" },
+    });
   });
 
   test("rejects tool claims and forged source refs before calling storage", async () => {
@@ -117,6 +120,33 @@ describe("manage_memory", () => {
           source_quote: claim,
         },
         { ...context, memoryUserSources: [{ id: "user:secret", text: claim }] },
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(writes).toBe(0);
+  });
+
+  test("does not turn a forget instruction into a new fact", async () => {
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "favorite fruit",
+          source_ref: "user:forget",
+          source_quote: "Forget my favorite fruit.",
+        },
+        {
+          ...context,
+          memoryUserSources: [{ id: "user:forget", text: "Forget my favorite fruit." }],
+        },
       ),
     );
     expect(result.success).toBe(false);

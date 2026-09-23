@@ -35,7 +35,6 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { runMemoryPreflight } from "@/core/memory/preflight";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -612,36 +611,10 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-    const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
-    const preflight =
-      agent.config.experimentalMemoryPreflight === true &&
-      options.authenticatedUserInput === true &&
-      options.internal !== true &&
-      options.isResume !== true &&
-      Option.isSome(memoryServiceOption)
-        ? yield* runMemoryPreflight(
-            {
-              agent,
-              userInput,
-              sourceRef: `user:${runMetrics.runId}`,
-              scopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
-              allowWrites: options.disablePersistence !== true,
-              metrics: runMetrics,
-            },
-            {
-              llm: yield* LLMServiceTag,
-              memory: memoryServiceOption.value,
-              logger,
-            },
-          )
-        : undefined;
-    const activePreferences = [
-      ...(yield* resolveActivePreferences(
-        agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
-        logger,
-      )),
-      ...(preflight?.selected ?? []),
-    ];
+    const activePreferences = yield* resolveActivePreferences(
+      agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
+      logger,
+    );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.

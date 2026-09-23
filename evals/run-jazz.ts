@@ -38,6 +38,7 @@ export function parseEnvelope(stdout: string): Envelope {
     ok: true,
     answer: typeof envelope["answer"] === "string" ? envelope["answer"] : "",
     costUSD: typeof envelope["costUSD"] === "number" ? envelope["costUSD"] : 0,
+    costKnown: envelope["costKnown"] === true,
     tokenUsage: {
       promptTokens: usage["promptTokens"] ?? 0,
       completionTokens: usage["completionTokens"] ?? 0,

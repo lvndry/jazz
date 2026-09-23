@@ -17,23 +17,25 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
-### Personal memory pair
+### Personal memory design comparison
 
-`evals/personal-memory-pair.ts` runs chronological, separate-conversation journeys in fresh
-`JAZZ_HOME` directories. It compares ordinary agent-driven `view_memory` with the experimental
-one-call preflight using the same model, persona text, and three available tools. The sequence
-covers same-turn capture, an unrelated technical request, shopping-list recall, a tool-output
-injection attempt, correction, corrected recall, and forgetting. It records task checks, memory
-writes, explicit `view_memory` on unrelated work, wall time, reported model cost, and tokens.
+The current acceptance journey tests same-turn capture, unrelated and hypothetical turns,
+shopping-list recall, tool-output injection, correction, and forgetting across new conversations
+in a private `JAZZ_HOME` per sample:
 
 ```bash
-bun evals/personal-memory-pair.ts --samples 3 --model gemma4:31b-cloud
+bun evals/personal-memory-journey.ts --samples 3 --model gemma4:31b-cloud
 ```
 
-Reports and per-turn stderr land in `evals/report/` (gitignored). The unrelated-recall measure
-sees explicit tool calls and answer contamination; it does not yet see a preflight entry that
-was injected into the prompt but left unused. Shadow exposure receipts are needed to close that
-measurement gap. The cost is Jazz's reported estimate, which may differ from a provider bill.
+The JSON report lands in `evals/report/` (gitignored). The model name can be replaced with an
+available local Ollama tool-capable model. Each turn records `costKnown`; treat `costUSD: 0`
+as unpriced when `costKnown` is false.
+
+The September 2026 paired multi-session experiment compared ordinary agent-driven recall with
+a one-call capture and retrieval preflight. Its isolated runner and prototype are preserved in
+commit `a9a51bbf`; the summary and limitations are in
+[the personal-memory evaluation](./results/personal-memory-2026-09-23.md). The extra call did not
+improve task success in the tested journeys, so it is not part of the current agent path.
 
 Reports land in `evals/report/` (gitignored). Metrics: pass@1, pass@k,
 **Pass^k** (reliability), bootstrap CI, cost-normalized, per-domain + overall.

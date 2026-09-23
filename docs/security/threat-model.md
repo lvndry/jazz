@@ -62,6 +62,22 @@ and all `SSH_*` variables unless an exact valid name appears in the agent's `env
 telemetry serializers redact known credential fields, but transcripts and non-secret user content
 remain sensitive plaintext.
 
+### Memory writes
+
+`manage_memory` accepts a new fact or correction only with an exact quote and source ID from a
+host-labeled user message. Tool output, fetched pages, model summaries, and a synthetic
+compaction transcript cannot mint that source ID. Obvious secret and sensitive claims are
+rejected on create or amend. A hidden cross-scope source ledger revokes an old message ID before
+its memory is corrected or forgotten, so compaction cannot re-save that same statement later.
+The ledger fails closed for cited writes when malformed; the model cannot address its hidden
+path through memory tools. The runner marks direct terminal and `jazz run` prompts as user
+input; callers that wrap untrusted text in a headless prompt are responsible for separating it
+before invoking Jazz.
+
+Exact quotation authenticates where words came from, not whether they are a durable personal
+fact or which existing entry they should update. A model can still misjudge those questions.
+Legacy entries without source IDs cannot revoke their original conversation source on deletion.
+
 ### Remote entry points
 
 `jazz run` listens on no port. `jazz daemon` binds loopback by default and provisions an operator

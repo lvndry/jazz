@@ -66,10 +66,13 @@ export interface MemoryMutationOutcome {
  *
  * Whether a model-facing write is *allowed* is decided before this, in
  * `manage_memory`: the source ID and exact quote must match authenticated user
- * input. Other callers, such as the bounded preflight, enforce that same gate.
+ * input. The store additionally rejects source IDs revoked by correction or
+ * forgetting, so a compaction pass cannot re-save an old statement.
  */
 export interface MemoryWriteContext {
   readonly agentId: string;
+  /** Authenticated user message ID, used to prevent forgotten claims from being re-extracted. */
+  readonly sourceRef?: string;
   /**
    * Typing recorded alongside the write. Supplied when an entry is created so
    * the sidecar mirrors what the path encodes; omitted on later edits, which

@@ -11,7 +11,7 @@
  * `insert` address.
  *
  * There is no trust field. Model-facing writes validate an exact quote against
- * host-authenticated user input at the tool or preflight boundary. Source
+ * host-authenticated user input at the memory tool boundary. Source
  * authentication does not prove a statement is durable or its topic is right.
  *
  * Nothing here is load-bearing for recall. Recall reads the tree, so an entry

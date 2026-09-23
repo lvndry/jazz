@@ -241,7 +241,10 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
         const scopes = effectiveMemoryScopes(context.memoryScopes);
-        const writeContext: MemoryWriteContext = { agentId: context.agentId };
+        const writeContext: MemoryWriteContext = {
+          agentId: context.agentId,
+          sourceRef: args.source_ref,
+        };
         const quote = authenticatedQuote(context.memoryUserSources, {
           sourceRef: args.source_ref,
           sourceQuote: args.source_quote,
@@ -261,6 +264,17 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
             success: false,
             result: null,
             error: "Memory write rejected: do not store secrets or sensitive personal claims.",
+          } satisfies ToolExecutionResult;
+        }
+        if (
+          (args.command === "create" || args.command === "amend") &&
+          (explicitlyRequestsMemoryChange(quote, "forget") ||
+            explicitlyRequestsMemoryChange(quote, "rename"))
+        ) {
+          return {
+            success: false,
+            result: null,
+            error: "Memory write rejected: a change request is not a durable user fact.",
           } satisfies ToolExecutionResult;
         }
 

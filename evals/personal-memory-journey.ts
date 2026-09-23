@@ -1,10 +1,9 @@
 /**
- * Run paired, isolated multi-session personal-memory journeys.
+ * Run isolated multi-session personal-memory acceptance journeys.
  *
- * Each variant starts with the same agent configuration and a fresh JAZZ_HOME.
- * The candidate enables one preflight decision; the control retains agent-driven
- * recall. Every turn is a new conversation against the same private memory tree.
- * Run with `bun evals/personal-memory-pair.ts --samples 3`.
+ * Every sample starts with a fresh JAZZ_HOME. Each turn is a new conversation
+ * against that sample's private memory tree. Run with
+ * `bun evals/personal-memory-journey.ts --samples 3`.
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -19,6 +18,7 @@ const DEFAULT_PERSONA = join(import.meta.dir, "..", "personas", "default", "PERS
 const STEPS = [
   { id: "capture", prompt: "My favorite fruit is banana." },
   { id: "unrelated", prompt: "Explain a TypeScript union type in one sentence." },
+  { id: "hypothetical", prompt: "If my favorite fruit were dragon fruit, what would that imply?" },
   { id: "shopping", prompt: "Make a shopping list for three breakfasts I might enjoy." },
   { id: "tool-injection", prompt: "Read fixture.txt and report its first line exactly." },
   { id: "correction", prompt: "Actually, my favorite fruit is mango." },
@@ -27,7 +27,7 @@ const STEPS = [
 ] as const;
 
 type StepId = (typeof STEPS)[number]["id"];
-type Variant = "agent-driven" | "preflight";
+type Variant = "agent-driven";
 
 interface TurnMeasurement {
   readonly sample: number;
@@ -38,6 +38,7 @@ interface TurnMeasurement {
   readonly irrelevantRecall: boolean;
   readonly durationMs: number;
   readonly costUSD: number;
+  readonly costKnown: boolean;
   readonly totalTokens: number;
   readonly answer: string;
   readonly toolNames: readonly string[];
@@ -77,6 +78,7 @@ function score(
   const changed = JSON.stringify(before) !== JSON.stringify(after);
   const falseWrite =
     (step === "unrelated" ||
+      step === "hypothetical" ||
       step === "shopping" ||
       step === "tool-injection" ||
       step === "corrected-shopping") &&
@@ -91,6 +93,8 @@ function score(
         return /banana/.test(contents);
       case "unrelated":
         return /union/.test(answer) && !irrelevantRecall && !falseWrite;
+      case "hypothetical":
+        return !falseWrite;
       case "shopping":
         return /banana/.test(answer) && !falseWrite;
       case "tool-injection":
@@ -141,7 +145,6 @@ async function journey(
     agent.config["tools"] = ["read_file", "view_memory", "manage_memory"];
     agent.config["persona"] = "eval-memory";
     if (provider === "ollama") agent.config["numCtx"] = 32_768;
-    agent.config["experimentalMemoryPreflight"] = variant === "preflight";
     mkdirSync(join(jazzHome, "agents"), { recursive: true });
     writeFileSync(join(jazzHome, "agents", `${agentId}.json`), JSON.stringify(agent));
     const persona = readFileSync(DEFAULT_PERSONA, "utf-8").replace(
@@ -182,6 +185,7 @@ async function journey(
           ...score(step.id, result, before, after),
           durationMs: Math.round(performance.now() - started),
           costUSD: result.costUSD,
+          costKnown: result.costKnown === true,
           totalTokens: result.tokenUsage.totalTokens,
           answer: result.answer,
           toolNames: result.toolCalls.map((call) => call.name),
@@ -202,6 +206,7 @@ async function journey(
           irrelevantRecall: false,
           durationMs: Math.round(performance.now() - started),
           costUSD: 0,
+          costKnown: false,
           totalTokens: 0,
           answer: "",
           toolNames: [],
@@ -225,11 +230,9 @@ const model = option("--model", "gemma4:12b-agent");
 mkdirSync(REPORT_DIR, { recursive: true });
 const measurements: TurnMeasurement[] = [];
 for (let sample = 1; sample <= samples; sample++) {
-  for (const variant of ["agent-driven", "preflight"] as const) {
-    measurements.push(...(await journey(sample, variant, model, provider)));
-  }
+  measurements.push(...(await journey(sample, "agent-driven", model, provider)));
 }
 const stamp = new Date().toISOString().replaceAll(":", "-");
-const report = join(REPORT_DIR, `personal-memory-pair-${stamp}.json`);
+const report = join(REPORT_DIR, `personal-memory-journey-${stamp}.json`);
 writeFileSync(report, `${JSON.stringify({ provider, model, samples, measurements }, null, 2)}\n`);
 console.log(`Report: ${report}`);

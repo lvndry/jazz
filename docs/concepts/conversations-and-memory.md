@@ -167,13 +167,10 @@ flowchart TB
 **Standing entries** (`always/`) are injected into the system prompt every turn. The agent never
 has to ask for them — a preference the user stated is not something they should have to restate.
 
-**Topic-scoped entries** (`when/<topic>/`) are normally the agent's responsibility to discover.
-The agent calls `view_memory` to browse what exists, reads what looks relevant, and ignores the
-rest. The experimental `experimentalMemoryPreflight` agent setting instead makes one bounded
-model decision before each authenticated user turn: it can capture one direct user fact and
-select up to five relevant existing entries for that turn. It reads at most 32 entry summaries
-and falls back to agent-driven recall if the decision fails. This setting is off by default
-while paired multi-session evals compare its quality, latency, and cost.
+**Topic-scoped entries** (`when/<topic>/`) are the agent's responsibility to discover. The agent
+calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest.
+Automatic topic selection remains a measured research path: an extra model call must improve
+task results enough to justify its latency, cost, and potential irrelevant exposure.
 
 The cost of recall tracks how much is relevant, not how much has ever been remembered.
 
@@ -184,8 +181,14 @@ every write. Jazz validates both against the original input supplied by the term
 `run` command. Tool output, web pages, model summaries, replayed chat commands, and synthetic
 sub-agent prompts cannot become user facts by claiming to be one. The saved entry contains the
 user's quoted words. `amend` replaces an existing entry with a newly cited statement; `delete`
-and `rename` require an explicit direct user request. The experimental preflight uses the same
-quote gate and checks selected paths against the bounded candidate set before writing.
+and `rename` require an explicit direct user request.
+
+When a sourced fact is corrected or forgotten, a hidden source ledger revokes the old
+user message ID before the file changes. Later compaction cannot re-save the old claim from that
+same conversation source. A fresh user statement has a new source ID and can be remembered again.
+The ledger spans memory scopes and stores IDs and paths, not quotes. Memories created before source tracking do not have
+an old source ID to revoke; their original conversation history may need manual review after a
+forget request.
 
 These gates authenticate the source of the words. They do not prove a statement is durable or
 that it belongs in the selected entry; those decisions still require evaluation. Silent changes
