@@ -19,7 +19,7 @@ import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensions
 import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
 import { maskSecret } from "@/cli/ui/mask-secret";
 import { store } from "@/cli/ui/store";
-import type { OutputEntry } from "@/cli/ui/types";
+import type { Choice, OutputEntry } from "@/cli/ui/types";
 
 // Singleton guard to prevent accidental double instantiation
 let instanceExists = false;
@@ -46,8 +46,8 @@ export { maskSecret };
  *
  * Accounts for the App container's `paddingX={3}` (6 chars total) plus the
  * "› " icon + space rendered by OutputEntryView's user-entry styling
- * (2 chars). Centralized so the `ask("You:")` resolve path and the
- * `user()` method stay visually consistent.
+ * (2 chars). Centralized so the `ask("You:")` resolve path, the `user()`
+ * method and answered pickers all wrap at the same column.
  */
 const USER_ECHO_WIDTH_OFFSET = 8;
 
@@ -65,6 +65,48 @@ function printUserMessage(message: string): void {
     meta: { plainText: message }, // unwrapped source for non-Ink renderers
     timestamp: new Date(),
   });
+}
+
+/**
+ * Close the active prompt and leave `<message> <answer>` in scrollback so the
+ * transcript records what the user picked.
+ */
+function closePromptWithAnswer(message: string, answer: string): void {
+  store.setPrompt(null);
+  store.printOutput({
+    type: "log",
+    message: wrapToWidth(
+      `${message} ${chalk.green(answer)}`,
+      getTerminalWidth() - USER_ECHO_WIDTH_OFFSET,
+    ),
+    timestamp: new Date(),
+  });
+}
+
+/** Close the active prompt after the user pressed Escape. */
+function closePromptCancelled(message: string): void {
+  store.setPrompt(null);
+  store.printOutput({
+    type: "log",
+    message: `${message} ${chalk.dim("(cancelled)")}`,
+    timestamp: new Date(),
+  });
+}
+
+type PromptChoiceInput<T> =
+  string | { name: string; value: T; description?: string; disabled?: boolean };
+
+function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T>[] {
+  return choices.map((choice) =>
+    typeof choice === "string"
+      ? { label: choice, value: choice as unknown as T }
+      : {
+          label: choice.name,
+          value: choice.value,
+          ...(choice.description === undefined ? {} : { description: choice.description }),
+          ...(choice.disabled === true ? { disabled: true } : {}),
+        },
+  );
 }
 
 /**
@@ -246,7 +288,7 @@ export class InkTerminalService implements TerminalService {
       secret?: boolean;
     },
   ): Effect.Effect<string | undefined, never> {
-    return Effect.async<string, Error>((resume) => {
+    return Effect.async<string | undefined>((resume) => {
       const validateFn = options?.validate;
       const isCancellable = options?.cancellable === true || options?.secret === true;
       const isSimple = options?.simple === true;
@@ -321,18 +363,13 @@ export class InkTerminalService implements TerminalService {
       // Add reject handler if cancellable
       if (isCancellable) {
         promptState.reject = () => {
-          store.setPrompt(null);
-          store.printOutput({
-            type: "log",
-            message: `${message} ${chalk.dim("(cancelled)")}`,
-            timestamp: new Date(),
-          });
-          resume(Effect.fail(new Error("PromptCancelled")));
+          closePromptCancelled(message);
+          resume(Effect.succeed(undefined));
         };
       }
 
       store.setPrompt(promptState);
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    });
   }
 
   password(
@@ -369,73 +406,48 @@ export class InkTerminalService implements TerminalService {
   select<T = string>(
     message: string,
     options: {
-      choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
-      )[];
+      choices: readonly PromptChoiceInput<T>[];
       default?: T;
     },
   ): Effect.Effect<T | undefined, never> {
-    return Effect.async<T, Error>((resume) => {
-      // Normalize choices for Ink SelectInput
-      const choices = options.choices.map((choice) => {
-        if (typeof choice === "string")
-          return { label: choice, value: choice as unknown as T, disabled: false };
-        return {
-          label: choice.name,
-          value: choice.value,
-          ...(choice.description === undefined ? {} : { description: choice.description }),
-          disabled: choice.disabled ?? false,
-        };
-      });
-
+    return Effect.async<T | undefined>((resume) => {
+      const choices = normalizeChoices(options.choices);
       store.setPrompt({
         type: "select",
         message,
-
         options: {
           choices,
           ...(options.default === undefined ? {} : { defaultSelected: options.default }),
         },
         resolve: (val: unknown) => {
-          store.setPrompt(null);
-          // find label for log
           const choice = choices.find((c) => c.value === val);
-          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
-          store.printOutput({
-            type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
-            timestamp: new Date(),
-          });
+          closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
         reject: () => {
-          store.setPrompt(null);
-          store.printOutput({
-            type: "log",
-            message: `${message} ${chalk.dim("(cancelled)")}`,
-            timestamp: new Date(),
-          });
-          resume(Effect.fail(new Error("PromptCancelled")));
+          closePromptCancelled(message);
+          resume(Effect.succeed(undefined));
         },
       });
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    });
   }
 
-  confirm(message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
-    return Effect.async((resume) => {
+  confirm(
+    message: string,
+    defaultValue: boolean = false,
+  ): Effect.Effect<boolean | undefined, never> {
+    return Effect.async<boolean | undefined>((resume) => {
       store.setPrompt({
         type: "confirm",
         message,
         options: { defaultValue },
         resolve: (val: unknown) => {
-          store.setPrompt(null);
-          const rawMsg = `${message} ${chalk.green(val ? "Yes" : "No")}`;
-          store.printOutput({
-            type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
-            timestamp: new Date(),
-          });
+          closePromptWithAnswer(message, val ? "Yes" : "No");
           resume(Effect.succeed(val as boolean));
+        },
+        reject: () => {
+          closePromptCancelled(message);
+          resume(Effect.succeed(undefined));
         },
       });
     });
@@ -444,103 +456,57 @@ export class InkTerminalService implements TerminalService {
   search<T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly PromptChoiceInput<T>[];
       placeholder?: string;
     },
   ): Effect.Effect<T | undefined, never> {
-    return Effect.async<T, Error>((resume) => {
-      // Normalize choices for SearchSelect
-      const choices = options.choices.map((c) => {
-        if (typeof c === "string") return { label: c, value: c as unknown as T };
-        return {
-          label: c.name,
-          value: c.value,
-          ...(c.description !== undefined ? { description: c.description } : {}),
-        };
-      });
-
+    return Effect.async<T | undefined>((resume) => {
+      const choices = normalizeChoices(options.choices);
       store.setPrompt({
         type: "search",
         message,
         options: { choices, placeholder: options.placeholder },
         resolve: (val: unknown) => {
-          store.setPrompt(null);
-          // Find label for log
           const choice = choices.find((c) => c.value === val);
-          const rawMsg = `${message} ${chalk.green(choice?.label ?? "")}`;
-          store.printOutput({
-            type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
-            timestamp: new Date(),
-          });
+          closePromptWithAnswer(message, choice?.label ?? "");
           resume(Effect.succeed(val as T));
         },
         reject: () => {
-          store.setPrompt(null);
-          store.printOutput({
-            type: "log",
-            message: `${message} ${chalk.dim("(cancelled)")}`,
-            timestamp: new Date(),
-          });
-          resume(Effect.fail(new Error("PromptCancelled")));
+          closePromptCancelled(message);
+          resume(Effect.succeed(undefined));
         },
       });
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    });
   }
 
   checkbox<T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly PromptChoiceInput<T>[];
       default?: readonly T[];
     },
   ): Effect.Effect<readonly T[] | undefined, never> {
-    return Effect.async<readonly T[], Error>((resume) => {
-      // Normalize choices
-      const choices = options.choices.map((c) => {
-        if (typeof c === "string") return { label: c, value: c as unknown as T };
-        return {
-          label: c.name,
-          value: c.value,
-          ...(c.description !== undefined ? { description: c.description } : {}),
-        };
-      });
-
+    return Effect.async<readonly T[] | undefined>((resume) => {
+      const choices = normalizeChoices(options.choices);
       store.setPrompt({
         type: "checkbox",
         message,
         options: { choices, defaultSelected: options.default },
         resolve: (val: unknown) => {
-          store.setPrompt(null);
-          // val should be an array of values
-          const selectedValues = val as T[];
+          const selectedValues = val as readonly T[];
           const selectedLabels = selectedValues
-            .map((v) => {
-              const c = choices.find((ch) => ch.value === v);
-              return c?.label;
-            })
+            .map((value) => choices.find((choice) => choice.value === value)?.label)
             .filter(Boolean)
             .join(", ");
-
-          const rawMsg = `${message} ${chalk.green(`[${selectedLabels}]`)}`;
-          store.printOutput({
-            type: "log",
-            message: wrapToWidth(rawMsg, getTerminalWidth() - 8),
-            timestamp: new Date(),
-          });
-          resume(Effect.succeed(val as readonly T[]));
+          closePromptWithAnswer(message, `[${selectedLabels}]`);
+          resume(Effect.succeed(selectedValues));
         },
         reject: () => {
-          store.setPrompt(null);
-          store.printOutput({
-            type: "log",
-            message: `${message} ${chalk.dim("(cancelled)")}`,
-            timestamp: new Date(),
-          });
-          resume(Effect.fail(new Error("PromptCancelled")));
+          closePromptCancelled(message);
+          resume(Effect.succeed(undefined));
         },
       });
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    });
   }
 
   setTitle(title: string): Effect.Effect<void, never> {
@@ -646,7 +612,10 @@ export class PlainTerminalService implements TerminalService {
     return Effect.succeed(first.value);
   }
 
-  confirm(_message: string, defaultValue: boolean = false): Effect.Effect<boolean, never> {
+  confirm(
+    _message: string,
+    defaultValue: boolean = false,
+  ): Effect.Effect<boolean | undefined, never> {
     return Effect.succeed(defaultValue);
   }
 

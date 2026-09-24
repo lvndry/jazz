@@ -888,6 +888,9 @@ export async function promptForAgentInfo(
             const confirm = await Effect.runPromise(
               terminal.confirm("No tools selected. Go back to previous step?", true),
             );
+            if (confirm === undefined) {
+              continue;
+            }
             if (confirm) {
               shouldGoBack = true;
               break;

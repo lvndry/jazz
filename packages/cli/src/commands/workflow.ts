@@ -666,10 +666,11 @@ export function scheduleWorkflowCommand(
     // On macOS, ask if the workflow should also run on login/wake to catch missed runs
     let runAtLoad = false;
     if (schedulerType === "launchd") {
-      runAtLoad = yield* terminal.confirm(
-        "Run on login? (catches missed runs when your Mac was asleep)",
-        false,
-      );
+      runAtLoad =
+        (yield* terminal.confirm(
+          "Run on login? (catches missed runs when your Mac was asleep)",
+          false,
+        )) === true;
       yield* terminal.log("");
     }
 

@@ -164,9 +164,13 @@ export interface TerminalService {
   ) => Effect.Effect<T | undefined, never>;
 
   /**
-   * Prompt the user for confirmation (yes/no)
+   * Prompt the user for confirmation (yes/no).
+   * Returns undefined when the user cancels (e.g. presses Escape).
    */
-  readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
+  readonly confirm: (
+    message: string,
+    defaultValue?: boolean,
+  ) => Effect.Effect<boolean | undefined, never>;
 
   /**
    * Search and select from a list of options with filtering.

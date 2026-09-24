@@ -99,6 +99,9 @@ export function runElicitation(
     }
 
     const proceed = yield* terminal.confirm("Answer it?", true);
+    if (proceed === undefined) {
+      return { action: "cancel" as const };
+    }
     if (!proceed) {
       return { action: "decline" as const };
     }
