@@ -39,6 +39,7 @@ import {
 import type { AgentConfig } from "@jazz/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@jazz/core/types/llm";
 import type { MCPTool } from "@jazz/core/types/mcp";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
@@ -48,6 +49,7 @@ import Spinner from "ink-spinner";
 import React from "react";
 import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
+import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 
@@ -103,7 +105,7 @@ interface AIAgentCreationAnswers {
   persona: string;
   llmProvider: ProviderName;
   llmModel: string;
-  reasoningEffort?: "disable" | "low" | "medium" | "high";
+  reasoning?: ReasoningSelection;
   numCtx?: number;
   tools: string[];
   webSearchProvider?: WebSearchProviderName;
@@ -305,7 +307,7 @@ export function createAgentCommand(): Effect.Effect<
       persona: agentAnswers.persona,
       llmProvider: agentAnswers.llmProvider,
       llmModel: selectedModel,
-      ...(agentAnswers.reasoningEffort && { reasoningEffort: agentAnswers.reasoningEffort }),
+      ...(agentAnswers.reasoning && { reasoning: agentAnswers.reasoning }),
       ...(typeof agentAnswers.numCtx === "number" && { numCtx: agentAnswers.numCtx }),
       ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
       ...(agentAnswers.webSearchProvider && { webSearchProvider: agentAnswers.webSearchProvider }),
@@ -328,7 +330,7 @@ export function createAgentCommand(): Effect.Effect<
     yield* terminal.log(`   Persona: ${config.persona}`);
     yield* terminal.log(`   LLM Provider: ${formatProviderDisplayName(config.llmProvider)}`);
     yield* terminal.log(`   LLM Model: ${config.llmModel}`);
-    yield* terminal.log(`   Reasoning: ${config.reasoningEffort}`);
+    yield* terminal.log(`   Reasoning: ${config.reasoning ?? "disabled"}`);
     if (typeof config.numCtx === "number") {
       yield* terminal.log(`   Context Window: ${config.numCtx.toLocaleString()} tokens`);
     }
@@ -364,7 +366,7 @@ interface WizardState {
   // Collected answers (preserved when going back)
   llmProvider?: ProviderName;
   llmModel?: string;
-  reasoningEffort?: "disable" | "low" | "medium" | "high";
+  reasoning?: ReasoningSelection;
   numCtx?: number;
   detectedContextWindow?: number;
   persona?: string;
@@ -631,22 +633,10 @@ export async function promptForAgentInfo(
       // STEP 3: Reasoning Effort (optional, only for reasoning models)
       // ═══════════════════════════════════════════════════════════════════════
       case "reasoning": {
-        const result = await Effect.runPromise(
-          terminal.select<"disable" | "low" | "medium" | "high">(
-            `What reasoning effort level would you like? ${hint}`,
-            {
-              choices: [
-                { name: "Low - Faster responses, basic reasoning", value: "low" },
-                {
-                  name: "Medium - Balanced speed and reasoning depth (recommended)",
-                  value: "medium",
-                },
-                { name: "High - Deep reasoning, slower responses", value: "high" },
-                { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-              ],
-              default: state.reasoningEffort ?? "medium",
-            },
-          ),
+        const result = await promptForReasoningSelection(
+          terminal,
+          state.reasoning,
+          `What reasoning effort level would you like? ${hint}`,
         );
 
         if (result === undefined) {
@@ -654,7 +644,7 @@ export async function promptForAgentInfo(
           break;
         }
 
-        state.reasoningEffort = result;
+        state.reasoning = result;
         state.step = stepAfterReasoning(state);
         break;
       }
@@ -944,7 +934,7 @@ export async function promptForAgentInfo(
   return {
     llmProvider: state.llmProvider!,
     llmModel: state.llmModel!,
-    ...(state.reasoningEffort && { reasoningEffort: state.reasoningEffort }),
+    ...(state.reasoning && { reasoning: state.reasoning }),
     ...(typeof state.numCtx === "number" && { numCtx: state.numCtx }),
     persona: state.persona!,
     name: state.name!,

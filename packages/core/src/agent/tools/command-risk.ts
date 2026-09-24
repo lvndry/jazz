@@ -277,7 +277,7 @@ export function classifyCommandRisk(
         ],
         temperature: 0,
         maxTokens: CLASSIFIER_MAX_TOKENS,
-        reasoning_effort: "disable",
+        reasoning: "disable",
         ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
       })
       .pipe(

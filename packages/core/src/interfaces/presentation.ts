@@ -340,7 +340,8 @@ export interface StreamingRendererConfig {
   readonly streamingConfig: StreamingConfig;
   readonly showMetrics: boolean;
   readonly agentName: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high" | undefined;
+  /** Compact display label for the resolved reasoning selection. */
+  readonly reasoning?: string | undefined;
   /** Optional override of where streamed deltas are routed. Default: scrollback. */
   readonly streamTarget?: StreamTarget;
 }

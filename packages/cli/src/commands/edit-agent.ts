@@ -37,6 +37,7 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -47,6 +48,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
+import { formatReasoningSelection, promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -63,7 +65,7 @@ interface AgentEditAnswers {
   llmModel?: string;
   llmApiKeyProvider?: ProviderName;
   llmApiKeyValue?: string;
-  reasoningEffort?: "disable" | "low" | "medium" | "high";
+  reasoning?: ReasoningSelection;
   numCtx?: number;
   /** New ceiling in tokens, or null to remove the ceiling. */
   maxContextTokens?: number | null;
@@ -113,7 +115,7 @@ export function editAgentCommand(
           `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
         ),
         fmt.keyValueCompact("Persona", agent.config.persona || "default"),
-        fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort || "disabled"),
+        fmt.keyValueCompact("Reasoning", formatReasoningSelection(agent.config.reasoning)),
         fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
         fmt.keyValueCompact(
           "Updated",
@@ -188,7 +190,7 @@ export function editAgentCommand(
             name: currentModelIsReasoning
               ? "Reasoning Effort"
               : "Reasoning Effort (Not supported by current model)",
-            value: "reasoningEffort",
+            value: "reasoning",
             disabled: !currentModelIsReasoning,
           },
           {
@@ -493,7 +495,7 @@ export function editAgentCommand(
         ...(editAnswers.persona && { persona: editAnswers.persona }),
         ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
         ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
-        ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
+        ...(editAnswers.reasoning && { reasoning: editAnswers.reasoning }),
         ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
         ...(typeof editAnswers.maxContextTokens === "number" && {
           maxContextTokens: editAnswers.maxContextTokens,
@@ -688,11 +690,11 @@ async function promptForAgentUpdates(
       const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
 
       if (isReasoningModel) {
-        const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-        if (reasoningEffort === null) {
+        const reasoning = await promptForReasoning(terminal, currentAgent);
+        if (reasoning === null) {
           return null;
         }
-        answers.reasoningEffort = reasoningEffort;
+        answers.reasoning = reasoning;
       }
 
       break;
@@ -743,11 +745,11 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-      if (reasoningEffort === null) {
+      const reasoning = await promptForReasoning(terminal, currentAgent);
+      if (reasoning === null) {
         return null;
       }
-      answers.reasoningEffort = reasoningEffort;
+      answers.reasoning = reasoning;
     }
   }
 
@@ -908,12 +910,12 @@ async function promptForAgentUpdates(
     answers.tools = [...selectedCategories];
   }
 
-  if (fieldToUpdate === "reasoningEffort") {
-    const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-    if (reasoningEffort === null) {
+  if (fieldToUpdate === "reasoning") {
+    const reasoning = await promptForReasoning(terminal, currentAgent);
+    if (reasoning === null) {
       return null;
     }
-    answers.reasoningEffort = reasoningEffort;
+    answers.reasoning = reasoning;
   }
 
   if (fieldToUpdate === "contextWindow") {
@@ -1003,31 +1005,9 @@ function promptForMaxContextTokens(
     );
 }
 
-async function promptForReasoningEffort(
+async function promptForReasoning(
   terminal: TerminalService,
   currentAgent: Agent,
-): Promise<"disable" | "low" | "medium" | "high" | null> {
-  const result = await Effect.runPromise(
-    terminal.select<"disable" | "low" | "medium" | "high">(
-      "What reasoning effort level would you like?",
-      {
-        choices: [
-          { name: "Low - Faster responses, basic reasoning", value: "low" },
-          {
-            name: "Medium - Balanced speed and reasoning depth (recommended)",
-            value: "medium",
-          },
-          { name: "High - Deep reasoning, slower responses", value: "high" },
-          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-        ],
-        default: currentAgent.config.reasoningEffort || "medium",
-      },
-    ),
-  );
-
-  if (!result) {
-    return null;
-  }
-
-  return result;
+): Promise<ReasoningSelection | null> {
+  return (await promptForReasoningSelection(terminal, currentAgent.config.reasoning)) ?? null;
 }

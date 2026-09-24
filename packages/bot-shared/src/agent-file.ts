@@ -18,7 +18,7 @@ import { join } from "node:path";
 export interface AgentConfig {
   llmProvider: string;
   llmModel: string;
-  reasoningEffort: string;
+  reasoning: string;
   persona: string;
   [key: string]: unknown;
 }

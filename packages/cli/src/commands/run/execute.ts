@@ -120,7 +120,7 @@ export interface RunAgentOnceOptions {
    * for this run (e.g. the add_reminder tool). Defaults to UTC when unset.
    */
   readonly timezone?: string | undefined;
-  readonly reasoningEffort?: ReasoningEffort | undefined;
+  readonly reasoning?: ReasoningEffort | undefined;
   /**
    * Per-run companion bindings overriding the agent's own `config.companions`.
    * A bound companion is what lets an unattended run delegate perception without
@@ -304,13 +304,15 @@ export function runAgentOnceCommand(
     );
 
     const agentForRun =
-      options.reasoningEffort !== undefined || options.companions !== undefined
+      options.reasoning !== undefined || options.companions !== undefined
         ? {
             ...agent,
             config: {
               ...agent.config,
-              ...(options.reasoningEffort !== undefined
-                ? { reasoningEffort: options.reasoningEffort }
+              ...(options.reasoning !== undefined
+                ? {
+                    reasoning: options.reasoning,
+                  }
                 : {}),
               ...(options.companions !== undefined ? { companions: options.companions } : {}),
             },

@@ -23,7 +23,7 @@ is `jazz agent create`; edit the generated file for fields the wizard does not e
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
     "summarizerModel": "openai/gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "maxContextTokens": 64000,
     "temperature": 0.2,
     "deniedTools": ["execute_command"],
@@ -77,8 +77,9 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 - `llmProvider` and `llmModel` select the primary reasoning and tool-use model.
 - `summarizerModel` is a `provider/model` used for context compaction and command risk
   classification. If it is missing or invalid, Jazz uses the primary model.
-- `reasoningEffort` accepts `disable`, `low`, `medium`, or `high`. Unsupported non-disabled values
-  fail validation.
+- `reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
+  `xhigh`, or `max`. Jazz maps that one user-facing value to the selected
+  provider/model control surface before serializing a request.
 - `temperature` accepts `0` through `2`. Jazz omits it when unset; models that reject custom
   temperature ignore it.
 - `numCtx` sets Ollama's `num_ctx` to a positive token count.

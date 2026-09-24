@@ -34,11 +34,11 @@ The setup uses five files in your repo plus one model-provider secret:
 
 The `jazz.yml` workflow has three jobs:
 
-| Job | Trigger | What it does |
-|-----|---------|-------------|
-| `resolve` | Always runs first | Extracts PR number, base SHA, head SHA, and user request from the triggering event |
-| `code-review` | PR opened/marked ready, `/jazz-review` comment, workflow_dispatch, or a push that changes `jazz.yml` itself | Checks out code, runs Jazz review agent, parses output, posts inline comments |
-| `assistant` | `/jazz <question>` comment, bare `/jazz`, workflow_dispatch, or a push that changes `jazz.yml` itself | Checks out code, runs Jazz assistant agent, posts answer as a PR comment |
+| Job           | Trigger                                                                                                     | What it does                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `resolve`     | Always runs first                                                                                           | Extracts PR number, base SHA, head SHA, and user request from the triggering event |
+| `code-review` | PR opened/marked ready, `/jazz-review` comment, workflow_dispatch, or a push that changes `jazz.yml` itself | Checks out code, runs Jazz review agent, parses output, posts inline comments      |
+| `assistant`   | `/jazz <question>` comment, bare `/jazz`, workflow_dispatch, or a push that changes `jazz.yml` itself       | Checks out code, runs Jazz assistant agent, posts answer as a PR comment           |
 
 > The `assistant` job `needs: [resolve, code-review]` so the two Jazz jobs don't burst the same provider account concurrently. A push to a branch with an open PR re-runs both jobs end-to-end to validate a change to `jazz.yml` itself.
 
@@ -67,6 +67,7 @@ Record the chosen `llmProvider` + `llmModel` and the secret name — every later
 `.github/workflows/jazz.yml` — see the [full reference implementation](https://github.com/lvndry/jazz/blob/main/.github/workflows/jazz.yml).
 
 The key design:
+
 - **`resolve` job** uses `actions/github-script@v7` to extract PR context from `pull_request`, `issue_comment`, `push`, or `workflow_dispatch` events, and reacts with 👀 on triggering comments
 - **`code-review` job** checks out PR head, installs `jazz-ai` (`bun install -g jazz-ai --trust`), copies agent config + workflow file into `$HOME/.jazz/agents/` and `workflows/code-review/` with placeholder substitution, snapshots PR context, runs `jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer`, then posts results
 - **`assistant` job** same structure, runs `jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant`, posts a PR comment
@@ -78,6 +79,7 @@ The key design:
 ### 2. Create agent configs
 
 `.github/jazz/agents/ci-reviewer.json`:
+
 ```json
 {
   "id": "ci-reviewer",
@@ -87,17 +89,25 @@ The key design:
     "persona": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "tools": [
-      "context_info", "find", "execute_command", "grep",
-      "http_request", "ls", "read_file", "spawn_subagent",
-      "summarize_context", "write_file"
+      "context_info",
+      "find",
+      "execute_command",
+      "grep",
+      "http_request",
+      "ls",
+      "read_file",
+      "spawn_subagent",
+      "summarize_context",
+      "write_file"
     ]
   }
 }
 ```
 
 `.github/jazz/agents/pr-assistant.json`:
+
 ```json
 {
   "id": "pr-assistant",
@@ -107,11 +117,17 @@ The key design:
     "persona": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "tools": [
-      "context_info", "find", "execute_command",
-      "grep", "http_request", "ls", "read_file",
-      "spawn_subagent", "summarize_context"
+      "context_info",
+      "find",
+      "execute_command",
+      "grep",
+      "http_request",
+      "ls",
+      "read_file",
+      "spawn_subagent",
+      "summarize_context"
     ]
   }
 }
@@ -122,6 +138,7 @@ The config has no top-level `model` field — the model is set entirely inside `
 ### 3. Create workflow instructions
 
 `.github/jazz/workflows/code-review/WORKFLOW.md` — instructs the agent to:
+
 - Read PR context from `/tmp/jazz-pr-context.json`
 - Run `execute_command` with `git diff __PR_BASE_SHA__...__PR_HEAD_SHA__`
 - Assemble a board of `spawn_subagent` lenses (Correctness, Architecture, Silent Failures, Security, Performance, Test Rigor, and diff-scoped lenses) and cross-examine findings
@@ -130,6 +147,7 @@ The config has no top-level `model` field — the model is set entirely inside `
 See the [reference WORKFLOW.md](https://github.com/lvndry/jazz/blob/main/.github/jazz/workflows/code-review/WORKFLOW.md) for the full review board protocol.
 
 `.github/jazz/workflows/pr-assistant/WORKFLOW.md` — instructs the agent to:
+
 - Read PR context and the user's request
 - Inspect the diff and surrounding code (spawning sub-agents for large PRs)
 - Answer in a single four-backtick `markdown` fenced block
@@ -156,17 +174,18 @@ You **must** add a model-provider API key as a GitHub Actions secret, or the wor
 
 ### Comment commands
 
-| Comment | Effect | Authorization |
-|---------|--------|---------------|
-| `/jazz-review` | Triggers a full code review with inline comments (the `code-review` job) | OWNER/MEMBER/COLLABORATOR |
-| `/jazz <question>` | Runs the PR assistant to answer a question (the `assistant` job) | OWNER/MEMBER/COLLABORATOR |
-| `/jazz` (bare) | Routes to the assistant job with the default request "Review this pull request and call out anything important." | OWNER/MEMBER/COLLABORATOR |
+| Comment            | Effect                                                                                                           | Authorization             |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `/jazz-review`     | Triggers a full code review with inline comments (the `code-review` job)                                         | OWNER/MEMBER/COLLABORATOR |
+| `/jazz <question>` | Runs the PR assistant to answer a question (the `assistant` job)                                                 | OWNER/MEMBER/COLLABORATOR |
+| `/jazz` (bare)     | Routes to the assistant job with the default request "Review this pull request and call out anything important." | OWNER/MEMBER/COLLABORATOR |
 
 > `/jazz-review` (hyphen) is the inline reviewer. `/jazz review` (space) is **not** the same — the space form routes to the conversational assistant. The `resolve` step strips the `/jazz` prefix and forwards everything after it as the assistant's request.
 
 ### Output contracts
 
 **Code-review agent** output contract:
+
 `````
 ```markdown
 Reviewed 4 files. Found 2 issues.
@@ -190,6 +209,7 @@ Reviewed 4 files. Found 2 issues.
 - Outer fences use four backticks so inner code snippets (three backticks) don't collide
 
 **PR assistant** output contract:
+
 ````markdown
 ### Summary
 
@@ -210,6 +230,7 @@ This PR refactors the connection pool...
 The posting step validates every inline comment against actual diff hunks before calling the GitHub API. Comments referencing lines outside the diff are rolled into the review body as general comments instead of being rejected.
 
 Validation logic (in the `actions/github-script` posting step):
+
 1. Fetch PR files with `pulls.listFiles` to get the unified diff
 2. Parse hunk headers (`@@ -old +new @@`) to build a set of valid left/right line numbers per file
 3. Check each comment's `line` (and `start_line` if present) exists in the appropriate side's set
@@ -227,11 +248,11 @@ The `code-review` job does not fail CI when the provider throttles or errors —
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---------|-------------|
-| Workflow skips jobs | Fork PR (`head.repo.full_name` mismatch) |
-| `/jazz` comment ignored | Comment author not OWNER/MEMBER/COLLABORATOR |
-| Agent output not posted | Output didn't match contract (check workflow run logs) |
-| `jazz: command not found` | `bun install -g jazz-ai --trust` failed, or runner lacks Bun |
-| Inline comments rejected | Lines reference outside diff hunks (falls back to general comment) |
-| "No issues found" on every PR | Model too weak or workflow prompt lacks specificity |
+| Symptom                       | Likely cause                                                       |
+| ----------------------------- | ------------------------------------------------------------------ |
+| Workflow skips jobs           | Fork PR (`head.repo.full_name` mismatch)                           |
+| `/jazz` comment ignored       | Comment author not OWNER/MEMBER/COLLABORATOR                       |
+| Agent output not posted       | Output didn't match contract (check workflow run logs)             |
+| `jazz: command not found`     | `bun install -g jazz-ai --trust` failed, or runner lacks Bun       |
+| Inline comments rejected      | Lines reference outside diff hunks (falls back to general comment) |
+| "No issues found" on every PR | Model too weak or workflow prompt lacks specificity                |

@@ -2,7 +2,9 @@
  * Application configuration types
  */
 
+import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { ModelCapabilityOverride } from "./model-capabilities";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
 import type { WebhookConfig } from "./webhook";
@@ -238,6 +240,15 @@ export interface LLMConfig {
    * legitimately exceed the default before their first streamed part.
    */
   readonly streamIdleTimeoutMs?: number;
+  /**
+   * Local corrections for provider/model controls models.dev cannot describe.
+   *
+   * Keys are exact provider-facing model IDs. Values select only Jazz-owned,
+   * schema-validated transports; they cannot inject arbitrary request options.
+   */
+  readonly capabilityOverrides?: Partial<
+    Record<ProviderName, Readonly<Record<string, ModelCapabilityOverride>>>
+  >;
   readonly ai_gateway?: LLMProviderConfig;
   readonly alibaba?: LLMProviderConfig;
   readonly anthropic?: AnthropicProviderConfig;

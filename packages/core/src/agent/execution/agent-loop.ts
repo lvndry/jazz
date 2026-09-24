@@ -1076,7 +1076,7 @@ function runIteration(
       model,
       messageCount: state.currentMessages.length,
       toolsAvailable: tools.length,
-      reasoningEffort: agent.config.reasoningEffort,
+      reasoningEffort: agent.config.reasoning,
       lastUserMessage: lastUserContent,
     });
 

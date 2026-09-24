@@ -32,7 +32,7 @@ flowchart TB
     A --> T["<b>Tools</b><br/>extra tools, and denied ones<br/><i>deniedTools is the ceiling</i>"]
     A --> S["<b>Skills</b><br/>playbooks it may load"]
     A --> C["<b>Companions</b><br/>specialist models for<br/>image · audio · video"]
-    A --> X["<b>Budgets</b><br/>maxContextTokens · reasoningEffort<br/>temperature · memoryScopes"]
+    A --> X["<b>Budgets</b><br/>maxContextTokens · reasoning<br/>temperature · memoryScopes"]
 
     classDef key fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class T key

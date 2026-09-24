@@ -17,6 +17,18 @@ describe("parseConfigFile", () => {
       llm: {
         streamIdleTimeoutMs: 600000,
         ollama: { base_url: "http://h:11434/api", keep_alive: "-1" },
+        capabilityOverrides: {
+          ollama: {
+            "private-reasoner:latest": {
+              reasoning: {
+                kind: "toggle",
+                transport: "ollama.chat.think",
+                canDisable: true,
+              },
+              supportsTools: false,
+            },
+          },
+        },
       },
       output: { collapseReasoning: false, streaming: { enabled: "auto", textBufferMs: 0 } },
       mcpServers: { github: { enabled: false, trusted: true } },
@@ -177,6 +189,114 @@ describe("parseConfigFile", () => {
       "output.streaming.enabled": "true, false, or auto",
       "scheduler.mode": "auto or in-process",
     });
+  });
+
+  it("accepts only closed, bounded capability overrides", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          anthropic: {
+            "claude-private": {
+              reasoning: {
+                kind: "manual",
+                transport: "anthropic.messages.extended-thinking",
+                minimumBudgetTokens: 1024,
+                maximumBudgetTokens: 8192,
+                efforts: ["low", "high"],
+                canDisable: true,
+              },
+              supportsTools: true,
+            },
+          },
+          llamacpp: {
+            "Qwen3-32B": {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 256,
+                maximumBudgetTokens: 32768,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(config.llm?.capabilityOverrides?.anthropic?.["claude-private"]?.supportsTools).toBe(
+      true,
+    );
+  });
+
+  it("strips unsafe or unsupported capability override controls", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          openai: {
+            gpt: {
+              reasoning: {
+                kind: "effort",
+                transport: "arbitrary.request.body",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+          unknownProvider: {},
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { openai: { gpt: {} } } } });
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        "llm.capabilityOverrides.openai.gpt.reasoning.transport",
+        "llm.capabilityOverrides.unknownProvider",
+      ]),
+    );
+  });
+
+  it("rejects impossible capability budget bounds", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          llamacpp: {
+            qwen: {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 4096,
+                maximumBudgetTokens: 1024,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({
+      llm: {
+        capabilityOverrides: {
+          llamacpp: {
+            qwen: {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 4096,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        path: "llm.capabilityOverrides.llamacpp.qwen.reasoning.maximumBudgetTokens",
+      }),
+    );
   });
 
   it("enforces context thresholds before readers can silently replace them", () => {

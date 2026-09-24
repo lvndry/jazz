@@ -98,7 +98,34 @@ llama-server -m /models/model.gguf --jinja --port 8080
 jazz agent create
 ```
 
-Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata when the server provides it. For reasoning models, Jazz maps its reasoning effort to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template. vLLM only needs its normal `/v1` OpenAI-compatible endpoint; start it on the port you enter, commonly `8000`.
+Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata when the server provides it. For reasoning models, Jazz maps the agent's reasoning effort string to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template. vLLM only needs its normal `/v1` OpenAI-compatible endpoint; start it on the port you enter, commonly `8000`.
+
+## Model capability overrides
+
+Models.dev supplies broad metadata such as context length, tool support, and whether a model reasons. It does not describe every provider or local-template reasoning control. Jazz applies its own exact `provider + model` capability profiles after catalog metadata. For a private model or a self-hosted template, an operator can provide a strict local correction under `llm.capabilityOverrides`; overrides use only Jazz-defined transports and cannot inject arbitrary provider request fields.
+
+```json
+{
+  "llm": {
+    "capabilityOverrides": {
+      "llamacpp": {
+        "Qwen3-32B-Instruct": {
+          "reasoning": {
+            "kind": "budget",
+            "transport": "llamacpp.chat.thinking-budget",
+            "minimumBudgetTokens": 256,
+            "maximumBudgetTokens": 32768,
+            "canDisable": true
+          },
+          "supportsTools": true
+        }
+      }
+    }
+  }
+}
+```
+
+Keys are exact server-facing model IDs. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 

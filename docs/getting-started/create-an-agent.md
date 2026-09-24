@@ -41,7 +41,7 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
     "llmProvider": "anthropic",
     "llmModel": "claude-sonnet-4-5",
     "tools": ["read_file", "grep", "find", "ls", "execute_command"],
-    "reasoningEffort": "medium"
+    "reasoning": "medium"
   }
 }
 ```
@@ -50,7 +50,7 @@ Useful optional fields:
 
 | Field             | Effect                                                                                                                                                                              |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable`                                                                           |
+| `reasoning`       | `disable`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The selected model validates the control surface.                                                                 |
 | `temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
 | `summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
 | `customTools`     | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |

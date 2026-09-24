@@ -551,7 +551,10 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const effortParent: Agent = {
         ...parentAgent,
-        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+        config: {
+          persona: "default",
+          reasoning: "medium",
+        } as Agent["config"],
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
@@ -561,13 +564,13 @@ describe("spawn_subagent reasoning effort", () => {
       await Effect.runPromise(
         (
           tool.execute(
-            { task: "deep review", persona: "coder", reasoningEffort: "high" },
+            { task: "deep review", persona: "coder", reasoning: "high" },
             { agentId: effortParent.id, parentAgent: effortParent },
           ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
         ).pipe(Effect.provide(testLayer)),
       );
 
-      expect(captured()?.agent.config.reasoningEffort).toBe("high");
+      expect(captured()?.agent.config.reasoning).toBe("high");
     } finally {
       spy.mockRestore();
     }
@@ -580,7 +583,10 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const effortParent: Agent = {
         ...parentAgent,
-        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+        config: {
+          persona: "default",
+          reasoning: "medium",
+        } as Agent["config"],
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
@@ -596,7 +602,7 @@ describe("spawn_subagent reasoning effort", () => {
         ).pipe(Effect.provide(testLayer)),
       );
 
-      expect(captured()?.agent.config.reasoningEffort).toBe("medium");
+      expect(captured()?.agent.config.reasoning).toBe("medium");
     } finally {
       spy.mockRestore();
     }
@@ -609,7 +615,7 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const result = (await runSpawnWithArgs(presentation, {
         task: "do a thing",
-        reasoningEffort: "maximum",
+        reasoning: "maximum",
       })) as { success: boolean; error?: string };
 
       expect(result.success).toBe(false);

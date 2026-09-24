@@ -54,8 +54,8 @@ const spawnSubagentSchema = z.object({
     .describe(
       "Which persona the child uses. coder for code and git, researcher for read-only investigation, default for general work. Default: default.",
     ),
-  reasoningEffort: z
-    .enum(["disable", "low", "medium", "high"])
+  reasoning: z
+    .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
     .optional()
     .describe(
       "Reasoning effort for this sub-agent. Omit to inherit the parent's effort. " +
@@ -294,7 +294,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             config: {
               ...parentAgent.config,
               persona: args.persona ?? "default",
-              ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
+              ...(args.reasoning
+                ? {
+                    reasoning: args.reasoning,
+                  }
+                : {}),
             },
             createdAt: new Date(),
             updatedAt: new Date(),

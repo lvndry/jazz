@@ -9,6 +9,7 @@ export * from "./errors";
 export * from "./llm";
 export * from "./persona";
 export * from "./message";
+export * from "./model-capabilities";
 export * from "./output";
 export * from "./streaming";
 export * from "./tools";

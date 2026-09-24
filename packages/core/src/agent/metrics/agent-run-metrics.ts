@@ -28,7 +28,7 @@ export interface AgentRunMetricsContext {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly maxIterations?: number | undefined;
   /** Per-run spend ceiling in USD, for telemetry parity with `maxIterations`. Unset = uncapped. */
   readonly maxCostUSD?: number | undefined;
@@ -59,7 +59,7 @@ export interface AgentRunMetrics {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly maxIterations: number | undefined;
   readonly maxCostUSD: number | undefined;
   readonly startedAt: Date;
@@ -502,7 +502,7 @@ interface TokenUsageLogPayload {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
