@@ -1272,6 +1272,20 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
     expect(await emptyChecked).toEqual([]);
 
+    const cancelledChecked = Effect.runPromise(
+      terminal.checkbox("Choose or go back", {
+        choices: [
+          { name: "Alpha", value: "alpha" },
+          { name: "Beta", value: "beta" },
+        ],
+        default: ["alpha"],
+      }),
+    );
+    await rendered.flush();
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    expect(await cancelledChecked).toBeUndefined();
+
     const presentation = presentationProducer();
     const questionnaire = Effect.runPromise(
       presentation.requestUserInput({

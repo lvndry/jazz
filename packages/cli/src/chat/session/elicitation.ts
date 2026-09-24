@@ -45,7 +45,7 @@ function askField(
         choices: options.map((option) => ({ name: option.label, value: option.value })),
         ...(Array.isArray(field.default) ? { default: field.default as readonly string[] } : {}),
       });
-      return chosen.length > 0 ? chosen : undefined;
+      return chosen !== undefined && chosen.length > 0 ? chosen : undefined;
     }
 
     if (field.type === "enum") {

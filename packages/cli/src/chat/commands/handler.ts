@@ -1482,6 +1482,10 @@ function handleConfigCommand(
         default: agentToolNames,
       });
 
+      if (selected === undefined) {
+        return { shouldContinue: true };
+      }
+
       const newTools = [...selected];
 
       // Report changes

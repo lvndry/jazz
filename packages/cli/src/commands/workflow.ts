@@ -761,7 +761,7 @@ export function unscheduleWorkflowCommand(target: string) {
           default: [],
         },
       );
-      if (selected.length === 0) {
+      if (selected === undefined || selected.length === 0) {
         yield* terminal.info("Nothing selected.");
         return;
       }
@@ -825,7 +825,7 @@ export function catchupWorkflowCommand() {
       { choices, default: [] },
     );
 
-    if (selected.length === 0) {
+    if (selected === undefined || selected.length === 0) {
       yield* terminal.info("No workflows selected. Exiting.");
       return;
     }

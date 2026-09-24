@@ -123,7 +123,7 @@ export function promptInteractiveCatchUp() {
       { choices, default: defaultSelected },
     );
 
-    if (selected.length === 0) {
+    if (selected === undefined || selected.length === 0) {
       yield* terminal.info("No workflows selected.");
       yield* terminal.log("");
       return;

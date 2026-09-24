@@ -474,6 +474,7 @@ function PromptComponent({
             defaultSelected={prompt.options?.defaultSelected}
             pageSize={PICKER_WINDOW_SIZE}
             onSubmit={(selectedValues) => prompt.resolve(selectedValues)}
+            onCancel={() => prompt.reject?.()}
           />
         )}
         {prompt.type === "search" && (

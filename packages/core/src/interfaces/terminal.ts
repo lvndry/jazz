@@ -182,7 +182,8 @@ export interface TerminalService {
   ) => Effect.Effect<T | undefined, never>;
 
   /**
-   * Prompt the user to select multiple options (checkbox)
+   * Prompt the user to select multiple options (checkbox).
+   * Returns undefined when the user cancels (e.g. presses Escape).
    */
   readonly checkbox: <T = string>(
     message: string,
@@ -190,7 +191,7 @@ export interface TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
       default?: readonly T[];
     },
-  ) => Effect.Effect<readonly T[], never>;
+  ) => Effect.Effect<readonly T[] | undefined, never>;
 
   /**
    * Set the terminal tab/window title

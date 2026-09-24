@@ -494,8 +494,8 @@ export class InkTerminalService implements TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
       default?: readonly T[];
     },
-  ): Effect.Effect<readonly T[], never> {
-    return Effect.async((resume) => {
+  ): Effect.Effect<readonly T[] | undefined, never> {
+    return Effect.async<readonly T[], Error>((resume) => {
       // Normalize choices
       const choices = options.choices.map((c) => {
         if (typeof c === "string") return { label: c, value: c as unknown as T };
@@ -530,8 +530,17 @@ export class InkTerminalService implements TerminalService {
           });
           resume(Effect.succeed(val as readonly T[]));
         },
+        reject: () => {
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message: `${message} ${chalk.dim("(cancelled)")}`,
+            timestamp: new Date(),
+          });
+          resume(Effect.fail(new Error("PromptCancelled")));
+        },
       });
-    });
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
   }
 
   setTitle(title: string): Effect.Effect<void, never> {
@@ -659,7 +668,7 @@ export class PlainTerminalService implements TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
       default?: readonly T[];
     },
-  ): Effect.Effect<readonly T[], never> {
+  ): Effect.Effect<readonly T[] | undefined, never> {
     return Effect.succeed(options.default ?? []);
   }
 
