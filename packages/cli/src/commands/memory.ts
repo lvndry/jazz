@@ -14,6 +14,7 @@
  */
 
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { readMemoryOpportunityReceipts } from "@jazz/core/agent/memory-observation-receipts";
 import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memory-recall-log";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
@@ -107,6 +108,46 @@ export function forgetMemoryCommand(identifier: string, memoryPath: string) {
       return yield* Effect.fail(new CLIError({ command: "memory", message: outcome.message }));
     }
     yield* terminal.success(`Forgotten. ${outcome.message}`);
+  });
+}
+
+/** `jazz memory explain <agent> <path>` — show stored entry provenance. */
+export function explainMemoryCommand(identifier: string, memoryPath: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const memoryService = yield* MemoryServiceTag;
+    const agent = yield* getAgentByIdentifier(identifier);
+    const scopes = resolveScopes(agent);
+    const provenance = yield* memoryService.provenance(scopes, memoryPath);
+    if (provenance === undefined) {
+      return yield* Effect.fail(
+        new CLIError({ command: "memory explain", message: `No provenance for ${memoryPath}` }),
+      );
+    }
+    yield* terminal.log(`Memory: ${memoryPath}`);
+    yield* terminal.log(`Created: ${provenance.createdAt}`);
+    yield* terminal.log(`Updated: ${provenance.updatedAt}`);
+    yield* terminal.log(`Origin: ${provenance.origin ?? "unknown"}`);
+    yield* terminal.log(`Writes: ${provenance.writeCount}`);
+    if (provenance.entryId !== undefined) {
+      const entryId = provenance.entryId;
+      yield* terminal.log(`Entry ID: ${entryId}`);
+      const receipts = yield* Effect.tryPromise({
+        try: () => readMemoryOpportunityReceipts(memoryPath.split("/")[0] ?? "", entryId, 5),
+        catch: () => [] as const,
+      }).pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+      yield* terminal.log(
+        `Recent observation receipts (last 5; retained window 128): ${receipts.length}`,
+      );
+      for (const receipt of receipts) {
+        yield* terminal.log(
+          `  ${receipt.opportunityAt} ${receipt.status} relevance=${receipt.relevanceDecision} exposures=${receipt.exposures.map((exposure) => exposure.kind).join(",") || "none"}`,
+        );
+      }
+    }
+    if (provenance.failure !== undefined) {
+      yield* terminal.log(`Stored trigger: ${JSON.stringify(provenance.failure)}`);
+    }
   });
 }
 

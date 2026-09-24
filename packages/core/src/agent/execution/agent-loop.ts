@@ -4,13 +4,19 @@
  * pressure checks between iterations, and detects tool-call meltdowns.
  */
 
+import { createHash } from "node:crypto";
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import {
+  beginMemoryOpportunities,
+  completeMemoryOpportunities,
+} from "@/core/agent/memory-observation-receipts";
 import { recordMemoryRecall, VIEW_MEMORY_TOOL_NAME } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { MemoryViewOutcome } from "@/core/interfaces/memory-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import {
@@ -289,6 +295,8 @@ interface LoopDeps {
    * screenshot can attach it, or explain why it cannot.
    */
   supportedAttachmentKinds: readonly AttachmentKind[];
+  observeMemory: AgentRunContext["observeMemory"];
+  memoryViewOffered: boolean;
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -780,9 +788,12 @@ function handleToolPhase(
 
     // Validate all tool calls have results
     const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
+    const successMap = new Map(toolResults.map((r) => [r.toolCallId, r.success]));
     for (const [duplicateId, canonicalId] of aliases) {
       const canonicalResult = resultMap.get(canonicalId);
       if (canonicalResult !== undefined) resultMap.set(duplicateId, canonicalResult);
+      const canonicalSuccess = successMap.get(canonicalId);
+      if (canonicalSuccess !== undefined) successMap.set(duplicateId, canonicalSuccess);
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -825,11 +836,46 @@ function handleToolPhase(
           });
         } else {
           const formattedResult = formatToolResultForContext(toolCall.function.name, result);
+          const memoryOutcome =
+            toolCall.function.name === VIEW_MEMORY_TOOL_NAME &&
+            successMap.get(toolCall.id) === true &&
+            typeof result === "object" &&
+            result !== null &&
+            "outcome" in result
+              ? (result as { outcome?: MemoryViewOutcome }).outcome
+              : undefined;
+          let memoryDelivery: ChatMessage["memoryDelivery"];
+          if (memoryOutcome?.kind === "file") {
+            try {
+              const args: unknown = JSON.parse(toolCall.function.arguments);
+              const virtualPath =
+                typeof args === "object" && args !== null && "path" in args
+                  ? (args as { path?: unknown }).path
+                  : undefined;
+              if (typeof virtualPath === "string") {
+                memoryDelivery = {
+                  path: virtualPath,
+                  messageFingerprint: createHash("sha256").update(formattedResult).digest("hex"),
+                  deliveredVersion: createHash("sha256")
+                    .update(
+                      formattedResult.includes(memoryOutcome.content)
+                        ? memoryOutcome.content
+                        : formattedResult,
+                    )
+                    .digest("hex"),
+                  deliveredFingerprint: createHash("sha256").update(formattedResult).digest("hex"),
+                };
+              }
+            } catch {
+              // A malformed call cannot claim a file exposure.
+            }
+          }
           state.currentMessages.push({
             role: "tool",
             name: toolCall.function.name,
             content: formattedResult,
             tool_call_id: toolCall.id,
+            ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
@@ -1134,8 +1180,24 @@ function runIteration(
         ] as typeof state.currentMessages)
       : state.currentMessages;
 
+    const memoryEntries = deps.observeMemory === undefined ? [] : yield* deps.observeMemory();
+    const memoryTickets = yield* Effect.tryPromise({
+      try: () =>
+        beginMemoryOpportunities({
+          runId: options.runId ?? runMetrics.runId,
+          iteration: iterationIndex,
+          entries: memoryEntries,
+          messages: messagesForLLM,
+          viewMemoryOffered: deps.memoryViewOffered,
+        }),
+      catch: () => [] as const,
+    }).pipe(Effect.catchAll(() => Effect.succeed([] as const)));
     const completionStartTime = Date.now();
     const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+    yield* Effect.tryPromise({
+      try: () => completeMemoryOpportunities(memoryTickets, messagesForLLM),
+      catch: () => undefined,
+    }).pipe(Effect.catchAll(() => Effect.void));
     const completionDurationMs = Date.now() - completionStartTime;
 
     if (result.interrupted) {
@@ -1344,6 +1406,7 @@ export function executeAgentLoop(
           context,
           tools,
           messages,
+          observeMemory,
           runMetrics,
           provider,
           model,
@@ -1467,6 +1530,8 @@ export function executeAgentLoop(
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,
+          observeMemory,
+          memoryViewOffered: runContext.expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
         };
 
         // A resumed run rejoins a turn that stopped between a tool call and its result.

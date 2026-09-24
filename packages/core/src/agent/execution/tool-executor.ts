@@ -77,6 +77,18 @@ function resolveEligibleCommandRisk(
 /**
  * Service for executing tools
  */
+/**
+ * Whether a tool has opted out of every automatic approval. Checked wherever an
+ * approval would otherwise be granted by policy or allowlist — yolo, a per-tool
+ * session allowlist, a mid-prompt mode switch, and the unattended parking path —
+ * so the flag means the same thing on all of them.
+ */
+function mustConfirmExplicitly(toolInfo: object): boolean {
+  return (
+    "requiresExplicitConfirmation" in toolInfo && toolInfo.requiresExplicitConfirmation === true
+  );
+}
+
 export class ToolExecutor {
   /**
    * Execute a tool by name with the provided arguments
@@ -374,12 +386,19 @@ export class ToolExecutor {
             riskLevel = classifiedRisk;
           }
 
-          // Check if auto-approve policy allows this tool, per-tool session allowlist,
-          // or per-command prefix allowlist matches
+          // Policy, per-tool session allowlist, or per-command prefix allowlist — unless the
+          // tool must always be confirmed, in which case none of them apply. The same
+          // closure is re-run by the prompt on a live mode switch, so the guard lives here.
+          const explicitOnly = mustConfirmExplicitly(toolInfo);
           const checkAutoApproved = () =>
-            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
-            isToolNameAutoApproved(name, context.autoApprovedTools) ||
-            isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
+            !explicitOnly &&
+            (shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
+              isToolNameAutoApproved(name, context.autoApprovedTools) ||
+              isCommandAutoApproved(
+                name,
+                approvalResult.executeArgs,
+                context.autoApprovedCommands,
+              ));
 
           // A picker-style request is never auto-approved, under any policy including
           // yolo: there is nothing to approve until somebody picked a row. The
@@ -850,7 +869,12 @@ export class ToolExecutor {
             preclassifiedRisk.set(toolCall.id, riskLevel);
           }
 
-          if (shouldAutoApprove(riskLevel, policy) || allowlisted) continue;
+          if (
+            !mustConfirmExplicitly(toolInfo) &&
+            (shouldAutoApprove(riskLevel, policy) || allowlisted)
+          ) {
+            continue;
+          }
 
           needsAnswering.push(toolCall);
           if (needsAnswering.length === 1) {

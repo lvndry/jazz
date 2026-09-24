@@ -251,6 +251,7 @@ export type RecursiveRunner = (options: {
   userInput: string;
   conversationId: string;
   maxIterations?: number;
+  memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
 }) => Effect.Effect<
   AgentResponse,
   Error,

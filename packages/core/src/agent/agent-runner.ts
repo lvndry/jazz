@@ -128,10 +128,12 @@ function resolveActivePreferences(
       return [];
     }
     const memoryService = memoryServiceOption.value;
-
     return yield* Effect.gen(function* () {
-      const entries = yield* memoryService.standingEntries(memoryScopes);
-      return entries.map((entry) => ({ scope: entry.scope, summary: entry.summary }));
+      const standing = yield* memoryService.standingEntries(memoryScopes);
+      return standing.map((entry) => ({
+        scope: entry.scope,
+        summary: entry.summary,
+      }));
     }).pipe(
       Effect.catchAll((error) =>
         logger
@@ -613,11 +615,20 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
+    const memoryServiceForObservation = yield* Effect.serviceOption(MemoryServiceTag);
+    const memoryFileSystem = yield* FileSystem.FileSystem;
+    const observedScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+    const observeMemory = Option.isSome(memoryServiceForObservation)
+      ? () =>
+          memoryServiceForObservation.value.observeEntries(observedScopes).pipe(
+            Effect.provideService(FileSystem.FileSystem, memoryFileSystem),
+            Effect.catchAll(() => Effect.succeed([])),
+          )
+      : undefined;
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -627,6 +638,9 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(options.authenticatedUserInput === true && options.isResume !== true
+          ? { trustedUserSource: { id: `user:${runMetrics.runId}`, text: userInput } }
+          : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -670,6 +684,11 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      memoryUserSources:
+        options.memoryUserSources ??
+        (options.authenticatedUserInput === true && options.isResume !== true
+          ? [{ id: `user:${runMetrics.runId}`, text: userInput }]
+          : []),
       telemetryTraceParent: {
         topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
         parentRunId: runMetrics.runId,
@@ -763,6 +782,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      ...(observeMemory !== undefined ? { observeMemory } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {

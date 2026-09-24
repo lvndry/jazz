@@ -64,6 +64,32 @@ events omit command text, tool arguments, results, and prompt/completion text. T
 record keeps a bounded argument shape; transcripts and other local records remain sensitive plaintext.
 Pending OTLP traces and logs are stored in a private, bounded outbox until delivery or expiry.
 
+### Memory writes
+
+`manage_memory` accepts a new fact or correction only with an exact quote and source ID from a
+host-labeled user message. Tool output, fetched pages, model summaries, and a synthetic
+compaction transcript cannot mint that source ID. Obvious secret and sensitive claims are
+rejected on create or amend. A hidden cross-scope source ledger revokes an old message ID before
+its memory is corrected or forgotten, so compaction cannot re-save that same statement later.
+The ledger fails closed for cited writes when malformed; the model cannot address its hidden
+path through memory tools. The runner marks direct terminal and `jazz run` prompts as user
+input; callers that wrap untrusted text in a headless prompt are responsible for separating it
+before invoking Jazz.
+
+Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
+Memory path reads and writes reject linked path components, so a linked external file cannot
+be surfaced as a saved preference.
+
+Exact quotation authenticates where words came from, not whether they are a durable personal
+fact or which existing entry they should update. A model can still misjudge those questions.
+Legacy entries without source IDs cannot revoke their original conversation source on deletion.
+
+Shadow memory receipts retain paths, source IDs, and hashes rather than transcript or tool text.
+Hashes of short facts may still be guessable, so the receipt store remains private under
+`JAZZ_HOME`. Forgetting any entry erases the whole scope's receipt window before deleting the
+memory file. A scope generation prevents an in-flight observation from restoring old receipts.
+The observation writer has no path to memory credit, skills, or policy mutation.
+
 ### Remote entry points
 
 `jazz run` listens on no port. `jazz daemon` binds loopback by default and provisions an operator

@@ -162,6 +162,8 @@ export interface Tool<R = never> {
    * tools a tier grants changes at all.
    */
   readonly egress: boolean;
+  /** True when policy/yolo must not bypass human confirmation. */
+  readonly requiresExplicitConfirmation?: boolean;
   /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.

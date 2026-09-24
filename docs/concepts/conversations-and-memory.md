@@ -168,12 +168,55 @@ flowchart TB
 has to ask for them — a preference the user stated is not something they should have to restate.
 
 **Topic-scoped entries** (`when/<topic>/`) are the agent's responsibility to discover. The agent
-calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest. This
-is deliberate: automatic topic matching cannot do semantic association ("squats" does not match
-"workout" lexically), and injecting a topic list biases the agent toward shoehorning into
-existing topics instead of creating new ones when they're needed.
+calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest.
+Automatic topic selection remains a measured research path: an extra model call must improve
+task results enough to justify its latency, cost, and potential irrelevant exposure.
 
 The cost of recall tracks how much is relevant, not how much has ever been remembered.
+
+### Trusted capture and correction
+
+`manage_memory` requires a source ID and an exact quote from an authenticated user message for
+every write. Jazz validates both against the original input supplied by the terminal or direct
+`run` command. Tool output, web pages, model summaries, replayed chat commands, and synthetic
+sub-agent prompts cannot become user facts by claiming to be one. The saved entry contains the
+user's quoted words. `amend` replaces an existing entry with a newly cited statement; `delete`
+and `rename` require an explicit direct user request.
+
+Creating an entry also requires an explicit relevance topic. A favorite fruit can be filed under
+`food` for later shopping or meal tasks. The literal topic `always` is reserved for a preference
+that should affect nearly every task, such as concise replies. This choice is made by the agent
+and remains measurable; an incorrect topic can still cause missed or irrelevant recall.
+
+When a sourced fact is corrected or forgotten, a hidden source ledger revokes the old
+user message ID before the file changes. Later compaction cannot re-save the old claim from that
+same conversation source. A fresh user statement has a new source ID and can be remembered again.
+The ledger spans memory scopes and stores IDs and paths, not quotes. Memories created before source tracking do not have
+an old source ID to revoke; their original conversation history may need manual review after a
+forget request.
+
+### Shadow observation receipts
+
+Jazz now records scope-eligible memory opportunities before each model request. A receipt stays
+`pending` if the request does not complete. After a model response, it records a standing entry
+only if its exact rendered line was present in the system prompt, and a `view_memory` file only
+if the exact tool result survived into the request. A listed directory or cleared tool result
+does not count as a file exposure. An eligible entry with no exposure is recorded too, so
+unshown candidates remain inspectable. Eligibility means the agent could access the scope;
+relevance remains `unknown` until separately assessed.
+
+Receipts contain entry IDs, content and delivery hashes, paths, timestamps, source IDs, and
+exposure kinds. They contain no user quotes or transcript text. Each entry retains its newest
+128 receipts; `jazz memory explain` shows the latest five. A forget operation advances a scope
+generation and erases all shadow
+receipts in that scope, including records whose old entry IDs can no longer be recovered. This
+prevents an in-flight run from restoring old receipts. The conservative erasure also removes
+observations for other entries in the same scope. The receipts
+do not award `helped`, `failed`, or `missed` credit and do not change recall or memory content.
+
+These gates authenticate the source of the words. They do not prove a statement is durable or
+that it belongs in the selected entry; those decisions still require evaluation. Silent changes
+in the person's preferences are outside this first slice until there is a trustworthy signal.
 
 ### Automatic extraction at compaction
 

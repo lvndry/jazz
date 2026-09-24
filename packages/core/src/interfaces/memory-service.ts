@@ -21,6 +21,15 @@ export interface MemoryEntryInForce {
   readonly summary: string;
 }
 
+/** A scope-eligible file as observed before a model request, including files never delivered. */
+export interface MemoryEntryObservation extends MemoryEntryInForce {
+  readonly entryId: string;
+  /** SHA-256 of the full file content; it changes after an edit. */
+  readonly entryVersion: string;
+  /** Receipt generation captured while the memory write lock was held. */
+  readonly receiptEpoch: string;
+}
+
 export interface MemoryDirectoryEntry {
   readonly name: string;
   readonly kind: "file" | "directory";
@@ -64,11 +73,15 @@ export interface MemoryMutationOutcome {
  * Who is writing. Required on every mutating call so a shared scope can report
  * which agents have touched a file.
  *
- * Whether a write is *allowed* is decided before this, in `manage_memory`: a
- * run that has ingested untrusted external content cannot write memory at all.
+ * Whether a model-facing write is *allowed* is decided before this, in
+ * `manage_memory`: the source ID and exact quote must match authenticated user
+ * input. The store additionally rejects source IDs revoked by correction or
+ * forgetting, so a compaction pass cannot re-save an old statement.
  */
 export interface MemoryWriteContext {
   readonly agentId: string;
+  /** Authenticated user message ID, used to prevent forgotten claims from being re-extracted. */
+  readonly sourceRef?: string;
   /**
    * Typing recorded alongside the write. Supplied when an entry is created so
    * the sidecar mirrors what the path encodes; omitted on later edits, which
@@ -92,21 +105,31 @@ export interface MemoryWriteContext {
  * namespace the caller can address freely.
  */
 export interface MemoryService {
+  /** Enumerate accessible entries and assign stable IDs to files without provenance. */
+  readonly observeEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryObservation[], Error, FileSystem.FileSystem>;
   readonly view: (
     scopes: readonly string[],
     virtualPath: string,
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
-  /**
-   * Standing entries: everything under `always/` in the accessible scopes.
-   *
-   * Topic-scoped entries are the agent's responsibility to discover via
-   * `view_memory` — the recall path cannot do semantic association, so it
-   * only injects what applies unconditionally.
-   */
+  /** All files under `always/` in the accessible scopes. */
   readonly standingEntries: (
     scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
+
+  /**
+   * Files under `when/<topic>/` in the accessible scopes.
+   *
+   * `isRelevantTopic` is applied to the topic directory name before it is
+   * descended, so the walk costs what applies to the task rather than
+   * everything ever remembered.
+   */
+  readonly conditionalEntries: (
+    scopes: readonly string[],
+    isRelevantTopic?: (topic: string) => boolean,
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
   readonly create: (

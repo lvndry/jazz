@@ -1,11 +1,20 @@
 export type Domain =
-  "research" | "tooluse" | "planning" | "productivity" | "tutoring" | "grounding" | "continuity";
+  | "research"
+  | "tooluse"
+  | "planning"
+  | "productivity"
+  | "tutoring"
+  | "grounding"
+  | "continuity"
+  | "personalization";
 
 export interface OneShotResult {
   ok: boolean;
   answer: string;
   toolCalls: { id: string; name: string; arguments: string }[];
   costUSD: number;
+  /** False when a provider/model has no pricing; a zero estimate is then not a free run. */
+  costKnown?: boolean;
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
   eventsPath: string; // path to captured --events NDJSON for this rollout
 }
@@ -14,6 +23,7 @@ export interface CheckResult {
   pass: boolean;
   score: number; // 0..1
   detail: string;
+  measurements?: Readonly<Record<string, number>>;
 }
 
 export interface RubricSpec {
