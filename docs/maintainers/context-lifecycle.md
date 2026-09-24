@@ -118,21 +118,27 @@ estimate.
 
 ### Memory observations at the request boundary
 
-The runner snapshots every file in the agent's allowed memory scopes before each model request.
-The snapshot skips linked scopes and files so external paths cannot enter receipts or provenance.
-The store assigns an ID on first observation and hashes the current file content as its version.
-The loop writes pending opportunity receipts before calling the provider, then marks them observed
-after a response. It detects actual exposure from the rendered standing line or a successful
-`view_memory` file result whose exact formatted message remains in that request. Directory
-listings, cleared results, and merely selected candidates have no exposure. Every candidate
-starts with relevance `unknown`; these receipts never update legacy credit counters. A failed
-provider call leaves pending receipts, so a crash cannot appear as a success.
+The runner snapshots every file in the agent's allowed memory scopes once per run, reading each
+file once, and takes a fresh snapshot after the run's own `manage_memory` writes. Writes by other
+processes show up on the next run. The snapshot skips linked scopes and files so external paths
+cannot enter receipts or provenance, and a scope it cannot read is skipped and logged rather than
+failing the others. The store assigns an ID on first snapshot and hashes the current file content.
 
-The store keeps at most 128 receipts per entry. Forgetting a file advances a locked scope
-generation and removes the whole scope's receipt window; tickets from an older generation cannot
-write after deletion. This also handles missing or stale provenance IDs. `memory explain` shows five
+Pending receipts are written in a fiber forked beside the provider call, so they add no latency to
+the request; the loop joins it once the provider responds and completes the receipts. Exposure
+comes from the rendered standing line, or from the `memoryExposure` a successful `view_memory`
+call declares, keyed by canonical path and counted only while that exact tool message remains in
+the request. Directory listings, cleared or edited results, and merely selected candidates have no
+exposure. A failed provider call leaves receipts pending, so a crash cannot look like a success.
+Each message's content is hashed once and reused while it is unchanged, so identifying a request
+costs work proportional to what changed (`bun bench/memory-opportunity-receipts.bench.ts`).
+
+The store keeps at most 128 receipts per entry, pruning once every 32 writes. Forgetting a file
+starts a new epoch for its scope under the scope's lock and removes the whole scope's receipts;
+tickets from an older epoch cannot write after deletion, which also covers missing or stale
+provenance IDs. An unreadable epoch file is moved aside and replaced. `memory explain` shows five
 recent records without raw memory text. Calibration must use independent labels before any
-observation can drive lesson changes or skill proposals.
+receipt can drive lesson changes or skill proposals.
 
 ## 2 · Trimming: turn-aware, never mid-tool-call
 

@@ -9,7 +9,7 @@
 
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { toError, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 const LEDGER_FILENAME = ".source-ledger.json";
@@ -26,10 +26,6 @@ const EMPTY_LEDGER: SourceLedger = { current: {}, forgotten: [] };
 
 function ledgerPath(root: string): string {
   return path.join(root, LEDGER_FILENAME);
-}
-
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 /** Read a missing ledger as empty and reject an existing malformed one. */

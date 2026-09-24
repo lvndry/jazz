@@ -37,6 +37,21 @@ export interface MemorySource {
   readonly text: string;
 }
 
+/** A memory entry a tool showed the model, declared by the tool that showed it. */
+export interface MemoryExposure {
+  /** Canonical `<scope>/<rest>` path, as the memory tools address it. */
+  readonly path: string;
+  /** sha256 of the entry text shown; equals the entry's content hash when `complete`. */
+  readonly shownContentHash: string;
+  /** Whether the whole entry was shown rather than a partial range. */
+  readonly complete: boolean;
+}
+
+/** An exposure plus the hash of the tool message carrying it, so an edited or cleared message no longer counts. */
+export interface MemoryDelivery extends MemoryExposure {
+  readonly messageContentHash: string;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -47,13 +62,8 @@ export interface ChatMessage {
    * For role === "tool": the id of the tool call this message responds to
    */
   tool_call_id?: string;
-  /** Observation only: a file result eligible for exposure if these exact bytes reach a request. */
-  memoryDelivery?: {
-    readonly path: string;
-    readonly messageFingerprint: string;
-    readonly deliveredVersion: string;
-    readonly deliveredFingerprint: string;
-  };
+  /** A memory entry this tool result showed; counted as exposed only while these exact bytes reach a request. */
+  memoryDelivery?: MemoryDelivery;
   /**
    * Set when this message's original content has been replaced by a placeholder to
    * reclaim context (see `clearToolResults`). Marks the message as already reclaimed

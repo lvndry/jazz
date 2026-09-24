@@ -1,6 +1,5 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
-import type { MemoryEntryObservation } from "@/core/interfaces/memory-service";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
@@ -14,6 +13,7 @@ import type {
   ToolDefinition,
   ToolExecutionContext,
 } from "@/core/types/tools";
+import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
@@ -376,8 +376,8 @@ export interface AgentRunContext {
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
-  /** Snapshot scope-eligible memory before each model request for shadow observations. */
-  readonly observeMemory?: () => Effect.Effect<readonly MemoryEntryObservation[], never>;
+  /** Records which memory entries each model request could have used; absent without memory. */
+  readonly memoryOpportunities?: MemoryOpportunityRecorder;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.

@@ -21,6 +21,7 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
@@ -211,7 +212,7 @@ export class ToolExecutor {
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
   ): Effect.Effect<
-    { toolCallId: string; result: unknown; success: boolean; name: string },
+    ToolCallOutcome,
     Error,
     | ToolRegistry
     | LoggerService
@@ -660,6 +661,9 @@ export class ToolExecutor {
           result: finalResult,
           success: result.success,
           name: finalToolName,
+          ...(result.success && result.memoryExposure !== undefined
+            ? { memoryExposure: result.memoryExposure }
+            : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -730,7 +734,7 @@ export class ToolExecutor {
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
   ): Effect.Effect<
-    Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
+    ToolCallOutcome[],
     Error,
     | ToolRegistry
     | LoggerService
@@ -1040,7 +1044,15 @@ export class ToolExecutor {
   }
 }
 
-type ToolCallOutcome = { toolCallId: string; result: unknown; success: boolean; name: string };
+/** One executed tool call as the agent loop receives it. */
+export interface ToolCallOutcome {
+  readonly toolCallId: string;
+  readonly result: unknown;
+  readonly success: boolean;
+  readonly name: string;
+  /** Carried from the tool's own result so the loop never re-derives it by tool name. */
+  readonly memoryExposure?: MemoryExposure;
+}
 
 /**
  * Detach every tool call still in flight so it keeps running to completion as a daemon

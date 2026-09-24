@@ -38,15 +38,23 @@ import {
   type MemoryEntryIdentity,
 } from "@/core/memory/source-trust";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { sha256Hex } from "@/core/utils/hash";
 import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type MemoryToolDeps = MemoryService | FileSystem.FileSystem;
 
+const BYTES_PER_KIB = 1024;
+const BYTES_PER_MIB = BYTES_PER_KIB * 1024;
+
 function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  if (bytes < BYTES_PER_KIB) {
+    return `${bytes}B`;
+  }
+  if (bytes < BYTES_PER_MIB) {
+    return `${(bytes / BYTES_PER_KIB).toFixed(1)}KB`;
+  }
+  return `${(bytes / BYTES_PER_MIB).toFixed(1)}MB`;
 }
 
 function joinDisplayPath(base: string, name: string): string {
@@ -77,7 +85,7 @@ function formatFileOutcome(outcome: Extract<MemoryViewOutcome, { kind: "file" }>
   const truncationNote = outcome.truncated
     ? `\n[Content truncated. Re-view with a narrower view_range to see more.]`
     : "";
-  return `Here's the content of ${outcome.path} with line numbers:\n${numbered.join("\n")}${truncationNote}`;
+  return `Here's the content of ${outcome.displayPath} with line numbers:\n${numbered.join("\n")}${truncationNote}`;
 }
 
 const viewMemoryParameters = z
@@ -143,6 +151,15 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
         return {
           success: true,
           result: { formatted, outcome },
+          ...(outcome.kind === "file"
+            ? {
+                memoryExposure: {
+                  path: outcome.virtualPath,
+                  shownContentHash: sha256Hex(outcome.content),
+                  complete: !outcome.truncated && outcome.startLine === 1,
+                },
+              }
+            : {}),
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>
@@ -156,10 +173,12 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     createSummary: (result) => {
       if (!result.success) return undefined;
       const data = result.result as { outcome: MemoryViewOutcome };
-      if (data.outcome.kind === "directory")
+      if (data.outcome.kind === "directory") {
         return `Listed memory (${data.outcome.entries.length} item(s))`;
-      if (data.outcome.kind === "file")
+      }
+      if (data.outcome.kind === "file") {
         return `Read memory file (${data.outcome.totalLines} line(s))`;
+      }
       return undefined;
     },
   });

@@ -7,6 +7,7 @@ import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { ToolExecutionContext } from "@/core/types/tools";
+import { sha256Hex } from "@/core/utils/hash";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 
 const context: ToolExecutionContext = {
@@ -48,6 +49,33 @@ describe("view_memory", () => {
     );
     expect(missing.success).toBe(false);
     expect(missing.error).toContain("No such memory");
+  });
+});
+
+describe("view_memory exposure", () => {
+  test("declares the canonical path and a hash of exactly what it showed", async () => {
+    const content = 'The user said: "My favorite fruit is banana."\n';
+    const service: Partial<MemoryService> = {
+      view: () =>
+        Effect.succeed({
+          kind: "file",
+          displayPath: "~/.jazz/memory/personal/when/food/favorite-fruit.md",
+          virtualPath: "personal/when/food/favorite-fruit.md",
+          content,
+          startLine: 1,
+          totalLines: 2,
+          truncated: false,
+        }),
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createViewMemoryTool().execute({ path: "/personal/when/food/favorite-fruit.md" }, context),
+    );
+    expect(result.memoryExposure).toEqual({
+      path: "personal/when/food/favorite-fruit.md",
+      shownContentHash: sha256Hex(content),
+      complete: true,
+    });
   });
 });
 
@@ -208,7 +236,8 @@ describe("manage_memory", () => {
       view: () =>
         Effect.succeed({
           kind: "file",
-          path: "personal/when/food/favorite-fruit.md",
+          displayPath: "~/.jazz/memory/personal/when/food/favorite-fruit.md",
+          virtualPath: "personal/when/food/favorite-fruit.md",
           content: 'The user said: "My favorite fruit is banana."\n',
           startLine: 1,
           totalLines: 2,
@@ -238,7 +267,8 @@ describe("manage_memory", () => {
 
   const fruitEntryView = {
     kind: "file",
-    path: "personal/when/food/favorite-fruit.md",
+    displayPath: "~/.jazz/memory/personal/when/food/favorite-fruit.md",
+    virtualPath: "personal/when/food/favorite-fruit.md",
     content: 'The user said: "My favorite fruit is banana."\n',
     startLine: 1,
     totalLines: 2,

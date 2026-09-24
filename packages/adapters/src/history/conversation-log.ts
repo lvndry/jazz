@@ -30,6 +30,7 @@ import { FileSystem } from "@effect/platform";
 import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 
@@ -321,10 +322,6 @@ export function summarize(conversation: Conversation): ConversationSummary {
     endedAt: conversation.endedAt,
     messageCount: conversation.messages.length,
   };
-}
-
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 function readLogContent(

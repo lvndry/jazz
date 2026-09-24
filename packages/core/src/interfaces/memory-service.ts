@@ -9,8 +9,8 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 
-/** An entry the current turn should act on. */
-export interface MemoryEntryInForce {
+/** A memory entry as listings and the prompt see it: where it lives and its first line. */
+export interface MemoryEntrySummary {
   /** Scope-qualified path, as the memory tools address it. */
   readonly path: string;
   /** The scope that contributed this entry. */
@@ -21,13 +21,19 @@ export interface MemoryEntryInForce {
   readonly summary: string;
 }
 
-/** A scope-eligible file as observed before a model request, including files never delivered. */
-export interface MemoryEntryObservation extends MemoryEntryInForce {
+/** A scope-eligible entry captured before a model request, whether or not it is ever shown. */
+export interface MemoryEntrySnapshot extends MemoryEntrySummary {
   readonly entryId: string;
   /** SHA-256 of the full file content; it changes after an edit. */
-  readonly entryVersion: string;
-  /** Receipt generation captured while the memory write lock was held. */
+  readonly entryContentHash: string;
+  /** Receipt epoch captured while the memory write lock was held. */
   readonly receiptEpoch: string;
+}
+
+/** Every scope-eligible entry, plus the scopes that could not be read and were skipped. */
+export interface MemorySnapshot {
+  readonly entries: readonly MemoryEntrySnapshot[];
+  readonly unreadableScopes: readonly string[];
 }
 
 export interface MemoryDirectoryEntry {
@@ -44,7 +50,10 @@ export type MemoryViewOutcome =
     }
   | {
       readonly kind: "file";
-      readonly path: string;
+      /** Where the file lives on disk, abbreviated for display. Not an address the tools accept. */
+      readonly displayPath: string;
+      /** Canonical `<scope>/<rest>` path, as the memory tools address it. */
+      readonly virtualPath: string;
       readonly content: string;
       readonly startLine: number;
       readonly totalLines: number;
@@ -105,10 +114,10 @@ export interface MemoryWriteContext {
  * namespace the caller can address freely.
  */
 export interface MemoryService {
-  /** Enumerate accessible entries and assign stable IDs to files without provenance. */
-  readonly observeEntries: (
+  /** Snapshot scope-eligible entries, assigning and persisting a stable ID for any file without one. */
+  readonly snapshotEntries: (
     scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryEntryObservation[], Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<MemorySnapshot, Error, FileSystem.FileSystem>;
   readonly view: (
     scopes: readonly string[],
     virtualPath: string,
@@ -118,19 +127,12 @@ export interface MemoryService {
   /** All files under `always/` in the accessible scopes. */
   readonly standingEntries: (
     scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
 
-  /**
-   * Files under `when/<topic>/` in the accessible scopes.
-   *
-   * `isRelevantTopic` is applied to the topic directory name before it is
-   * descended, so the walk costs what applies to the task rather than
-   * everything ever remembered.
-   */
+  /** Files under `when/<topic>/` in the accessible scopes. */
   readonly conditionalEntries: (
     scopes: readonly string[],
-    isRelevantTopic?: (topic: string) => boolean,
-  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
 
   readonly create: (
     scopes: readonly string[],

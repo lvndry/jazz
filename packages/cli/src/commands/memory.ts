@@ -14,11 +14,16 @@
  */
 
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { readMemoryOpportunityReceipts } from "@jazz/core/agent/memory-observation-receipts";
+import {
+  DEFAULT_RECEIPT_READ_LIMIT,
+  MAX_RECEIPTS_PER_ENTRY,
+  readMemoryOpportunityReceipts,
+} from "@jazz/core/agent/memory-opportunity-receipts";
 import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memory-recall-log";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { splitScopeAndRest } from "@jazz/core/memory/entry-path";
 import { CLIError } from "@jazz/core/types/errors";
 import { Effect } from "effect";
 function resolveScopes(agent: {
@@ -87,11 +92,11 @@ export function showMemoryCommand(identifier: string, memoryPath: string) {
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (provenance !== undefined) {
       yield* terminal.log(
-        `${outcome.path} — created ${provenance.createdAt.slice(0, 10)}, updated ${provenance.updatedAt.slice(0, 10)}, ${provenance.writeCount} write(s), written by ${provenance.writtenBy.join(", ")}\n`,
+        `${outcome.displayPath} — created ${provenance.createdAt.slice(0, 10)}, updated ${provenance.updatedAt.slice(0, 10)}, ${provenance.writeCount} write(s), written by ${provenance.writtenBy.join(", ")}\n`,
       );
     }
     yield* terminal.log(outcome.content);
-    yield* terminal.log(`\nEdit it directly: ${outcome.path}`);
+    yield* terminal.log(`\nEdit it directly: ${outcome.displayPath}`);
   });
 }
 
@@ -132,21 +137,32 @@ export function explainMemoryCommand(identifier: string, memoryPath: string) {
     if (provenance.entryId !== undefined) {
       const entryId = provenance.entryId;
       yield* terminal.log(`Entry ID: ${entryId}`);
-      const receipts = yield* Effect.tryPromise({
-        try: () => readMemoryOpportunityReceipts(memoryPath.split("/")[0] ?? "", entryId, 5),
-        catch: () => [] as const,
-      }).pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+      const { scope } = splitScopeAndRest(memoryPath);
+      const receipts = yield* readMemoryOpportunityReceipts(
+        scope ?? "",
+        entryId,
+        DEFAULT_RECEIPT_READ_LIMIT,
+      ).pipe(
+        Effect.mapError(
+          (error) =>
+            new CLIError({
+              command: "memory explain",
+              message: `Could not read opportunity receipts: ${error.message}`,
+            }),
+        ),
+      );
       yield* terminal.log(
-        `Recent observation receipts (last 5; retained window 128): ${receipts.length}`,
+        `Recent opportunity receipts (last ${DEFAULT_RECEIPT_READ_LIMIT}; ${MAX_RECEIPTS_PER_ENTRY} kept): ${receipts.length}`,
       );
       for (const receipt of receipts) {
+        const exposureKinds = receipt.exposures.map((exposure) => exposure.kind).join(",");
         yield* terminal.log(
-          `  ${receipt.opportunityAt} ${receipt.status} relevance=${receipt.relevanceDecision} exposures=${receipt.exposures.map((exposure) => exposure.kind).join(",") || "none"}`,
+          `  ${receipt.opportunityAt} ${receipt.status} exposures=${exposureKinds || "none"}`,
         );
       }
     }
     if (provenance.failure !== undefined) {
-      yield* terminal.log(`Stored trigger: ${JSON.stringify(provenance.failure)}`);
+      yield* terminal.log(`Prevents failure: ${JSON.stringify(provenance.failure)}`);
     }
   });
 }

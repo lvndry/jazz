@@ -27,7 +27,10 @@ function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function makeService(): MemoryServiceImpl {
-  return new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+  return new MemoryServiceImpl({
+    baseMemoryDirectory: tmpDir,
+    receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
+  });
 }
 
 const scopes = ["agent-1"];
@@ -203,7 +206,8 @@ describe("create", () => {
     const view = await runEffect(service.view(scopes, "/agent-1/people/alex.md"));
     expect(view.kind).toBe("file");
     if (view.kind === "file") {
-      expect(view.path).toBe(expectedPath);
+      expect(view.displayPath).toBe(expectedPath);
+      expect(view.virtualPath).toBe("agent-1/people/alex.md");
       expect(view.content).toBe("likes coffee");
     }
   });
@@ -469,7 +473,10 @@ describe("root listing", () => {
   });
 
   test("reveals topic-scoped file paths in the first discovery call", async () => {
-    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const service = new MemoryServiceImpl({
+      baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
+    });
     await runEffect(
       service.create(["personal"], "personal/when/food/favorite-fruit.md", "banana", writeContext),
     );
@@ -488,7 +495,10 @@ describe("root listing", () => {
   });
 
   test("lists the files inside every accessible scope in one call", async () => {
-    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const service = new MemoryServiceImpl({
+      baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
+    });
     const twoScopes = ["personal", "work"];
     await runEffect(service.create(twoScopes, "personal/prefs.md", "bun over npm", writeContext));
     await runEffect(
@@ -513,7 +523,10 @@ describe("root listing", () => {
   });
 
   test("does not create a scope directory as a side effect of listing", async () => {
-    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const service = new MemoryServiceImpl({
+      baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
+    });
     const outcome = await runEffect(service.view(["never-written"], ""));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
@@ -525,7 +538,10 @@ describe("root listing", () => {
   });
 
   test("still lists a scope whose name is not storage-safe, without walking it", async () => {
-    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const service = new MemoryServiceImpl({
+      baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
+    });
     const outcome = await runEffect(service.view(["../escape"], ""));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
@@ -538,6 +554,7 @@ describe("scope byte budget", () => {
   function makeBudgetService(): MemoryServiceImpl {
     return new MemoryServiceImpl({
       baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
       maxTotalBytesPerScope: 100,
       maxFileBytes: 500,
     });
@@ -736,6 +753,7 @@ describe("provenance", () => {
   test("the sidecar is invisible to listings and free of the file budget", async () => {
     const service = new MemoryServiceImpl({
       baseMemoryDirectory: tmpDir,
+      receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
       maxFilesPerScope: 1,
     });
     await runEffect(service.create(scopes, "agent-1/only.md", "hello", writeContext));

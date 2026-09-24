@@ -96,3 +96,23 @@ export function buildMemoryEntryPath(input: BuildMemoryEntryPathInput): string {
     ? `${input.scope}/${ALWAYS_SEGMENT}/${slug}`
     : `${input.scope}/${WHEN_SEGMENT}/${topic}/${slug}`;
 }
+
+/**
+ * Splits a memory-tool path into its leading scope segment and the remainder
+ * within that scope (e.g. `"personal/notes.md"` -> `{ scope: "personal", rest:
+ * "notes.md" }`). Leading slashes are ignored; an empty or root path has no scope.
+ */
+export function splitScopeAndRest(virtualPath: string): {
+  readonly scope: string | null;
+  readonly rest: string;
+} {
+  const trimmed = virtualPath.replace(/^\/+/, "");
+  if (trimmed === "") {
+    return { scope: null, rest: "" };
+  }
+  const slashIndex = trimmed.indexOf("/");
+  if (slashIndex === -1) {
+    return { scope: trimmed, rest: "" };
+  }
+  return { scope: trimmed.slice(0, slashIndex), rest: trimmed.slice(slashIndex + 1) };
+}

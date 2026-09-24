@@ -36,6 +36,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import type { ActivePreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
@@ -61,7 +62,8 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { MANAGE_MEMORY_TOOL_NAME } from "./memory-recall-log";
+import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
+import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
   createAgentRunMetrics,
   emitAgentRunStarted,
@@ -118,11 +120,7 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-): Effect.Effect<
-  { readonly scope: string; readonly summary: string }[],
-  never,
-  FileSystem.FileSystem
-> {
+): Effect.Effect<readonly ActivePreference[], never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
@@ -131,8 +129,8 @@ function resolveActivePreferences(
     }
     const memoryService = memoryServiceOption.value;
     return yield* Effect.gen(function* () {
-      const standing = yield* memoryService.standingEntries(memoryScopes);
-      return standing.map((entry) => ({
+      const standingEntries = yield* memoryService.standingEntries(memoryScopes);
+      return standingEntries.map((entry) => ({
         scope: entry.scope,
         summary: entry.summary,
       }));
@@ -143,7 +141,7 @@ function resolveActivePreferences(
             scopeCount: memoryScopes.length,
             errorCategory: telemetryErrorCategory(error),
           })
-          .pipe(Effect.as<{ readonly scope: string; readonly summary: string }[]>([])),
+          .pipe(Effect.as<readonly ActivePreference[]>([])),
       ),
     );
   });
@@ -621,15 +619,15 @@ function initializeAgentRun(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
-    const memoryServiceForObservation = yield* Effect.serviceOption(MemoryServiceTag);
-    const memoryFileSystem = yield* FileSystem.FileSystem;
-    const observedScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
-    const observeMemory = Option.isSome(memoryServiceForObservation)
-      ? () =>
-          memoryServiceForObservation.value.observeEntries(observedScopes).pipe(
-            Effect.provideService(FileSystem.FileSystem, memoryFileSystem),
-            Effect.catchAll(() => Effect.succeed([])),
-          )
+    const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
+    const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+    const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
+      ? createMemoryOpportunityRecorder({
+          snapshotEntries: () => memoryServiceForReceipts.value.snapshotEntries(memoryScopes),
+          fileSystem: yield* FileSystem.FileSystem,
+          logger,
+          viewMemoryOffered: expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
+        })
       : undefined;
 
     const currentMemorySource: MemorySource | undefined =
@@ -785,7 +783,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
-      ...(observeMemory !== undefined ? { observeMemory } : {}),
+      ...(memoryOpportunities !== undefined ? { memoryOpportunities } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {
