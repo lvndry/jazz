@@ -785,6 +785,10 @@ function getConfiguredProviders(
       providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
       addedProviders.add("xai");
     }
+    if (llmConfig.yolo_auto?.api_key) {
+      providers.push({ name: "yolo_auto", apiKey: llmConfig.yolo_auto.api_key });
+      addedProviders.add("yolo_auto");
+    }
     if (llmConfig.zhipuai?.api_key) {
       providers.push({ name: "zhipuai", apiKey: llmConfig.zhipuai.api_key });
       addedProviders.add("zhipuai");
@@ -961,6 +965,16 @@ function selectModel(
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       model = orcarouter(modelId);
+      break;
+    }
+    case "yolo_auto": {
+      const apiKey = resolveApiKey("yolo_auto");
+      const yoloAuto = createOpenAICompatible({
+        name: "yolo_auto",
+        baseURL: "https://yolo-auto.com/v1",
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+      });
+      model = yoloAuto(modelId);
       break;
     }
     case "ai_gateway": {

@@ -259,6 +259,7 @@ const llmShape = {
   orcarouter: apiKeyOnly,
   togetherai: apiKeyOnly,
   xai: apiKeyOnly,
+  yolo_auto: apiKeyOnly,
   zhipuai: apiKeyOnly,
 } satisfies SchemaShape<LLMConfig> & Record<(typeof AVAILABLE_PROVIDERS)[number], unknown>;
 

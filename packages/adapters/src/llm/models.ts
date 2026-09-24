@@ -72,6 +72,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/v1/models",
     defaultBaseUrl: "https://api.together.xyz",
   },
+  yolo_auto: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: "https://yolo-auto.com/v1",
+  },
   zhipuai: { type: "models-dev" },
 } as const;
 

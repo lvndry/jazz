@@ -22,6 +22,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   openrouter: "OpenRouter",
   togetherai: "Together AI",
   xai: "xAI",
+  yolo_auto: "Yolo-Auto",
   zhipuai: "Z.ai",
 };
 

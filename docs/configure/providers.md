@@ -33,6 +33,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `xai`        | `XAI_API_KEY`                                                     |
+| `yolo_auto`  | `YOLO_AUTO_API_KEY`                                               |
 | `zhipuai`    | `ZHIPU_API_KEY`                                                   |
 
 ## Store credentials

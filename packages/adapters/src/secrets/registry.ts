@@ -34,6 +34,7 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   orcarouter: "ORCAROUTER_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",
   xai: "XAI_API_KEY",
+  yolo_auto: "YOLO_AUTO_API_KEY",
   zhipuai: "ZHIPU_API_KEY",
 };
 
