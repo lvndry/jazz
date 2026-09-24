@@ -48,6 +48,7 @@ export type StreamEvent =
         firstTokenLatencyMs: number;
         firstTextLatencyMs?: number;
         firstReasoningLatencyMs?: number;
+        /** Decode speed: output tokens over the span from first token to stream end, excluding prefill. */
         tokensPerSecond?: number;
         totalTokens?: number;
       };

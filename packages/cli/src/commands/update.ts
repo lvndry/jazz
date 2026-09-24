@@ -427,7 +427,7 @@ export function updateCommand(options?: {
     const versionInfo = yield* checkForUpdate().pipe(
       Effect.catchAll((checkError: UpdateCheckError) => {
         return Effect.gen(function* () {
-          yield* logger.error("Failed to check for updates", { error: checkError.message });
+          yield* logger.error("Failed to check for updates", { errorType: "update_check_failed" });
           yield* terminal.error("Failed to check for updates:");
           yield* terminal.log(`   ${checkError.message}`);
           yield* terminal.log("\n💡 You can manually check for updates at:");
@@ -470,7 +470,7 @@ export function updateCommand(options?: {
     yield* installUpdate(packageJson.name, versionInfo.latestVersion, terminal).pipe(
       Effect.catchAll((installError: UpdateInstallError) => {
         return Effect.gen(function* () {
-          yield* logger.error("Failed to install update", { error: installError.message });
+          yield* logger.error("Failed to install update", { errorType: "update_install_failed" });
           yield* terminal.error("Failed to install update:");
           yield* terminal.log(`   ${installError.message}`);
           if (!isStandaloneBinary()) {

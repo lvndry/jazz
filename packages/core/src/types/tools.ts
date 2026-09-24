@@ -7,6 +7,7 @@ import type { Effect } from "effect";
 import type z from "zod";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -269,6 +270,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /** Trace context inherited by a child agent invoked from this tool. */
+  readonly telemetryTraceParent?: TelemetryTraceParent;
   /** Memory scopes available to this run. */
   readonly memoryScopes?: readonly string[];
   readonly conversationId?: string;

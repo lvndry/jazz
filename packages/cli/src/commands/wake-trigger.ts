@@ -21,10 +21,7 @@ export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
     const trigger = triggers.find((candidate) => candidate.id === options.id);
 
     if (trigger === undefined) {
-      yield* logger.info("Wake trigger not found — likely already fired or cancelled", {
-        agentId: options.agent,
-        triggerId: options.id,
-      });
+      yield* logger.info("Wake trigger not found — likely already fired or cancelled");
       return;
     }
 

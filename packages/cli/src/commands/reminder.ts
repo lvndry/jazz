@@ -25,10 +25,7 @@ export function fireReminderCommand(options: { agent: string; id: string }) {
     const reminder = reminders.find((candidate) => candidate.id === options.id);
 
     if (reminder === undefined) {
-      yield* logger.info("Reminder not found — likely already fired or cancelled", {
-        agentId: options.agent,
-        reminderId: options.id,
-      });
+      yield* logger.info("Reminder not found — likely already fired or cancelled");
       return;
     }
 
@@ -36,15 +33,9 @@ export function fireReminderCommand(options: { agent: string; id: string }) {
 
     const delivered = yield* sendDesktopNotification("Jazz reminder", reminder.text);
     if (delivered) {
-      yield* logger.info("Reminder delivered via desktop notification", {
-        agentId: options.agent,
-        reminderId: options.id,
-      });
+      yield* logger.info("Reminder delivered via desktop notification");
     } else {
-      yield* logger.warn("Reminder desktop notification could not be delivered", {
-        agentId: options.agent,
-        reminderId: options.id,
-      });
+      yield* logger.warn("Reminder desktop notification could not be delivered");
     }
   });
 }

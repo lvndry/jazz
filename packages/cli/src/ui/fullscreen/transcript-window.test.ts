@@ -7,7 +7,7 @@ import {
   wheelScrollDelta,
   windowTranscriptRows,
 } from "./transcript-window";
-import type { InputModel, LiveModel } from "./types";
+import { MIN_HEIGHT, MIN_WIDTH, type InputModel, type LiveModel } from "./types";
 
 const ROWS = Array.from({ length: 40 }, (_, index) => `line-${String(index).padStart(2, "0")}`);
 
@@ -149,11 +149,11 @@ describe("allocateRegions", () => {
       queued: [],
       disabled: false,
     };
-    // 60x12 is exactly what `decideFullscreen` admits as fullscreen-capable.
-    expectFits({ width: 60, height: 12 }, base);
-    expectFits({ width: 60, height: 12 }, { ...base, value: "/dep", commands });
+    // The compact floor is exactly what `decideFullscreen` admits.
+    expectFits({ width: MIN_WIDTH, height: MIN_HEIGHT }, base);
+    expectFits({ width: MIN_WIDTH, height: MIN_HEIGHT }, { ...base, value: "/dep", commands });
     expectFits(
-      { width: 60, height: 12 },
+      { width: MIN_WIDTH, height: MIN_HEIGHT },
       { ...base, value: "x".repeat(400), queued: ["one", "two", "three"], commands },
     );
     expectFits({ width: 80, height: 24 }, { ...base, value: "/dep", commands });
@@ -168,7 +168,7 @@ describe("allocateRegions", () => {
       commands,
     };
     const regions = allocateRegions({
-      viewport: { width: 60, height: 12 },
+      viewport: { width: MIN_WIDTH, height: MIN_HEIGHT },
       live,
       input,
       inputFocused: true,

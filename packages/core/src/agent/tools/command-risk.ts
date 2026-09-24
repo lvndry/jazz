@@ -258,7 +258,9 @@ export function classifyCommandRisk(
 
     const { config: modelConfig, warning } = selectSummarizerModel(agent);
     if (warning) {
-      yield* logger.warn(warning);
+      yield* logger.warn("Command risk classifier model fallback", {
+        errorType: "invalid_model_config",
+      });
     }
 
     const conversation = formatConversationForClassifier(conversationMessages);
@@ -280,10 +282,10 @@ export function classifyCommandRisk(
       })
       .pipe(
         Effect.timeout(CLASSIFIER_TIMEOUT),
-        Effect.catchAll((error) =>
+        Effect.catchAll(() =>
           logger
             .warn("Command risk classifier failed closed", {
-              error: error instanceof Error ? error.message : String(error),
+              errorType: "classifier_failed",
             })
             .pipe(Effect.zipRight(Effect.succeed({ content: "high-risk" }))),
         ),
@@ -309,7 +311,7 @@ export function classifyCommandRisk(
     const riskLevel = parseClassifierVerdict(response.content);
     yield* logger.debug("Command risk classifier", {
       riskLevel,
-      model: `${modelConfig.provider}/${modelConfig.model}`,
+      provider: modelConfig.provider,
     });
     return riskLevel;
   });

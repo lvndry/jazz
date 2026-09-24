@@ -30,7 +30,7 @@ import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
 import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
-import type { ApprovalOverlay, Viewport } from "../types";
+import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
@@ -46,8 +46,10 @@ const LABEL_COLUMN = 11;
 /** Border, header, blank, account, rule, border. Everything else scrolls. */
 const FIXED_CARD_ROWS = 6;
 
-/** The controls line, beneath the frame. */
+/** Compact cards put the account in the scrollable body and use two control rows. */
+const COMPACT_FIXED_CARD_ROWS = 5;
 const CONTROL_ROWS = 1;
+const COMPACT_CONTROL_ROWS = 2;
 
 /**
  * Collapsed field preview, in terminal cells. Long enough to recognise the
@@ -184,6 +186,7 @@ export interface ApprovalProps {
 
 export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const glyphs = getGlyphs();
+  const compact = viewport.width < COMPACT_WIDTH || viewport.height < COMPACT_HEIGHT;
 
   // Below the windowed size a centred panel is mostly frame, so the overlay
   // takes the whole viewport instead of drawing a cramped card.
@@ -193,22 +196,31 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
   const consequence = wrapProse(model.consequence, inner);
-  const expanded = model.expanded === true;
+  // At compact widths, expanded rows keep long fields inspectable without
+  // hiding the tail behind a shortcut that would not fit in the legend.
+  const expanded = model.expanded === true || compact;
   const expandable = model.fields.some((field) => approvalFieldNeedsExpand(field.value));
-  const bodyRows = approvalBodyRows(
-    model.fields,
-    consequence,
-    valueWidth,
-    LABEL_COLUMN - 1,
-    expanded,
-  );
-  const windowedHeight = FIXED_CARD_ROWS + bodyRows.length + CONTROL_ROWS;
+  const accountRows: BodyRow[] = compact
+    ? wrapProse(model.account, valueWidth).map((line, index) => ({
+        kind: "field",
+        key: `account:${String(index)}`,
+        label: index === 0 ? "Account" : "",
+        value: line,
+      }))
+    : [];
+  const bodyRows = [
+    ...accountRows,
+    ...approvalBodyRows(model.fields, consequence, valueWidth, LABEL_COLUMN - 1, expanded),
+  ];
+  const fixedCardRows = compact ? COMPACT_FIXED_CARD_ROWS : FIXED_CARD_ROWS;
+  const controlRows = compact ? COMPACT_CONTROL_ROWS : CONTROL_ROWS;
+  const windowedHeight = fixedCardRows + bodyRows.length + controlRows;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
-  const cardHeight = Math.max(1, height - CONTROL_ROWS);
+  const cardHeight = Math.max(1, height - controlRows);
 
   // Everything below the rule is on screen before you commit — so when the
   // viewport cannot hold it all the region scrolls rather than being cut short.
-  const bodyCapacity = Math.max(1, cardHeight - FIXED_CARD_ROWS);
+  const bodyCapacity = Math.max(1, cardHeight - fixedCardRows);
   const maxBodyOffset = Math.max(0, bodyRows.length - bodyCapacity);
   const bodyScrolls = maxBodyOffset > 0;
   const bodyOffset = Math.max(0, Math.min(model.fieldOffset ?? 0, maxBodyOffset));
@@ -296,10 +308,12 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
 
         <box style={{ height: 1, flexShrink: 0 }} />
 
-        <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-          <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>Account</text>
-          <text style={{ fg: THEME.selected }}>{clip(model.account, valueWidth)}</text>
-        </box>
+        {compact ? null : (
+          <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+            <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>Account</text>
+            <text style={{ fg: THEME.selected }}>{clip(model.account, valueWidth)}</text>
+          </box>
+        )}
 
         <text style={{ fg: THEME.border, height: 1, flexShrink: 0 }}>
           {glyphs.divider.repeat(inner)}
@@ -316,30 +330,56 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
         </box>
       </box>
 
-      <box
-        style={{
-          height: CONTROL_ROWS,
-          flexShrink: 0,
-          flexDirection: "row",
-          backgroundColor: THEME.canvas,
-          paddingLeft: CARD_PAD + 1,
-          paddingRight: CARD_PAD + 1,
-        }}
-      >
-        <text>
-          {model.armed ? (
-            <b style={{ fg: THEME.primary }}>enter</b>
-          ) : (
-            <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
-          )}
-          <span style={{ fg: THEME.secondary }}>{" accept"}</span>
-          <span style={{ fg: THEME.muted }}>{"    "}</span>
-          <b style={{ fg: THEME.selected }}>esc</b>
-          <span style={{ fg: THEME.secondary }}>{" reject"}</span>
-        </text>
-        <box style={{ flexGrow: 1 }} />
-        <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
-      </box>
+      {compact ? (
+        <box
+          style={{
+            height: COMPACT_CONTROL_ROWS,
+            flexShrink: 0,
+            flexDirection: "column",
+            backgroundColor: THEME.canvas,
+            paddingLeft: CARD_PAD + 1,
+            paddingRight: CARD_PAD + 1,
+          }}
+        >
+          <text>
+            {model.armed ? (
+              <b style={{ fg: THEME.primary }}>enter</b>
+            ) : (
+              <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
+            )}
+            <span style={{ fg: THEME.secondary }}>{" accept"}</span>
+            <span style={{ fg: THEME.muted }}>{" · "}</span>
+            <b style={{ fg: THEME.selected }}>esc</b>
+            <span style={{ fg: THEME.secondary }}>{" reject"}</span>
+          </text>
+          <text style={{ fg: THEME.muted }}>{bodyScrolls ? "up/down more · " : ""}a always</text>
+        </box>
+      ) : (
+        <box
+          style={{
+            height: CONTROL_ROWS,
+            flexShrink: 0,
+            flexDirection: "row",
+            backgroundColor: THEME.canvas,
+            paddingLeft: CARD_PAD + 1,
+            paddingRight: CARD_PAD + 1,
+          }}
+        >
+          <text>
+            {model.armed ? (
+              <b style={{ fg: THEME.primary }}>enter</b>
+            ) : (
+              <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
+            )}
+            <span style={{ fg: THEME.secondary }}>{" accept"}</span>
+            <span style={{ fg: THEME.muted }}>{"    "}</span>
+            <b style={{ fg: THEME.selected }}>esc</b>
+            <span style={{ fg: THEME.secondary }}>{" reject"}</span>
+          </text>
+          <box style={{ flexGrow: 1 }} />
+          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
+        </box>
+      )}
     </box>
   );
 }

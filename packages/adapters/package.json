@@ -15,6 +15,11 @@
   },
   "dependencies": {
     "@jazz/core": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.11.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "0.222.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-metrics": "2.11.0",
     "hono": "^4.13.5",
     "nanotar": "^0.3.0",
     "plist": "^5.0.0"

@@ -13,6 +13,8 @@ export interface TelemetrySink {
   readonly name: string;
   /** Persist or transmit a batch of events. */
   readonly write: (events: readonly TelemetryEvent[]) => Promise<void>;
+  /** Retry pending destination-specific work even when no new events arrived. */
+  readonly flush?: () => Promise<void>;
   /** Release any resources held by the sink. */
   readonly close?: () => Promise<void>;
 }

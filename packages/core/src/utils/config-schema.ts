@@ -192,15 +192,19 @@ type OtlpSignal = NonNullable<OtlpTelemetryConfig["signals"]>[number];
 
 const otlpShape = {
   enabled: flag.exactOptional(),
-  signals: z.array(exhaustiveEnum<OtlpSignal>()(["traces", "logs"])).exactOptional(),
+  signals: z.array(exhaustiveEnum<OtlpSignal>()(["traces", "logs", "metrics"])).exactOptional(),
   endpoint: text.exactOptional(),
   tracesEndpoint: text.exactOptional(),
   logsEndpoint: text.exactOptional(),
+  metricsEndpoint: text.exactOptional(),
   headers: z.record(safeRecordKey, text).exactOptional(),
   serviceName: text.exactOptional(),
   resourceAttributes: z.record(safeRecordKey, text).exactOptional(),
   captureContent: flag.exactOptional(),
   timeoutMs: wholeNumber.exactOptional(),
+  maxQueuedBytes: positiveWholeNumber.exactOptional(),
+  maxQueueAgeMs: positiveWholeNumber.exactOptional(),
+  metricExportIntervalMs: positiveWholeNumber.exactOptional(),
 } satisfies SchemaShape<OtlpTelemetryConfig>;
 
 const telemetryShape = {
