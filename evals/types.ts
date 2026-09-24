@@ -23,7 +23,6 @@ export interface CheckResult {
   pass: boolean;
   score: number; // 0..1
   detail: string;
-  measurements?: Readonly<Record<string, number>>;
 }
 
 export interface RubricSpec {

@@ -1,8 +1,23 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { scopeCompositionCheck } from "../../checks";
+import { requiredAndForbiddenPatternCheck } from "../../checks";
 import { runJazzOnce } from "../../run-jazz";
 import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
+
+/** Greeting and sign-off only the unconfigured `friends` scope asks for, so either in the answer is leakage. */
+const FRIENDS_GREETING = "Hey legends";
+const FRIENDS_SIGN_OFF = "Stay goofy";
+
+/** Bullet count the seeded `personal` preference demands. */
+const REQUIRED_BULLET_COUNT = 3;
+
+function containsPhrase(phrase: string): (answer: string) => boolean {
+  return (answer) => answer.toLowerCase().includes(phrase.toLowerCase());
+}
+
+function bulletLineCount(answer: string): number {
+  return answer.match(/^\s*[-•*] /gm)?.length ?? 0;
+}
 
 const PROMPT =
   "Prepare a project update for my colleagues. Keep it concise and state the exact verification command.";
@@ -22,23 +37,28 @@ function seedMemory(jazzHome: string, agentId: string): void {
   agent.config["memoryScopes"] = ["personal", "work"];
   writeFileSync(agentPath, `${JSON.stringify(agent, null, 2)}\n`);
 
-  const entries: readonly [string, string, string][] = [
-    [
-      "personal",
-      "communication.md",
-      "The user prefers project updates in exactly three bullet points.\n",
-    ],
-    [
-      "work",
-      "verification.md",
-      "Engineering project updates must name the exact verification command: bun test evals.\n",
-    ],
-    ["friends", "humor.md", "Every message to friends opens with a friend joke.\n"],
+  const entries: readonly { scope: string; fileName: string; content: string }[] = [
+    {
+      scope: "personal",
+      fileName: "communication.md",
+      content: "The user prefers project updates in exactly three bullet points.\n",
+    },
+    {
+      scope: "work",
+      fileName: "verification.md",
+      content:
+        "Engineering project updates must name the exact verification command: bun test evals.\n",
+    },
+    {
+      scope: "friends",
+      fileName: "greetings.md",
+      content: `Every message to friends opens with "${FRIENDS_GREETING}!" and signs off with "${FRIENDS_SIGN_OFF}".\n`,
+    },
   ];
-  for (const [scope, name, content] of entries) {
+  for (const { scope, fileName, content } of entries) {
     const directory = join(jazzHome, "memory", scope, "always");
     mkdirSync(directory, { recursive: true });
-    writeFileSync(join(directory, name), content);
+    writeFileSync(join(directory, fileName), content);
   }
 }
 
@@ -64,13 +84,16 @@ export const tasks: EvalTask[] = [
       });
     },
     check(result) {
-      return scopeCompositionCheck(
+      return requiredAndForbiddenPatternCheck(
         result.answer,
         [
-          { name: "three bullets", pattern: /three|•|^- /im },
+          {
+            name: "exactly three bullets",
+            pattern: (answer) => bulletLineCount(answer) === REQUIRED_BULLET_COUNT,
+          },
           { name: "verification command", pattern: /bun test evals/i },
         ],
-        [/friend joke/i],
+        [containsPhrase(FRIENDS_GREETING), containsPhrase(FRIENDS_SIGN_OFF)],
       );
     },
   },

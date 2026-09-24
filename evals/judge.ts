@@ -1,14 +1,13 @@
-import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
-import { parseEnvelope } from "./run-jazz";
-
-const MAIN_TS = join(import.meta.dir, "..", "packages", "runtime", "src", "main.ts");
+import { MAIN_TS, parseEnvelope } from "./run-jazz";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(a: number[], b: number[]): number {
   const n = a.length;
-  if (n === 0 || n !== b.length) return 0;
+  if (n === 0 || n !== b.length) {
+    return 0;
+  }
   const meanA = a.reduce((sum, value) => sum + value, 0) / n;
   const meanB = b.reduce((sum, value) => sum + value, 0) / n;
   let cov = 0;
@@ -21,7 +20,9 @@ export function pearson(a: number[], b: number[]): number {
     varA += da * da;
     varB += db * db;
   }
-  if (varA === 0 || varB === 0) return 0;
+  if (varA === 0 || varB === 0) {
+    return 0;
+  }
   return cov / Math.sqrt(varA * varB);
 }
 
@@ -29,7 +30,9 @@ export function pearson(a: number[], b: number[]): number {
 export function parseScore(answer: string): number {
   const match = answer.match(/-?\d*\.?\d+/);
   const value = match ? parseFloat(match[0]) : 0;
-  if (Number.isNaN(value)) return 0;
+  if (Number.isNaN(value)) {
+    return 0;
+  }
   return Math.max(0, Math.min(1, value));
 }
 

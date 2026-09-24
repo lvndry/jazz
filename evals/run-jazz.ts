@@ -16,7 +16,9 @@ export function parseEnvelope(stdout: string): Envelope {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const last = lines[lines.length - 1];
-  if (!last) throw new Error("jazz run produced no output");
+  if (!last) {
+    throw new Error("jazz run produced no output");
+  }
 
   let payload: unknown;
   try {
@@ -51,7 +53,8 @@ export function parseEnvelope(stdout: string): Envelope {
 }
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
+/** Runtime entry point every eval spawn runs under `bun`. */
+export const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
 const REPORT_DIR = join(REPO_ROOT, "evals", "report");
 
 export interface RunJazzOptions {
@@ -98,9 +101,15 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     "--timeout",
     String(options.timeoutMs),
   ];
-  if (options.captureEvents !== false) argv.push("--events", "all");
-  if (options.reasoningEffort) argv.push("--reasoning", options.reasoningEffort);
-  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.captureEvents !== false) {
+    argv.push("--events", "all");
+  }
+  if (options.reasoningEffort) {
+    argv.push("--reasoning", options.reasoningEffort);
+  }
+  if (options.conversationId) {
+    argv.push("--conversation", options.conversationId);
+  }
   if (options.maxIterations !== undefined) {
     argv.push("--max-iterations", String(options.maxIterations));
   }
@@ -177,7 +186,9 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
     "--timeout",
     String(options.timeoutMs),
   ];
-  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.conversationId) {
+    argv.push("--conversation", options.conversationId);
+  }
   if (options.maxIterations !== undefined) {
     argv.push("--max-iterations", String(options.maxIterations));
   }
@@ -214,7 +225,9 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.length === 0) continue;
+        if (trimmed.length === 0) {
+          continue;
+        }
         raw.push(trimmed);
         let event: Record<string, unknown>;
         try {
