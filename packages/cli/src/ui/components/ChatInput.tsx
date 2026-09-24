@@ -18,10 +18,6 @@ export interface ChatInputProps {
   textColor?: string;
 }
 
-/** Exported so parents can render hints below the input box (keeps selection inside box to input text only). */
-export const SHORTCUTS_HINT =
-  "Ctrl+A/E: start/end · Ctrl+U/K: clear · Opt+←/→: word nav · Opt+Del: delete word";
-
 /**
  * Normalize line endings to \n. Pasted text may contain \r\n (Windows)
  * or bare \r (old Mac) line endings depending on the source and terminal.

@@ -1,7 +1,5 @@
 import type { CollectionEntry } from "astro:content";
 
-export const REPO_URL = "https://github.com/lvndry/jazz";
-
 /** Section order mirrors the section list in docs/index.md. */
 export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
   { dir: "getting-started", label: "Getting started" },

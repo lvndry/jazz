@@ -78,26 +78,6 @@ describe("ContextWindowManager", () => {
     });
   });
 
-  describe("shouldSummarize", () => {
-    it("should return true when tokens exceed 80% threshold", () => {
-      const manager = new ContextWindowManager({ maxTokens: 20 });
-      // Create enough content to exceed 80% of 20 = 16 tokens
-      const messages = [
-        makeMessage(
-          "user",
-          "This is a test message with enough content to exceed the threshold for summarization",
-        ),
-      ];
-      expect(manager.shouldSummarize(messages)).toBe(true);
-    });
-
-    it("should return false when well below threshold", () => {
-      const manager = new ContextWindowManager({ maxTokens: 100_000 });
-      const messages = [makeMessage("user", "short")];
-      expect(manager.shouldSummarize(messages)).toBe(false);
-    });
-  });
-
   describe("trim", () => {
     it("should not trim when within limits", async () => {
       const manager = new ContextWindowManager({ maxTokens: 100_000 });

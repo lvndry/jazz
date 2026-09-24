@@ -86,21 +86,6 @@ export function decideFullscreen(
   return { ...base, fullscreen: true };
 }
 
-/** What to tell the user when fullscreen stands down, or nothing when it is obvious. */
-export function explainPlain(reason: PlainReason, width: number, height: number): string | null {
-  switch (reason) {
-    case "too-small":
-      return `jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}; this terminal is ${width}x${height}. Resize, or keep using plain output.`;
-    case "screen-reader":
-      return "Screen reader detected — using plain append-only output, which reads one line per state change.";
-    case "not-a-tty":
-    case "ci":
-    case "dumb-terminal":
-    case "requested":
-      return null;
-  }
-}
-
 export interface MountedRenderer {
   readonly renderer: CliRenderer;
   /** Idempotent. Safe to call from a signal handler or twice. */
