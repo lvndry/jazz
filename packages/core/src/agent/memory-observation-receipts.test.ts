@@ -65,7 +65,7 @@ describe("memory observation receipts", () => {
       {
         role: "user",
         content: "Shopping list",
-        trustedUserSource: { id: "user:7", text: "Shopping list" },
+        memorySource: { id: "user:7", text: "Shopping list" },
       },
       {
         role: "tool",

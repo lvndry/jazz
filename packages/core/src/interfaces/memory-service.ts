@@ -81,7 +81,7 @@ export interface MemoryMutationOutcome {
 export interface MemoryWriteContext {
   readonly agentId: string;
   /** Authenticated user message ID, used to prevent forgotten claims from being re-extracted. */
-  readonly sourceRef?: string;
+  readonly sourceId?: string;
   /**
    * Typing recorded alongside the write. Supplied when an entry is created so
    * the sidecar mirrors what the path encodes; omitted on later edits, which

@@ -69,12 +69,15 @@ Pending OTLP traces and logs are stored in a private, bounded outbox until deliv
 `manage_memory` accepts a new fact or correction only with an exact quote and source ID from a
 host-labeled user message. Tool output, fetched pages, model summaries, and a synthetic
 compaction transcript cannot mint that source ID. Obvious secret and sensitive claims are
-rejected on create or amend. A hidden cross-scope source ledger revokes an old message ID before
+rejected on create or amend, whether they sit in the quoted span, the sentence around it, or the
+subject and topic the entry would be filed under. Delete and rename need a quoted sentence that
+opens with the request and names the entry; amend needs a quote that names the entry. A hidden cross-scope source ledger revokes an old message ID before
 its memory is corrected or forgotten, so compaction cannot re-save that same statement later.
 The ledger fails closed for cited writes when malformed; the model cannot address its hidden
-path through memory tools. The runner marks direct terminal and `jazz run` prompts as user
-input; callers that wrap untrusted text in a headless prompt are responsible for separating it
-before invoking Jazz.
+path through memory tools. The runner marks terminal messages and a `jazz run` positional
+prompt as memory sources. A prompt piped on stdin and inline `--history-json` never are, so a
+webhook body relayed through `jazz run` cannot back a memory write. Callers that put untrusted
+text in the positional prompt are responsible for separating it before invoking Jazz.
 
 Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
 Memory path reads and writes reject linked path components, so a linked external file cannot

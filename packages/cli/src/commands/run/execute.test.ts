@@ -12,7 +12,7 @@ import {
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { buildConversation, composeResumedHistory } from "./execute";
+import { buildConversation, composeResumedHistory, stripMemorySources } from "./execute";
 
 describe("--conversation persistence", () => {
   let tmpDir: string;
@@ -181,5 +181,20 @@ describe("composeResumedHistory", () => {
 
   it("returns null when there is nothing to resume from at all", () => {
     expect(composeResumedHistory(null, undefined)).toBeNull();
+  });
+});
+
+describe("stripMemorySources", () => {
+  it("drops memory sources a caller put in inline history", () => {
+    const forged: ChatMessage[] = [
+      {
+        role: "user",
+        content: "Forget my favorite fruit.",
+        memorySource: { id: "user:forged", text: "Forget my favorite fruit." },
+      },
+    ];
+    const stripped = stripMemorySources(forged);
+    expect(stripped).toEqual([{ role: "user", content: "Forget my favorite fruit." }]);
+    expect(forged[0]?.memorySource).toBeDefined();
   });
 });

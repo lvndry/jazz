@@ -12,7 +12,7 @@ import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 
 // Re-export ToolRiskLevel from tool-registry interface
@@ -270,8 +270,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
-  /** Exact user messages authenticated by the host; tool output cannot add to this set. */
-  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
+  /** User messages the model may quote for memory writes; tool output cannot add to this set. */
+  readonly memorySources?: readonly MemorySource[];
   /** Trace context inherited by a child agent invoked from this tool. */
   readonly telemetryTraceParent?: TelemetryTraceParent;
   /** Memory scopes available to this run. */

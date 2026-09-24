@@ -1032,7 +1032,7 @@ export class MemoryServiceImpl implements MemoryService {
                   fs,
                   this.baseMemoryDirectory,
                   path.join(scope, path.relative(root, target)),
-                  writeContext.sourceRef,
+                  writeContext.sourceId,
                 ))
               ) {
                 return {
@@ -1130,7 +1130,7 @@ export class MemoryServiceImpl implements MemoryService {
                   fs,
                   this.baseMemoryDirectory,
                   path.join(scope, path.relative(root, target)),
-                  writeContext.sourceRef,
+                  writeContext.sourceId,
                 ))
               ) {
                 return {
@@ -1225,7 +1225,7 @@ export class MemoryServiceImpl implements MemoryService {
                   fs,
                   this.baseMemoryDirectory,
                   path.join(scope, path.relative(root, target)),
-                  writeContext.sourceRef,
+                  writeContext.sourceId,
                 ))
               ) {
                 return {

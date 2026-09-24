@@ -7,9 +7,11 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
+import { formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import { systemInfo } from "@/core/utils/system-info";
+import { MANAGE_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { renderPromptLayers, type PromptSection } from "./prompts/layers";
 import { ENVIRONMENT_TEMPLATE, renderHarnessPrompt } from "./prompts/shared";
@@ -71,7 +73,7 @@ export interface AgentPromptOptions {
   readonly agentName: string;
   readonly agentDescription: string;
   readonly userInput: string;
-  readonly trustedUserSource?: { readonly id: string; readonly text: string };
+  readonly memorySource?: MemorySource;
   /** Continuing a parked run: keep the transcript as-is and add no user message. */
   readonly isResume?: boolean;
   readonly conversationHistory?: ChatMessage[];
@@ -510,19 +512,18 @@ export class AgentPromptBuilder {
           }
 
           const attachments = [...ingested.attachments, ...callerAttachments];
-          const memorySourceNote =
-            options.trustedUserSource === undefined
+          const memorySourceTag =
+            options.memorySource === undefined ||
+            options.toolNames?.includes(MANAGE_MEMORY_TOOL_NAME) !== true
               ? ""
-              : `\n\n[Authenticated memory source: ${options.trustedUserSource.id}. Cite this ID and exact words from the user's message when using manage_memory.]`;
+              : `\n\n${formatMemorySourceTag(options.memorySource.id)}`;
           messages.push({
             role: "user",
-            ...(options.trustedUserSource !== undefined
-              ? { trustedUserSource: options.trustedUserSource }
-              : {}),
+            ...(options.memorySource !== undefined ? { memorySource: options.memorySource } : {}),
             content:
               ingested.notes.length > 0
-                ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}${memorySourceNote}`
-                : `${effectiveUserContent}${memorySourceNote}`,
+                ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}${memorySourceTag}`
+                : `${effectiveUserContent}${memorySourceTag}`,
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(options.pinInitialMessage === true ? { kind: "task" } : {}),
           });

@@ -191,7 +191,7 @@ export async function beginMemoryOpportunities(input: {
   const sourceRefs = [
     ...new Set(
       input.messages.flatMap((message) =>
-        message.trustedUserSource === undefined ? [] : [message.trustedUserSource.id],
+        message.memorySource === undefined ? [] : [message.memorySource.id],
       ),
     ),
   ].slice(-8);

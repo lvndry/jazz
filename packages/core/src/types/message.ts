@@ -31,11 +31,17 @@ export interface StoredReasoningPart {
  * Messages form the conversation context between a user and an AI assistant.
  * Each message has a role, content, and optionally tool-specific metadata.
  */
+/** User text the host received directly, which the model may quote as the basis for a memory write. */
+export interface MemorySource {
+  readonly id: string;
+  readonly text: string;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
-  /** Host-authenticated user text, retained through compaction without promoting tool output. */
-  trustedUserSource?: { readonly id: string; readonly text: string };
+  /** Retained through compaction so a later turn can still quote it; tool output never carries one. */
+  memorySource?: MemorySource;
   name?: string;
   /**
    * For role === "tool": the id of the tool call this message responds to

@@ -36,12 +36,13 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
@@ -60,6 +61,7 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { MANAGE_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
   createAgentRunMetrics,
   emitAgentRunStarted,
@@ -506,7 +508,7 @@ function initializeAgentRun(
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
     // outright, so the model is never even offered a way to persist anything.
     if (options.disablePersistence === true) {
-      combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
+      combinedToolNames = combinedToolNames.filter((name) => name !== MANAGE_MEMORY_TOOL_NAME);
     }
 
     // Same reasoning for the tools that solicit an answer from a human. Failing the
@@ -630,6 +632,13 @@ function initializeAgentRun(
           )
       : undefined;
 
+    const currentMemorySource: MemorySource | undefined =
+      options.trustUserInputAsMemorySource === true && options.isResume !== true
+        ? { id: `user:${runMetrics.runId}`, text: userInput }
+        : undefined;
+    const memorySources =
+      options.memorySources ?? collectMemorySources(history, currentMemorySource);
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -638,9 +647,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
-        ...(options.authenticatedUserInput === true && options.isResume !== true
-          ? { trustedUserSource: { id: `user:${runMetrics.runId}`, text: userInput } }
-          : {}),
+        ...(currentMemorySource !== undefined ? { memorySource: currentMemorySource } : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -684,11 +691,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      memoryUserSources:
-        options.memoryUserSources ??
-        (options.authenticatedUserInput === true && options.isResume !== true
-          ? [{ id: `user:${runMetrics.runId}`, text: userInput }]
-          : []),
+      memorySources,
       telemetryTraceParent: {
         topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
         parentRunId: runMetrics.runId,

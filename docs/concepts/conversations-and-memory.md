@@ -176,12 +176,19 @@ The cost of recall tracks how much is relevant, not how much has ever been remem
 
 ### Trusted capture and correction
 
-`manage_memory` requires a source ID and an exact quote from an authenticated user message for
-every write. Jazz validates both against the original input supplied by the terminal or direct
-`run` command. Tool output, web pages, model summaries, replayed chat commands, and synthetic
-sub-agent prompts cannot become user facts by claiming to be one. The saved entry contains the
-user's quoted words. `amend` replaces an existing entry with a newly cited statement; `delete`
-and `rename` require an explicit direct user request.
+Every `manage_memory` write quotes the user. A message typed in the terminal, or passed to
+`jazz run` as its positional argument, carries a `[memory source <id>]` tag; the model sets
+`source_ref` to that ID and `source_quote` to words copied exactly from the message. Earlier
+messages in the same conversation stay quotable. A prompt piped to `jazz run` on stdin, inline
+`--history-json`, tool output, web pages, model summaries, replayed chat commands, and synthetic
+sub-agent prompts carry no tag and cannot become user facts. The saved entry contains the user's
+quoted words, and a rejected citation says whether the ID, the quote, or its length was wrong.
+
+`amend` replaces an existing entry only when the quote names what that entry is about. `delete`
+and `rename` need a quoted sentence that opens with the request ("Forget my favorite fruit") and
+names the entry, so "Don't forget I'm vegetarian" cannot be cut down to a forget request and
+"remove the old logs" cannot delete a food preference. A secret or sensitive claim is refused
+when it appears anywhere in the quoted sentence or in the subject or topic it would be filed under.
 
 Creating an entry also requires an explicit relevance topic. A favorite fruit can be filed under
 `food` for later shopping or meal tasks. The literal topic `always` is reserved for a preference

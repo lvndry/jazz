@@ -134,13 +134,13 @@ describe("summarize_context", () => {
     role: string;
     content: string;
     kind?: string;
-    trustedUserSource?: { id: string; text: string };
+    memorySource?: { id: string; text: string };
   }> {
     const messages: Array<{
       role: string;
       content: string;
       kind?: string;
-      trustedUserSource?: { id: string; text: string };
+      memorySource?: { id: string; text: string };
     }> = [
       { role: "system", content: "system" },
       { role: "assistant", content: "Earlier work: migrated auth module.", kind: "summary" },
@@ -150,7 +150,7 @@ describe("summarize_context", () => {
       messages.push({
         role: "user",
         content: userText,
-        trustedUserSource: { id: `user:${index}`, text: userText },
+        memorySource: { id: `user:${index}`, text: userText },
       });
       messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
     }

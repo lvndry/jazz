@@ -142,7 +142,7 @@ describe("extractMemories", () => {
       {
         role: "user",
         content: "I prefer tabs over spaces.",
-        trustedUserSource: { id: "user:1", text: "I prefer tabs over spaces." },
+        memorySource: { id: "user:1", text: "I prefer tabs over spaces." },
       },
     ];
 
@@ -202,7 +202,7 @@ describe("extractMemories", () => {
       {
         role: "user",
         content: "A durable fact.",
-        trustedUserSource: { id: "user:1", text: "A durable fact." },
+        memorySource: { id: "user:1", text: "A durable fact." },
       },
     ];
 
@@ -223,7 +223,7 @@ describe("compactIfNeeded memory-extraction gate", () => {
     {
       role: "user",
       content: `Do the task. ${filler}`,
-      trustedUserSource: { id: "user:1", text: `Do the task. ${filler}` },
+      memorySource: { id: "user:1", text: `Do the task. ${filler}` },
     },
     ...Array.from({ length: 20 }, (_, index) => ({
       role: "assistant" as const,

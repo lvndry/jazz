@@ -15,7 +15,7 @@ import { Effect } from "effect";
 const LEDGER_FILENAME = ".source-ledger.json";
 const MAX_FORGOTTEN_SOURCES = 16_384;
 const MAX_TRACKED_PATHS = 16_384;
-const MAX_SOURCE_REF_CHARS = 128;
+const MAX_SOURCE_ID_CHARS = 128;
 
 interface SourceLedger {
   readonly current: Readonly<Record<string, string>>;
@@ -51,12 +51,12 @@ function readLedger(fs: FileSystem.FileSystem, root: string): Effect.Effect<Sour
           Array.isArray(current) ||
           Object.keys(current).length > MAX_TRACKED_PATHS ||
           !Object.values(current).every(
-            (value) => typeof value === "string" && value.length <= MAX_SOURCE_REF_CHARS,
+            (value) => typeof value === "string" && value.length <= MAX_SOURCE_ID_CHARS,
           ) ||
           !Array.isArray(forgotten) ||
           forgotten.length > MAX_FORGOTTEN_SOURCES ||
           !forgotten.every(
-            (value) => typeof value === "string" && value.length <= MAX_SOURCE_REF_CHARS,
+            (value) => typeof value === "string" && value.length <= MAX_SOURCE_ID_CHARS,
           )
         ) {
           throw new Error("invalid ledger");
@@ -94,23 +94,23 @@ export function prepareMemorySourceWrite(
   fs: FileSystem.FileSystem,
   root: string,
   relativePath: string,
-  sourceRef: string | undefined,
+  sourceId: string | undefined,
 ): Effect.Effect<boolean, Error> {
-  if (sourceRef === undefined) return Effect.succeed(true);
-  if (sourceRef.length === 0 || sourceRef.length > MAX_SOURCE_REF_CHARS) {
+  if (sourceId === undefined) return Effect.succeed(true);
+  if (sourceId.length === 0 || sourceId.length > MAX_SOURCE_ID_CHARS) {
     return Effect.fail(new Error("Authenticated memory source ID is invalid."));
   }
   return Effect.gen(function* () {
     const ledger = yield* readLedger(fs, root);
-    if (ledger.forgotten.includes(sourceRef)) return false;
+    if (ledger.forgotten.includes(sourceId)) return false;
     const prior = ledger.current[relativePath];
     const forgotten =
-      prior === undefined || prior === sourceRef || ledger.forgotten.includes(prior)
+      prior === undefined || prior === sourceId || ledger.forgotten.includes(prior)
         ? ledger.forgotten
         : [...ledger.forgotten, prior];
     yield* writeLedger(fs, root, {
       current: Object.assign(Object.create(null) as Record<string, string>, ledger.current, {
-        [relativePath]: sourceRef,
+        [relativePath]: sourceId,
       }),
       forgotten,
     });
@@ -129,9 +129,9 @@ export function prepareMemorySourceDelete(
     const current = Object.assign(Object.create(null) as Record<string, string>, ledger.current);
     const forgotten = new Set(ledger.forgotten);
     let changed = false;
-    for (const [path, sourceRef] of Object.entries(current)) {
+    for (const [path, sourceId] of Object.entries(current)) {
       if (path !== relativePath && !path.startsWith(`${relativePath}/`)) continue;
-      forgotten.add(sourceRef);
+      forgotten.add(sourceId);
       delete current[path];
       changed = true;
     }
@@ -153,9 +153,9 @@ export function prepareMemorySourceRename(
     const ledger = yield* readLedger(fs, root);
     const current = Object.assign(Object.create(null) as Record<string, string>, ledger.current);
     let changed = false;
-    for (const [path, sourceRef] of Object.entries(ledger.current)) {
+    for (const [path, sourceId] of Object.entries(ledger.current)) {
       if (path !== fromPath && !path.startsWith(`${fromPath}/`)) continue;
-      current[`${toPath}${path.slice(fromPath.length)}`] = sourceRef;
+      current[`${toPath}${path.slice(fromPath.length)}`] = sourceId;
       changed = true;
     }
     if (changed) yield* writeLedger(fs, root, { current, forgotten: ledger.forgotten });

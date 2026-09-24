@@ -50,7 +50,8 @@ jazz run --agent <id> [prompt]
 ```
 
 The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY.
+absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
+treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                              |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

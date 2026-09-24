@@ -37,8 +37,8 @@ const writeContext = { agentId: "agent-1" } as const;
 describe("authenticated source revocation", () => {
   test("a forgotten source cannot recreate its fact during compaction, but a new user turn can", async () => {
     const service = makeService();
-    const oldSource = { agentId: "agent-1", sourceRef: "user:banana-turn" };
-    const newSource = { agentId: "agent-1", sourceRef: "user:new-banana-turn" };
+    const oldSource = { agentId: "agent-1", sourceId: "user:banana-turn" };
+    const newSource = { agentId: "agent-1", sourceId: "user:new-banana-turn" };
     const text = 'The user said: "My favorite fruit is banana."\n';
 
     expect(
@@ -70,8 +70,8 @@ describe("authenticated source revocation", () => {
     const service = makeService();
     const banana = 'The user said: "My favorite fruit is banana."\n';
     const mango = 'The user said: "Actually, my favorite fruit is mango."\n';
-    const oldSource = { agentId: "agent-1", sourceRef: "user:banana" };
-    const newSource = { agentId: "agent-1", sourceRef: "user:mango" };
+    const oldSource = { agentId: "agent-1", sourceId: "user:banana" };
+    const newSource = { agentId: "agent-1", sourceId: "user:mango" };
     const original = "agent-1/when/food/fruit.md";
     const moved = "agent-1/when/food/favorite-fruit.md";
 
@@ -96,7 +96,7 @@ describe("authenticated source revocation", () => {
     const result = await runEither(
       service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
         agentId: "agent-1",
-        sourceRef: "user:banana",
+        sourceId: "user:banana",
       }),
     );
     expect(result._tag).toBe("Left");
@@ -108,7 +108,7 @@ describe("authenticated source revocation", () => {
     await runEffect(
       service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
         agentId: "agent-1",
-        sourceRef: "user:banana",
+        sourceId: "user:banana",
       }),
     );
     const result = await runEither(service.delete(scopes, "agent-1/.provenance.json"));

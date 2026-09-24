@@ -4,7 +4,7 @@ import type { MemoryEntryObservation } from "@/core/interfaces/memory-service";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolProgressEvent } from "@/core/types/tools";
 import type {
@@ -35,10 +35,10 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
-  /** The host has authenticated `userInput` as a direct user message. */
-  readonly authenticatedUserInput?: boolean;
-  /** Original authenticated messages supplied to an internal memory extractor. */
-  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
+  /** Lets the model quote `userInput` as the basis for memory writes, deletes and renames. */
+  readonly trustUserInputAsMemorySource?: boolean;
+  /** Replaces the sources derived from history and `userInput`, as the memory extractor does. */
+  readonly memorySources?: readonly MemorySource[];
   /**
    * Attachments placed directly on this run's first user message.
    *
