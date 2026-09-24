@@ -328,6 +328,12 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             agent: subAgent,
             userInput: wrappedTask,
             conversationId: generateConversationId("subagent"),
+            ...(context.telemetryTraceParent && {
+              telemetryParent: {
+                ...context.telemetryTraceParent,
+                ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
+              },
+            }),
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
             // Cap the child at the parent's own effective tools.

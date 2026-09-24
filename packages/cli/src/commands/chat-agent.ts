@@ -94,7 +94,7 @@ export function chatWithAIAgentCommand(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
-          yield* logger.error("Chat session error", { error });
+          yield* logger.error("Chat session error", { errorType: "session_failed" });
           yield* terminal.error(`Chat session error: ${String(error)}`);
           return yield* Effect.void;
         }),

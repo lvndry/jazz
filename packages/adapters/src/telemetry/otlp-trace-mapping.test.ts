@@ -5,6 +5,7 @@ import {
   isSpanEvent,
   rootSpanIdForRun,
   toSpan,
+  toolSpanIdForCall,
   traceIdForRun,
 } from "./otlp-trace-mapping";
 
@@ -32,6 +33,11 @@ describe("trace and span ids", () => {
     expect(traceIdForRun("run-1")).toBe(traceIdForRun("run-1"));
     expect(traceIdForRun("run-1")).not.toBe(traceIdForRun("run-2"));
   });
+
+  it("gives dispatch tool calls stable IDs scoped to their run", () => {
+    expect(toolSpanIdForCall("run-1", "call-1")).toBe(toolSpanIdForCall("run-1", "call-1"));
+    expect(toolSpanIdForCall("run-1", "call-1")).not.toBe(toolSpanIdForCall("run-2", "call-1"));
+  });
 });
 
 describe("toSpan", () => {
@@ -47,7 +53,10 @@ describe("toSpan", () => {
 
     expect(span.spanId).toBe(rootSpanIdForRun("run-1"));
     expect(span.parentSpanId).toBeUndefined();
-    expect(span.name).toBe("agent researcher");
+    expect(span.name).toBe("run-agent");
+    expect(span.attributes.find((a) => a.key === "langfuse.observation.type")?.value).toEqual({
+      stringValue: "agent",
+    });
   });
 
   it("parents LLM and tool spans to the run's root span", () => {
@@ -65,6 +74,53 @@ describe("toSpan", () => {
     expect(llmSpan.parentSpanId).toBe(rootSpanIdForRun("run-1"));
     expect(toolSpan.parentSpanId).toBe(rootSpanIdForRun("run-1"));
     expect(llmSpan.spanId).not.toBe(toolSpan.spanId);
+  });
+
+  it("nests a subagent under its dispatch tool in the parent trace", () => {
+    const tool = toSpan(
+      makeEvent("tool_invocation", {
+        runId: "parent-run",
+        toolName: "spawn_subagent",
+        toolCallId: "call-1",
+        durationMs: 3000,
+      }),
+      false,
+    );
+    const telemetryParent = {
+      topRunId: "parent-run",
+      parentRunId: "parent-run",
+      parentToolCallId: "call-1",
+      sessionId: "session-1",
+    };
+    const child = toSpan(
+      makeEvent(
+        "agent_run_completed",
+        {
+          runId: "child-run",
+          agentName: "researcher",
+          telemetryParent,
+          durationMs: 2000,
+        },
+        { conversationId: "child-conversation" },
+      ),
+      false,
+    );
+    const generation = toSpan(
+      makeEvent("llm_usage", {
+        runId: "child-run",
+        telemetryParent,
+        model: "gpt-5",
+        usage: { promptTokens: 4, completionTokens: 2 },
+      }),
+      false,
+    );
+    expect(child.traceId).toBe(tool.traceId);
+    expect(child.parentSpanId).toBe(tool.spanId);
+    expect(generation.parentSpanId).toBe(child.spanId);
+    expect(generation.traceId).toBe(child.traceId);
+    expect(child.attributes.find((a) => a.key === "langfuse.session.id")?.value).toEqual({
+      stringValue: "session-1",
+    });
   });
 
   it("derives the span start by subtracting duration from the event time", () => {
@@ -91,8 +147,26 @@ describe("toSpan", () => {
       false,
     );
 
-    expect(runSpan.status).toEqual({ code: 2, message: "provider unreachable" });
-    expect(toolSpan.status).toEqual({ code: 2, message: "exit 1" });
+    expect(runSpan.status).toEqual({ code: 2, message: "Agent run failed" });
+    expect(toolSpan.status).toEqual({ code: 2, message: "Tool invocation failed" });
+    expect(JSON.stringify([runSpan, toolSpan])).not.toContain("provider unreachable");
+  });
+
+  it("marks retry as an event rather than a billable generation", () => {
+    const span = toSpan(
+      makeEvent("llm_retry", {
+        runId: "run-1",
+        model: "gpt-5",
+        error: "secret token",
+      }),
+      false,
+    );
+    const attributes = Object.fromEntries(
+      span.attributes.map((a) => [a.key, Object.values(a.value)[0]]),
+    );
+    expect(attributes["langfuse.observation.type"]).toBe("event");
+    expect(attributes["gen_ai.request.model"]).toBeUndefined();
+    expect(JSON.stringify(span)).not.toContain("secret token");
   });
 
   it("leaves successful spans with unset status", () => {
@@ -100,19 +174,27 @@ describe("toSpan", () => {
     expect(span.status.code).toBe(0);
   });
 
-  it("names LLM spans after the model, per GenAI semconv", () => {
-    expect(toSpan(makeEvent("llm_usage", { model: "gpt-5" }), false).name).toBe("chat gpt-5");
+  it("keeps LLM span names stable when the model changes", () => {
+    expect(toSpan(makeEvent("llm_usage", { model: "gpt-5" }), false).name).toBe(
+      "generate-response",
+    );
   });
 
   it("names classifier LLM spans after the purpose, not as a further chat", () => {
     expect(
       toSpan(makeEvent("llm_usage", { model: "gpt-4o-mini", purpose: "classifier" }), false).name,
-    ).toBe("classifier gpt-4o-mini");
+    ).toBe("classify-command-risk");
   });
 
-  it("falls back to the conversation when an event carries no run id", () => {
+  it("makes an event without a run id a root trace grouped by conversation session", () => {
     const span = toSpan(makeEvent("tool_invocation", {}, { conversationId: "conv-9" }), false);
-    expect(span.traceId).toBe(traceIdForRun("conv-9"));
+    expect(span.traceId).toBe(traceIdForRun("event-tool_invocation"));
+    expect(span.parentSpanId).toBeUndefined();
+    expect(span.attributes.some((attribute) => attribute.key === "jazz.run.id")).toBe(false);
+    expect(span.attributes).toContainEqual({
+      key: "langfuse.session.id",
+      value: { stringValue: "conv-9" },
+    });
   });
 
   it("makes an event with neither run nor conversation its own root span", () => {
@@ -135,7 +217,7 @@ describe("toSpan", () => {
     );
 
     const keys = span.attributes.map((attribute) => attribute.key);
-    expect(keys).toContain("gen_ai.system");
+    expect(keys).toContain("gen_ai.provider.name");
     expect(keys).toContain("gen_ai.usage.input_tokens");
     expect(keys).toContain("jazz.run.id");
   });
@@ -173,9 +255,10 @@ describe("run rollup spans do not double-count usage", () => {
     );
 
     const keys = span.attributes.map((attribute) => attribute.key);
-    // Any gen_ai.* on the rollup makes a backend price it as a further LLM call,
-    // on top of the per-request spans it summarises.
-    expect(keys.filter((key) => key.startsWith("gen_ai."))).toEqual([]);
+    // Run metadata can use GenAI agent attributes; model and usage stay on generations.
+    expect(
+      keys.filter((key) => key.startsWith("gen_ai.usage.") || key === "gen_ai.request.model"),
+    ).toEqual([]);
     // The totals are still reported, just not as semconv usage.
     expect(keys).toContain("jazz.usage.promptTokens");
     expect(keys).toContain("jazz.model");

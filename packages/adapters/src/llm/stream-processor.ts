@@ -524,7 +524,9 @@ export class StreamProcessor {
               finishReason !== "tool-calls"
             ) {
               Effect.runFork(
-                this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`),
+                this.logger.warn("Unexpected LLM stream finish reason", {
+                  errorType: "unexpected_finish_reason",
+                }),
               );
             }
             break;

@@ -42,7 +42,6 @@ import type { MCPTool } from "@jazz/core/types/mcp";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
-import { toPascalCase } from "@jazz/core/utils/string";
 import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
@@ -223,7 +222,7 @@ export function createAgentCommand(): Effect.Effect<
       // Register tools from all selected MCP servers in parallel with timeout
       const registrationEffects = selectedServers.map((serverConfig) =>
         Effect.gen(function* () {
-          yield* logger.debug(`Registering tools from MCP server ${serverConfig.name}...`);
+          yield* logger.debug("Registering MCP tools");
 
           // Discover tools from server with timeout (45 seconds per server to allow for authentication)
           const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
@@ -235,22 +234,18 @@ export function createAgentCommand(): Effect.Effect<
 
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
                   if (isAuthRequired) {
-                    yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
-                    );
+                    yield* logger.warn("MCP connection timed out while awaiting authentication", {
+                      errorType: "authentication_timeout",
+                    });
                   } else {
-                    yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
-                    );
+                    yield* logger.warn("MCP connection timed out", { errorType: "timeout" });
                   }
                 } else if (isAuthRequired) {
-                  yield* logger.warn(
-                    `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
-                  );
+                  yield* logger.warn("MCP authentication required", {
+                    errorType: "authentication_required",
+                  });
                 } else {
-                  yield* logger.warn(
-                    `Failed to connect to MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
-                  );
+                  yield* logger.warn("MCP connection failed", { errorType: "connection_failed" });
                 }
                 // Return empty array on error/timeout
                 return [] as readonly MCPTool[];
@@ -273,14 +268,14 @@ export function createAgentCommand(): Effect.Effect<
             yield* registerTool(tool);
           }
 
-          yield* logger.info(
-            `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
-          );
+          yield* logger.info("MCP tools registered", { toolCount: jazzTools.length });
         }).pipe(
           Effect.catchAll(() =>
             Effect.gen(function* () {
               // If registration fails, continue without this server's tools
-              yield* logger.warn(`Failed to register tools from MCP server ${serverConfig.name}`);
+              yield* logger.warn("MCP tool registration failed", {
+                errorType: "registration_failed",
+              });
             }),
           ),
         ),

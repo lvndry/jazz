@@ -37,6 +37,8 @@ const mockLogger: LoggerService = {
   error: mock(() => Effect.void),
   setLogGroup: mock(() => Effect.void),
   clearLogGroup: mock(() => Effect.void),
+  pushLogGroup: mock(() => Effect.void),
+  popLogGroup: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
 } as unknown as LoggerService;

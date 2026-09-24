@@ -276,7 +276,6 @@ export function runWorkflowCommand(
           now - scheduledAtTime < RECENT_SCHEDULE_THRESHOLD_MS
         ) {
           yield* logger.info("Scheduler-triggered run skipped: workflow was just scheduled", {
-            schedule: scheduleId(scheduleMeta),
             scheduledAt: scheduleMeta.scheduledAt,
             elapsedMs: now - scheduledAtTime,
           });
@@ -400,10 +399,7 @@ export function runWorkflowCommand(
 
     yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
-      workflow: workflowName,
-      schedule: scheduleLabel,
-      agent: agent.name,
-      autoApprove: autoApprovePolicy,
+      autoApprove: autoApprovePolicy === true,
     });
 
     const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));

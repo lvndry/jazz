@@ -133,7 +133,7 @@ export interface OtlpTelemetryConfig {
    * into a waterfall, and what LLM-observability backends accept — Langfuse
    * ingests OTLP traces and not logs.
    */
-  readonly signals?: readonly ("traces" | "logs")[];
+  readonly signals?: readonly ("traces" | "logs" | "metrics")[];
   /** Collector base URL, e.g. `http://localhost:4318`. Env: OTEL_EXPORTER_OTLP_ENDPOINT. */
   readonly endpoint?: string;
   /**
@@ -147,6 +147,8 @@ export interface OtlpTelemetryConfig {
    * Env: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.
    */
   readonly logsEndpoint?: string;
+  /** Full metrics URL including path. Env: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT. */
+  readonly metricsEndpoint?: string;
   /** Extra HTTP headers, typically auth. Env: OTEL_EXPORTER_OTLP_HEADERS. */
   readonly headers?: Readonly<Record<string, string>>;
   /** `service.name` on exported records. Defaults to "jazz". Env: OTEL_SERVICE_NAME. */
@@ -165,6 +167,12 @@ export interface OtlpTelemetryConfig {
   readonly captureContent?: boolean;
   /** Per-request timeout in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
+  /** Maximum disk space used by pending OTLP traces and logs. Defaults to 32 MiB. */
+  readonly maxQueuedBytes?: number;
+  /** Maximum age of pending OTLP traces and logs in milliseconds. Defaults to seven days. */
+  readonly maxQueueAgeMs?: number;
+  /** Metric export interval in milliseconds. Defaults to 30 seconds. */
+  readonly metricExportIntervalMs?: number;
 }
 
 /**
