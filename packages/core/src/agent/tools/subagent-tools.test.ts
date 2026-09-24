@@ -134,13 +134,24 @@ describe("summarize_context", () => {
     role: string;
     content: string;
     kind?: string;
+    trustedUserSource?: { id: string; text: string };
   }> {
-    const messages: Array<{ role: string; content: string; kind?: string }> = [
+    const messages: Array<{
+      role: string;
+      content: string;
+      kind?: string;
+      trustedUserSource?: { id: string; text: string };
+    }> = [
       { role: "system", content: "system" },
       { role: "assistant", content: "Earlier work: migrated auth module.", kind: "summary" },
     ];
     for (let index = 0; index < 20; index++) {
-      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      const userText = `ask ${index} ` + "detail ".repeat(100);
+      messages.push({
+        role: "user",
+        content: userText,
+        trustedUserSource: { id: `user:${index}`, text: userText },
+      });
       messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
     }
     return messages;

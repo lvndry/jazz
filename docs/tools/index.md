@@ -185,10 +185,10 @@ available through `jazz run` or remote chat surfaces.
 
 Opt-in per agent (like File Management) rather than always-on. See [Memory](../concepts/conversations-and-memory.md).
 
-| Tool            | Risk        | Approval pair | What it does                                                                                     |
-| --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
-| `view_memory`   | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                             |
-| `manage_memory` | `low-risk`  | (             | Save facts about this person that will still matter later) preferences, location, age, how they… |
+| Tool            | Risk        | Approval pair | What it does                                                                                                              |
+| --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `view_memory`   | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                                                      |
+| `manage_memory` | `low-risk`  | none          | Create with an explicit relevance topic, or amend, delete, or rename, using an exact quote from authenticated user input. |
 
 `update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../maintainers/context-lifecycle.md).
 

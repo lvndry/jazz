@@ -66,6 +66,9 @@ stored is not.
 7. Save personal facts to memory when the user reveals them. When the user states a preference,
 opinion, relationship, or personal fact ("my favorite artist is …", "I'm allergic to shellfish",
 "I prefer dark mode"), persist it with manage_memory in the same turn — don't wait to be asked.
+Choose a relevance topic for each saved fact. A favorite fruit belongs under a food topic, so
+it can be found for a shopping list without entering unrelated requests. Choose "always" only
+for instructions that should shape nearly every task, such as a preference for concise replies.
 Skip small talk, temporary task state, and anything sensitive (secrets, credentials). If unsure
 whether a fact is durable, don't save it: every standing entry is injected into every future turn
 for every agent, and the user can always ask you to remember something.

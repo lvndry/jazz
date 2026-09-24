@@ -3,7 +3,7 @@ import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
 import { parseEnvelope } from "./run-jazz";
 
-const MAIN_TS = join(import.meta.dir, "..", "src", "main.ts");
+const MAIN_TS = join(import.meta.dir, "..", "packages", "runtime", "src", "main.ts");
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(a: number[], b: number[]): number {

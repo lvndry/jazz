@@ -34,11 +34,20 @@ export interface StoredReasoningPart {
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Host-authenticated user text, retained through compaction without promoting tool output. */
+  trustedUserSource?: { readonly id: string; readonly text: string };
   name?: string;
   /**
    * For role === "tool": the id of the tool call this message responds to
    */
   tool_call_id?: string;
+  /** Observation only: a file result eligible for exposure if these exact bytes reach a request. */
+  memoryDelivery?: {
+    readonly path: string;
+    readonly messageFingerprint: string;
+    readonly deliveredVersion: string;
+    readonly deliveredFingerprint: string;
+  };
   /**
    * Set when this message's original content has been replaced by a placeholder to
    * reclaim context (see `clearToolResults`). Marks the message as already reclaimed

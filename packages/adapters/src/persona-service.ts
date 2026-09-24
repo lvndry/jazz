@@ -4,7 +4,6 @@
  */
 
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -18,7 +17,7 @@ import {
 } from "@jazz/core/types/errors";
 import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@jazz/core/types/persona";
 import { scanMarkdownIndex } from "@jazz/core/utils/markdown-index";
-import { getBuiltinPersonasDirectory } from "@jazz/core/utils/paths";
+import { getBuiltinPersonasDirectory, getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect, Layer, Option } from "effect";
 import matter from "gray-matter";
 
@@ -160,7 +159,7 @@ export class PersonaServiceImpl implements PersonaService {
   private readonly builtinPersonasDirOverride: string | undefined;
 
   constructor(options?: PersonaServiceImplOptions) {
-    this.basePath = options?.baseDataPath ?? path.join(os.homedir(), ".jazz");
+    this.basePath = options?.baseDataPath ?? getJazzHomeDirectory();
     this.builtinPersonasDirOverride = options?.builtinPersonasDir;
   }
 

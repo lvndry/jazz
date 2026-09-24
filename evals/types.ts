@@ -13,6 +13,8 @@ export interface OneShotResult {
   answer: string;
   toolCalls: { id: string; name: string; arguments: string }[];
   costUSD: number;
+  /** False when a provider/model has no pricing; a zero estimate is then not a free run. */
+  costKnown?: boolean;
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
   eventsPath: string; // path to captured --events NDJSON for this rollout
 }

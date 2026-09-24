@@ -1,12 +1,9 @@
 /**
  * A record of whether each run actually consulted memory before answering.
  *
- * `view_memory` is tool-call-gated with no preload: nothing injects memory into
- * context, so a run's continuity depends entirely on the model choosing to spend
- * a call before it answers. Whether that happens is an empirical question about
- * a specific surface, not something the unit suite can settle — a casual opener
- * on a chat bridge is the case most likely to skip it, and the least likely to
- * be noticed. This sink makes the rate measurable.
+ * This log measures explicit `view_memory` calls. Standing entries can also
+ * expose memory without a tool call, so these counts must not be interpreted
+ * as total exposure or outcome credit.
  *
  * Append-only JSONL, unparseable lines skipped, failures swallowed — the same
  * discipline as the misfire log, for the same reason: losing a recall entry must
