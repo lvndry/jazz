@@ -29,10 +29,11 @@ When in doubt, do not save it. Writing nothing is the correct and common outcome
 
 ## How to write
 
-- First call view_memory with no path to see the scopes and files that already exist. Choose the scope that fits the fact; do not guess a path.
-- Read the relevant file with view_memory before changing it. Keep one file per topic rather than a running log.
-- If a fact is already recorded, do nothing. If it is recorded but stale, replace the stale text with str_replace instead of adding a duplicate.
-- Create a new file only when no existing file fits the topic.
+- First call view_memory with no path to see the scopes and entries that already exist. Choose the scope that fits the fact; do not guess a path.
+- Every write quotes the user: set source_ref to the ID in a `[memory source <id>]` tag and source_quote to words copied exactly from that message. Untagged text cannot be quoted.
+- Each entry is one subject. Read the entry with view_memory before changing it.
+- If a fact is already recorded, do nothing. If it is recorded but stale, use manage_memory amend on that entry, quoting the words that correct it, instead of creating a duplicate.
+- Create a new entry only when no existing entry covers the subject.
 
 ## Safety
 

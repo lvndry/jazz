@@ -36,12 +36,14 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import type { ActivePreference } from "@/core/memory/preference-line";
+import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
@@ -60,6 +62,8 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
+import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
   createAgentRunMetrics,
   emitAgentRunStarted,
@@ -116,7 +120,7 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
+): Effect.Effect<readonly ActivePreference[], never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
@@ -124,10 +128,12 @@ function resolveActivePreferences(
       return [];
     }
     const memoryService = memoryServiceOption.value;
-
     return yield* Effect.gen(function* () {
-      const entries = yield* memoryService.standingEntries(memoryScopes);
-      return entries.map((entry) => ({ summary: entry.summary }));
+      const standingEntries = yield* memoryService.standingEntries(memoryScopes);
+      return standingEntries.map((entry) => ({
+        scope: entry.scope,
+        summary: entry.summary,
+      }));
     }).pipe(
       Effect.catchAll((error) =>
         logger
@@ -135,7 +141,7 @@ function resolveActivePreferences(
             scopeCount: memoryScopes.length,
             errorCategory: telemetryErrorCategory(error),
           })
-          .pipe(Effect.as<{ summary: string }[]>([])),
+          .pipe(Effect.as<readonly ActivePreference[]>([])),
       ),
     );
   });
@@ -500,7 +506,7 @@ function initializeAgentRun(
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
     // outright, so the model is never even offered a way to persist anything.
     if (options.disablePersistence === true) {
-      combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
+      combinedToolNames = combinedToolNames.filter((name) => name !== MANAGE_MEMORY_TOOL_NAME);
     }
 
     // Same reasoning for the tools that solicit an answer from a human. Failing the
@@ -609,11 +615,27 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
+    const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
+    const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+    const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
+      ? createMemoryOpportunityRecorder({
+          snapshotEntries: () => memoryServiceForReceipts.value.snapshotEntries(memoryScopes),
+          fileSystem: yield* FileSystem.FileSystem,
+          logger,
+          viewMemoryOffered: expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
+        })
+      : undefined;
+
+    const currentMemorySource: MemorySource | undefined =
+      options.trustUserInputAsMemorySource === true && options.isResume !== true
+        ? { id: `user:${runMetrics.runId}`, text: userInput }
+        : undefined;
+    const memorySources =
+      options.memorySources ?? collectMemorySources(history, currentMemorySource);
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -623,6 +645,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(currentMemorySource !== undefined ? { memorySource: currentMemorySource } : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -666,6 +689,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      memorySources,
       telemetryTraceParent: {
         topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
         parentRunId: runMetrics.runId,
@@ -759,6 +783,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      ...(memoryOpportunities !== undefined ? { memoryOpportunities } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {

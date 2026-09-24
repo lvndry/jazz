@@ -64,6 +64,36 @@ events omit command text, tool arguments, results, and prompt/completion text. T
 record keeps a bounded argument shape; transcripts and other local records remain sensitive plaintext.
 Pending OTLP traces and logs are stored in a private, bounded outbox until delivery or expiry.
 
+### Memory writes
+
+`manage_memory` accepts a new fact or correction only with an exact quote and source ID from a
+host-labeled user message. Tool output, fetched pages, model summaries, and a synthetic
+compaction transcript cannot mint that source ID. Obvious secret and sensitive claims are
+rejected on create or amend, whether they sit in the quoted span, the sentence around it, or the
+subject and topic the entry would be filed under. Delete and rename need a quoted sentence that
+opens with the request and names the entry; amend needs a quote that names the entry. A hidden
+cross-scope source ledger revokes the quoted sentences, as hashed keys, before their memory is
+corrected or forgotten, so compaction cannot re-save that statement later. A malformed ledger
+pauses cited writes but never blocks a delete; the model cannot address its hidden path through
+memory tools. The runner marks terminal messages and a `jazz run` positional
+prompt as memory sources. A prompt piped on stdin and inline `--history-json` never are, so a
+webhook body relayed through `jazz run` cannot back a memory write. Callers that put untrusted
+text in the positional prompt are responsible for separating it before invoking Jazz.
+
+Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
+Memory path reads and writes reject linked path components, so a linked external file cannot
+be surfaced as a saved preference.
+
+Exact quotation authenticates where words came from, not whether they are a durable personal
+fact or which existing entry they should update. A model can still misjudge those questions.
+Legacy entries without recorded sentences cannot revoke their original conversation source on deletion.
+
+Memory opportunity receipts retain paths, entry IDs, and hashes rather than transcript or tool text.
+Hashes of short facts may still be guessable, so the receipt store remains private under
+`JAZZ_HOME`. Forgetting any entry erases the whole scope's receipt window before deleting the
+memory file. A new scope epoch prevents an in-flight request from restoring old receipts.
+The receipt writer has no path to memory credit, skills, or policy mutation.
+
 ### Remote entry points
 
 `jazz run` listens on no port. `jazz daemon` binds loopback by default and provisions an operator

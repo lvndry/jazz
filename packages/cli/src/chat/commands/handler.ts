@@ -2852,7 +2852,7 @@ function handleMemoryCommand(
         const provenance = yield* memoryService
           .provenance(scopes, args[0])
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-        yield* terminal.log(fmt.heading(outcome.path));
+        yield* terminal.log(fmt.heading(outcome.displayPath));
         if (provenance !== undefined) {
           yield* terminal.log(
             `updated ${provenance.updatedAt.slice(0, 10)} · ${provenance.writeCount} write(s)\n`,

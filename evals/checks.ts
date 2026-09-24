@@ -54,6 +54,31 @@ export function constraintCheck(result: OneShotResult, constraints: Constraint[]
   };
 }
 
+/** A regex, or a predicate for signals a regex cannot express (such as an exact line count). */
+export type AnswerSignal = RegExp | ((answer: string) => boolean);
+
+function signalMatches(signal: AnswerSignal, answer: string): boolean {
+  return signal instanceof RegExp ? signal.test(answer) : signal(answer);
+}
+
+/** Every required signal is present in the answer and no forbidden signal is. */
+export function requiredAndForbiddenPatternCheck(
+  answer: string,
+  required: readonly { readonly name: string; readonly pattern: AnswerSignal }[],
+  forbidden: readonly AnswerSignal[] = [],
+): CheckResult {
+  const matched = required.filter((signal) => signalMatches(signal.pattern, answer));
+  const forbiddenSignalPresent = forbidden.some((signal) => signalMatches(signal, answer));
+  const requiredSignalCoverage = required.length === 0 ? 0 : matched.length / required.length;
+  return {
+    pass: requiredSignalCoverage === 1 && !forbiddenSignalPresent,
+    score: forbiddenSignalPresent ? 0 : requiredSignalCoverage,
+    detail: forbiddenSignalPresent
+      ? "a forbidden pattern appeared in the answer"
+      : `matched ${matched.length}/${required.length} required signals`,
+  };
+}
+
 /**
  * The answer cites sources that actually exist in the fixture corpus and quotes
  * a snippet present in the cited file. v1 is deliberately simple: a source counts
@@ -64,7 +89,9 @@ export function citationGroundingCheck(result: OneShotResult, corpusDir: string)
   const files = existsSync(corpusDir) ? readdirSync(corpusDir) : [];
   const grounded: string[] = [];
   for (const file of files) {
-    if (!result.answer.includes(file)) continue;
+    if (!result.answer.includes(file)) {
+      continue;
+    }
     let content: string;
     try {
       content = readFileSync(join(corpusDir, file), "utf-8");
@@ -75,7 +102,9 @@ export function citationGroundingCheck(result: OneShotResult, corpusDir: string)
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 25);
-    if (lines.some((line) => result.answer.includes(line))) grounded.push(file);
+    if (lines.some((line) => result.answer.includes(line))) {
+      grounded.push(file);
+    }
   }
   const pass = grounded.length > 0;
   return {
@@ -104,7 +133,9 @@ export async function comprehensionCheck(
       result.answer,
       "comprehension",
     );
-    if (score >= 0.5) correct++;
+    if (score >= 0.5) {
+      correct++;
+    }
   }
   const score = qa.length === 0 ? 0 : correct / qa.length;
   return {

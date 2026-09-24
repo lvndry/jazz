@@ -12,7 +12,7 @@ import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 
 // Re-export ToolRiskLevel from tool-registry interface
@@ -153,6 +153,8 @@ export interface ToolExecutionResult {
    * producer does not mean editing the runner, the JSON envelope and every bridge.
    */
   readonly artifacts?: readonly GeneratedArtifact[];
+  /** A memory entry this call showed the model, declared by the producer for the same reason. */
+  readonly memoryExposure?: MemoryExposure;
 }
 
 /**
@@ -270,6 +272,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /** User messages the model may quote for memory writes; tool output cannot add to this set. */
+  readonly memorySources?: readonly MemorySource[];
   /** Trace context inherited by a child agent invoked from this tool. */
   readonly telemetryTraceParent?: TelemetryTraceParent;
   /** Memory scopes available to this run. */

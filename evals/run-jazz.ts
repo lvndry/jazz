@@ -16,7 +16,9 @@ export function parseEnvelope(stdout: string): Envelope {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const last = lines[lines.length - 1];
-  if (!last) throw new Error("jazz run produced no output");
+  if (!last) {
+    throw new Error("jazz run produced no output");
+  }
 
   let payload: unknown;
   try {
@@ -38,6 +40,7 @@ export function parseEnvelope(stdout: string): Envelope {
     ok: true,
     answer: typeof envelope["answer"] === "string" ? envelope["answer"] : "",
     costUSD: typeof envelope["costUSD"] === "number" ? envelope["costUSD"] : 0,
+    costKnown: envelope["costKnown"] === true,
     tokenUsage: {
       promptTokens: usage["promptTokens"] ?? 0,
       completionTokens: usage["completionTokens"] ?? 0,
@@ -50,7 +53,8 @@ export function parseEnvelope(stdout: string): Envelope {
 }
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const MAIN_TS = join(REPO_ROOT, "src", "main.ts");
+/** Runtime entry point every eval spawn runs under `bun`. */
+export const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
 const REPORT_DIR = join(REPO_ROOT, "evals", "report");
 
 export interface RunJazzOptions {
@@ -59,6 +63,8 @@ export interface RunJazzOptions {
   workspaceDir: string;
   cassettePath: string;
   cassetteMode?: "record" | "replay";
+  /** Disable fetch interception when a live provider uses HTTP through the same process. */
+  useWebCassette?: boolean;
   reasoningEffort?: string;
   timeoutMs: number;
   runId: string;
@@ -68,6 +74,8 @@ export interface RunJazzOptions {
   jazzHome?: string;
   /** Cap iterations, e.g. to stop a run partway without killing the process. */
   maxIterations?: number;
+  /** Skip streaming NDJSON when a task only needs the final envelope and tool calls. */
+  captureEvents?: boolean;
 }
 
 /**
@@ -88,15 +96,20 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     "--agent",
     options.agentId,
     "--json",
-    "--events",
-    "all",
     "--approval-policy",
     "high-risk",
     "--timeout",
     String(options.timeoutMs),
   ];
-  if (options.reasoningEffort) argv.push("--reasoning", options.reasoningEffort);
-  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.captureEvents !== false) {
+    argv.push("--events", "all");
+  }
+  if (options.reasoningEffort) {
+    argv.push("--reasoning", options.reasoningEffort);
+  }
+  if (options.conversationId) {
+    argv.push("--conversation", options.conversationId);
+  }
   if (options.maxIterations !== undefined) {
     argv.push("--max-iterations", String(options.maxIterations));
   }
@@ -105,8 +118,12 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     cwd: options.workspaceDir,
     env: {
       ...process.env,
-      JAZZ_WEB_CASSETTE: options.cassettePath,
-      JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+      ...(options.useWebCassette === false
+        ? {}
+        : {
+            JAZZ_WEB_CASSETTE: options.cassettePath,
+            JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+          }),
       ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
     },
     stdout: "pipe",
@@ -169,7 +186,9 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
     "--timeout",
     String(options.timeoutMs),
   ];
-  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.conversationId) {
+    argv.push("--conversation", options.conversationId);
+  }
   if (options.maxIterations !== undefined) {
     argv.push("--max-iterations", String(options.maxIterations));
   }
@@ -206,7 +225,9 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.length === 0) continue;
+        if (trimmed.length === 0) {
+          continue;
+        }
         raw.push(trimmed);
         let event: Record<string, unknown>;
         try {

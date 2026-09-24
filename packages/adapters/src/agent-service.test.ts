@@ -797,6 +797,10 @@ describe("AgentService", () => {
       await expectRejected({ ...baseConfig, memoryScopes: "work" });
     });
 
+    it("rejects an unsafe memory scope name", async () => {
+      await expectRejected({ ...baseConfig, memoryScopes: ["../private"] });
+    });
+
     it("rejects a blank memory scope", async () => {
       await expectRejected({ ...baseConfig, memoryScopes: ["work", "  "] });
     });

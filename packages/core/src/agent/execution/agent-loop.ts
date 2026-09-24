@@ -5,7 +5,11 @@
  */
 
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
-import { recordMemoryRecall, VIEW_MEMORY_TOOL_NAME } from "@/core/agent/memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  recordMemoryRecall,
+  VIEW_MEMORY_TOOL_NAME,
+} from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -28,8 +32,10 @@ import {
 } from "@/core/types/attachment";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { GenerationInterruptedError, LLMRateLimitError } from "@/core/types/errors";
+import type { MemoryDelivery } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import { sha256Hex } from "@/core/utils/hash";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
@@ -289,6 +295,7 @@ interface LoopDeps {
    * screenshot can attach it, or explain why it cannot.
    */
   supportedAttachmentKinds: readonly AttachmentKind[];
+  memoryOpportunities: AgentRunContext["memoryOpportunities"];
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -779,10 +786,39 @@ function handleToolPhase(
     );
 
     // Validate all tool calls have results
-    const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
+    const resultMap = new Map(
+      toolResults.map((toolResult) => [toolResult.toolCallId, toolResult.result]),
+    );
+    const successMap = new Map(
+      toolResults.map((toolResult) => [toolResult.toolCallId, toolResult.success]),
+    );
+    const exposureMap = new Map(
+      toolResults.flatMap((toolResult) =>
+        toolResult.memoryExposure === undefined
+          ? []
+          : [[toolResult.toolCallId, toolResult.memoryExposure] as const],
+      ),
+    );
     for (const [duplicateId, canonicalId] of aliases) {
       const canonicalResult = resultMap.get(canonicalId);
-      if (canonicalResult !== undefined) resultMap.set(duplicateId, canonicalResult);
+      if (canonicalResult !== undefined) {
+        resultMap.set(duplicateId, canonicalResult);
+      }
+      const canonicalSuccess = successMap.get(canonicalId);
+      if (canonicalSuccess !== undefined) {
+        successMap.set(duplicateId, canonicalSuccess);
+      }
+      const canonicalExposure = exposureMap.get(canonicalId);
+      if (canonicalExposure !== undefined) {
+        exposureMap.set(duplicateId, canonicalExposure);
+      }
+    }
+    if (
+      toolResults.some(
+        (toolResult) => toolResult.success && toolResult.name === MANAGE_MEMORY_TOOL_NAME,
+      )
+    ) {
+      deps.memoryOpportunities?.invalidateSnapshot();
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -825,11 +861,17 @@ function handleToolPhase(
           });
         } else {
           const formattedResult = formatToolResultForContext(toolCall.function.name, result);
+          const memoryExposure = exposureMap.get(toolCall.id);
+          const memoryDelivery: MemoryDelivery | undefined =
+            memoryExposure === undefined
+              ? undefined
+              : { ...memoryExposure, messageContentHash: sha256Hex(formattedResult) };
           state.currentMessages.push({
             role: "tool",
             name: toolCall.function.name,
             content: formattedResult,
             tool_call_id: toolCall.id,
+            ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
@@ -1134,8 +1176,24 @@ function runIteration(
         ] as typeof state.currentMessages)
       : state.currentMessages;
 
+    const memoryOpportunities = deps.memoryOpportunities;
+    const requestMessages = [...messagesForLLM];
+    const pendingReceipts =
+      memoryOpportunities === undefined
+        ? undefined
+        : yield* Effect.fork(
+            memoryOpportunities.begin({
+              runId: options.runId ?? runMetrics.runId,
+              iteration: iterationIndex,
+              messages: requestMessages,
+            }),
+          );
     const completionStartTime = Date.now();
     const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+    if (memoryOpportunities !== undefined && pendingReceipts !== undefined) {
+      const tickets = yield* Fiber.join(pendingReceipts);
+      yield* memoryOpportunities.complete(tickets, requestMessages);
+    }
     const completionDurationMs = Date.now() - completionStartTime;
 
     if (result.interrupted) {
@@ -1344,6 +1402,7 @@ export function executeAgentLoop(
           context,
           tools,
           messages,
+          memoryOpportunities,
           runMetrics,
           provider,
           model,
@@ -1467,6 +1526,7 @@ export function executeAgentLoop(
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,
+          memoryOpportunities,
         };
 
         // A resumed run rejoins a turn that stopped between a tool call and its result.

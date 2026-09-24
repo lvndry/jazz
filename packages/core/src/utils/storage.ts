@@ -104,7 +104,8 @@ export interface AtomicFileWriteOptions {
   readonly mode?: number;
 }
 
-function toError(error: unknown): Error {
+/** Normalize an unknown failure into an `Error`, keeping it when it already is one. */
+export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 

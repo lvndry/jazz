@@ -122,7 +122,9 @@ export function seedIsolatedJazzHome(homeDir: string): string {
   mkdirSync(agentsDir, { recursive: true });
   if (existsSync(EVAL_AGENTS_DIR)) {
     for (const name of readdirSync(EVAL_AGENTS_DIR)) {
-      if (!name.endsWith(".json")) continue;
+      if (!name.endsWith(".json")) {
+        continue;
+      }
       writeFileSync(join(agentsDir, name), readFileSync(join(EVAL_AGENTS_DIR, name), "utf-8"));
     }
   }
@@ -154,7 +156,9 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
       ? seedIsolatedJazzHome(mkdtempSync(join(tmpdir(), `eval-home-${task.id}-`)))
       : "";
     const cassettePath = join(WEB_FIXTURE_DIR, `${task.id}.cassette.json`);
-    if (!existsSync(cassettePath)) writeFileSync(cassettePath, "{}");
+    if (!existsSync(cassettePath)) {
+      writeFileSync(cassettePath, "{}");
+    }
     let pass: boolean;
     let costUSD = 0;
     try {
@@ -191,7 +195,9 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
       pass = false;
     } finally {
       rmSync(workspaceDir, { recursive: true, force: true });
-      if (jazzHomeDir) rmSync(jazzHomeDir, { recursive: true, force: true });
+      if (jazzHomeDir) {
+        rmSync(jazzHomeDir, { recursive: true, force: true });
+      }
     }
     const entry = perTask.get(task.id) ?? {
       taskId: task.id,
@@ -228,21 +234,29 @@ export async function runAB(
 }
 
 async function loadTasks(): Promise<EvalTask[]> {
-  if (!existsSync(TASKS_DIR)) return [];
+  if (!existsSync(TASKS_DIR)) {
+    return [];
+  }
   const tasks: EvalTask[] = [];
   for (const domain of readdirSync(TASKS_DIR)) {
     const domainDir = join(TASKS_DIR, domain);
     for (const file of readdirSync(domainDir)) {
-      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) {
+        continue;
+      }
       const module = (await import(join(domainDir, file))) as { tasks?: EvalTask[] };
-      if (Array.isArray(module.tasks)) tasks.push(...module.tasks);
+      if (Array.isArray(module.tasks)) {
+        tasks.push(...module.tasks);
+      }
     }
   }
   return tasks;
 }
 
 async function loadCalibration(): Promise<CalibrationRow[]> {
-  if (!existsSync(CALIBRATION_PATH)) return [];
+  if (!existsSync(CALIBRATION_PATH)) {
+    return [];
+  }
   const text = await Bun.file(CALIBRATION_PATH).text();
   return text
     .split("\n")
@@ -253,14 +267,14 @@ async function loadCalibration(): Promise<CalibrationRow[]> {
 
 /**
  * Cost guardrail: refuse to run any agent whose model isn't free-or-cheap.
- * Resolves the agent config from the jazz agents dir and checks isAllowedEvalModel.
+ * Resolves the agent config from `jazzHome`'s agents dir (the process's
+ * JAZZ_HOME, else ~/.jazz) and checks isAllowedEvalModel.
  */
-function assertAllowedAgent(agentId: string): void {
-  const agentPath = join(
-    process.env["JAZZ_HOME"] ?? join(homedir(), ".jazz"),
-    "agents",
-    `${agentId}.json`,
-  );
+export function assertAllowedAgent(
+  agentId: string,
+  jazzHome: string = process.env["JAZZ_HOME"] ?? join(homedir(), ".jazz"),
+): void {
+  const agentPath = join(jazzHome, "agents", `${agentId}.json`);
   let parsed: { config?: { llmProvider?: string; llmModel?: string } };
   try {
     parsed = JSON.parse(readFileSync(agentPath, "utf-8")) as {
@@ -273,14 +287,16 @@ function assertAllowedAgent(agentId: string): void {
   const model = parsed.config?.llmModel ?? "";
   if (!isAllowedEvalModel(provider, model)) {
     throw new Error(
-      `eval cost guardrail: agent "${agentId}" uses "${provider}/${model}". Only OpenRouter ":free" models or gpt-5.4-nano/gpt-5.4-mini are permitted.`,
+      `eval cost guardrail: agent "${agentId}" uses "${provider}/${model}". Only OpenRouter ":free" models, Ollama models, or gpt-5.4-nano/gpt-5.4-mini are permitted.`,
     );
   }
 }
 
 function parseFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
-  if (index < 0) return undefined;
+  if (index < 0) {
+    return undefined;
+  }
   const value = process.argv[index + 1];
   return value && !value.startsWith("-") ? value : undefined;
 }
@@ -291,7 +307,9 @@ export async function runCli(): Promise<void> {
     const abAgent = parseFlag("--ab");
     const samples = Number(parseFlag("--samples") ?? EVAL_CONFIG.samplesPerTask);
     assertAllowedAgent(agentId);
-    if (abAgent) assertAllowedAgent(abAgent);
+    if (abAgent) {
+      assertAllowedAgent(abAgent);
+    }
     assertAllowedAgent(EVAL_CONFIG.judgeAgentId);
     const tasks = await loadTasks();
     if (tasks.length === 0) {

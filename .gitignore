@@ -69,8 +69,9 @@ CLAUDE.md
 superpowers/
 plans/
 
-# eval harness run outputs
+# eval harness run outputs and write-ups stay local
 evals/report/
+evals/results/
 
 # Astro build cache
 .astro/

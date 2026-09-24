@@ -9,14 +9,31 @@ import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 
-/** An entry the current turn should act on. */
-export interface MemoryEntryInForce {
+/** A memory entry as listings and the prompt see it: where it lives and its first line. */
+export interface MemoryEntrySummary {
   /** Scope-qualified path, as the memory tools address it. */
   readonly path: string;
+  /** The scope that contributed this entry. */
+  readonly scope: string;
   /** `undefined` means the entry is in force on every task. */
   readonly topic: string | undefined;
   /** First non-empty line: entries are one thought each, so this is the point. */
   readonly summary: string;
+}
+
+/** A scope-eligible entry captured before a model request, whether or not it is ever shown. */
+export interface MemoryEntrySnapshot extends MemoryEntrySummary {
+  readonly entryId: string;
+  /** SHA-256 of the full file content; it changes after an edit. */
+  readonly entryContentHash: string;
+  /** Receipt epoch captured while the memory write lock was held. */
+  readonly receiptEpoch: string;
+}
+
+/** Every scope-eligible entry, plus the scopes that could not be read and were skipped. */
+export interface MemorySnapshot {
+  readonly entries: readonly MemoryEntrySnapshot[];
+  readonly unreadableScopes: readonly string[];
 }
 
 export interface MemoryDirectoryEntry {
@@ -33,7 +50,10 @@ export type MemoryViewOutcome =
     }
   | {
       readonly kind: "file";
-      readonly path: string;
+      /** Where the file lives on disk, abbreviated for display. Not an address the tools accept. */
+      readonly displayPath: string;
+      /** Canonical `<scope>/<rest>` path, as the memory tools address it. */
+      readonly virtualPath: string;
       readonly content: string;
       readonly startLine: number;
       readonly totalLines: number;
@@ -62,11 +82,15 @@ export interface MemoryMutationOutcome {
  * Who is writing. Required on every mutating call so a shared scope can report
  * which agents have touched a file.
  *
- * Whether a write is *allowed* is decided before this, in `manage_memory`: a
- * run that has ingested untrusted external content cannot write memory at all.
+ * Whether a model-facing write is *allowed* is decided before this, in
+ * `manage_memory`: the source ID and exact quote must match a memory source.
+ * The store additionally rejects quotes from sentences revoked by a correction
+ * or forget, so a compaction pass cannot re-save an old statement.
  */
 export interface MemoryWriteContext {
   readonly agentId: string;
+  /** Keys of the user sentences the written claim quotes; absent for writes that quote no one. */
+  readonly quotedSentenceKeys?: readonly string[];
   /**
    * Typing recorded alongside the write. Supplied when an entry is created so
    * the sidecar mirrors what the path encodes; omitted on later edits, which
@@ -90,22 +114,25 @@ export interface MemoryWriteContext {
  * namespace the caller can address freely.
  */
 export interface MemoryService {
+  /** Snapshot scope-eligible entries, assigning and persisting a stable ID for any file without one. */
+  readonly snapshotEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<MemorySnapshot, Error, FileSystem.FileSystem>;
   readonly view: (
     scopes: readonly string[],
     virtualPath: string,
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
-  /**
-   * Standing entries: everything under `always/` in the accessible scopes.
-   *
-   * Topic-scoped entries are the agent's responsibility to discover via
-   * `view_memory` — the recall path cannot do semantic association, so it
-   * only injects what applies unconditionally.
-   */
+  /** All files under `always/` in the accessible scopes. */
   readonly standingEntries: (
     scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
+
+  /** Files under `when/<topic>/` in the accessible scopes. */
+  readonly conditionalEntries: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
 
   readonly create: (
     scopes: readonly string[],

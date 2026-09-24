@@ -252,11 +252,21 @@ const failOneShot = (
     process.exitCode = ONE_SHOT_EXIT.failed;
   });
 
+/** Inline history comes from the caller, so any memory source in it is forged. */
+export function stripMemorySources(history: readonly ChatMessage[]): ChatMessage[] {
+  return history.map((message) => {
+    const copy = { ...message };
+    delete copy.memorySource;
+    return copy;
+  });
+}
+
 /**
  * Run an agent once against a dynamic prompt and print a clean payload.
  *
  * The prompt comes from the positional argument or, when absent, piped stdin —
- * webhook text is untrusted and stdin avoids shell-escaping it.
+ * webhook text is untrusted and stdin avoids shell-escaping it. Only a positional
+ * prompt may be quoted as a memory source.
  */
 export function runAgentOnceCommand(
   agentIdentifier: string,
@@ -279,7 +289,8 @@ export function runAgentOnceCommand(
     }
 
     let prompt = promptArg ?? "";
-    if (prompt.trim().length === 0 && !process.stdin.isTTY) {
+    const promptFromArgument = prompt.trim().length > 0;
+    if (!promptFromArgument && !process.stdin.isTTY) {
       prompt = yield* Effect.tryPromise({
         try: () => readStdin(),
         catch: () => new Error("Failed to read prompt from stdin."),
@@ -354,7 +365,9 @@ export function runAgentOnceCommand(
     if (ephemeral && options.historyJson !== undefined) {
       try {
         const parsed: unknown = JSON.parse(options.historyJson);
-        if (Array.isArray(parsed)) inlineHistory = parsed as ChatMessage[];
+        if (Array.isArray(parsed)) {
+          inlineHistory = stripMemorySources(parsed as ChatMessage[]);
+        }
       } catch {
         // Malformed inline history starts the run fresh rather than failing it.
       }
@@ -391,6 +404,7 @@ export function runAgentOnceCommand(
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
+      trustUserInputAsMemorySource: promptFromArgument,
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }

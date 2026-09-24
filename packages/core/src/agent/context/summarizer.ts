@@ -15,7 +15,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import { describeAttachment } from "@/core/types/attachment";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { JsonValue } from "@/core/types/plugin";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
@@ -251,6 +251,7 @@ export type RecursiveRunner = (options: {
   userInput: string;
   conversationId: string;
   maxIterations?: number;
+  memorySources?: readonly MemorySource[];
 }) => Effect.Effect<
   AgentResponse,
   Error,
