@@ -71,6 +71,7 @@ export interface AgentPromptOptions {
   readonly agentName: string;
   readonly agentDescription: string;
   readonly userInput: string;
+  readonly trustedUserSource?: { readonly id: string; readonly text: string };
   /** Continuing a parked run: keep the transcript as-is and add no user message. */
   readonly isResume?: boolean;
   readonly conversationHistory?: ChatMessage[];
@@ -509,12 +510,19 @@ export class AgentPromptBuilder {
           }
 
           const attachments = [...ingested.attachments, ...callerAttachments];
+          const memorySourceNote =
+            options.trustedUserSource === undefined
+              ? ""
+              : `\n\n[Authenticated memory source: ${options.trustedUserSource.id}. Cite this ID and exact words from the user's message when using manage_memory.]`;
           messages.push({
             role: "user",
+            ...(options.trustedUserSource !== undefined
+              ? { trustedUserSource: options.trustedUserSource }
+              : {}),
             content:
               ingested.notes.length > 0
-                ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}`
-                : effectiveUserContent,
+                ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}${memorySourceNote}`
+                : `${effectiveUserContent}${memorySourceNote}`,
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(options.pinInitialMessage === true ? { kind: "task" } : {}),
           });

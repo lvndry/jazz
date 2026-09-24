@@ -389,6 +389,7 @@ export function runAgentOnceCommand(
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
+      authenticatedUserInput: true,
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }

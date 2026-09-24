@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
+import type { MemoryEntryObservation } from "@/core/interfaces/memory-service";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
@@ -34,6 +35,10 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
+  /** The host has authenticated `userInput` as a direct user message. */
+  readonly authenticatedUserInput?: boolean;
+  /** Original authenticated messages supplied to an internal memory extractor. */
+  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
   /**
    * Attachments placed directly on this run's first user message.
    *
@@ -371,6 +376,8 @@ export interface AgentRunContext {
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
+  /** Snapshot scope-eligible memory before each model request for shadow observations. */
+  readonly observeMemory?: () => Effect.Effect<readonly MemoryEntryObservation[], never>;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.

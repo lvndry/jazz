@@ -1,8 +1,17 @@
+/**
+ * Covers scope-aware memory discovery and the observation snapshot used by
+ * shadow receipts. Observation assigns stable IDs without marking a file viewed.
+ */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import {
+  beginMemoryOpportunities,
+  completeMemoryOpportunities,
+  readMemoryOpportunityReceipts,
+} from "@jazz/core/agent/memory-observation-receipts";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
@@ -88,6 +97,16 @@ describe("standingEntries", () => {
     expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
   });
 
+  test("does not inject files reached through memory symlinks", async () => {
+    const service = makeService();
+    const outsideFile = path.join(tmpDir, "outside.txt");
+    fs.writeFileSync(outsideFile, "external instruction");
+    fs.mkdirSync(path.join(tmpDir, "personal", "always"), { recursive: true });
+    fs.symlinkSync(outsideFile, path.join(tmpDir, "personal", "always", "linked.md"));
+
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+  });
+
   test("survives a corrupt sidecar", async () => {
     const service = makeService();
     await runEffect(service.create(scopes, "personal/always/a.md", "still here", writeContext));
@@ -153,6 +172,108 @@ describe("standingEntries", () => {
         topic: "colleagues",
         summary: "Be professional",
       },
+    ]);
+  });
+
+  test("does not discover conditional memories through a linked topic", async () => {
+    const service = makeService();
+    const outsideTopic = path.join(tmpDir, "outside-topic");
+    fs.mkdirSync(outsideTopic);
+    fs.writeFileSync(path.join(outsideTopic, "instruction.md"), "external instruction");
+    fs.mkdirSync(path.join(tmpDir, "personal", "when"), { recursive: true });
+    fs.symlinkSync(outsideTopic, path.join(tmpDir, "personal", "when", "food"));
+
+    expect(await runEffect(service.conditionalEntries(scopes))).toEqual([]);
+  });
+});
+
+describe("observeEntries", () => {
+  test("skips a linked scope without reading or writing its provenance", async () => {
+    const service = makeService();
+    const outside = path.join(tmpDir, "outside-scope");
+    fs.mkdirSync(path.join(outside, "always"), { recursive: true });
+    fs.writeFileSync(path.join(outside, "always", "note.md"), "external instruction");
+    fs.writeFileSync(path.join(outside, ".provenance.json"), "{invalid json");
+    fs.symlinkSync(outside, path.join(tmpDir, "personal"));
+
+    expect(await runEffect(service.observeEntries(scopes))).toEqual([]);
+    expect(fs.readFileSync(path.join(outside, ".provenance.json"), "utf8")).toBe("{invalid json");
+  });
+
+  test("forget erases retained receipts for the scope before removing memory", async () => {
+    const service = new MemoryServiceImpl({ baseMemoryDirectory: path.join(tmpDir, "memory") });
+    expect(
+      (
+        await runEffect(
+          service.create(scopes, "personal/when/food/fruit.md", "banana", writeContext),
+        )
+      ).success,
+    ).toBe(true);
+    const entries = await runEffect(service.observeEntries(scopes));
+    const entryId = entries[0]?.entryId ?? "";
+    const messages = [{ role: "user" as const, content: "shopping list" }];
+    const tickets = await beginMemoryOpportunities({
+      runId: "run-forget",
+      iteration: 0,
+      entries,
+      messages,
+      homeDirectory: tmpDir,
+    });
+    await completeMemoryOpportunities(tickets, messages);
+    expect(await readMemoryOpportunityReceipts("personal", entryId, 5, tmpDir)).toHaveLength(1);
+    expect((await runEffect(service.delete(scopes, "personal/when/food/fruit.md"))).success).toBe(
+      true,
+    );
+    expect(await readMemoryOpportunityReceipts("personal", entryId, 5, tmpDir)).toEqual([]);
+  });
+
+  test("assigns a stable ID to a hand-edited file, preserves it on rename, and versions edits", async () => {
+    const service = makeService();
+    writeByHand("when/shopping/fruit.md", "My favorite fruit is banana");
+    const first = (await runEffect(service.observeEntries(scopes)))[0];
+    expect(first?.entryId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(first?.topic).toBe("shopping");
+    expect(
+      (await runEffect(service.provenance(scopes, first?.path ?? "")))?.lastViewedAt,
+    ).toBeUndefined();
+    const second = (await runEffect(service.observeEntries(scopes)))[0];
+    expect(second?.entryId).toBe(first?.entryId);
+    expect(second?.entryVersion).toBe(first?.entryVersion);
+
+    expect(
+      (
+        await runEffect(
+          service.rename(
+            scopes,
+            "personal/when/shopping/fruit.md",
+            "personal/when/food/fruit.md",
+            writeContext,
+          ),
+        )
+      ).success,
+    ).toBe(true);
+    const renamed = (await runEffect(service.observeEntries(scopes)))[0];
+    expect(renamed?.entryId).toBe(first?.entryId);
+    expect(renamed?.path).toBe("personal/when/food/fruit.md");
+    expect(
+      (
+        await runEffect(
+          service.strReplace(scopes, renamed?.path ?? "", "banana", "mango", writeContext),
+        )
+      ).success,
+    ).toBe(true);
+    const updated = (await runEffect(service.observeEntries(scopes)))[0];
+    expect(updated?.entryId).toBe(first?.entryId);
+    expect(updated?.entryVersion).not.toBe(first?.entryVersion);
+  });
+
+  test("includes eligible unshown files only from allowed scopes", async () => {
+    const service = makeService();
+    writeByHand("when/shopping/fruit.md", "banana");
+    fs.mkdirSync(path.join(tmpDir, "work", "when", "shopping"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "work", "when", "shopping", "private.md"), "secret");
+    expect((await runEffect(service.observeEntries(scopes))).map((entry) => entry.path)).toEqual([
+      "personal/when/shopping/fruit.md",
     ]);
   });
 });
