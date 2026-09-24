@@ -65,11 +65,34 @@ describe("resolveOtlpConfig", () => {
   });
 
   it("rejects empty, non-HTTP, and credential-bearing endpoints", () => {
-    expect(resolveOtlpConfig({ endpoint: "" }, {})).toBeUndefined();
-    expect(resolveOtlpConfig({ endpoint: "file:///tmp/collector" }, {})).toBeUndefined();
-    expect(
-      resolveOtlpConfig({ endpoint: "https://user:secret@collector.test" }, {}),
-    ).toBeUndefined();
+    expect(() => resolveOtlpConfig({ endpoint: "" }, {})).toThrow("telemetry.otlp.endpoint");
+    expect(() => resolveOtlpConfig({ endpoint: "file:///tmp/collector" }, {})).toThrow(
+      "telemetry.otlp.endpoint",
+    );
+    expect(() => resolveOtlpConfig({ endpoint: "https://user:secret@collector.test" }, {})).toThrow(
+      "telemetry.otlp.endpoint",
+    );
+  });
+
+  it("reports an invalid explicit endpoint even when an environment endpoint is valid", () => {
+    expect(() =>
+      resolveOtlpConfig(
+        { endpoint: "invalid://configured" },
+        { OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" },
+      ),
+    ).toThrow("telemetry.otlp.endpoint");
+  });
+
+  it("reports invalid environment and selected signal endpoints", () => {
+    expect(() =>
+      resolveOtlpConfig(undefined, { OTEL_EXPORTER_OTLP_ENDPOINT: "not-a-url" }),
+    ).toThrow("OTEL_EXPORTER_OTLP_ENDPOINT");
+    expect(() =>
+      resolveOtlpConfig({ logsEndpoint: "http://collector/v1/logs", signals: ["traces"] }, {}),
+    ).toThrow("OTLP traces export is selected but has no endpoint");
+    expect(() => resolveOtlpConfig({ endpoint: "http://collector:4318", signals: [] }, {})).toThrow(
+      "OTLP signals must select at least one signal",
+    );
   });
 
   it("sanitizes explicit header and resource maps at the boundary", () => {
@@ -140,16 +163,16 @@ describe("resolveOtlpConfig", () => {
     expect(resolved?.timeoutMs).toBe(2500);
   });
 
-  it("drops a signal whose endpoint cannot be resolved rather than guessing one", () => {
-    const resolved = resolveOtlpConfig(
-      {
-        tracesEndpoint: "https://langfuse.example/api/public/otel/v1/traces",
-        signals: ["traces", "logs"],
-      },
-      {},
-    );
-
-    expect(resolved?.signals).toEqual(["traces"]);
+  it("reports a selected signal whose endpoint cannot be resolved", () => {
+    expect(() =>
+      resolveOtlpConfig(
+        {
+          tracesEndpoint: "https://langfuse.example/api/public/otel/v1/traces",
+          signals: ["traces", "logs"],
+        },
+        {},
+      ),
+    ).toThrow("OTLP logs export is selected but has no endpoint");
   });
 
   it("never enables content capture from the environment", () => {

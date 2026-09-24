@@ -95,6 +95,8 @@ export interface TelemetryServiceOptions {
   readonly processSampleIntervalMs?: number;
   /** Destinations events are fanned out to on every flush. */
   readonly sinks: readonly TelemetrySink[];
+  /** Eagerly establishes the zero sample for short-lived run counters. */
+  readonly metricsSink?: OtlpMetricsSink;
   /** Reports a sink failure. Wired to the logger by the layer. */
   readonly onSinkError?: (sinkName: string, error: unknown) => void;
   /** Reports events dropped because the buffer hit its ceiling. */
@@ -112,6 +114,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   private readonly flushIntervalMs: number;
   private readonly processSampleIntervalMs: number;
   private readonly sinks: readonly TelemetrySink[];
+  private readonly metricsSink: OtlpMetricsSink | undefined;
   private readonly onSinkError: (sinkName: string, error: unknown) => void;
   private readonly onEventsDropped: (count: number) => void;
 
@@ -121,6 +124,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     this.flushIntervalMs = options.flushIntervalMs;
     this.processSampleIntervalMs = options.processSampleIntervalMs ?? 0;
     this.sinks = options.sinks;
+    this.metricsSink = options.metricsSink;
     this.onSinkError = options.onSinkError ?? (() => {});
     this.onEventsDropped = options.onEventsDropped ?? (() => {});
 
@@ -140,14 +144,26 @@ export class TelemetryServiceImpl implements TelemetryService {
   recordAgentRunStarted(
     data: Parameters<TelemetryService["recordAgentRunStarted"]>[0],
   ): Effect.Effect<void, TelemetryError> {
-    this.startRunSampler(data.runId, data.agentId, data.conversationId);
-    return this.appendEvent(
-      "agent_run_started",
-      { ...data, process: data.process ?? sampleProcessResources() },
-      {
-        agentId: data.agentId,
-        conversationId: data.conversationId,
-      },
+    return Effect.sync(() => {
+      this.startRunSampler(data.runId, data.agentId, data.conversationId);
+      if (this.enabled && this.metricsSink) {
+        try {
+          void this.metricsSink.primeRun(data.agentId);
+        } catch (error) {
+          this.onSinkError(this.metricsSink.name, error);
+        }
+      }
+    }).pipe(
+      Effect.zipRight(
+        this.appendEvent(
+          "agent_run_started",
+          { ...data, process: data.process ?? sampleProcessResources() },
+          {
+            agentId: data.agentId,
+            conversationId: data.conversationId,
+          },
+        ),
+      ),
     );
   }
 
@@ -315,7 +331,9 @@ export class TelemetryServiceImpl implements TelemetryService {
           this.flushTimer = null;
         }
         this.stopAllRunSamplers();
-        yield* this.flushBuffer();
+        // Metric reader shutdown performs its own final export. Avoid sending
+        // the same terminal measurement once here and again on close.
+        yield* Effect.promise(() => this.flushSync(false));
         yield* Effect.promise(async () => {
           await Promise.all(
             this.sinks.map(async (sink) => {
@@ -398,14 +416,14 @@ export class TelemetryServiceImpl implements TelemetryService {
   }
 
   /** Serialize flushes so a timer and a caller cannot duplicate one batch. */
-  private flushSync(): Promise<void> {
-    const next = this.flushChain.then(() => this.flushOnce());
+  private flushSync(flushMetrics = true): Promise<void> {
+    const next = this.flushChain.then(() => this.flushOnce(flushMetrics));
     this.flushChain = next.catch(() => {});
     return next;
   }
 
   /** Fan out independently; each failing sink retains only its own pending rows. */
-  private async flushOnce(): Promise<void> {
+  private async flushOnce(flushMetrics: boolean): Promise<void> {
     if (this.sinks.length === 0) {
       this.enforceBufferCeiling();
       return;
@@ -428,7 +446,7 @@ export class TelemetryServiceImpl implements TelemetryService {
         }
         if (
           (events.length === 0 && sink.name === "otlp") ||
-          (events.length > 0 && sink.name === "otlp-metrics")
+          (events.length > 0 && sink.name === "otlp-metrics" && flushMetrics)
         ) {
           try {
             await sink.flush?.();
@@ -699,7 +717,14 @@ export function createTelemetryServiceLayer(): Layer.Layer<
 
       const sinks: TelemetrySink[] = [new FileTelemetrySink(storagePath, retentionDays)];
 
-      const resolvedOtlpConfig = resolveOtlpConfig(telemetryConfig?.otlp);
+      let resolvedOtlpConfig: ReturnType<typeof resolveOtlpConfig>;
+      try {
+        resolvedOtlpConfig = resolveOtlpConfig(telemetryConfig?.otlp);
+      } catch (error) {
+        yield* logger.error("OTLP export disabled by invalid configuration", {
+          reason: error instanceof Error ? error.message : "Invalid OTLP endpoint",
+        });
+      }
       const otlpConfig = resolvedOtlpConfig
         ? {
             ...resolvedOtlpConfig,
@@ -758,6 +783,7 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         flushIntervalMs,
         processSampleIntervalMs: DEFAULT_PROCESS_SAMPLE_INTERVAL_MS,
         sinks,
+        ...(metricsSink ? { metricsSink } : {}),
         onSinkError: (sinkName) => {
           if (sinkName === "otlp-metrics") metricsSink?.recordExportFailure("metrics", "sink");
           Effect.runFork(

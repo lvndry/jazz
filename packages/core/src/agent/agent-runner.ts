@@ -29,6 +29,7 @@ import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
@@ -56,6 +57,7 @@ import {
   Summarizer,
   type CompactionOutcome,
   type CompactionProgressObserver,
+  type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import {
@@ -784,6 +786,11 @@ function initializeAgentRun(
   });
 }
 
+/** Preserve the active trace when compaction or memory extraction starts a recursive run. */
+export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
+  return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
+}
+
 /**
  * Agent runner for executing agent conversations.
  *
@@ -868,12 +875,12 @@ export class AgentRunner {
             : {}),
         };
 
-        const runRecursive = (runOpts: {
-          agent: Agent;
-          userInput: string;
-          conversationId: string;
-          maxIterations?: number;
-        }) => AgentRunner.runRecursive(runOpts);
+        const runRecursive = createNestedRunExecutor({
+          topRunId: runContext.runMetrics.telemetryParent?.topRunId ?? runContext.runMetrics.runId,
+          parentRunId: runContext.runMetrics.runId,
+          sessionId:
+            runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
+        });
 
         const execute = shouldStream
           ? executeWithStreaming(

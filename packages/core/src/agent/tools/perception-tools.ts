@@ -346,6 +346,12 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         agent: companionAgent,
         userInput: job.input,
         conversationId: generateConversationId("companion"),
+        ...(context.telemetryTraceParent && {
+          telemetryParent: {
+            ...context.telemetryTraceParent,
+            ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
+          },
+        }),
         maxIterations: COMPANION_MAX_ITERATIONS,
         ephemeralRegionId: regionId,
         initialAttachments: [...job.attachments],

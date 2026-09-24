@@ -1,8 +1,15 @@
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
+import {
+  AggregationTemporality,
+  DataPointType,
+  InMemoryMetricExporter,
+} from "@opentelemetry/sdk-metrics";
 import { serve } from "bun";
 import { describe, expect, it } from "bun:test";
+import { Effect } from "effect";
 import { OtlpMetricsSink } from "./metrics";
 import { resolveOtlpConfig } from "./otlp-config";
+import { TelemetryServiceImpl } from "./telemetry-service";
 
 const EVENT: TelemetryEvent = {
   id: "llm-1",
@@ -17,6 +24,57 @@ const EVENT: TelemetryEvent = {
 };
 
 describe("OtlpMetricsSink", () => {
+  it("exports a zero run count before a short CLI run and its result on shutdown", async () => {
+    const config = resolveOtlpConfig(
+      { metricsEndpoint: "http://localhost:4318/v1/metrics", signals: ["metrics"] },
+      {},
+    );
+    expect(config).toBeDefined();
+    const exporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+    const sink = new OtlpMetricsSink(config!, "1.2.3", () => {}, exporter);
+    const service = new TelemetryServiceImpl({
+      enabled: true,
+      bufferSize: 100,
+      flushIntervalMs: 0,
+      sinks: [sink],
+      metricsSink: sink,
+    });
+
+    await Effect.runPromise(
+      service.recordAgentRunStarted({
+        runId: "run-1",
+        agentId: "agent-1",
+        agentName: "Test agent",
+        conversationId: "conversation-1",
+      }),
+    );
+    await Effect.runPromise(
+      service.recordAgentRunFailed({
+        runId: "run-1",
+        agentId: "agent-1",
+        agentName: "Test agent",
+        conversationId: "conversation-1",
+        error: "provider",
+        durationMs: 1200,
+      }),
+    );
+    await Effect.runPromise(service.shutdown());
+
+    const snapshots = exporter.getMetrics();
+    expect(snapshots).toHaveLength(2);
+    const runCount = (index: number, status: "ok" | "error") => {
+      const metric = snapshots[index]?.scopeMetrics
+        .flatMap((scope) => scope.metrics)
+        .find((item) => item.descriptor.name === "jazz.agent.runs");
+      expect(metric?.dataPointType).toBe(DataPointType.SUM);
+      if (metric?.dataPointType !== DataPointType.SUM) return undefined;
+      return metric.dataPoints.find((point) => point.attributes["status"] === status)?.value;
+    };
+    expect(runCount(0, "error")).toBe(0);
+    expect(runCount(1, "error")).toBe(1);
+    expect(runCount(1, "ok")).toBe(0);
+  });
+
   it("exports real OTLP/protobuf metrics to the metrics endpoint", async () => {
     const received: { path: string; contentType: string | null; size: number }[] = [];
     const server = serve({

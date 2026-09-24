@@ -10,11 +10,11 @@ Jazz writes a local audit trail for every run. When you configure an OTLP endpoi
 
 Local telemetry events are NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`, retained for 90 days by default. Operational logs live under `~/.jazz/logs/`. The local event stream includes run start and terminal state, LLM usage and retries, tool outcomes, periodic process samples, and CLI command completion. It is recorded even when no OTLP endpoint is configured.
 
-| OTLP signal | What Jazz sends                                                                                                    | Typical use                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| Traces      | One trace per top-level run, with child LLM, retry, and tool spans; internal subagent runs join their parent trace | Latency, model and tool waterfalls, Langfuse            |
-| Logs        | Structured telemetry events with severity and trace context where available                                        | Event search and trace correlation in SigNoz or Datadog |
-| Metrics     | Counters, duration histograms, and process measurements                                                            | Dashboards and alerts in Prometheus, SigNoz, or Datadog |
+| OTLP signal | What Jazz sends                                                                                                                                             | Typical use                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Traces      | One trace per top-level run, with child LLM, retry, and tool spans; subagents, model companions, summarizers, and memory extractors join their parent trace | Latency, model and tool waterfalls, Langfuse            |
+| Logs        | Structured telemetry events with severity and trace context where available                                                                                 | Event search and trace correlation in SigNoz or Datadog |
+| Metrics     | Counters, duration histograms, and process measurements                                                                                                     | Dashboards and alerts in Prometheus, SigNoz, or Datadog |
 
 OTLP logs are telemetry event records. They are separate from the local operational log file. Routine tool diagnostics at INFO level contain IDs, outcomes, and durations, not command text, arguments, results, or error messages. Local tool audit records retain a bounded, redacted argument shape; protect `~/.jazz` as sensitive data.
 
@@ -38,6 +38,8 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 The base endpoint gains `/v1/traces`, `/v1/logs`, and `/v1/metrics`. A signal-specific endpoint must include its full path. Config values take precedence over environment variables. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` supply resource identity; set `deployment.environment.name` and `service.version` through resource attributes when useful for filtering. Jazz uses OTLP/HTTP, so point it at an HTTP receiver, normally port 4318.
+
+An invalid endpoint or a selected signal without an endpoint produces a startup error log naming the config field or environment variable. Jazz disables OTLP export for that process while continuing the agent run. Endpoint values are omitted from the diagnostic because they may contain credentials. An invalid explicit config value does not silently fall back to an environment value.
 
 `telemetry.otlp.signals` defaults to `["traces"]`. With only a signal-specific endpoint, explicitly select that signal. The supported environment overrides are `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and their per-signal `*_HEADERS` forms. Jazz percent-decodes header values. Keep credentials in environment or a secret store rather than committing them in config.
 
@@ -116,6 +118,8 @@ Metric names and low-cardinality dimensions are:
 | `jazz.telemetry.export.failures` / `jazz.telemetry.export.dropped` | count   | signal and bounded reason                |
 
 Metrics use cumulative temporality and a 30-second export interval by default. The service resource includes a process-specific `service.instance.id` unless you set one. Prometheus may normalize dots in metric names to underscores; inspect its target before writing queries.
+
+Short-lived CLI runs export a zero `jazz.agent.runs` sample at run start and a terminal sample on shutdown. This gives Prometheus a before/after pair for the run counter even when the 30-second interval never fires. Query each instance's rate before summing across instances, and use a window that contains both samples. For Prometheus's default name translation, `sum by (status) (rate(jazz_agent_runs_total{job="jazz"}[5m]))` shows run activity. The model- and tool-specific counters may still have only a terminal sample in a short process; use traces or OTLP logs for exact short-run event counts. Rates for those counters are most useful when Jazz runs as a long-lived daemon. Prometheus recommends cumulative temporality for its OTLP receiver; its delta-to-cumulative mode is currently experimental.
 
 ## Privacy and delivery
 

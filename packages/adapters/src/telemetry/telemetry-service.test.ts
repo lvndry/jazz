@@ -51,6 +51,10 @@ function factoryLayer(config: AppConfig, logEntries: string[]) {
       Effect.sync(() => {
         logEntries.push(JSON.stringify({ message, meta }));
       }),
+    error: (message: string, meta?: Record<string, unknown>) =>
+      Effect.sync(() => {
+        logEntries.push(JSON.stringify({ message, meta }));
+      }),
   } as LoggerService;
   return createTelemetryServiceLayer().pipe(
     Layer.provide(
@@ -240,6 +244,24 @@ describe("TelemetryServiceImpl sink fan-out", () => {
 });
 
 describe("telemetry layer export wiring", () => {
+  it("reports a startup error when an invalid endpoint disables OTLP export", async () => {
+    const logEntries: string[] = [];
+    const layer = factoryLayer(
+      appConfig({
+        flushIntervalMs: 0,
+        otlp: { endpoint: "https://user:SECRET@collector.invalid" },
+      }),
+      logEntries,
+    );
+    const service = await Effect.runPromise(Effect.provide(TelemetryServiceTag, layer));
+    await Effect.runPromise(service.shutdown());
+
+    const logged = logEntries.join("\n");
+    expect(logged).toContain("OTLP export disabled by invalid configuration");
+    expect(logged).toContain("telemetry.otlp.endpoint");
+    expect(logged).not.toContain("SECRET");
+  });
+
   it("does not start OTLP metrics when telemetry is globally disabled", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "jazz-disabled-"));
     let requests = 0;

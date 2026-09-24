@@ -42,19 +42,21 @@ function positiveIntegerEnv(value: string | undefined): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function endpoint(value: string | undefined): string | undefined {
-  if (!value?.trim()) return undefined;
+function endpoint(value: string | undefined, source: string): string | undefined {
+  if (value === undefined) return undefined;
   try {
     const url = new URL(value);
     if (
+      !value.trim() ||
       !(["http:", "https:"].includes(url.protocol) && url.hostname) ||
       url.username ||
       url.password
     )
-      return undefined;
+      throw new Error();
     return value;
   } catch {
-    return undefined;
+    // The value can contain credentials. Name only its source in diagnostics.
+    throw new Error(`Invalid ${source}: expected an HTTP(S) URL without embedded credentials`);
   }
 }
 
@@ -134,31 +136,51 @@ export function resolveOtlpConfig(
   config: OtlpTelemetryConfig | undefined,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): ResolvedOtlpConfig | undefined {
-  const baseEndpoint = endpoint(config?.endpoint ?? env["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+  const baseEndpoint = endpoint(
+    config?.endpoint ?? env["OTEL_EXPORTER_OTLP_ENDPOINT"],
+    config?.endpoint !== undefined ? "telemetry.otlp.endpoint" : "OTEL_EXPORTER_OTLP_ENDPOINT",
+  );
 
   const tracesEndpoint = endpoint(
     config?.tracesEndpoint ??
       env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] ??
       (baseEndpoint ? joinOtlpEndpoint(baseEndpoint, "/v1/traces") : undefined),
+    config?.tracesEndpoint !== undefined
+      ? "telemetry.otlp.tracesEndpoint"
+      : env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] !== undefined
+        ? "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+        : "OTEL_EXPORTER_OTLP_ENDPOINT",
   );
 
   const logsEndpoint = endpoint(
     config?.logsEndpoint ??
       env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] ??
       (baseEndpoint ? joinOtlpEndpoint(baseEndpoint, "/v1/logs") : undefined),
+    config?.logsEndpoint !== undefined
+      ? "telemetry.otlp.logsEndpoint"
+      : env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] !== undefined
+        ? "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+        : "OTEL_EXPORTER_OTLP_ENDPOINT",
   );
 
   const metricsEndpoint = endpoint(
     config?.metricsEndpoint ??
       env["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] ??
       (baseEndpoint ? joinOtlpEndpoint(baseEndpoint, "/v1/metrics") : undefined),
+    config?.metricsEndpoint !== undefined
+      ? "telemetry.otlp.metricsEndpoint"
+      : env["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] !== undefined
+        ? "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+        : "OTEL_EXPORTER_OTLP_ENDPOINT",
   );
 
-  if (tracesEndpoint === undefined && logsEndpoint === undefined && metricsEndpoint === undefined)
+  if (tracesEndpoint === undefined && logsEndpoint === undefined && metricsEndpoint === undefined) {
+    if (config?.signals && config.signals.length > 0)
+      throw new Error(`OTLP ${config.signals[0]} export is selected but has no endpoint`);
     return undefined;
+  }
 
-  // A signal whose endpoint could not be resolved is dropped rather than
-  // pointed at a guessed URL.
+  // A selected signal without a destination is a configuration mistake.
   const requestedSignals =
     config?.signals ??
     (tracesEndpoint !== undefined
@@ -166,13 +188,15 @@ export function resolveOtlpConfig(
       : logsEndpoint !== undefined
         ? (["logs"] as const)
         : (["metrics"] as const));
-  const signals = requestedSignals.filter((signal) =>
-    signal === "traces"
-      ? tracesEndpoint !== undefined
-      : signal === "logs"
-        ? logsEndpoint !== undefined
-        : metricsEndpoint !== undefined,
-  );
+  if (requestedSignals.length === 0)
+    throw new Error("OTLP signals must select at least one signal");
+  for (const signal of requestedSignals) {
+    const resolved =
+      signal === "traces" ? tracesEndpoint : signal === "logs" ? logsEndpoint : metricsEndpoint;
+    if (resolved === undefined)
+      throw new Error(`OTLP ${signal} export is selected but has no endpoint`);
+  }
+  const signals = requestedSignals;
 
   // An endpoint alone enables export; `enabled: false` is an explicit opt-out.
   const enabled = config?.enabled ?? true;

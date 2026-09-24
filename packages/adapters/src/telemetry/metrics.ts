@@ -53,6 +53,7 @@ function seconds(value: unknown): number | undefined {
 export class OtlpMetricsSink implements TelemetrySink {
   readonly name = "otlp-metrics";
   private readonly provider: MeterProvider;
+  private baselineFlush: Promise<void> = Promise.resolve();
   private readonly runs;
   private readonly runDuration;
   private readonly toolCalls;
@@ -66,14 +67,17 @@ export class OtlpMetricsSink implements TelemetrySink {
   constructor(
     config: ResolvedOtlpConfig,
     serviceVersion: string,
-    onExportError: (error: Error) => void = () => {},
+    private readonly onExportError: (error: Error) => void = () => {},
+    exporterOverride?: PushMetricExporter,
   ) {
-    const delegate = new OTLPMetricExporter({
-      url: config.metricsEndpoint,
-      headers: config.signalHeaders.metrics,
-      timeoutMillis: config.timeoutMs,
-      temporalityPreference: AggregationTemporality.CUMULATIVE,
-    });
+    const delegate =
+      exporterOverride ??
+      new OTLPMetricExporter({
+        url: config.metricsEndpoint,
+        headers: config.signalHeaders.metrics,
+        timeoutMillis: config.timeoutMs,
+        temporalityPreference: AggregationTemporality.CUMULATIVE,
+      });
     const exporter: PushMetricExporter = {
       export: (metrics, done) =>
         delegate.export(metrics, (result) => {
@@ -86,7 +90,8 @@ export class OtlpMetricsSink implements TelemetrySink {
       forceFlush: () => delegate.forceFlush(),
       shutdown: () => delegate.shutdown(),
       selectAggregationTemporality: (instrumentType) =>
-        delegate.selectAggregationTemporality(instrumentType),
+        delegate.selectAggregationTemporality?.(instrumentType) ??
+        AggregationTemporality.CUMULATIVE,
     };
     const reader = new PeriodicExportingMetricReader({
       exporter,
@@ -153,7 +158,26 @@ export class OtlpMetricsSink implements TelemetrySink {
     if (count > 0) this.exportDropped.add(count, { signal: "all", reason });
   }
 
-  write(events: readonly TelemetryEvent[]): Promise<void> {
+  /**
+   * Export a zero-valued run counter before the run can finish. Short-lived CLI
+   * processes otherwise publish only one nonzero cumulative point per instance,
+   * leaving Prometheus without a before/after pair for a run rate.
+   */
+  primeRun(agentId: string): Promise<void> {
+    for (const status of ["ok", "error"] as const)
+      this.runs.add(0, { "jazz.agent.id": label(agentId), status });
+    this.baselineFlush = this.baselineFlush
+      .then(() => this.provider.forceFlush())
+      .catch((error: unknown) => {
+        this.onExportError(
+          error instanceof Error ? error : new Error("OTLP baseline export failed"),
+        );
+      });
+    return this.baselineFlush;
+  }
+
+  async write(events: readonly TelemetryEvent[]): Promise<void> {
+    await this.baselineFlush;
     for (const event of events) {
       const data = event.data;
       switch (event.type) {
@@ -204,14 +228,15 @@ export class OtlpMetricsSink implements TelemetrySink {
           break;
       }
     }
-    return Promise.resolve();
   }
 
   async flush(): Promise<void> {
+    await this.baselineFlush;
     await this.provider.forceFlush();
   }
 
   async close(): Promise<void> {
+    await this.baselineFlush;
     await this.provider.shutdown();
   }
 }
