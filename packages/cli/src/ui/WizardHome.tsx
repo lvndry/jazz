@@ -1,3 +1,8 @@
+/**
+ * Interactive home menu for the Ink CLI. WizardHome renders the available
+ * actions and one randomly chosen tip from TIPS; the fullscreen home screen
+ * uses the same tip pool through the wizard command.
+ */
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import React, { useState, useEffect } from "react";
@@ -28,11 +33,19 @@ export const TIPS = [
   "Use Arrow Up in chat to recall your previous messages",
   "Press Shift+Enter in chat to write multi-line messages",
   "Press Ctrl+R after a response to expand the agent's reasoning",
-  "Run 'jazz agent list' to see all your active agents",
+  "Run 'jazz agent list' to see all your configured agents",
+  "Use /resume to continue a previous conversation",
+  "Use /fork to branch a conversation while keeping its history",
+  "Use /export to save a conversation as Markdown",
+  "Use /copy to copy the last agent response to your clipboard",
+  "Use /retry to send your last message again",
 
   // Agent Management
   "Agents work best with specific, focused descriptions",
   "Delete unused agents to keep your workspace clean",
+  "Run 'jazz agent chat <name>' to open a specific agent",
+  "Use /switch to change agents without leaving the conversation",
+  "Browse ready-made personas with 'jazz persona browse'",
 
   // Integrations & Tools
   "Use the email skill (Himalaya) to let agents read, send, and manage your inbox",
@@ -41,12 +54,22 @@ export const TIPS = [
   "Enable Web Search to give your agent up-to-date knowledge",
   "Agents can use 'grep' to search your codebase instantly",
   "Use /tools to see which tools are available",
+  "Use /skills to see the skills your agent can use",
+  "Browse reusable skills with 'jazz skill browse'",
+  "Use /mcp to inspect your configured MCP servers",
 
   // Advanced Features
-  "Jazz supports MCP! Connect to Notion, GitHub, and 100+ other services",
+  "Connect MCP servers to give agents tools from other services",
   "Use Agent Skills to teach complex workflows to your agents",
-  "Switch LLM models mid-chat if you need more intelligence or speed",
+  "Use /switch to move to an agent with a different model or tools",
   "Local models via Ollama are supported for offline privacy",
+  "Use /reasoning to adjust effort for this conversation",
+  "Use /context to inspect context-window usage",
+  "Use /compact to summarize older messages and free context space",
+  "Use /cost to check token usage and estimated spend",
+  "Use /limit to cap turns, tokens, or spending in this chat",
+  "Use /memory to see what your agent remembers about you",
+  "Use /info to find this conversation's ID and log paths",
 
   // Workflow Tips
   "Ask agents to 'plan first' for complex coding tasks",
@@ -54,18 +77,25 @@ export const TIPS = [
   "Agents can read PDFs! Just give them the file path",
   "Ask an agent to 'summarize this conversation' to catch up",
   "Chain commands: 'Find TODOs then create a summary file'",
+  "Run 'jazz run --agent <name> <prompt>' for a one-shot answer",
+  "Browse ready-made automations with 'jazz workflow browse'",
+  "Run 'jazz workflow scheduled' to check installed schedules",
+  "Run 'jazz workflow history <name>' to inspect earlier runs",
 
   // Troubleshooting
   "Use '/new' to clear the context and start a new conversation",
   "Use 'jazz config show' to see your configuration",
   "Check 'jazz update' regularly for new features",
+  "Run 'jazz config validate' to check configuration files",
+  "Use /work to inspect saved task state and compaction records",
 
   // Fun/Power User
   "You can have multiple agents running in different terminal tabs",
+  "Use /caveman for terse, token-efficient replies",
   "Agents can write their own tests before writing code",
   "Try asking an agent to 'optimize your system prompt'",
-  "Jazz agents never execute dangerous commands without approval",
-  "The 'shell' tool is sandboxed but powerful - use with care!",
+  "Tool approval follows your configured policy; review it before unattended runs",
+  "The shell denylist catches accidents; use a container for isolation",
 ];
 
 /**

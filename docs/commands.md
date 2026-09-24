@@ -35,7 +35,8 @@ agents, update configuration. The home screen reports what is ready under **setu
 under **environment**, the same machine facts every agent receives in its system prompt: date,
 OS with shell and user, working directory, and hardware. Both come from one source, so the screen
 cannot drift from what agents are actually told. On a short terminal the environment report is the
-first section dropped, after the tip.
+first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
+setting, tool, workflow, or example task available in Jazz.
 
 ---
 
