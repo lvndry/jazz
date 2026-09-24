@@ -33,6 +33,7 @@ import {
   isForgetInstruction,
   isSensitiveUserClaim,
   quoteNamesEntry,
+  quotedSentenceKeys,
   requestsMemoryChange,
   verifyMemorySourceQuote,
   type MemoryEntryIdentity,
@@ -306,10 +307,6 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
         const scopes = effectiveMemoryScopes(context.memoryScopes);
-        const writeContext: MemoryWriteContext = {
-          agentId: context.agentId,
-          sourceId: args.source_ref,
-        };
         const citation = verifyMemorySourceQuote(context.memorySources, {
           sourceId: args.source_ref,
           quote: args.source_quote,
@@ -322,6 +319,10 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           } satisfies ToolExecutionResult;
         }
         const { quote, source } = citation;
+        const writeContext: MemoryWriteContext = {
+          agentId: context.agentId,
+          quotedSentenceKeys: quotedSentenceKeys(source, quote),
+        };
         const addsClaim = args.command === "create" || args.command === "amend";
         const filedUnder =
           args.command === "create"

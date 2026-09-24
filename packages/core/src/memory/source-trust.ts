@@ -7,6 +7,7 @@
  */
 
 import type { ChatMessage, MemorySource } from "@/core/types/message";
+import { sha256Hex } from "@/core/utils/hash";
 import { slugifyMemorySegment } from "./entry-path";
 
 export interface MemorySourceCitation {
@@ -107,8 +108,13 @@ function enclosingSentence(text: string, start: number, end: number): string {
   while (sentenceStart > 0 && !SENTENCE_BOUNDARY_PATTERN.test(text[sentenceStart - 1] ?? "")) {
     sentenceStart -= 1;
   }
+  const endsOnBoundary = end > start && SENTENCE_BOUNDARY_PATTERN.test(text[end - 1] ?? "");
   let sentenceEnd = end;
-  while (sentenceEnd < text.length && !SENTENCE_BOUNDARY_PATTERN.test(text[sentenceEnd] ?? "")) {
+  while (
+    !endsOnBoundary &&
+    sentenceEnd < text.length &&
+    !SENTENCE_BOUNDARY_PATTERN.test(text[sentenceEnd] ?? "")
+  ) {
     sentenceEnd += 1;
   }
   return text.slice(sentenceStart, sentenceEnd);
@@ -122,6 +128,33 @@ function quoteOccurrences(source: MemorySource, quote: string): readonly number[
     index = source.text.indexOf(quote, index + 1);
   }
   return occurrences;
+}
+
+/** Sentences of the source overlapped by some occurrence of the quote. */
+function quotedSentences(source: MemorySource, quote: string): readonly string[] {
+  const sentences = new Set<string>();
+  for (const start of quoteOccurrences(source, quote)) {
+    const covered = enclosingSentence(source.text, start, start + quote.length);
+    for (const sentence of covered.split(SENTENCE_BOUNDARY_PATTERN)) {
+      const trimmed = sentence.trim();
+      if (trimmed.length > 0) {
+        sentences.add(trimmed);
+      }
+    }
+  }
+  return [...sentences];
+}
+
+/**
+ * Keys naming each sentence a quote came from, for the source ledger. A key is
+ * a hash of the source ID and sentence, so the ledger can revoke one fact from a
+ * message without storing its words, and a different span of a revoked sentence
+ * is still recognized.
+ */
+export function quotedSentenceKeys(source: MemorySource, quote: string): readonly string[] {
+  return quotedSentences(source, quote).map((sentence) =>
+    sha256Hex(`${source.id}\u0000${sentence}`),
+  );
 }
 
 /**

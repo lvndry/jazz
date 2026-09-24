@@ -287,9 +287,9 @@ The extractor receives authenticated source IDs for the original user messages i
 The write tool checks an exact quoted span against those messages. A chunk with no authenticated
 user source is skipped, and text inside tool output or a rendered transcript cannot create its
 own user source.
-Corrected and forgotten sources are revoked in the hidden cross-scope source ledger. An
-extractor attempting to re-save a superseded quote from an old user message receives a failed
-write, while a new user message can establish the fact again.
+Corrected and forgotten claims revoke the sentences they quoted in the hidden cross-scope source
+ledger. An extractor attempting to re-save a superseded quote from those sentences receives a
+failed write; other sentences of the same message, and any new user message, can still be quoted.
 
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own

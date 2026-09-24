@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MAX_MEMORY_FILE_BYTES, MAX_MEMORY_FILES_PER_SCOPE } from "@jazz/core/constants/memory";
+import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
@@ -37,11 +38,19 @@ const scopes = ["agent-1"];
 
 const writeContext = { agentId: "agent-1" } as const;
 
+/** A write that quotes the whole of one user message, so each source ID is one sentence. */
+function citing(sourceId: string, sentence = sourceId) {
+  return {
+    agentId: "agent-1",
+    quotedSentenceKeys: quotedSentenceKeys({ id: sourceId, text: sentence }, sentence),
+  };
+}
+
 describe("authenticated source revocation", () => {
   test("a forgotten source cannot recreate its fact during compaction, but a new user turn can", async () => {
     const service = makeService();
-    const oldSource = { agentId: "agent-1", sourceId: "user:banana-turn" };
-    const newSource = { agentId: "agent-1", sourceId: "user:new-banana-turn" };
+    const oldSource = citing("user:banana-turn");
+    const newSource = citing("user:new-banana-turn");
     const text = 'The user said: "My favorite fruit is banana."\n';
 
     expect(
@@ -73,8 +82,8 @@ describe("authenticated source revocation", () => {
     const service = makeService();
     const banana = 'The user said: "My favorite fruit is banana."\n';
     const mango = 'The user said: "Actually, my favorite fruit is mango."\n';
-    const oldSource = { agentId: "agent-1", sourceId: "user:banana" };
-    const newSource = { agentId: "agent-1", sourceId: "user:mango" };
+    const oldSource = citing("user:banana");
+    const newSource = citing("user:mango");
     const original = "agent-1/when/food/fruit.md";
     const moved = "agent-1/when/food/favorite-fruit.md";
 
@@ -97,22 +106,84 @@ describe("authenticated source revocation", () => {
     const service = makeService();
     fs.writeFileSync(path.join(tmpDir, ".source-ledger.json"), "{bad json");
     const result = await runEither(
-      service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
-        agentId: "agent-1",
-        sourceId: "user:banana",
-      }),
+      service.create(scopes, "agent-1/when/food/fruit.md", "banana", citing("user:banana")),
     );
     expect(result._tag).toBe("Left");
+    expect(fs.existsSync(path.join(tmpDir, "agent-1", "when", "food", "fruit.md"))).toBe(false);
+  });
+
+  test("correcting one fact leaves the message's other facts quotable", async () => {
+    const service = makeService();
+    const message = { id: "user:tea", text: "I like tea. I'm vegetarian." };
+    const teaClaim = {
+      agentId: "agent-1",
+      quotedSentenceKeys: quotedSentenceKeys(message, "I like tea."),
+    };
+    const dietClaim = {
+      agentId: "agent-1",
+      quotedSentenceKeys: quotedSentenceKeys(message, "I'm vegetarian."),
+    };
+    const tea = "agent-1/when/food/tea.md";
+    expect((await runEffect(service.create(scopes, tea, "tea", teaClaim))).success).toBe(true);
+    expect(
+      (await runEffect(service.strReplace(scopes, tea, "tea", "coffee", citing("user:coffee"))))
+        .success,
+    ).toBe(true);
+
+    expect(
+      (
+        await runEffect(
+          service.create(scopes, "agent-1/when/food/diet.md", "vegetarian", dietClaim),
+        )
+      ).success,
+    ).toBe(true);
+    expect(
+      (await runEffect(service.create(scopes, "agent-1/when/food/old-tea.md", "tea", teaClaim)))
+        .success,
+    ).toBe(false);
+  });
+
+  test("a renamed entry keeps its claim, and its old path forgets it", async () => {
+    const service = makeService();
+    const claim = citing("user:fruit");
+    await runEffect(service.create(scopes, "agent-1/when/food/fruit.md", "banana", claim));
+    await runEffect(
+      service.rename(
+        scopes,
+        "agent-1/when/food/fruit.md",
+        "agent-1/when/food/favorite.md",
+        writeContext,
+      ),
+    );
+    expect(
+      (
+        await runEffect(
+          service.create(scopes, "agent-1/when/food/fruit.md", "kiwi", citing("user:kiwi")),
+        )
+      ).success,
+    ).toBe(true);
+    expect((await runEffect(service.delete(scopes, "agent-1/when/food/favorite.md"))).success).toBe(
+      true,
+    );
+    expect(
+      (await runEffect(service.create(scopes, "agent-1/when/food/again.md", "banana", claim)))
+        .success,
+    ).toBe(false);
+  });
+
+  test("a corrupt source ledger never blocks forgetting", async () => {
+    const service = makeService();
+    const entry = "agent-1/when/food/fruit.md";
+    await runEffect(service.create(scopes, entry, "banana", writeContext));
+    fs.writeFileSync(path.join(tmpDir, ".source-ledger.json"), "{bad json");
+    expect((await runEffect(service.delete(scopes, entry))).success).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, "agent-1", "when", "food", "fruit.md"))).toBe(false);
   });
 
   test("memory tools cannot erase the hidden source ledger", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "agent-1/when/food/fruit.md", "banana", {
-        agentId: "agent-1",
-        sourceId: "user:banana",
-      }),
+      service.create(scopes, "agent-1/when/food/fruit.md", "banana", citing("user:banana")),
     );
     const result = await runEither(service.delete(scopes, "agent-1/.provenance.json"));
     expect(result._tag).toBe("Left");

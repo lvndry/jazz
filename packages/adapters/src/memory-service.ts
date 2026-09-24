@@ -51,17 +51,32 @@ import {
   isValidStorageKey,
   requireValidStorageKey,
   toError,
-  withLock,
   writeFileStringAtomic,
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
 import { Effect, Layer } from "effect";
 import {
-  prepareMemorySourceDelete,
-  prepareMemorySourceRename,
-  prepareMemorySourceWrite,
+  moveClaimSentences,
+  recordClaimSentences,
+  revokeClaimSentencesUnder,
 } from "./memory-source-ledger";
+import { withMemoryWriteLock } from "./memory-write-lock";
+
+/** Returned when a write quotes a sentence an earlier correction or forget revoked. */
+const REVOKED_CLAIM_OUTCOME: MemoryMutationOutcome = {
+  success: false,
+  message: "This user statement was forgotten or superseded; quote a new user message.",
+};
+
+/**
+ * Levels listed under a scope root: `when/<topic>/<file>`, so the first
+ * discovery call shows topic-scoped entries without a chain of directory requests.
+ */
+const SCOPE_ROOT_LISTING_DEPTH = 3;
+
+/** Levels listed under any deeper directory: `<topic>/<file>` below `when/`. */
+const SUBDIRECTORY_LISTING_DEPTH = 2;
 
 /** Raised for memory quota and scope-validity guardrail violations. */
 export class MemoryGuardrailViolation extends Error {}
@@ -667,11 +682,6 @@ export class MemoryServiceImpl implements MemoryService {
     this.maxFilesPerScope = options?.maxFilesPerScope ?? MAX_MEMORY_FILES_PER_SCOPE;
   }
 
-  /** One lock covers every scope so updates to the cross-scope source ledger cannot race. */
-  private memoryLockPath(): string {
-    return path.join(this.baseMemoryDirectory, ".write.lock");
-  }
-
   private ensureScopeRoot(
     scope: string,
   ): Effect.Effect<string, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
@@ -765,21 +775,29 @@ export class MemoryServiceImpl implements MemoryService {
     });
   }
 
-  /** Validate a caller's scope before entering the global memory write lock. */
-  private withValidatedMemoryLock<A, E, R>(
+  /** Validate a caller's scope, then run `operation` under the memory write lock. */
+  private withMemoryWriteLock<A, E, R>(
     scope: string,
     operation: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | MemoryGuardrailViolation | Error, R | FileSystem.FileSystem> {
-    const lockPath = this.memoryLockPath();
-    return Effect.gen(
-      function* (this: MemoryServiceImpl) {
-        yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
-        const fs = yield* FileSystem.FileSystem;
-        yield* fs
-          .makeDirectory(this.baseMemoryDirectory, { recursive: true })
-          .pipe(Effect.mapError(toError));
-        return yield* withLock(lockPath, operation);
-      }.bind(this),
+    return requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation).pipe(
+      Effect.zipRight(withMemoryWriteLock(this.baseMemoryDirectory, operation)),
+    );
+  }
+
+  /** Record the quoted sentences behind a write to `target`; `false` when one was revoked. */
+  private recordClaim(
+    fs: FileSystem.FileSystem,
+    scope: string,
+    root: string,
+    target: string,
+    writeContext: MemoryWriteContext,
+  ): Effect.Effect<boolean, Error> {
+    return recordClaimSentences(
+      fs,
+      this.baseMemoryDirectory,
+      path.join(scope, path.relative(root, target)),
+      writeContext.quotedSentenceKeys,
     );
   }
 
@@ -792,11 +810,8 @@ export class MemoryServiceImpl implements MemoryService {
         if (allowedScopes.length === 0) {
           return { entries: [], unreadableScopes: [] };
         }
-        yield* fs
-          .makeDirectory(this.baseMemoryDirectory, { recursive: true })
-          .pipe(Effect.mapError(toError));
-        return yield* withLock(
-          this.memoryLockPath(),
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
               const entries: MemoryEntrySnapshot[] = [];
@@ -914,9 +929,7 @@ export class MemoryServiceImpl implements MemoryService {
             if (scopeRoot === undefined) {
               continue;
             }
-            // Include when/<topic>/<file> so the first discovery call shows
-            // topic-scoped entries without a chain of directory requests.
-            const nested = yield* listDirectoryEntries(fs, scopeRoot, 3);
+            const nested = yield* listDirectoryEntries(fs, scopeRoot, SCOPE_ROOT_LISTING_DEPTH);
             for (const child of nested) {
               entries.push({ ...child, name: `${name}/${child.name}` });
             }
@@ -947,7 +960,11 @@ export class MemoryServiceImpl implements MemoryService {
         }
 
         if (info.type === "Directory") {
-          const entries = yield* listDirectoryEntries(fs, target, target === root ? 3 : 2);
+          const entries = yield* listDirectoryEntries(
+            fs,
+            target,
+            target === root ? SCOPE_ROOT_LISTING_DEPTH : SUBDIRECTORY_LISTING_DEPTH,
+          );
           return {
             kind: "directory",
             path: abbreviateHomePath(target),
@@ -979,7 +996,10 @@ export class MemoryServiceImpl implements MemoryService {
         const truncated = selected.length > MEMORY_VIEW_TRUNCATE_CHARS;
         const displayContent = truncated ? selected.slice(0, MEMORY_VIEW_TRUNCATE_CHARS) : selected;
 
-        yield* touchViewed(fs, root, path.relative(root, target));
+        yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          touchViewed(fs, root, path.relative(root, target)),
+        ).pipe(Effect.catchAll(() => Effect.void));
 
         return {
           kind: "file",
@@ -1036,7 +1056,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedMemoryLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1086,19 +1106,8 @@ export class MemoryServiceImpl implements MemoryService {
                 addsFile: true,
                 subject: "Creating this file",
               });
-              if (
-                !(yield* prepareMemorySourceWrite(
-                  fs,
-                  this.baseMemoryDirectory,
-                  path.join(scope, path.relative(root, target)),
-                  writeContext.sourceId,
-                ))
-              ) {
-                return {
-                  success: false,
-                  message:
-                    "This user statement was forgotten or superseded; cite a new user message.",
-                } satisfies MemoryMutationOutcome;
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
               }
               yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
@@ -1126,7 +1135,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedMemoryLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1178,19 +1187,8 @@ export class MemoryServiceImpl implements MemoryService {
                 subject: "This edit",
               });
 
-              if (
-                !(yield* prepareMemorySourceWrite(
-                  fs,
-                  this.baseMemoryDirectory,
-                  path.join(scope, path.relative(root, target)),
-                  writeContext.sourceId,
-                ))
-              ) {
-                return {
-                  success: false,
-                  message:
-                    "This user statement was forgotten or superseded; cite a new user message.",
-                } satisfies MemoryMutationOutcome;
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
               }
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
@@ -1219,7 +1217,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedMemoryLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1267,19 +1265,8 @@ export class MemoryServiceImpl implements MemoryService {
                 subject: "This edit",
               });
 
-              if (
-                !(yield* prepareMemorySourceWrite(
-                  fs,
-                  this.baseMemoryDirectory,
-                  path.join(scope, path.relative(root, target)),
-                  writeContext.sourceId,
-                ))
-              ) {
-                return {
-                  success: false,
-                  message:
-                    "This user statement was forgotten or superseded; cite a new user message.",
-                } satisfies MemoryMutationOutcome;
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
               }
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
@@ -1302,7 +1289,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedMemoryLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1328,7 +1315,7 @@ export class MemoryServiceImpl implements MemoryService {
               }
 
               yield* eraseMemoryOpportunityReceiptsForScope(scope, this.receiptsDirectory);
-              yield* prepareMemorySourceDelete(
+              yield* revokeClaimSentencesUnder(
                 fs,
                 this.baseMemoryDirectory,
                 path.join(scope, path.relative(root, target)),
@@ -1368,7 +1355,7 @@ export class MemoryServiceImpl implements MemoryService {
         }
         const scope = resolvedOld.scope;
 
-        return yield* this.withValidatedMemoryLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1407,13 +1394,13 @@ export class MemoryServiceImpl implements MemoryService {
               yield* fs
                 .makeDirectory(path.dirname(destination), { recursive: true })
                 .pipe(Effect.mapError(toError));
-              yield* prepareMemorySourceRename(
+              yield* fs.rename(source, destination).pipe(Effect.mapError(toError));
+              yield* moveClaimSentences(
                 fs,
                 this.baseMemoryDirectory,
                 path.join(scope, path.relative(root, source)),
                 path.join(scope, path.relative(root, destination)),
               );
-              yield* fs.rename(source, destination).pipe(Effect.mapError(toError));
 
               yield* moveProvenance(
                 fs,

@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import type { MemorySource } from "@/core/types/message";
 import {
   collectMemorySources,
+  quotedSentenceKeys,
   formatStoredUserClaim,
   isForgetInstruction,
   isSensitiveUserClaim,
@@ -126,5 +127,27 @@ describe("collectMemorySources", () => {
     ] as const;
     expect(collectMemorySources(history, current)).toEqual([earlier, current]);
     expect(collectMemorySources(history, undefined)).toEqual([earlier]);
+  });
+});
+
+describe("quotedSentenceKeys", () => {
+  const message: MemorySource = { id: "user:run-1", text: "I like tea. I'm vegetarian." };
+
+  test("keys a quote by the sentences it came from, not its exact span", () => {
+    expect(quotedSentenceKeys(message, "I like tea.")).toEqual(
+      quotedSentenceKeys(message, "like tea"),
+    );
+    expect(quotedSentenceKeys(message, "I like tea.")).toHaveLength(1);
+  });
+
+  test("gives each sentence of one message its own key", () => {
+    const teaKeys = quotedSentenceKeys(message, "I like tea.");
+    const dietKeys = quotedSentenceKeys(message, "I'm vegetarian.");
+    expect(teaKeys).not.toEqual(dietKeys);
+    expect(quotedSentenceKeys(message, "tea. I'm")).toEqual([...teaKeys, ...dietKeys]);
+  });
+
+  test("never contains the quoted words", () => {
+    expect(quotedSentenceKeys(message, "I like tea.").join("")).not.toContain("tea");
   });
 });

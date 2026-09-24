@@ -195,12 +195,15 @@ Creating an entry also requires an explicit relevance topic. A favorite fruit ca
 that should affect nearly every task, such as concise replies. This choice is made by the agent
 and remains measurable; an incorrect topic can still cause missed or irrelevant recall.
 
-When a sourced fact is corrected or forgotten, a hidden source ledger revokes the old
-user message ID before the file changes. Later compaction cannot re-save the old claim from that
-same conversation source. A fresh user statement has a new source ID and can be remembered again.
-The ledger spans memory scopes and stores IDs and paths, not quotes. Memories created before source tracking do not have
-an old source ID to revoke; their original conversation history may need manual review after a
-forget request.
+When a sourced fact is corrected or forgotten, a hidden source ledger revokes the sentences it
+was quoted from before the file changes. Later compaction cannot re-save the old claim from those
+sentences, even by quoting a different part of one, while other facts from the same message stay
+quotable: correcting "I like tea" in "I like tea. I'm vegetarian." leaves the second sentence
+usable. A fresh user statement can establish the fact again. The ledger spans memory scopes and
+stores hashed sentence keys and paths, never quotes. Forgetting never waits on it: with an
+unreadable ledger the delete still happens and cited writes stay paused, and a full ledger drops
+its oldest revocations. Memories created before source tracking have no sentences to revoke;
+their original conversation history may need manual review after a forget request.
 
 ### Memory opportunity receipts
 

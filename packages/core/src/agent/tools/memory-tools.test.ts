@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
+import { quotedSentenceKeys } from "@/core/memory/source-trust";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
@@ -120,7 +121,10 @@ describe("manage_memory", () => {
     expect(calls[0]?.[1]).toBe("personal/when/food/favorite-fruit.md");
     expect(calls[0]?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
     expect(calls[0]?.[3]).toMatchObject({
-      sourceId: "user:1",
+      quotedSentenceKeys: quotedSentenceKeys(
+        { id: "user:1", text: "My favorite fruit is banana." },
+        "My favorite fruit is banana.",
+      ),
       entry: { origin: "user" },
     });
   });
