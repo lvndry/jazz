@@ -38,6 +38,20 @@ commit `a9a51bbf`; the summary and limitations are in
 [the personal-memory evaluation](./results/personal-memory-2026-09-23.md). The extra call did not
 improve task success in the tested journeys, so it is not part of the current agent path.
 
+The shadow receipt branch extends the journey report with pending, injected, viewed, and unshown
+opportunity counts. Forgetting must leave no retained receipts. To exercise the separate,
+read-only lifecycle judge against curated reference labels, run:
+
+```bash
+bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud
+bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud --held-out
+```
+
+These small labels are independent of the model prompt but are not user-reviewed human labels.
+The runner validates every enum and evidence reference and reports abstentions and false personal
+write proposals. Its output cannot mutate memory, provenance, skills, or policy. See
+[the observation and judgment result](./results/memory-observation-2026-09-23.md).
+
 Reports land in `evals/report/` (gitignored). Metrics: pass@1, pass@k,
 **Pass^k** (reliability), bootstrap CI, cost-normalized, per-domain + overall.
 

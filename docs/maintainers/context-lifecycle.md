@@ -116,6 +116,24 @@ estimate.
 
 ---
 
+### Memory observations at the request boundary
+
+The runner snapshots every file in the agent's allowed memory scopes before each model request.
+The snapshot skips linked scopes and files so external paths cannot enter receipts or provenance.
+The store assigns an ID on first observation and hashes the current file content as its version.
+The loop writes pending opportunity receipts before calling the provider, then marks them observed
+after a response. It detects actual exposure from the rendered standing line or a successful
+`view_memory` file result whose exact formatted message remains in that request. Directory
+listings, cleared results, and merely selected candidates have no exposure. Every candidate
+starts with relevance `unknown`; these receipts never update legacy credit counters. A failed
+provider call leaves pending receipts, so a crash cannot appear as a success.
+
+The store keeps at most 128 receipts per entry. Forgetting a file advances a locked scope
+generation and removes the whole scope's receipt window; tickets from an older generation cannot
+write after deletion. This also handles missing or stale provenance IDs. `memory explain` shows five
+recent records without raw memory text. Calibration must use independent labels before any
+observation can drive lesson changes or skill proposals.
+
 ## 2 · Trimming: turn-aware, never mid-tool-call
 
 Trimming is checked after every reply, against 95% of the context budget. The subtlety

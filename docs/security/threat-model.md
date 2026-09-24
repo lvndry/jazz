@@ -84,6 +84,12 @@ Exact quotation authenticates where words came from, not whether they are a dura
 fact or which existing entry they should update. A model can still misjudge those questions.
 Legacy entries without source IDs cannot revoke their original conversation source on deletion.
 
+Shadow memory receipts retain paths, source IDs, and hashes rather than transcript or tool text.
+Hashes of short facts may still be guessable, so the receipt store remains private under
+`JAZZ_HOME`. Forgetting any entry erases the whole scope's receipt window before deleting the
+memory file. A scope generation prevents an in-flight observation from restoring old receipts.
+The observation writer has no path to memory credit, skills, or policy mutation.
+
 ### Remote entry points
 
 `jazz run` listens on no port. `jazz daemon` binds loopback by default and provisions an operator

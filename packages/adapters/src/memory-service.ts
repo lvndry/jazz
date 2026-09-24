@@ -5,9 +5,14 @@
  * storage — independent of agent identity, so several agents can share one.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import {
+  eraseMemoryOpportunityReceiptsForScope,
+  readMemoryReceiptEpoch,
+} from "@jazz/core/agent/memory-observation-receipts";
 import {
   MAX_MEMORY_FILE_BYTES,
   MAX_MEMORY_FILES_PER_SCOPE,
@@ -31,6 +36,7 @@ import {
 import type {
   MemoryDirectoryEntry,
   MemoryEntryInForce,
+  MemoryEntryObservation,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
@@ -191,6 +197,9 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
   >;
 
   return {
+    ...(asOptionalString(record["entryId"]) !== undefined
+      ? { entryId: record["entryId"] as string }
+      : {}),
     createdAt: asOptionalString(record["createdAt"]) ?? now,
     updatedAt: asOptionalString(record["updatedAt"]) ?? now,
     ...(asOptionalString(record["lastViewedAt"]) !== undefined
@@ -420,6 +429,7 @@ function recordWrite(
 
     const updated: MemoryFileProvenance = {
       ...(existing ?? {}),
+      entryId: existing?.entryId ?? randomUUID(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       writeCount: (existing?.writeCount ?? 0) + 1,
@@ -680,6 +690,83 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
   }
+
+  /** Snapshot all scope-eligible files without treating enumeration as a model view. */
+  readonly observeEntries: MemoryService["observeEntries"] = (scopes) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const allowed = [...new Set(scopes.filter(isValidStorageKey))];
+        if (allowed.length === 0) return [];
+        yield* fs.makeDirectory(this.baseMemoryDirectory, { recursive: true });
+        return yield* withLock(
+          this.memoryLockPath(),
+          Effect.gen(
+            function* (this: MemoryServiceImpl) {
+              const candidates = [
+                ...(yield* this.standingEntries(allowed)),
+                ...(yield* this.conditionalEntries(allowed)),
+              ];
+              const observations: MemoryEntryObservation[] = [];
+              for (const scope of allowed) {
+                const scopeRoot = yield* existingSafeMemoryPath(
+                  this.baseMemoryDirectory,
+                  scope,
+                  "directory",
+                );
+                if (scopeRoot === undefined) continue;
+                const receiptEpoch = yield* Effect.tryPromise({
+                  try: () => readMemoryReceiptEpoch(scope, path.dirname(this.baseMemoryDirectory)),
+                  catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+                });
+                const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
+                const files = { ...provenance.files };
+                let changed = false;
+                for (const candidate of candidates) {
+                  if (candidate.scope !== scope) continue;
+                  const relativePath = candidate.path.slice(scope.length + 1);
+                  const safeFile = yield* existingSafeMemoryPath(scopeRoot, relativePath, "file");
+                  if (safeFile === undefined) continue;
+                  const content = yield* fs
+                    .readFileString(safeFile)
+                    .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+                  if (content === undefined) continue;
+                  const existing = files[relativePath];
+                  const entryId = existing?.entryId ?? randomUUID();
+                  if (existing?.entryId === undefined) {
+                    const now = new Date().toISOString();
+                    files[relativePath] = {
+                      ...(existing ?? {}),
+                      entryId,
+                      createdAt: existing?.createdAt ?? now,
+                      updatedAt: existing?.updatedAt ?? now,
+                      writeCount: existing?.writeCount ?? 0,
+                      writtenBy: existing?.writtenBy ?? [],
+                    };
+                    changed = true;
+                  }
+                  observations.push({
+                    ...candidate,
+                    entryId,
+                    entryVersion: createHash("sha256").update(content).digest("hex"),
+                    receiptEpoch,
+                  });
+                }
+                if (changed) {
+                  yield* writeFileStringAtomic(
+                    fs,
+                    path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
+                    `${JSON.stringify({ files }, null, 2)}\n`,
+                    { tempPrefix: "memory-provenance" },
+                  );
+                }
+              }
+              return observations;
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
 
   readonly view: MemoryService["view"] = (scopes, virtualPath, viewRange) =>
     Effect.gen(
@@ -1193,6 +1280,14 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
+              yield* Effect.tryPromise({
+                try: () =>
+                  eraseMemoryOpportunityReceiptsForScope(
+                    scope,
+                    path.dirname(this.baseMemoryDirectory),
+                  ),
+                catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              });
               yield* prepareMemorySourceDelete(
                 fs,
                 this.baseMemoryDirectory,

@@ -619,6 +619,16 @@ function initializeAgentRun(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
+    const memoryServiceForObservation = yield* Effect.serviceOption(MemoryServiceTag);
+    const memoryFileSystem = yield* FileSystem.FileSystem;
+    const observedScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+    const observeMemory = Option.isSome(memoryServiceForObservation)
+      ? () =>
+          memoryServiceForObservation.value.observeEntries(observedScopes).pipe(
+            Effect.provideService(FileSystem.FileSystem, memoryFileSystem),
+            Effect.catchAll(() => Effect.succeed([])),
+          )
+      : undefined;
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -772,6 +782,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      ...(observeMemory !== undefined ? { observeMemory } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {
