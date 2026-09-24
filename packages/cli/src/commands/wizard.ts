@@ -522,11 +522,19 @@ function promptNotificationsOnFirstRun(
       true, // Default to yes
     );
 
+    if (enableNotifications === undefined) {
+      yield* terminal.info("Skipped. Configure notifications anytime in Settings.");
+      yield* terminal.log("");
+      return;
+    }
+
     yield* configService.set("notifications.enabled", enableNotifications);
 
     if (enableNotifications) {
       const enableSound = yield* terminal.confirm("Play a sound with notifications?", true);
-      yield* configService.set("notifications.sound", enableSound);
+      if (enableSound !== undefined) {
+        yield* configService.set("notifications.sound", enableSound);
+      }
       yield* terminal.success("Notifications enabled! Change anytime in Settings.");
     } else {
       yield* terminal.info("Notifications disabled. Enable anytime in Settings.");

@@ -91,6 +91,11 @@ export function promptInteractiveCatchUp() {
     // Ask if user wants to catch up
     const wantsCatchUp = yield* terminal.confirm("Would you like to catch them up?", false);
 
+    if (wantsCatchUp === undefined) {
+      yield* terminal.log("");
+      return;
+    }
+
     if (!wantsCatchUp) {
       const skippedAt = new Date().toISOString();
       for (const candidate of candidates) {
@@ -123,7 +128,7 @@ export function promptInteractiveCatchUp() {
       { choices, default: defaultSelected },
     );
 
-    if (selected.length === 0) {
+    if (selected === undefined || selected.length === 0) {
       yield* terminal.info("No workflows selected.");
       yield* terminal.log("");
       return;

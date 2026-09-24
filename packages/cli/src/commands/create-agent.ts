@@ -863,7 +863,7 @@ export async function promptForAgentInfo(
         // Loop for tool selection to allow "Go Back" from web search config
         let shouldGoBack = false;
         while (true) {
-          selectedTools = await Effect.runPromise(
+          const toolSelection = await Effect.runPromise(
             terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
               choices: selectableCategories.map(([category, toolsInCategory]) => ({
                 name:
@@ -876,12 +876,21 @@ export async function promptForAgentInfo(
             }),
           );
 
+          if (toolSelection === undefined) {
+            shouldGoBack = true;
+            break;
+          }
+          selectedTools = toolSelection;
+
           // Handle empty selection as potential back navigation
           if (selectedTools.length === 0) {
             // Ask if they want to go back or proceed with no tools
             const confirm = await Effect.runPromise(
               terminal.confirm("No tools selected. Go back to previous step?", true),
             );
+            if (confirm === undefined) {
+              continue;
+            }
             if (confirm) {
               shouldGoBack = true;
               break;

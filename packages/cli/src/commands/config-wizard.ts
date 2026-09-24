@@ -306,6 +306,9 @@ function configureOutputDisplay() {
       label: string;
     }) {
       const nextValue = yield* terminal.confirm(options.prompt, options.currentValue);
+      if (nextValue === undefined) {
+        return;
+      }
       yield* configService.set(options.configKey, nextValue);
       yield* terminal.success(`${options.label} ${nextValue ? "enabled" : "disabled"}.`);
     };
@@ -496,12 +499,18 @@ function configureNotifications() {
       switch (selection) {
         case "enabled": {
           const nextValue = yield* terminal.confirm("Enable system notifications?", enabled);
+          if (nextValue === undefined) {
+            break;
+          }
           yield* configService.set("notifications.enabled", nextValue);
           yield* terminal.success(`System notifications ${nextValue ? "enabled" : "disabled"}.`);
           break;
         }
         case "sound": {
           const nextValue = yield* terminal.confirm("Enable notification sound?", sound);
+          if (nextValue === undefined) {
+            break;
+          }
           yield* configService.set("notifications.sound", nextValue);
           yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
           break;

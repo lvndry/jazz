@@ -112,7 +112,7 @@ function confirmInstall(
     });
     if (key?.trim().toLowerCase() !== "i") return false;
 
-    return yield* terminal.confirm(`Install this workflow as "${localName}"?`, false);
+    return (yield* terminal.confirm(`Install this workflow as "${localName}"?`, false)) === true;
   });
 }
 

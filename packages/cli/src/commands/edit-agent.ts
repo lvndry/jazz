@@ -857,7 +857,7 @@ async function promptForAgentUpdates(
 
     // Loop for tool selection
     while (true) {
-      selectedCategories = await Effect.runPromise(
+      const categorySelection = await Effect.runPromise(
         terminal.checkbox<string>("Select tool categories:", {
           choices: Object.keys(toolsByCategory)
             .filter(
@@ -874,6 +874,11 @@ async function promptForAgentUpdates(
             : {}),
         }),
       );
+
+      if (categorySelection === undefined) {
+        return null;
+      }
+      selectedCategories = categorySelection;
 
       if (selectedCategories.includes(searchCategoryName)) {
         const providerName = currentAgent.config.llmProvider;
