@@ -72,6 +72,7 @@ import {
   recordLLMUsage,
   recordToolDefinitionTokens,
   recordToolResultTokens,
+  telemetryErrorCategory,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
@@ -504,7 +505,9 @@ function finalizeRun(
       costCapped: capped,
     }).pipe(
       Effect.catchAll((error) =>
-        logger.warn("Failed to write agent token usage log", { error: error.message }),
+        logger.warn("Failed to write agent token usage log", {
+          errorType: telemetryErrorCategory(error),
+        }),
       ),
       Effect.fork,
     );
@@ -649,8 +652,8 @@ function handleToolPhase(
       agentId: agent.id,
       conversationId: actualConversationId,
       iteration: iterationIndex + 1,
-      toolsChosen: toolCalls.map((tc) => tc.function.name),
-      reasoning: reasoningContent,
+      toolCount: toolCalls.length,
+      reasoningChars: reasoningContent.length,
     });
 
     for (const toolCall of toolCalls) {
@@ -670,7 +673,7 @@ function handleToolPhase(
     if (meltdown) {
       yield* logger.warn("Meltdown detected — injecting recovery signal", {
         agentId: agent.id,
-        recentTools: state.recentToolCalls.slice(-10).map((tc) => tc.name),
+        recentToolCount: Math.min(state.recentToolCalls.length, 10),
       });
       state.recentToolCalls.length = 0;
     }
@@ -802,7 +805,7 @@ function handleToolPhase(
       yield* logger.error("Missing tool results for some tool calls", {
         agentId: agent.id,
         conversationId: actualConversationId,
-        missingToolCallIds: missingResults,
+        missingCount: missingResults.length,
         expectedCount: toolCalls.length,
         actualCount: toolResults.length,
       });
@@ -822,7 +825,6 @@ function handleToolPhase(
             agentId: agent.id,
             conversationId: actualConversationId,
             toolCallId: toolCall.id,
-            toolName: toolCall.function.name,
           });
           state.currentMessages.push({
             role: "tool",
@@ -1063,11 +1065,7 @@ function runIteration(
           rung: "clear",
           clearedCount: advisedClear.clearedCount,
           tokensReclaimed: advisedClear.tokensReclaimed,
-          decisions: advisedClear.decisions.map((decision) => ({
-            tool: decision.tool,
-            action: decision.action,
-            chars: decision.chars,
-          })),
+          decisionCount: advisedClear.decisions.length,
         });
       }
     }
@@ -1231,7 +1229,6 @@ function runIteration(
       contentLength: completion.content.length,
       toolCallsCount: completion.toolCalls?.length ?? 0,
       tokenUsage: completion.usage,
-      contentPreview: completion.content.substring(0, 300),
     });
 
     if (completion.usage) {
@@ -1392,7 +1389,7 @@ export function executeAgentLoop(
       // The resolved id, not options.conversationId: a run started without one still gets
       // a conversation, and falling back to a constant here would pile every anonymous
       // run into a single shared log file.
-      yield* logger.setLogGroup(
+      yield* logger.pushLogGroup(
         conversationLogGroup(options.agent.id, runContext.actualConversationId),
       );
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
@@ -1670,7 +1667,7 @@ export function executeAgentLoop(
           );
         }
 
-        yield* logger.clearLogGroup();
+        yield* logger.popLogGroup();
       }),
   );
 }

@@ -29,14 +29,17 @@ export interface LoggerService {
   ) => Effect.Effect<void, never>;
   /**
    * Set the session ID for this logger instance
-   * All subsequent logs will be written to the session-specific file
+   * Replaces the current scope so switching conversations cannot revive an old file.
    */
   readonly setLogGroup: (conversationId: string) => Effect.Effect<void, never>;
   /**
-   * Clear the session ID
-   * Subsequent logs will be written to the general log file
+   * Clear every active scope and return logging to the general file.
    */
   readonly clearLogGroup: () => Effect.Effect<void, never>;
+  /** Push a child run's scope while retaining its parent's destination. */
+  readonly pushLogGroup: (conversationId: string) => Effect.Effect<void, never>;
+  /** Restore the parent run's scope after a nested run completes. */
+  readonly popLogGroup: () => Effect.Effect<void, never>;
 }
 
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");

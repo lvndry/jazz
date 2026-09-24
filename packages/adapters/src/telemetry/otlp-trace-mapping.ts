@@ -1,12 +1,15 @@
-import { createHash } from "node:crypto";
+/** Builds connected OTLP spans from safe Jazz telemetry events, including recursive agent runs. */
+
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
 import {
   buildResourceAttributes,
   eventToAttributes,
   type OtlpKeyValue,
   type ResourceOptions,
+  spanIdentityOf,
   stringAttribute,
 } from "./otlp-mapping";
+export { rootSpanIdForRun, toolSpanIdForCall, traceIdForRun } from "./otlp-mapping";
 
 /** OTLP span kind. Everything Jazz emits is INTERNAL work inside one process. */
 const SPAN_KIND_INTERNAL = 1;
@@ -36,43 +39,6 @@ export interface OtlpTracesPayload {
   }[];
 }
 
-/** Trace ids are 16 bytes of hex, span ids 8. Derive them deterministically. */
-function deriveId(seed: string, bytes: number): string {
-  return createHash("sha256")
-    .update(seed)
-    .digest("hex")
-    .slice(0, bytes * 2);
-}
-
-export function traceIdForRun(runId: string): string {
-  return deriveId(`jazz-trace:${runId}`, 16);
-}
-
-export function rootSpanIdForRun(runId: string): string {
-  return deriveId(`jazz-run:${runId}`, 8);
-}
-
-function spanIdForEvent(eventId: string): string {
-  return deriveId(`jazz-event:${eventId}`, 8);
-}
-
-/**
- * The run an event belongs to.
- *
- * `runId` is what actually groups a trace. Falling back to the conversation and
- * then the event's own id means an event recorded outside a run still produces a
- * valid single-span trace rather than being dropped.
- */
-function runIdOf(event: TelemetryEvent): { readonly id: string; readonly isRunScoped: boolean } {
-  const runId = event.data["runId"];
-  if (typeof runId === "string" && runId.length > 0) return { id: runId, isRunScoped: true };
-  if (event.conversationId) return { id: event.conversationId, isRunScoped: true };
-  // Nothing ties this event to a run — `jazz agent list` and other bare CLI
-  // commands land here. Give it its own trace rather than parenting it to a
-  // root span that will never be emitted.
-  return { id: event.id, isRunScoped: false };
-}
-
 function toNanos(milliseconds: number): string {
   return String(BigInt(Math.trunc(milliseconds)) * 1_000_000n);
 }
@@ -89,32 +55,22 @@ function spanNameOf(event: TelemetryEvent): string {
   switch (event.type) {
     case "agent_run_completed":
     case "agent_run_failed": {
-      const agentName = data["agentName"];
-      return typeof agentName === "string" ? `agent ${agentName}` : "agent run";
+      return "run-agent";
     }
     case "llm_usage": {
-      const model = data["model"];
       if (data["purpose"] === "classifier") {
-        return typeof model === "string" ? `classifier ${model}` : "classifier";
+        return "classify-command-risk";
       }
-      // GenAI semconv names a chat span "{operation} {model}".
-      return typeof model === "string" ? `chat ${model}` : "chat";
+      return "generate-response";
     }
     case "llm_retry":
-      return "llm retry";
+      return "retry-llm";
     case "tool_invocation":
-    case "tool_error": {
-      const toolName = data["toolName"];
-      return typeof toolName === "string" ? `tool ${toolName}` : "tool";
-    }
+    case "tool_error":
+      return "execute-tool";
     default:
       return event.type;
   }
-}
-
-function errorMessageOf(event: TelemetryEvent): string | undefined {
-  const error = event.data["error"];
-  return typeof error === "string" && error.length > 0 ? error : undefined;
 }
 
 const ERROR_EVENT_TYPES = new Set(["agent_run_failed", "tool_error"]);
@@ -144,29 +100,47 @@ export function isSpanEvent(event: TelemetryEvent): boolean {
 }
 
 export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan {
-  const { id: runId, isRunScoped } = runIdOf(event);
-  const traceId = traceIdForRun(runId);
-  const rootSpanId = rootSpanIdForRun(runId);
-
+  const { runId, isRunScoped, traceId, spanId, parentSpanId } = spanIdentityOf(event);
   const isRunSpan = event.type === "agent_run_completed" || event.type === "agent_run_failed";
-  const isRoot = isRunSpan || !isRunScoped;
-  const spanId = isRunSpan ? rootSpanId : spanIdForEvent(event.id);
+  const isToolSpan = event.type === "tool_invocation" || event.type === "tool_error";
 
   const endMs = new Date(event.timestamp).getTime();
   const startMs = endMs - durationOf(event);
 
-  const errorMessage = errorMessageOf(event);
   const isError = ERROR_EVENT_TYPES.has(event.type);
 
   const attributes = [
     ...eventToAttributes(event, captureContent),
-    stringAttribute("jazz.run.id", runId),
+    ...(isRunScoped ? [stringAttribute("jazz.run.id", runId)] : []),
   ];
+  if (isRunSpan) {
+    attributes.push(stringAttribute("langfuse.observation.type", "agent"));
+    attributes.push(stringAttribute("gen_ai.operation.name", "invoke_agent"));
+    const agentName = event.data["agentName"];
+    if (typeof agentName === "string") {
+      attributes.push(stringAttribute("gen_ai.agent.name", agentName.slice(0, 256)));
+    }
+  } else if (event.type === "llm_usage") {
+    attributes.push(stringAttribute("langfuse.observation.type", "generation"));
+  } else if (isToolSpan) {
+    attributes.push(stringAttribute("langfuse.observation.type", "tool"));
+    attributes.push(stringAttribute("gen_ai.operation.name", "execute_tool"));
+    const toolName = event.data["toolName"];
+    if (typeof toolName === "string") {
+      attributes.push(stringAttribute("gen_ai.tool.name", toolName.slice(0, 256)));
+    }
+  } else if (event.type === "llm_retry") {
+    attributes.push(stringAttribute("langfuse.observation.type", "event"));
+    attributes.push(stringAttribute("langfuse.observation.level", "WARNING"));
+  } else {
+    attributes.push(stringAttribute("langfuse.observation.type", "span"));
+  }
+  if (isError) attributes.push(stringAttribute("langfuse.observation.level", "ERROR"));
 
   return {
     traceId,
     spanId,
-    ...(isRoot ? {} : { parentSpanId: rootSpanId }),
+    ...(parentSpanId ? { parentSpanId } : {}),
     name: spanNameOf(event),
     kind: SPAN_KIND_INTERNAL,
     startTimeUnixNano: toNanos(startMs),
@@ -174,7 +148,9 @@ export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan
     attributes,
     status: {
       code: isError ? STATUS_ERROR : STATUS_UNSET,
-      ...(isError && errorMessage ? { message: errorMessage } : {}),
+      ...(isError
+        ? { message: event.type === "tool_error" ? "Tool invocation failed" : "Agent run failed" }
+        : {}),
     },
   };
 }

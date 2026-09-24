@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { MemoryEntryObservation } from "@/core/interfaces/memory-service";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
@@ -57,6 +58,8 @@ export interface AgentRunnerOptions {
    * ended up inheriting the previous one's todo list.
    */
   readonly conversationId?: string;
+  /** Parent trace context inherited by an internal child run. */
+  readonly telemetryParent?: TelemetryTraceParent;
   /**
    * If true, this is an internal sub-agent run (e.g., summarization).
    * UI elements like thinking indicators will be suppressed.

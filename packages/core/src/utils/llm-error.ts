@@ -5,7 +5,11 @@
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
-import { isLocalServerProvider, LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
+import {
+  isLocalServerProvider,
+  LOCAL_SERVER_PROVIDERS,
+  localServerAddress,
+} from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -298,16 +302,35 @@ function isProviderAuthFailure(statusCode: number | undefined, message: string):
   return !isBillingOrPlanError(message);
 }
 
-// Start-the-server guidance for local providers; undefined for everything else.
-export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    return LOOPBACK_HOSTNAMES.has(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start-the-server guidance for local providers; undefined for everything else.
+ *
+ * `attemptedUrl` is the base URL the failed request actually used (config, env, or default).
+ * Without it the env var or the default is reported, which misnames a URL saved in config.
+ * A loopback server gets the command to start it; a remote one can only be checked, not started.
+ */
+export function localServerUnreachableMessage(
+  providerName: ProviderName,
+  attemptedUrl?: string,
+): string | undefined {
   if (!isLocalServerProvider(providerName)) {
     return undefined;
   }
   const local = LOCAL_SERVER_PROVIDERS[providerName];
-  const envUrl = process.env[local.envVar];
-  const targetUrl = envUrl || local.defaultUrl;
-  const isCustomUrl = envUrl && envUrl !== local.defaultUrl;
-  if (isCustomUrl) {
+  const targetUrl = localServerAddress(
+    attemptedUrl || process.env[local.envVar] || local.defaultUrl,
+  );
+  if (!isLoopbackUrl(targetUrl)) {
     return `Cannot reach the ${local.name} server at ${targetUrl}. Make sure it is running and reachable from this host.`;
   }
   return `Cannot reach the ${local.name} server (expected at ${targetUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;

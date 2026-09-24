@@ -217,6 +217,8 @@ describe("classifyCommandRisk", () => {
     error: () => Effect.void,
     setLogGroup: () => Effect.void,
     clearLogGroup: () => Effect.void,
+    pushLogGroup: () => Effect.void,
+    popLogGroup: () => Effect.void,
     writeToFile: () => Effect.void,
     logToolCall: () => Effect.void,
   } as unknown as LoggerService;

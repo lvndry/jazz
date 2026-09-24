@@ -105,10 +105,14 @@ Telemetry is recorded locally by default and is exported only when you configure
 does not block inference, tools, MCP, or telemetry export. See
 [Local and air-gapped models](docs/getting-started/local-models.md).
 
-**Audit trail.** Every tool invocation is logged under `~/.jazz/logs/`, with per-run token and
-cost records under `~/.jazz/telemetry/`. Credential-bearing fields in tool arguments and
-structured metadata (including nested headers) are replaced with `<redacted>` before a log is
-written. Logs can still contain other sensitive user content, so protect the directory.
+**Audit trail.** Tool activity is recorded under `~/.jazz/logs/`, with per-run token and
+cost records under `~/.jazz/telemetry/`. Routine operational logs contain tool IDs,
+outcomes, and durations rather than command text, arguments, results, or error messages.
+The local tool audit record keeps a bounded, redacted argument shape. Credential-bearing
+fields in structured metadata (including nested headers) are replaced with `<redacted>`
+before a log is written. OTLP export is explicit and uses a private, bounded local outbox
+for pending traces and logs. Local records can still contain sensitive non-secret context;
+protect `~/.jazz` and send OTLP only to an approved destination.
 
 ### Plugins are trusted code
 

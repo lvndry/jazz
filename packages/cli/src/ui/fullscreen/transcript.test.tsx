@@ -506,22 +506,24 @@ describe("tool receipts", () => {
     expect(colorOf(spans, "thought")).toBe(THEME.muted.toUpperCase());
   });
 
-  it("shows the arguments used and a snippet of what came back", async () => {
+  it("wraps long tool arguments while keeping the result visible", () => {
+    const path = `/projects/${"deep/".repeat(18)}notes`;
     const blocks: readonly Block[] = [
       {
         id: "t",
         seq: 1,
         kind: "tool",
         app: "view_memory",
-        args: "path: /",
+        args: `path: ${path}`,
         summary: "Here're the files · /notes.txt",
         status: "ok",
       },
     ];
-    const { rows } = await render(transcript(blocks, WIDE), WIDE);
-    const row = rows.find((line) => line.includes("view_memory")) ?? "";
-    expect(row).toContain("path: /");
-    expect(row).toContain("/notes.txt");
+    const rows = transcriptRows(blocks, NARROW);
+    const text = rows.flatMap((row) => row.content.map((segment) => segment.text)).join("");
+    expect(rows.length).toBeGreaterThan(1);
+    expect(text).toContain(`path: ${path}`);
+    expect(text).toContain("/notes.txt");
   });
 
   it("states the classifier verdict on a settled command receipt", async () => {
