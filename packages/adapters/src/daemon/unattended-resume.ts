@@ -30,6 +30,12 @@ export interface UnattendedTurn {
   readonly sourceId: string;
 }
 
+function logSource(source: string): "job_batch" | "wake_trigger" | "other" {
+  if (source === "job batch") return "job_batch";
+  if (source === "wake trigger") return "wake_trigger";
+  return "other";
+}
+
 /**
  * A parked turn produced real messages up to the approval; dropping them leaves the next turn
  * with no memory of having been woken.
@@ -50,11 +56,10 @@ function persist(
       endedAt: now,
       messages: [...messages],
     }).pipe(
-      Effect.catchAll((error) =>
-        logger.warn(`Unattended ${turn.source} conversation save failed`, {
-          agentId: turn.agentId,
-          sourceId: turn.sourceId,
-          error: error instanceof Error ? error.message : String(error),
+      Effect.catchAll(() =>
+        logger.warn("Unattended conversation save failed", {
+          source: logSource(turn.source),
+          errorType: "save_failed",
         }),
       ),
     );
@@ -118,9 +123,9 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
     const logger = yield* LoggerServiceTag;
     const agentResult = yield* getAgentByIdentifier(turn.agentId).pipe(Effect.either);
     if (agentResult._tag === "Left") {
-      yield* logger.warn(`Unattended ${turn.source} skipped: agent not found`, {
-        agentId: turn.agentId,
-        sourceId: turn.sourceId,
+      yield* logger.warn("Unattended run skipped: agent not found", {
+        source: logSource(turn.source),
+        errorType: "agent_not_found",
       });
       return;
     }
@@ -150,28 +155,23 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
 
     switch (outcome.kind) {
       case "failed":
-        yield* logger.warn(`Unattended ${turn.source} run failed`, {
-          agentId: turn.agentId,
-          sourceId: turn.sourceId,
-          error: outcome.error,
+        yield* logger.warn("Unattended run failed", {
+          source: logSource(turn.source),
+          errorType: "run_failed",
         });
         return;
 
       case "unresumable":
-        yield* logger.warn(`Unattended ${turn.source} needed approval it could not save`, {
-          agentId: turn.agentId,
-          sourceId: turn.sourceId,
+        yield* logger.warn("Unattended run could not save required approval", {
+          source: logSource(turn.source),
+          errorType: "approval_save_failed",
         });
         return;
 
       case "parked": {
-        yield* logger.info(`Unattended ${turn.source} parked waiting for approval`, {
-          agentId: turn.agentId,
-          sourceId: turn.sourceId,
-          runId: outcome.runId,
-          waitingOn: outcome.waitingOn,
-          expiresAt: outcome.expiresAt,
-          resumeWith: `jazz runs resume ${outcome.runId}`,
+        yield* logger.info("Unattended run parked waiting for approval", {
+          source: logSource(turn.source),
+          status: "awaiting_approval",
         });
         if (outcome.messages !== undefined) {
           yield* persist(named, startedAt, outcome.messages);

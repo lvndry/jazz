@@ -777,7 +777,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /**
    * The turn outro: ONE quiet line closing the turn —
-   * `✓ 4.2s · 9.3k in → 28 out · $0.0019` — replacing the old trio of
+   * `✓ 4.2s · 9.3k in → 28 out · 41.3 tok/s · $0.0019` — replacing the old trio of
    * metrics line, cost line, and "completed successfully" banner.
    *
    * Cost joins the line when pricing is in the synchronous cache (the common
@@ -810,6 +810,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
       });
     } else if (event.metrics?.totalTokens) {
       parts.push(`${compactCount(event.metrics.totalTokens)} tok`);
+    }
+
+    const tokensPerSecond = event.metrics?.tokensPerSecond;
+    if (tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)) {
+      parts.push(`${tokensPerSecond.toFixed(1)} tok/s`);
     }
 
     const provider = this.acc.currentProvider;

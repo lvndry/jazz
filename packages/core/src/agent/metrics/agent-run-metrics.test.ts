@@ -2,17 +2,26 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { TelemetryService } from "@/core/interfaces/telemetry";
+import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
+import { LLMRateLimitError } from "@/core/types/errors";
 import {
   beginIteration,
   completeIteration,
   computeRunCost,
   createAgentRunMetrics,
   estimateTokens,
+  emitAgentRunFailed,
+  emitLLMRetry,
+  emitToolInvocation,
   finalizeAgentRun,
   recordClassifierUsage,
   recordDecisionUsage,
+  recordLLMRetry,
   recordLLMUsage,
   recordToolDefinitionTokens,
+  recordToolError,
+  recordToolInvocation,
 } from "./agent-run-metrics";
 
 const MINIMAL_AGENT = {
@@ -59,6 +68,102 @@ describe("estimateTokens", () => {
     expect(estimateTokens(100)).toBe(25);
     expect(estimateTokens(1000)).toBe(250);
     expect(estimateTokens(4000)).toBe(1000);
+  });
+});
+
+describe("recursive trace context", () => {
+  it("retains the parent's trace and session without reusing its run id", () => {
+    const telemetryParent = {
+      topRunId: "root-run",
+      parentRunId: "parent-run",
+      parentToolCallId: "dispatch-call",
+      sessionId: "root-conversation",
+    };
+    const metrics = createAgentRunMetrics({
+      agent: MINIMAL_AGENT,
+      conversationId: "child-conversation",
+      telemetryParent,
+    });
+    expect(metrics.runId).not.toBe(telemetryParent.parentRunId);
+    expect(metrics.telemetryParent).toEqual(telemetryParent);
+    expect(metrics.conversationId).toBe("child-conversation");
+  });
+});
+
+describe("telemetry error privacy", () => {
+  it("emits bounded error categories without credential-bearing exception text", async () => {
+    const secret = "Bearer sk-secret-token-123";
+    const captured: unknown[] = [];
+    const telemetry = {
+      recordAgentRunFailed: (data: unknown) =>
+        Effect.sync(() => {
+          captured.push(data);
+        }),
+      recordLLMRetry: (data: unknown) =>
+        Effect.sync(() => {
+          captured.push(data);
+        }),
+      recordToolInvocation: (data: unknown) =>
+        Effect.sync(() => {
+          captured.push(data);
+        }),
+    } as unknown as TelemetryService;
+    const metrics = createMetrics();
+    const rateLimit = new LLMRateLimitError({
+      provider: "openai",
+      message: `Provider response included ${secret}`,
+    });
+
+    await Effect.runPromise(
+      Effect.all([
+        emitAgentRunFailed(metrics, new Error(`Run failed with ${secret}`)),
+        emitLLMRetry(metrics, rateLimit),
+        emitToolInvocation(metrics, {
+          toolName: "execute_command",
+          success: false,
+          durationMs: 1,
+          error: `Tool output included ${secret}`,
+        }),
+      ]).pipe(Effect.provideService(TelemetryServiceTag, telemetry)),
+    );
+
+    expect(captured).toHaveLength(3);
+    expect(JSON.stringify(captured)).not.toContain(secret);
+    expect(captured).toEqual([
+      expect.objectContaining({ error: "unknown" }),
+      expect.objectContaining({ error: "rate_limit" }),
+      expect.objectContaining({ error: "unknown" }),
+    ]);
+  });
+
+  it("keeps credential-bearing tool names and errors out of the token usage log", async () => {
+    const secret = "Bearer sk-secret-token-123";
+    const metrics = createMetrics();
+    beginIteration(metrics, 1);
+    recordToolInvocation(metrics, `untrusted-${secret}`);
+    recordToolError(metrics, `untrusted-${secret}`, new Error(secret));
+    recordLLMRetry(metrics, new LLMRateLimitError({ provider: "openai", message: secret }));
+
+    let logged: Record<string, unknown> | undefined;
+    const logger = {
+      info: (_message: string, meta?: Record<string, unknown>) =>
+        Effect.sync(() => {
+          logged = meta;
+        }),
+    } as unknown as LoggerService;
+
+    await Effect.runPromise(
+      finalizeAgentRun(metrics, { iterationsUsed: 1, finished: false }).pipe(
+        Effect.provideService(LoggerServiceTag, logger),
+      ),
+    );
+
+    expect(JSON.stringify(logged)).not.toContain(secret);
+    expect(logged?.["errorCount"]).toBe(2);
+    expect(logged?.["lastErrorCategory"]).toBe("rate_limit");
+    expect(logged?.["iterationSummaries"]).toEqual([
+      expect.objectContaining({ errorCount: 2, toolCalls: 1 }),
+    ]);
   });
 });
 

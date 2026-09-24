@@ -9,7 +9,7 @@ import { jsonBigIntReplacer } from "@jazz/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { Effect, Layer, Option, Ref } from "effect";
+import { Effect, FiberRef, Layer } from "effect";
 
 let globalLogFormat: LoggingConfig["format"] = "plain";
 let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
@@ -35,6 +35,38 @@ const LOG_LEVEL_PRIORITY: Record<"debug" | "info" | "warn" | "error", number> = 
 const SENSITIVE_LOG_KEY_PATTERN =
   /authorization|api[-_]?key|token|secret|password|credential|cookie|passphrase/i;
 
+/** Tool argument field names retained in local receipts. Unknown keys may contain private text. */
+const AUDIT_FIELD_NAMES = new Set([
+  "access_token",
+  "apiKey",
+  "args",
+  "authorization",
+  "body",
+  "command",
+  "content",
+  "directory",
+  "edits",
+  "endLine",
+  "filePath",
+  "headers",
+  "ignoreCase",
+  "limit",
+  "maxResults",
+  "message",
+  "method",
+  "options",
+  "page",
+  "path",
+  "pattern",
+  "query",
+  "recursive",
+  "replacement",
+  "retries",
+  "startLine",
+  "timeoutMs",
+  "url",
+]);
+
 /**
  * Return a deep, non-mutating copy of log metadata with credential-bearing fields
  * replaced. The logger is the final persistence boundary, so every structured log
@@ -44,6 +76,39 @@ export function redactLogMetadata(
   metadata: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   return redactLogValue(metadata, new WeakMap<object, unknown>()) as Record<string, unknown>;
+}
+
+/**
+ * Keep the shape of a tool invocation for a local audit receipt without
+ * persisting arbitrary strings such as shell commands, request bodies, or
+ * credentials embedded in an otherwise innocently named argument.
+ */
+export function summarizeToolCallArgs(
+  args: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const seen = new WeakSet<object>();
+  const summarize = (value: unknown, key: string, depth: number): unknown => {
+    if (SENSITIVE_LOG_KEY_PATTERN.test(key)) return "<redacted>";
+    if (typeof value === "string") {
+      return key === "method" && /^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/i.test(value)
+        ? value.toUpperCase()
+        : `<omitted: ${value.length} chars>`;
+    }
+    if (value === null || typeof value === "boolean") return value;
+    if (typeof value === "number") return "<number>";
+    if (typeof value !== "object") return `<${typeof value}>`;
+    if (seen.has(value)) return "<circular>";
+    if (Array.isArray(value)) return { count: value.length };
+    if (depth >= 3) return "<nested>";
+    seen.add(value);
+    const summary: Record<string, unknown> = {};
+    for (const [index, [nestedKey, nestedValue]] of Object.entries(value).slice(0, 32).entries()) {
+      const safeKey = AUDIT_FIELD_NAMES.has(nestedKey) ? nestedKey : `otherField${index}`;
+      summary[safeKey] = summarize(nestedValue, nestedKey, depth + 1);
+    }
+    return summary;
+  };
+  return summarize(args, "", 0) as Record<string, unknown>;
 }
 
 function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
@@ -102,15 +167,15 @@ class LogWriteQueue {
         // Ensure directory exists (cached to avoid repeated checks)
         const dir = path.dirname(filePath);
         if (!this.dirCreated.has(dir)) {
-          await mkdir(dir, { recursive: true });
+          await mkdir(dir, { recursive: true, mode: 0o700 });
           this.dirCreated.add(dir);
         }
-        await appendFile(filePath, content, { encoding: "utf8" });
+        await appendFile(filePath, content, { encoding: "utf8", mode: 0o600 });
       })
-      .catch((error) => {
-        // Log errors to stderr but don't throw - logging should not break the app
+      .catch((error: unknown) => {
+        // Report the failure without copying a path or OS error message to stderr.
         console.error(
-          `[LogWriteQueue] Failed to write log: ${error instanceof Error ? error.message : String(error)}`,
+          `[LogWriteQueue] Failed to write log (${error instanceof Error ? error.name : "unknown error"})`,
         );
       });
   }
@@ -132,26 +197,36 @@ const logQueue = new LogWriteQueue();
  */
 
 export class LoggerServiceImpl implements LoggerService {
-  private readonly logScopeRef: Ref.Ref<Option.Option<string>>;
+  private readonly logScopeRef: FiberRef.FiberRef<readonly string[]>;
 
   constructor(conversationId?: string) {
-    this.logScopeRef = Ref.unsafeMake(conversationId ? Option.some(conversationId) : Option.none());
+    this.logScopeRef = FiberRef.unsafeMake<readonly string[]>(
+      conversationId ? [conversationId] : [],
+    );
   }
 
   /**
-   * Set the session ID for this logger instance
-   * All subsequent logs will be written to the session-specific file
+   * Replace the active conversation scope.
    */
   setLogGroup(conversationId: string): Effect.Effect<void, never> {
-    return Ref.set(this.logScopeRef, Option.some(conversationId));
+    return FiberRef.set(this.logScopeRef, [conversationId]);
   }
 
   /**
-   * Clear the session ID
-   * Subsequent logs will be written to the general log file
+   * Clear all scopes after an interactive session or command ends.
    */
   clearLogGroup(): Effect.Effect<void, never> {
-    return Ref.set(this.logScopeRef, Option.none());
+    return FiberRef.set(this.logScopeRef, []);
+  }
+
+  /** Add a nested run's log group in this fiber without changing its parent. */
+  pushLogGroup(conversationId: string): Effect.Effect<void, never> {
+    return FiberRef.update(this.logScopeRef, (groups) => [...groups, conversationId]);
+  }
+
+  /** Restore the parent run's destination after a nested run finishes. */
+  popLogGroup(): Effect.Effect<void, never> {
+    return FiberRef.update(this.logScopeRef, (groups) => groups.slice(0, -1));
   }
 
   writeToFile(
@@ -161,10 +236,10 @@ export class LoggerServiceImpl implements LoggerService {
   ): Effect.Effect<void, never> {
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
       // Write operations are now synchronous (queued internally)
-      if (Option.isSome(conversationId)) {
-        writeFormattedLogToSessionFile(level, conversationId.value, message, meta);
+      if (conversationId !== undefined) {
+        writeFormattedLogToSessionFile(level, conversationId, message, meta);
       } else {
         writeFormattedLogToFile(level, message, meta);
       }
@@ -175,10 +250,10 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("debug")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToSessionFile("debug", conversationId.value, message, meta);
+        if (conversationId !== undefined) {
+          void writeFormattedLogToSessionFile("debug", conversationId, message, meta);
         } else {
           void writeFormattedLogToFile("debug", message, meta);
         }
@@ -190,10 +265,10 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("info")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToSessionFile("info", conversationId.value, message, meta);
+        if (conversationId !== undefined) {
+          void writeFormattedLogToSessionFile("info", conversationId, message, meta);
         } else {
           void writeFormattedLogToFile("info", message, meta);
         }
@@ -205,10 +280,10 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("warn")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToSessionFile("warn", conversationId.value, message, meta);
+        if (conversationId !== undefined) {
+          void writeFormattedLogToSessionFile("warn", conversationId, message, meta);
         } else {
           void writeFormattedLogToFile("warn", message, meta);
         }
@@ -220,10 +295,10 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("error")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
       return yield* Effect.sync(() => {
-        if (Option.isSome(conversationId)) {
-          void writeFormattedLogToSessionFile("error", conversationId.value, message, meta);
+        if (conversationId !== undefined) {
+          void writeFormattedLogToSessionFile("error", conversationId, message, meta);
         } else {
           void writeFormattedLogToFile("error", message, meta);
         }
@@ -234,10 +309,10 @@ export class LoggerServiceImpl implements LoggerService {
   logToolCall(toolName: string, args: Record<string, unknown>): Effect.Effect<void, never> {
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = yield* Ref.get(logScopeRef);
-      if (Option.isSome(conversationId)) {
+      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      if (conversationId !== undefined) {
         // Write is now synchronous (queued internally)
-        writeToolCallToSessionFile(conversationId.value, toolName, args);
+        writeToolCallToSessionFile(conversationId, toolName, args);
       }
     });
   }
@@ -312,10 +387,7 @@ export function formatLogLineAsJson(
     logEntry["conversationId"] = conversationId;
   }
 
-  if (meta && Object.keys(meta).length > 0) {
-    // Spread meta fields at top level for easier querying
-    Object.assign(logEntry, redactLogMetadata(meta));
-  }
+  if (meta && Object.keys(meta).length > 0) logEntry["attributes"] = redactLogMetadata(meta);
 
   return JSON.stringify(logEntry, jsonBigIntReplacer) + "\n";
 }
@@ -329,11 +401,12 @@ export function formatLogLineAsPlain(
   meta?: Record<string, unknown>,
 ): string {
   const now = new Date();
+  const safeMessage = message.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
   const metaText =
     meta && Object.keys(meta).length > 0
       ? " " + JSON.stringify(redactLogMetadata(meta), jsonBigIntReplacer)
       : "";
-  return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
+  return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${safeMessage}${metaText}\n`;
 }
 
 const LOG_FORMATS: readonly LoggingConfig["format"][] = ["json", "plain"];
@@ -438,17 +511,23 @@ function writeToolCallToSessionFile(
 /** Format a redacted tool call as a session log entry in the selected format. */
 export function formatToolCallLogLine(
   conversationId: string,
-  toolName: string,
+  _toolName: string,
   args: Readonly<Record<string, unknown>>,
 ): string {
-  const redactedArgs = redactLogMetadata(args);
+  const redactedArgs = summarizeToolCallArgs(args);
   if (getLogFormat() === "json") {
-    return formatLogLineAsJson("info", `Tool Call: ${toolName}`, redactedArgs, conversationId);
+    return formatLogLineAsJson(
+      "info",
+      "Tool call recorded",
+      { eventName: "tool.call", args: redactedArgs },
+      conversationId,
+    );
   }
 
-  const timestamp = new Date().toISOString();
-  const argsJson = JSON.stringify(redactedArgs, jsonBigIntReplacer);
-  return `[${timestamp}] [TOOL_CALL] ${toolName} ${argsJson}\n`;
+  return formatLogLineAsPlain("info", "Tool call recorded", {
+    eventName: "tool.call",
+    args: redactedArgs,
+  });
 }
 
 /**

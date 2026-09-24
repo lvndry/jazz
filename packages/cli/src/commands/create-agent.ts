@@ -9,7 +9,11 @@ import {
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
-import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
+import {
+  isLocalServerProvider,
+  LOCAL_SERVER_PROVIDERS,
+  type LocalServerProvider,
+} from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
@@ -38,7 +42,6 @@ import type { MCPTool } from "@jazz/core/types/mcp";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
-import { toPascalCase } from "@jazz/core/utils/string";
 import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
@@ -219,7 +222,7 @@ export function createAgentCommand(): Effect.Effect<
       // Register tools from all selected MCP servers in parallel with timeout
       const registrationEffects = selectedServers.map((serverConfig) =>
         Effect.gen(function* () {
-          yield* logger.debug(`Registering tools from MCP server ${serverConfig.name}...`);
+          yield* logger.debug("Registering MCP tools");
 
           // Discover tools from server with timeout (45 seconds per server to allow for authentication)
           const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
@@ -231,22 +234,18 @@ export function createAgentCommand(): Effect.Effect<
 
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
                   if (isAuthRequired) {
-                    yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
-                    );
+                    yield* logger.warn("MCP connection timed out while awaiting authentication", {
+                      errorType: "authentication_timeout",
+                    });
                   } else {
-                    yield* logger.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
-                    );
+                    yield* logger.warn("MCP connection timed out", { errorType: "timeout" });
                   }
                 } else if (isAuthRequired) {
-                  yield* logger.warn(
-                    `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
-                  );
+                  yield* logger.warn("MCP authentication required", {
+                    errorType: "authentication_required",
+                  });
                 } else {
-                  yield* logger.warn(
-                    `Failed to connect to MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
-                  );
+                  yield* logger.warn("MCP connection failed", { errorType: "connection_failed" });
                 }
                 // Return empty array on error/timeout
                 return [] as readonly MCPTool[];
@@ -269,14 +268,14 @@ export function createAgentCommand(): Effect.Effect<
             yield* registerTool(tool);
           }
 
-          yield* logger.info(
-            `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
-          );
+          yield* logger.info("MCP tools registered", { toolCount: jazzTools.length });
         }).pipe(
           Effect.catchAll(() =>
             Effect.gen(function* () {
               // If registration fails, continue without this server's tools
-              yield* logger.warn(`Failed to register tools from MCP server ${serverConfig.name}`);
+              yield* logger.warn("MCP tool registration failed", {
+                errorType: "registration_failed",
+              });
             }),
           ),
         ),
@@ -392,6 +391,79 @@ function personaBackStep(state: WizardState): WizardStep {
 }
 
 /**
+ * Resolve a local server's URL and load the models it serves.
+ *
+ * Each failure is shown and re-asks for whatever can fix it: a server that rejects the request
+ * (401/403) re-asks for its API key, and an unreachable server or one serving no models re-asks
+ * for the URL. A wrong saved value is corrected in place instead of aborting the wizard. When
+ * the URL comes from an env var it cannot be re-prompted over, so the wizard falls back to
+ * provider selection.
+ */
+async function connectLocalProvider(
+  provider: LocalServerProvider,
+  llmService: LLMService,
+  configService: AgentConfigService,
+  terminal: TerminalService,
+): Promise<LLMProvider | "cancelled"> {
+  const providerDisplayName = formatProviderDisplayName(provider);
+  let forceUrl = false;
+  let askUrl = true;
+  while (true) {
+    if (askUrl) {
+      const urlResult = await ensureLocalProviderBaseUrl({
+        configService,
+        terminal,
+        provider,
+        force: forceUrl,
+      });
+      if (urlResult === "cancelled") {
+        return "cancelled";
+      }
+      if (forceUrl && urlResult === "already-set") {
+        await Effect.runPromise(
+          terminal.warn(
+            `${LOCAL_SERVER_PROVIDERS[provider].envVar} overrides the configured URL — fix it and try again.`,
+          ),
+        );
+        return "cancelled";
+      }
+    }
+
+    const outcome = await Effect.runPromise(llmService.getProvider(provider).pipe(Effect.either));
+    if (outcome._tag === "Right" && outcome.right.supportedModels.length > 0) {
+      return outcome.right;
+    }
+
+    if (outcome._tag === "Left" && outcome.left.reason === "unauthorized") {
+      const keyResult = await ensureProviderApiKey({
+        configService,
+        terminal,
+        provider,
+        displayName: providerDisplayName,
+        required: true,
+        force: true,
+        reason: outcome.left.message,
+      });
+      if (keyResult === "cancelled") {
+        return "cancelled";
+      }
+      askUrl = false;
+      continue;
+    }
+
+    await Effect.runPromise(
+      terminal.error(
+        outcome._tag === "Left"
+          ? outcome.left.message
+          : `The ${providerDisplayName} server is reachable but serves no models.`,
+      ),
+    );
+    forceUrl = true;
+    askUrl = true;
+  }
+}
+
+/**
  * Prompt for basic agent information with ESC-based back navigation.
  *
  * Each step allows pressing ESC to go back to the previous step.
@@ -447,27 +519,31 @@ export async function promptForAgentInfo(
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
         if (isLocalServerProvider(result)) {
-          const urlResult = await ensureLocalProviderBaseUrl({
+          const localProvider = await connectLocalProvider(
+            result,
+            llmService,
             configService,
             terminal,
-            provider: result,
-          });
-          if (urlResult === "cancelled") {
+          );
+          if (localProvider === "cancelled") {
             await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
             break;
           }
-        } else {
-          const keyResult = await ensureProviderApiKey({
-            configService,
-            terminal,
-            provider: result,
-            displayName: providerDisplayName,
-            required: true,
-          });
-          if (keyResult === "cancelled") {
-            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
-            break;
-          }
+          state.providerInfo = localProvider;
+          state.step = "model";
+          break;
+        }
+
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: result,
+          displayName: providerDisplayName,
+          required: true,
+        });
+        if (keyResult === "cancelled") {
+          await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+          break;
         }
 
         // Cache provider info for next step
@@ -787,7 +863,7 @@ export async function promptForAgentInfo(
         // Loop for tool selection to allow "Go Back" from web search config
         let shouldGoBack = false;
         while (true) {
-          selectedTools = await Effect.runPromise(
+          const toolSelection = await Effect.runPromise(
             terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
               choices: selectableCategories.map(([category, toolsInCategory]) => ({
                 name:
@@ -800,12 +876,21 @@ export async function promptForAgentInfo(
             }),
           );
 
+          if (toolSelection === undefined) {
+            shouldGoBack = true;
+            break;
+          }
+          selectedTools = toolSelection;
+
           // Handle empty selection as potential back navigation
           if (selectedTools.length === 0) {
             // Ask if they want to go back or proceed with no tools
             const confirm = await Effect.runPromise(
               terminal.confirm("No tools selected. Go back to previous step?", true),
             );
+            if (confirm === undefined) {
+              continue;
+            }
             if (confirm) {
               shouldGoBack = true;
               break;
