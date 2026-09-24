@@ -46,6 +46,8 @@ const mockLogger = {
   error: () => Effect.void,
   setLogGroup: () => Effect.void,
   clearLogGroup: () => Effect.void,
+  pushLogGroup: () => Effect.void,
+  popLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as LoggerService;
@@ -91,9 +93,10 @@ function makeTestLayer(services: {
   registry: ToolRegistry;
   presentation?: PresentationService;
   llm?: LLMService;
+  logger?: LoggerService;
 }) {
   return Layer.mergeAll(
-    Layer.succeed(LoggerServiceTag, mockLogger),
+    Layer.succeed(LoggerServiceTag, services.logger ?? mockLogger),
     Layer.succeed(PresentationServiceTag, services.presentation ?? mockPresentationService),
     Layer.succeed(ToolRegistryTag, services.registry),
     Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
@@ -279,6 +282,58 @@ describe("ToolExecutor.executeToolCall", () => {
 });
 
 describe("ToolExecutor.executeToolCalls", () => {
+  it("does not put tool arguments in ordinary batch logs", async () => {
+    const logs: unknown[] = [];
+    const logger = {
+      ...mockLogger,
+      debug: (message: string, metadata?: Record<string, unknown>) => {
+        logs.push({ message, metadata });
+        return Effect.void;
+      },
+      info: (message: string, metadata?: Record<string, unknown>) => {
+        logs.push({ message, metadata });
+        return Effect.void;
+      },
+    } as LoggerService;
+    const registry = {
+      getTool: () => Effect.succeed({ name: "test_tool", timeoutMs: 5000 }),
+      executeTool: () => Effect.succeed({ success: true, result: "done" }),
+    } as unknown as ToolRegistry;
+    const secret = "sk-live-should-not-be-logged";
+    const result = await Effect.runPromise(
+      ToolExecutor.executeToolCalls(
+        [
+          {
+            id: "call-1",
+            type: "function",
+            function: {
+              name: "execute_command",
+              arguments: JSON.stringify({ command: `echo ${secret}` }),
+            },
+          },
+        ],
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        "test-agent",
+      ).pipe(Effect.provide(makeTestLayer({ registry, logger }))) as Effect.Effect<
+        readonly ToolCallExecutionResult[],
+        unknown,
+        never
+      >,
+    );
+
+    expect(result[0]?.success).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain(secret);
+    expect(logs).toContainEqual({
+      message: "Agent requested tools",
+      metadata: { agentId: "agent-1", conversationId: "conv-123", toolCount: 1 },
+    });
+  });
+
   it("should execute multiple tool calls", async () => {
     const mockToolRegistry = {
       getTool: () =>

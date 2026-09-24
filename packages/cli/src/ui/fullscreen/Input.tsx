@@ -234,7 +234,7 @@ export function inputRows(
   glyphs: GlyphSet = getGlyphs(),
   /**
    * Rows the shell can spare. Without it the composer plus an open command list
-   * can want more rows than the terminal has, and at the documented 60x12
+   * can want more rows than the terminal has, and at the compact 32x10
    * minimum the overflow pushes the footer off the bottom of the screen. The
    * default is the unconstrained demand, so standalone callers see the natural
    * size.

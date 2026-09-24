@@ -314,11 +314,10 @@ export class ChatServiceImpl implements ChatService {
           try {
             const mcpManager = yield* MCPServerManagerTag;
             yield* mcpManager.disconnectAllServers().pipe(
-              Effect.catchAll((error) =>
+              Effect.catchAll(() =>
                 Effect.gen(function* () {
                   const logger = yield* LoggerServiceTag;
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  yield* logger.debug(`Error during MCP cleanup: ${errorMessage}`);
+                  yield* logger.debug("MCP cleanup failed", { errorType: "cleanup_failed" });
                   // Continue with exit even if cleanup fails
                 }),
               ),
@@ -602,13 +601,9 @@ export class ChatServiceImpl implements ChatService {
                 // streaming started, so nothing else will reset the activity.
                 store.setActivity({ phase: "idle" });
 
-                // Log error with detailed information
                 const errorDetails: Record<string, unknown> = {
-                  agentId: agent.id,
-                  conversationId: conversationId || undefined,
-                  errorMessage: String(error),
+                  errorType: "agent_execution_failed",
                 };
-
                 if (
                   error instanceof LLMRateLimitError ||
                   error instanceof LLMRequestError ||
@@ -616,10 +611,6 @@ export class ChatServiceImpl implements ChatService {
                 ) {
                   errorDetails["errorType"] = error._tag;
                   errorDetails["provider"] = error.provider;
-                }
-
-                if (error instanceof Error && error.stack) {
-                  errorDetails["stack"] = error.stack;
                 }
 
                 yield* logger.error("Agent execution error", errorDetails);

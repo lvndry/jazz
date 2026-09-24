@@ -1,3 +1,8 @@
+/**
+ * Core contracts for local telemetry events and optional OTLP export. Agent
+ * runs use TelemetryTraceParent to retain one trace across recursive execution.
+ */
+
 import { Context, Effect } from "effect";
 import type { TelemetryError } from "@/core/types/errors";
 
@@ -31,13 +36,39 @@ export interface TelemetryEvent {
   readonly type: TelemetryEventType;
   /** ISO 8601 timestamp of when the event occurred */
   readonly timestamp: string;
-  /** Arbitrary structured data associated with the event */
+  /** Structured data emitted by the typed recording methods. */
   readonly data: Readonly<Record<string, unknown>>;
   /** Optional agent ID if the event is agent-scoped */
   readonly agentId?: string;
   /** Optional session/conversation ID */
   readonly conversationId?: string;
 }
+
+/**
+ * The current agent run's trace identity, passed to a recursive agent run.
+ * The child retains the top-level trace and session while nesting below this
+ * run's span. Run identifiers are mapped to stable OTLP span ids at export.
+ */
+export interface TelemetryTraceParent {
+  readonly topRunId: string;
+  readonly parentRunId: string;
+  readonly sessionId: string;
+  /** A dispatch tool call wraps a recursive agent run when one exists. */
+  readonly parentToolCallId?: string;
+}
+
+/** Bounded diagnostic categories that cannot contain provider or tool output. */
+export type TelemetryErrorCategory =
+  | "authentication"
+  | "rate_limit"
+  | "timeout"
+  | "network"
+  | "permission"
+  | "not_found"
+  | "validation"
+  | "interrupted"
+  | "provider"
+  | "unknown";
 
 /**
  * Token usage snapshot from an LLM interaction.
@@ -218,6 +249,7 @@ export interface TelemetryService {
     readonly provider?: string;
     readonly model?: string;
     readonly process?: ProcessResourceSnapshot;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -239,6 +271,7 @@ export interface TelemetryService {
     readonly process?: ProcessResourceSnapshot;
     readonly toolCalls: number;
     readonly toolErrors: number;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -249,9 +282,10 @@ export interface TelemetryService {
     readonly agentId: string;
     readonly agentName: string;
     readonly conversationId: string;
-    readonly error: string;
+    readonly error: TelemetryErrorCategory;
     readonly durationMs: number;
     readonly process?: ProcessResourceSnapshot;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -268,6 +302,7 @@ export interface TelemetryService {
     readonly runId?: string;
     /** Distinguishes command-risk classifier calls from the agent loop. */
     readonly purpose?: LLMCallPurpose;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -276,11 +311,13 @@ export interface TelemetryService {
   readonly recordLLMRetry: (data: {
     readonly provider: string;
     readonly model: string;
-    readonly error: string;
+    readonly error: TelemetryErrorCategory;
     readonly attempt: number;
     readonly agentId?: string;
+    readonly conversationId?: string;
     /** Groups this retry under its agent run when exported as a trace. */
     readonly runId?: string;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -288,13 +325,15 @@ export interface TelemetryService {
    */
   readonly recordToolInvocation: (data: {
     readonly toolName: string;
+    readonly toolCallId?: string;
     readonly success: boolean;
     readonly durationMs?: number;
-    readonly error?: string;
+    readonly error?: TelemetryErrorCategory;
     readonly agentId?: string;
     readonly conversationId?: string;
     /** Groups this tool call under its agent run when exported as a trace. */
     readonly runId?: string;
+    readonly telemetryParent?: TelemetryTraceParent;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -302,10 +341,8 @@ export interface TelemetryService {
    */
   readonly recordCommandExecuted: (data: {
     readonly command: string;
-    readonly args?: readonly string[];
     readonly durationMs?: number;
     readonly success: boolean;
-    readonly error?: string;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -318,18 +355,6 @@ export interface TelemetryService {
     readonly agentId?: string;
     readonly conversationId?: string;
   }) => Effect.Effect<void, TelemetryError>;
-
-  /**
-   * Record a generic telemetry event.
-   */
-  readonly recordEvent: (
-    type: TelemetryEventType,
-    data: Record<string, unknown>,
-    options?: {
-      readonly agentId?: string;
-      readonly conversationId?: string;
-    },
-  ) => Effect.Effect<void, TelemetryError>;
 
   // ── Querying ──────────────────────────────────────────────────────
 
@@ -357,6 +382,9 @@ export interface TelemetryService {
    * Called during graceful shutdown.
    */
   readonly flush: () => Effect.Effect<void, TelemetryError>;
+
+  /** Stop timers and drain pending export work during runtime shutdown. */
+  readonly shutdown: () => Effect.Effect<void, TelemetryError>;
 }
 
 export const TelemetryServiceTag = Context.GenericTag<TelemetryService>("TelemetryService");

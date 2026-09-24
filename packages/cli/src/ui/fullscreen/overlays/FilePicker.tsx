@@ -30,7 +30,7 @@ import {
   clipTerminalCellsFromStart,
   terminalCellWidth,
 } from "../terminal-cells";
-import type { Viewport } from "../types";
+import { COMPACT_HEIGHT, type Viewport } from "../types";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
@@ -171,16 +171,18 @@ export interface FilePickerProps {
 export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
   const glyphs = getGlyphs();
 
+  const compact = viewport.height < COMPACT_HEIGHT;
   const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
   const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
   const inner = Math.max(8, width - 2 - CARD_PAD * 2);
 
   const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
+  const fixedCardRows = compact ? FIXED_CARD_ROWS - 2 : FIXED_CARD_ROWS;
   const height = fullscreen
     ? viewport.height
     : Math.min(WINDOWED_HEIGHT + message.length, viewport.height);
   const cardHeight = Math.max(1, height - HINT_ROWS);
-  const listRows = Math.max(1, cardHeight - FIXED_CARD_ROWS - message.length);
+  const listRows = Math.max(1, cardHeight - fixedCardRows - message.length);
 
   const total = model.entries.length;
   const selected = total === 0 ? 0 : Math.max(0, Math.min(model.selected, total - 1));
@@ -233,7 +235,7 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
           </text>
         ))}
 
-        <box style={{ height: 1, flexShrink: 0 }} />
+        {compact ? null : <box style={{ height: 1, flexShrink: 0 }} />}
 
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
           <text style={{ fg: THEME.primary, width: MARKER_COLUMN, flexShrink: 0 }}>
@@ -311,7 +313,7 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
           )}
         </box>
 
-        <box style={{ height: 1, flexShrink: 0 }} />
+        {compact ? null : <box style={{ height: 1, flexShrink: 0 }} />}
 
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
           {error.length > 0 ? (

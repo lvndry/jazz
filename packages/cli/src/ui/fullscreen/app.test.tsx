@@ -158,10 +158,18 @@ describe("fullscreen frame", () => {
     expect(frame.rows).toHaveLength(HEIGHT);
   });
 
-  it("refuses to draw a partial frame below the minimum size", async () => {
-    const frame = await frameOf(sampleView(), 40, 8);
+  it("keeps the conversation visible at the compact floor", async () => {
+    const frame = await frameOf(sampleView(), MIN_WIDTH, MIN_HEIGHT);
+    expect(frame.text).not.toContain("jazz needs");
+    expect(frame.text).toContain("Ask anything");
+    expect(frame.rows).toHaveLength(MIN_HEIGHT);
+    for (const row of frame.rows) expect([...row]).toHaveLength(MIN_WIDTH);
+  });
+
+  it("shows a clipped resize hint below the compact floor", async () => {
+    const frame = await frameOf(sampleView(), MIN_WIDTH - 1, MIN_HEIGHT - 1);
     expect(frame.text).toContain(`${MIN_WIDTH}x${MIN_HEIGHT}`);
-    expect(frame.text).toContain("40x8");
+    expect(frame.text).toContain(`${MIN_WIDTH - 1}x${MIN_HEIGHT - 1}`);
     // It says the way out rather than just complaining.
     expect(frame.text).toContain("--no-tui");
   });

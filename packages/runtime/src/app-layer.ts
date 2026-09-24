@@ -13,7 +13,7 @@ import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
 import { createJobQueueServiceLayer } from "@jazz/adapters/job-queue-service";
 import { createAISDKServiceLayer } from "@jazz/adapters/llm/ai-sdk-service";
-import { createLoggerLayer, setLogFormat, setLogLevel } from "@jazz/adapters/logger";
+import { createLoggerLayer, flushLogs, setLogFormat, setLogLevel } from "@jazz/adapters/logger";
 import { createMCPServerManagerLayer } from "@jazz/adapters/mcp/mcp-server-manager";
 import { createMemoryServiceLayer } from "@jazz/adapters/memory-service";
 import { NotificationServiceLayer } from "@jazz/adapters/notification";
@@ -323,19 +323,11 @@ function emitCommandExecuted(
   const command = getCurrentCommandName();
   if (command === undefined) return Effect.void;
 
-  const failure = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : Option.none();
-  const errorMessage = Option.isSome(failure)
-    ? failure.value instanceof Error
-      ? failure.value.message
-      : String(failure.value)
-    : undefined;
-
   return emitTelemetry((telemetry) =>
     telemetry.recordCommandExecuted({
       command,
       durationMs,
       success: Exit.isSuccess(exit),
-      ...(errorMessage !== undefined && { error: errorMessage }),
     }),
   );
 }
@@ -469,16 +461,18 @@ export function runCliEffect<R, E extends JazzError | Error>(
           yield* logger.value.clearLogGroup();
         }
 
-        // Flush any buffered telemetry events before shutdown
+        // Stop sampling and deliver buffered telemetry before shutdown.
         const telemetry = yield* Effect.serviceOption(TelemetryServiceTag);
         if (Option.isSome(telemetry)) {
-          yield* telemetry.value.flush().pipe(Effect.catchAll(() => Effect.void));
+          yield* telemetry.value.shutdown().pipe(Effect.catchAll(() => Effect.void));
         }
 
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
         if (Option.isSome(mcpManager)) {
           yield* mcpManager.value.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
         }
+
+        yield* Effect.promise(flushLogs);
       }),
     );
 

@@ -118,7 +118,7 @@ Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`
 
 ## Telemetry
 
-Local telemetry is enabled by default. The `telemetry` object controls retention, buffering, and optional OTLP export. Content capture is off by default because prompts, completions, and tool arguments may contain private data. See [Observability](./observability.md).
+Local telemetry is enabled by default. The `telemetry` object controls retention and buffering. An OTLP/HTTP endpoint enables traces by default; set `telemetry.otlp.signals` to add logs or metrics. `telemetry.otlp.metricsEndpoint` accepts a full metrics URL, including Prometheus's `/api/v1/otlp/v1/metrics` path. `maxQueuedBytes` and `maxQueueAgeMs` bound the pending trace/log outbox; `metricExportIntervalMs` controls periodic metrics export. Shared telemetry events contain no prompt, completion, or tool content, and `captureContent` currently has no effect. See [Observability](./observability.md) for backend setup, metric names, privacy, and delivery behavior.
 
 ## Secrets and environment variables
 

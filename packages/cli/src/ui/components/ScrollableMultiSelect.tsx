@@ -122,7 +122,7 @@ export function ScrollableMultiSelect<T = unknown>({
 
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
 
-      <Text dimColor>Space: toggle · Enter: submit</Text>
+      <Text dimColor>Space: toggle · Enter: submit{onCancel ? " · Esc: back" : ""}</Text>
     </Box>
   );
 }

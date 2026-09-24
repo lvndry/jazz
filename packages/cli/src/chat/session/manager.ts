@@ -37,7 +37,7 @@ export function initializeSession(
     yield* fileSystemContext
       .setCwd(agentKey, process.cwd())
       .pipe(Effect.catchAll(() => Effect.void));
-    yield* logger.info(`Initialized agent working directory to: ${process.cwd()}`);
+    yield* logger.info("Agent working directory initialized");
   });
 }
 

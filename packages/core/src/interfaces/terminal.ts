@@ -164,9 +164,13 @@ export interface TerminalService {
   ) => Effect.Effect<T | undefined, never>;
 
   /**
-   * Prompt the user for confirmation (yes/no)
+   * Prompt the user for confirmation (yes/no).
+   * Returns undefined when the user cancels (e.g. presses Escape).
    */
-  readonly confirm: (message: string, defaultValue?: boolean) => Effect.Effect<boolean, never>;
+  readonly confirm: (
+    message: string,
+    defaultValue?: boolean,
+  ) => Effect.Effect<boolean | undefined, never>;
 
   /**
    * Search and select from a list of options with filtering.
@@ -182,7 +186,8 @@ export interface TerminalService {
   ) => Effect.Effect<T | undefined, never>;
 
   /**
-   * Prompt the user to select multiple options (checkbox)
+   * Prompt the user to select multiple options (checkbox).
+   * Returns undefined when the user cancels (e.g. presses Escape).
    */
   readonly checkbox: <T = string>(
     message: string,
@@ -190,7 +195,7 @@ export interface TerminalService {
       choices: readonly (string | { name: string; value: T; description?: string })[];
       default?: readonly T[];
     },
-  ) => Effect.Effect<readonly T[], never>;
+  ) => Effect.Effect<readonly T[] | undefined, never>;
 
   /**
    * Set the terminal tab/window title

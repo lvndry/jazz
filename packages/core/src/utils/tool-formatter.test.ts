@@ -154,9 +154,9 @@ describe("toolResultSnippet", () => {
     expect(toolResultSnippet('{\n  "ok": true\n}')).toBe('"ok": true');
   });
 
-  test("joins the first two content lines", () => {
+  test("joins the first three content lines", () => {
     expect(toolResultSnippet("Here're the files\n/notes.txt\n/people")).toBe(
-      "Here're the files · /notes.txt",
+      "Here're the files · /notes.txt · /people",
     );
   });
 

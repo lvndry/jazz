@@ -110,12 +110,12 @@ describe("OTLP export end to end", () => {
       expect(traceIds.size).toBe(1);
 
       const root = receivedSpans.find((span) => span.parentSpanId === undefined);
-      expect(root?.name).toBe("agent researcher");
+      expect(root?.name).toBe("run-agent");
 
       const children = receivedSpans.filter((span) => span.parentSpanId !== undefined);
       expect(children.map((span) => span.name).sort()).toEqual([
-        "chat claude-opus-5",
-        "tool web_search",
+        "execute-tool",
+        "generate-response",
       ]);
       expect(children.every((span) => span.parentSpanId === root?.spanId)).toBe(true);
     } finally {
