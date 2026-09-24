@@ -115,6 +115,8 @@ export interface KeyChord {
 
 export interface AppProps {
   readonly view: ViewModel;
+  /** Chat messages submitted so far; each new one returns the transcript to its live edge. */
+  readonly submitCount?: number;
   readonly onAction: (action: KeyAction) => void;
   /**
    * First refusal on every key. Return true to consume it.
@@ -230,7 +232,14 @@ export function reuseViewport(width: number, height: number, previous: Viewport)
   return { width, height };
 }
 
-function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps): React.ReactNode {
+function AppView({
+  view,
+  submitCount = 0,
+  onAction,
+  onKey,
+  onPaste,
+  overrideContent,
+}: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -361,6 +370,12 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
   useEffect(() => {
     if (view.runActive !== true) armedAt.current = undefined;
   }, [view.runActive]);
+
+  useEffect(() => {
+    if (submitCount > 0) {
+      setFollowLive(true);
+    }
+  }, [submitCount]);
 
   useEffect(() => {
     if (focus === "input") {

@@ -269,6 +269,44 @@ describe("transcript wheel and type-to-input", () => {
     expect(back).not.toContain("line-00");
   });
 
+  function SubmittingApp(): React.ReactNode {
+    const [submitCount, setSubmitCount] = useState(0);
+    return (
+      <App
+        view={tallTranscriptView()}
+        submitCount={submitCount}
+        onAction={() => undefined}
+        onKey={(key) => {
+          if (key.name !== "return") {
+            return false;
+          }
+          setSubmitCount((count) => count + 1);
+          return true;
+        }}
+      />
+    );
+  }
+
+  it("returns to the live edge when a message is submitted", async () => {
+    const { renderer, renderOnce, flush, mockMouse, mockInput, captureCharFrame } =
+      await testRender(<SubmittingApp />, { width: 80, height: 16 });
+    await renderOnce();
+    for (let step = 0; step < 40; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
+    }
+    expect(captureCharFrame()).not.toContain("line-39");
+
+    await mockInput.typeText("a");
+    await settle(flush);
+    expect(captureCharFrame()).not.toContain("line-39");
+    mockInput.pressEnter();
+    await settle(flush, 100);
+    const afterSubmit = captureCharFrame();
+    renderer.destroy();
+    expect(afterSubmit).toContain("line-39");
+  });
+
   function TypeableApp(): React.ReactNode {
     const [draft, setDraft] = useState("");
     return (
