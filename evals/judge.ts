@@ -3,27 +3,27 @@ import { EVAL_CONFIG } from "./config";
 import { MAIN_TS, parseEnvelope } from "./run-jazz";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
-export function pearson(a: number[], b: number[]): number {
-  const n = a.length;
-  if (n === 0 || n !== b.length) {
+export function pearson(first: readonly number[], second: readonly number[]): number {
+  const count = first.length;
+  if (count === 0 || count !== second.length) {
     return 0;
   }
-  const meanA = a.reduce((sum, value) => sum + value, 0) / n;
-  const meanB = b.reduce((sum, value) => sum + value, 0) / n;
-  let cov = 0;
-  let varA = 0;
-  let varB = 0;
-  for (let index = 0; index < n; index++) {
-    const da = a[index]! - meanA;
-    const db = b[index]! - meanB;
-    cov += da * db;
-    varA += da * da;
-    varB += db * db;
+  const firstMean = first.reduce((sum, value) => sum + value, 0) / count;
+  const secondMean = second.reduce((sum, value) => sum + value, 0) / count;
+  let covariance = 0;
+  let firstVariance = 0;
+  let secondVariance = 0;
+  for (let index = 0; index < count; index++) {
+    const firstDeviation = (first[index] ?? firstMean) - firstMean;
+    const secondDeviation = (second[index] ?? secondMean) - secondMean;
+    covariance += firstDeviation * secondDeviation;
+    firstVariance += firstDeviation * firstDeviation;
+    secondVariance += secondDeviation * secondDeviation;
   }
-  if (varA === 0 || varB === 0) {
+  if (firstVariance === 0 || secondVariance === 0) {
     return 0;
   }
-  return cov / Math.sqrt(varA * varB);
+  return covariance / Math.sqrt(firstVariance * secondVariance);
 }
 
 /** Extract a clamped 0..1 score from a judge model's free-text answer. */
