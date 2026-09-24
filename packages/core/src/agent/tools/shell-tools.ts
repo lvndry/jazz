@@ -752,12 +752,11 @@ This command will be executed on your system. Only approve commands you trust.`;
             };
           }
 
-          const exitMsg = `Command executed. Exit code: ${result.exitCode}`;
-          yield* logger.info(exitMsg);
-          const output = (result.stdout + (result.stderr ? `\nERR: ${result.stderr}` : "")).trim();
-          if (output) {
-            yield* logger.info(`Output: ${output}`);
-          }
+          yield* logger.info("Command executed", {
+            exitCode: result.exitCode,
+            stdoutChars: result.stdout.length,
+            stderrChars: result.stderr.length,
+          });
 
           return {
             success: true,

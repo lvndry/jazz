@@ -63,16 +63,16 @@ describe("getPresentationConfig", () => {
     expect(config.useFullscreen).toBe(false);
   });
 
-  test("terminal below the fullscreen geometry uses plain output", () => {
+  test("terminal below the compact floor uses plain output", () => {
     const short = getPresentationConfig(
       terminalEnvironment,
-      { ...terminalOutput, rows: 11 },
+      { ...terminalOutput, rows: 9 },
       terminalInput,
       true,
     );
     const narrow = getPresentationConfig(
       terminalEnvironment,
-      { ...terminalOutput, columns: 59 },
+      { ...terminalOutput, columns: 31 },
       terminalInput,
       true,
     );
@@ -82,6 +82,18 @@ describe("getPresentationConfig", () => {
     expect(narrow.usePlainTerminal).toBe(true);
     expect(narrow.useCLIPresentation).toBe(true);
     expect(narrow.useFullscreen).toBe(false);
+  });
+
+  test("a compact terminal still gets the fullscreen conversation", () => {
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      { ...terminalOutput, columns: 32, rows: 10 },
+      terminalInput,
+      true,
+    );
+    expect(config.usePlainTerminal).toBe(false);
+    expect(config.useCLIPresentation).toBe(false);
+    expect(config.useFullscreen).toBe(true);
   });
 
   test("CI, dumb terminals, and screen readers use plain output", () => {

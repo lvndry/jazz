@@ -131,10 +131,11 @@ function confirmInstall(
       return false;
     }
 
-    return yield* terminal.confirm(
+    const confirmed = yield* terminal.confirm(
       `Install skill "${download.entry.name}" under ~/.jazz/skills?`,
       false,
     );
+    return confirmed === true;
   });
 }
 

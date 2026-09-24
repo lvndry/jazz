@@ -5,7 +5,6 @@
  */
 import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { formatToolArguments } from "@/core/utils/tool-formatter";
 
 /**
  * Custom replacer for JSON.stringify to handle BigInt values
@@ -18,118 +17,38 @@ export function jsonBigIntReplacer(_key: string, value: unknown): unknown {
 }
 
 /**
- * Get emoji for a tool based on its name
- */
-export function getToolEmoji(toolName: string): string {
-  const toolEmojis: Record<string, string> = {
-    load_skill: "📚",
-    execute_command: "⌨️",
-    read_file: "📄",
-    write_file: "✏️",
-    edit_file: "✏️",
-    web_search: "🔍",
-    http_request: "🌐",
-  };
-
-  const emoji = toolEmojis[toolName];
-  if (emoji !== undefined) {
-    return emoji;
-  }
-  return "🔧"; // Default emoji
-}
-
-/**
- * Format duration in milliseconds to a human-readable string
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  } else if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  } else {
-    const minutes = Math.floor(ms / 60_000);
-    const seconds = ((ms % 60_000) / 1000).toFixed(1);
-    return `${minutes}m ${seconds}s`;
-  }
-}
-
-/**
- * Log tool execution start
+ * Record the start without copying model supplied arguments into a diagnostic
+ * message. The separate local audit receipt records their safe shape.
  */
 export function logToolExecutionStart(
-  toolName: string,
-  args?: Record<string, unknown>,
+  _toolName: string,
+  _args?: Record<string, unknown>,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const argsText = formatToolArguments(toolName, args, { style: "plain" });
-    const message = argsText ? `${toolEmoji} ${toolName} ${argsText}` : `${toolEmoji} ${toolName}`;
-    yield* logger.info(message);
+    yield* logger.debug("Tool execution started", {
+      eventName: "tool.execution.started",
+    });
   });
 }
 
-/** Cap on the serialized tool result written to the log file. */
-const MAX_LOGGED_RESULT_LENGTH = 10_000;
-
 /**
- * Log tool execution success
- *
- * `fullResult` goes to the log file only, never the console: it is what a
- * post-mortem of a bad run reads to see what a tool actually returned.
+ * Record a successful tool execution. The summary and full result are
+ * deliberately excluded because either can contain arbitrary user content.
  */
 export function logToolExecutionSuccess(
-  toolName: string,
+  _toolName: string,
   durationMs: number,
-  resultSummary?: string,
-  fullResult?: unknown,
+  _resultSummary?: string,
+  _fullResult?: unknown,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = resultSummary
-      ? `${toolEmoji} ${toolName} ✅ (${duration}) - ${resultSummary}`
-      : `${toolEmoji} ${toolName} ✅ (${duration})`;
-
-    yield* logger.info(message);
-
-    if (fullResult === undefined) {
-      return;
-    }
-
-    const serialized = yield* Effect.try(() =>
-      typeof fullResult === "string"
-        ? fullResult
-        : JSON.stringify(fullResult, jsonBigIntReplacer, 2),
-    ).pipe(Effect.either);
-
-    if (serialized._tag === "Left") {
-      yield* logger
-        .warn(`Failed to log full result for ${toolName}`, {
-          toolName,
-          error:
-            serialized.left instanceof Error ? serialized.left.message : String(serialized.left),
-        })
-        .pipe(Effect.catchAll(() => Effect.void));
-      return;
-    }
-
-    const resultString = serialized.right ?? "undefined";
-    const truncatedResult =
-      resultString.length > MAX_LOGGED_RESULT_LENGTH
-        ? `${resultString.slice(0, MAX_LOGGED_RESULT_LENGTH)}\n... (truncated, ${
-            resultString.length - MAX_LOGGED_RESULT_LENGTH
-          } more characters)`
-        : resultString;
-
-    yield* logger
-      .info(`Tool result for ${toolName}`, {
-        toolName,
-        resultLength: resultString.length,
-        result: truncatedResult,
-      })
-      .pipe(Effect.catchAll(() => Effect.void));
+    yield* logger.info("Tool execution completed", {
+      eventName: "tool.execution.completed",
+      durationMs,
+      status: "success",
+    });
   });
 }
 
@@ -137,17 +56,17 @@ export function logToolExecutionSuccess(
  * Log tool execution error
  */
 export function logToolExecutionError(
-  toolName: string,
+  _toolName: string,
   durationMs: number,
-  error: string,
+  _error: string,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = `${toolEmoji} ${toolName} ✗ (${duration}) - ${error}`;
-
-    yield* logger.error(message);
+    yield* logger.error("Tool execution failed", {
+      eventName: "tool.execution.failed",
+      durationMs,
+      status: "failure",
+    });
   });
 }
 
@@ -155,16 +74,16 @@ export function logToolExecutionError(
  * Log tool execution approval required
  */
 export function logToolExecutionApproval(
-  toolName: string,
+  _toolName: string,
   durationMs: number,
-  approvalMessage: string,
+  _approvalMessage: string,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const toolEmoji = getToolEmoji(toolName);
-    const duration = formatDuration(durationMs);
-    const message = `${toolEmoji} ${toolName} ⚠️ APPROVE REQUIRED (${duration}) - ${approvalMessage}`;
-
-    yield* logger.warn(message);
+    yield* logger.info("Tool approval required", {
+      eventName: "tool.approval.required",
+      durationMs,
+      status: "awaiting_approval",
+    });
   });
 }

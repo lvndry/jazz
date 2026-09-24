@@ -226,6 +226,8 @@ export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationErr
   readonly provider: string;
   readonly message: string;
   readonly suggestion?: string;
+  /** Set when the provider answered but rejected the credentials, so a caller can ask for a key rather than a URL. */
+  readonly reason?: "unauthorized";
 }> {}
 
 // MCP (Model Context Protocol) Errors

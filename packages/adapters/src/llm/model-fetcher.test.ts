@@ -345,6 +345,39 @@ describe("ModelFetcher", () => {
     }
   });
 
+  it("flags a llama.cpp server that rejects the request as needing an API key", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: false, status: 401, statusText: "Unauthorized" }),
+    ) as unknown as typeof fetch;
+
+    const program = fetcher.fetchModels("llamacpp", "http://127.0.0.1:8090/v1", "/models");
+    const result = await Effect.runPromise(Effect.flip(program));
+
+    expect(result.reason).toBe("unauthorized");
+    expect(result.message).toContain("http://127.0.0.1:8090 rejected the request (401)");
+  });
+
+  it("sends the API key to /props as well as /v1/models", async () => {
+    const authorizationByPath: Record<string, string | undefined> = {};
+    global.fetch = mock((url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      authorizationByPath[new URL(url).pathname] = headers?.["Authorization"];
+      if (url.endsWith("/v1/models")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [{ id: "m" }] }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }) as unknown as typeof fetch;
+
+    await Effect.runPromise(
+      fetcher.fetchModels("llamacpp", "http://127.0.0.1:8090/v1", "/models", "secret"),
+    );
+
+    expect(authorizationByPath).toEqual({
+      "/v1/models": "Bearer secret",
+      "/props": "Bearer secret",
+    });
+  });
+
   it("returns an actionable error when the llama.cpp server is unreachable", async () => {
     global.fetch = mock(() => Promise.reject(new Error("fetch failed"))) as unknown as typeof fetch;
 

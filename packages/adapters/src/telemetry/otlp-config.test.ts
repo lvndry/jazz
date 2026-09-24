@@ -3,7 +3,6 @@ import {
   joinOtlpEndpoint,
   parseOtlpHeaders,
   parseResourceAttributes,
-  redactHeaders,
   resolveOtlpConfig,
 } from "./otlp-config";
 
@@ -30,6 +29,14 @@ describe("parseOtlpHeaders", () => {
   it("skips malformed pairs instead of throwing", () => {
     expect(parseOtlpHeaders("novalue,=orphan,good=1")).toEqual({ good: "1" });
   });
+
+  it("rejects prototype keys, invalid header names, and decoded line breaks", () => {
+    const headers = parseOtlpHeaders(
+      "__proto__=polluted,constructor=x,prototype=y,bad name=x,X-Break=%0D%0Aevil,Authorization=ok",
+    );
+    expect(headers).toEqual({ Authorization: "ok" });
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+  });
 });
 
 describe("joinOtlpEndpoint", () => {
@@ -44,11 +51,61 @@ describe("joinOtlpEndpoint", () => {
       "http://localhost:4318/v1/logs",
     );
   });
+
+  it("preserves a base URL query while appending the signal path", () => {
+    expect(joinOtlpEndpoint("https://collector.test/otlp?tenant=one", "/v1/metrics")).toBe(
+      "https://collector.test/otlp/v1/metrics?tenant=one",
+    );
+  });
 });
 
 describe("resolveOtlpConfig", () => {
   it("returns undefined when no endpoint is configured anywhere", () => {
     expect(resolveOtlpConfig(undefined, {})).toBeUndefined();
+  });
+
+  it("rejects empty, non-HTTP, and credential-bearing endpoints", () => {
+    expect(() => resolveOtlpConfig({ endpoint: "" }, {})).toThrow("telemetry.otlp.endpoint");
+    expect(() => resolveOtlpConfig({ endpoint: "file:///tmp/collector" }, {})).toThrow(
+      "telemetry.otlp.endpoint",
+    );
+    expect(() => resolveOtlpConfig({ endpoint: "https://user:secret@collector.test" }, {})).toThrow(
+      "telemetry.otlp.endpoint",
+    );
+  });
+
+  it("reports an invalid explicit endpoint even when an environment endpoint is valid", () => {
+    expect(() =>
+      resolveOtlpConfig(
+        { endpoint: "invalid://configured" },
+        { OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318" },
+      ),
+    ).toThrow("telemetry.otlp.endpoint");
+  });
+
+  it("reports invalid environment and selected signal endpoints", () => {
+    expect(() =>
+      resolveOtlpConfig(undefined, { OTEL_EXPORTER_OTLP_ENDPOINT: "not-a-url" }),
+    ).toThrow("OTEL_EXPORTER_OTLP_ENDPOINT");
+    expect(() =>
+      resolveOtlpConfig({ logsEndpoint: "http://collector/v1/logs", signals: ["traces"] }, {}),
+    ).toThrow("OTLP traces export is selected but has no endpoint");
+    expect(() => resolveOtlpConfig({ endpoint: "http://collector:4318", signals: [] }, {})).toThrow(
+      "OTLP signals must select at least one signal",
+    );
+  });
+
+  it("sanitizes explicit header and resource maps at the boundary", () => {
+    const resolved = resolveOtlpConfig(
+      {
+        endpoint: "https://collector.test",
+        headers: { "X-Good": "ok", "bad name": "x", "X-Break": "a\r\nb" },
+        resourceAttributes: { "deployment.environment": "test", "bad key": "x" },
+      },
+      {},
+    );
+    expect(resolved?.headers).toEqual({ "X-Good": "ok" });
+    expect(resolved?.resourceAttributes).toEqual({ "deployment.environment": "test" });
   });
 
   it("enables export from the environment alone", () => {
@@ -78,16 +135,44 @@ describe("resolveOtlpConfig", () => {
     expect(resolved?.signals).toEqual(["traces", "logs"]);
   });
 
-  it("drops a signal whose endpoint cannot be resolved rather than guessing one", () => {
-    const resolved = resolveOtlpConfig(
-      {
-        tracesEndpoint: "https://langfuse.example/api/public/otel/v1/traces",
-        signals: ["traces", "logs"],
-      },
-      {},
-    );
+  it("resolves metrics-only endpoints without guessing a traces endpoint", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://prometheus.test/api/v1/otlp/v1/metrics",
+    });
+    expect(resolved?.signals).toEqual(["metrics"]);
+    expect(resolved?.metricsEndpoint).toBe("https://prometheus.test/api/v1/otlp/v1/metrics");
+  });
 
-    expect(resolved?.signals).toEqual(["traces"]);
+  it("uses signal-specific environment headers for each signal", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.test",
+      OTEL_EXPORTER_OTLP_HEADERS: "authorization=Bearer%20common",
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: "authorization=Bearer%20trace",
+      OTEL_EXPORTER_OTLP_METRICS_HEADERS: "x-metrics-key=abc",
+    });
+    expect(resolved?.signalHeaders.traces).toEqual({ authorization: "Bearer trace" });
+    expect(resolved?.signalHeaders.logs).toEqual({ authorization: "Bearer common" });
+    expect(resolved?.signalHeaders.metrics).toEqual({ "x-metrics-key": "abc" });
+  });
+
+  it("uses a valid OTLP timeout from the environment", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+      OTEL_EXPORTER_OTLP_TIMEOUT: "2500",
+    });
+    expect(resolved?.timeoutMs).toBe(2500);
+  });
+
+  it("reports a selected signal whose endpoint cannot be resolved", () => {
+    expect(() =>
+      resolveOtlpConfig(
+        {
+          tracesEndpoint: "https://langfuse.example/api/public/otel/v1/traces",
+          signals: ["traces", "logs"],
+        },
+        {},
+      ),
+    ).toThrow("OTLP logs export is selected but has no endpoint");
   });
 
   it("never enables content capture from the environment", () => {
@@ -181,20 +266,12 @@ describe("parseResourceAttributes", () => {
   it("skips malformed pairs instead of throwing", () => {
     expect(parseResourceAttributes("novalue,=orphan,good=1")).toEqual({ good: "1" });
   });
-});
 
-describe("redactHeaders", () => {
-  it("masks credential-bearing headers", () => {
+  it("rejects prototype keys and malformed resource names", () => {
     expect(
-      redactHeaders({
-        authorization: "Basic secret",
-        "x-api-key": "abc",
-        "x-tenant": "acme",
-      }),
+      parseResourceAttributes("__proto__=x,constructor=x,bad%20key=x,service.name=jazz"),
     ).toEqual({
-      authorization: "<redacted>",
-      "x-api-key": "<redacted>",
-      "x-tenant": "acme",
+      "service.name": "jazz",
     });
   });
 });
