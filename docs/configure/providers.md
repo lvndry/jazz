@@ -91,7 +91,7 @@ Models tagged `:cloud` or `-cloud` execute through Ollama Cloud and need `OLLAMA
 
 ## llama.cpp
 
-Jazz connects to `llama-server`, vLLM, and other OpenAI-compatible servers through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server is behind bearer auth.
+Jazz connects to `llama-server`, vLLM, and other OpenAI-compatible servers through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key` (vLLM's `--api-key` too); when it answers 401, `jazz agent create` asks for the key, and `jazz config` → **LLM Providers** can set it.
 
 ```bash
 llama-server -m /models/model.gguf --jinja --port 8080

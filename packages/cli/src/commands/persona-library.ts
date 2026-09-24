@@ -90,7 +90,7 @@ function confirmInstall(
     });
     if (key?.toLowerCase() !== "i") return false;
 
-    return yield* terminal.confirm(`Install this persona as "${localName}"?`, false);
+    return (yield* terminal.confirm(`Install this persona as "${localName}"?`, false)) === true;
   });
 }
 

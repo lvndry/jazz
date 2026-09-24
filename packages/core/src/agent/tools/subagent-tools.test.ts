@@ -21,6 +21,8 @@ const mockLogger = {
   warn: () => Effect.void,
   error: () => Effect.void,
   setLogGroup: () => Effect.void,
+  pushLogGroup: () => Effect.void,
+  popLogGroup: () => Effect.void,
   clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
@@ -281,6 +283,39 @@ describe("spawn_subagent auto-approve inheritance", () => {
       expect(captured?.autoApprovedCommands).toEqual(["git status"]);
       expect(captured?.autoApprovedTools).toEqual(["read_file"]);
       expect(captured?.ephemeralRegionId).toBe("eph-test");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent trace context", () => {
+  it("passes the parent run, session, and dispatch call to the child", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "child-conversation",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        telemetryTraceParent: {
+          topRunId: "root-run",
+          parentRunId: "parent-run",
+          sessionId: "root-session",
+        },
+        toolCallId: "dispatch-1",
+      });
+      expect(captured?.telemetryParent).toEqual({
+        topRunId: "root-run",
+        parentRunId: "parent-run",
+        sessionId: "root-session",
+        parentToolCallId: "dispatch-1",
+      });
     } finally {
       spy.mockRestore();
     }

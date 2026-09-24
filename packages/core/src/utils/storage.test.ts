@@ -9,6 +9,7 @@ import {
   abbreviateHomePath,
   requireValidAgentId,
   resolveStorageDirectory,
+  withLock,
   writeFileStringAtomic,
 } from "./storage";
 
@@ -69,6 +70,59 @@ describe("writeFileStringAtomic", () => {
         }).pipe(Effect.provide(NodeFileSystem.layer)),
       );
       expect(fs.readFileSync(target, "utf8")).toBe("second");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("withLock", () => {
+  test("creates a missing parent directory before taking the lock", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-lock-"));
+    const lockPath = path.join(root, "memory", "personal.lock");
+
+    try {
+      const result = await Effect.runPromise(
+        withLock(
+          lockPath,
+          Effect.sync(() => fs.existsSync(lockPath)),
+        ).pipe(Effect.provide(NodeFileSystem.layer)),
+      );
+      expect(result).toBe(true);
+      expect(fs.existsSync(lockPath)).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails immediately when the lock directory cannot be created", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-lock-"));
+    const blockingFile = path.join(root, "not-a-directory");
+    fs.writeFileSync(blockingFile, "");
+    const lockPath = path.join(blockingFile, "personal.lock");
+
+    try {
+      const startedAt = Date.now();
+      const error = await Effect.runPromise(
+        withLock(lockPath, Effect.void).pipe(Effect.flip, Effect.provide(NodeFileSystem.layer)),
+      );
+      expect(error.message).not.toContain("after retries");
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("still treats an existing lock as contention", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-lock-"));
+    const lockPath = path.join(root, "held.lock");
+    fs.mkdirSync(lockPath);
+
+    try {
+      const error = await Effect.runPromise(
+        withLock(lockPath, Effect.void).pipe(Effect.flip, Effect.provide(NodeFileSystem.layer)),
+      );
+      expect(error.message).toContain("after retries");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

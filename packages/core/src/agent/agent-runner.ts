@@ -29,6 +29,7 @@ import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
@@ -56,9 +57,14 @@ import {
   Summarizer,
   type CompactionOutcome,
   type CompactionProgressObserver,
+  type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
+import {
+  createAgentRunMetrics,
+  emitAgentRunStarted,
+  telemetryErrorCategory,
+} from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
@@ -126,8 +132,8 @@ function resolveActivePreferences(
       Effect.catchAll((error) =>
         logger
           .warn("Failed to read memory; running without it", {
-            scopes: memoryScopes,
-            error: error instanceof Error ? error.message : String(error),
+            scopeCount: memoryScopes.length,
+            errorCategory: telemetryErrorCategory(error),
           })
           .pipe(Effect.as<{ summary: string }[]>([])),
       ),
@@ -338,6 +344,7 @@ function initializeAgentRun(
     const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
+      ...(options.telemetryParent ? { telemetryParent: options.telemetryParent } : {}),
       provider,
       model,
       reasoningEffort: agent.config.reasoning ?? "disable",
@@ -350,9 +357,7 @@ function initializeAgentRun(
     // Level 1: List all available skills (metadata only)
     const relevantSkills = yield* skillService.listSkills();
     const logger = yield* LoggerServiceTag;
-    yield* logger.debug(
-      `[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map((s) => s.name).join(", ")}`,
-    );
+    yield* logger.debug("Skills discovered", { count: relevantSkills.length });
 
     // One plugin session owns every hook/provider registration for this run. It remains alive
     // through tool execution so policy hooks and routing share the same bounded budgets and is
@@ -384,7 +389,7 @@ function initializeAgentRun(
             Effect.catchAll((error) =>
               logger
                 .warn("Plugin session failed to open; using deterministic behavior", {
-                  error: error.message,
+                  errorCategory: telemetryErrorCategory(error),
                 })
                 .pipe(Effect.as(Option.none())),
             ),
@@ -404,7 +409,7 @@ function initializeAgentRun(
                   ? Effect.failCause(cause)
                   : logger
                       .warn("Plugin skill routing failed; using deterministic behavior", {
-                        error: String(cause),
+                        errorCategory: telemetryErrorCategory(cause),
                       })
                       .pipe(Effect.as(undefined)),
               ),
@@ -442,8 +447,9 @@ function initializeAgentRun(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          yield* logger.warn(`Failed to register MCP tools for agent: ${errorMessage}`);
+          yield* logger.warn("Failed to register MCP tools for agent", {
+            errorCategory: telemetryErrorCategory(error),
+          });
           // Continue even if MCP registration fails - tools might not be needed
           return [];
         }),
@@ -515,7 +521,7 @@ function initializeAgentRun(
       if (withheld.length > 0) {
         yield* logger.info("Tools withheld by inherited allowlist", {
           agentId: agent.id,
-          withheld,
+          withheldCount: withheld.length,
         });
       }
     }
@@ -581,11 +587,9 @@ function initializeAgentRun(
     // no project to honor, so it never gets them.
     const projectInstructions = yield* resolveProjectInstructions(persona, agent.id, options);
     if (projectInstructions.length > 0) {
-      yield* logger.debug(
-        `[AGENTS.md] Loaded ${projectInstructions.length} instruction file(s): ${projectInstructions
-          .map((file) => file.path)
-          .join(", ")}`,
-      );
+      yield* logger.debug("AGENTS.md instruction files loaded", {
+        count: projectInstructions.length,
+      });
     }
 
     // Attachment ingestion needs the agent's cwd to resolve relative paths the user typed, and
@@ -662,6 +666,11 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      telemetryTraceParent: {
+        topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
+        parentRunId: runMetrics.runId,
+        sessionId: runMetrics.telemetryParent?.sessionId ?? actualConversationId,
+      },
       memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
@@ -777,6 +786,11 @@ function initializeAgentRun(
   });
 }
 
+/** Preserve the active trace when compaction or memory extraction starts a recursive run. */
+export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
+  return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
+}
+
 /**
  * Agent runner for executing agent conversations.
  *
@@ -861,12 +875,12 @@ export class AgentRunner {
             : {}),
         };
 
-        const runRecursive = (runOpts: {
-          agent: Agent;
-          userInput: string;
-          conversationId: string;
-          maxIterations?: number;
-        }) => AgentRunner.runRecursive(runOpts);
+        const runRecursive = createNestedRunExecutor({
+          topRunId: runContext.runMetrics.telemetryParent?.topRunId ?? runContext.runMetrics.runId,
+          parentRunId: runContext.runMetrics.runId,
+          sessionId:
+            runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
+        });
 
         const execute = shouldStream
           ? executeWithStreaming(
@@ -973,7 +987,7 @@ export class AgentRunner {
             Effect.catchAll((error) =>
               logger
                 .warn("Plugin session failed to open for /compact; summarizing without pruning", {
-                  error: error.message,
+                  errorCategory: telemetryErrorCategory(error),
                 })
                 .pipe(Effect.as(Option.none())),
             ),

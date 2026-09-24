@@ -68,11 +68,7 @@ import type {
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { safeParseJson } from "@jazz/core/utils/json";
-import {
-  convertToLLMError,
-  extractCleanErrorMessage,
-  truncateRequestBodyValues,
-} from "@jazz/core/utils/llm-error";
+import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -122,6 +118,32 @@ import {
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+
+/** Diagnostic fields from provider errors that cannot contain request or response content. */
+export function safeLLMErrorMetadata(
+  error: unknown,
+  provider: ProviderName,
+  errorType: string,
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = { provider, errorType };
+  if (error !== null && typeof error === "object") {
+    try {
+      const record = error as Record<string, unknown>;
+      const status = record["status"] ?? record["statusCode"];
+      if (
+        typeof status === "number" &&
+        Number.isInteger(status) &&
+        status >= 100 &&
+        status <= 599
+      ) {
+        metadata["statusCode"] = status;
+      }
+    } catch {
+      return metadata;
+    }
+  }
+  return metadata;
+}
 
 /** DelayedPromise fields on streamText results reject when the stream fails. */
 const STREAM_TEXT_PROMISE_FIELDS = [
@@ -637,12 +659,13 @@ function getProviderNativeWebSearchTool(
       default:
         return null;
     }
-  } catch (error) {
+  } catch {
     if (logger) {
       Effect.runFork(
-        logger.warn(
-          `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        logger.warn("Provider-native web search unavailable", {
+          provider: providerName,
+          errorType: "native_tool_unavailable",
+        }),
       );
     }
     return null;
@@ -902,6 +925,7 @@ function selectModel(
       const llamacpp = createOpenAICompatible({
         name: "llamacpp",
         baseURL,
+        includeUsage: true,
         ...(headers ? { headers } : {}),
       });
       model = llamacpp(modelId);
@@ -933,6 +957,7 @@ function selectModel(
       const orcarouter = createOpenAICompatible({
         name: "orcarouter",
         baseURL: "https://api.orcarouter.ai/v1",
+        includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       model = orcarouter(modelId);
@@ -1623,11 +1648,7 @@ class AISDKService implements LLMService {
           options.providerApiKeys,
         );
         const timingStart = Date.now();
-        Effect.runFork(
-          this.logger.debug(
-            `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
-          ),
-        );
+        Effect.runFork(this.logger.debug("LLM completion started", { provider: providerName }));
 
         const modelSelectStart = Date.now();
         const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
@@ -1714,14 +1735,17 @@ class AISDKService implements LLMService {
           ),
         );
         Effect.runFork(
-          this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`),
+          this.logger.info("LLM completion finished", {
+            provider: providerName,
+            durationMs: Date.now() - timingStart,
+          }),
         );
 
         if (toolsDisabled) {
           Effect.runFork(
-            this.logger.info(
-              `Tools were provided but skipped because ${options.model} does not support tools`,
-            ),
+            this.logger.info("Tools skipped because model does not support tools", {
+              provider: providerName,
+            }),
           );
         }
 
@@ -1761,9 +1785,14 @@ class AISDKService implements LLMService {
           for (const tc of result.toolCalls) {
             if (providerNativeToolNames.has(tc.toolName)) {
               Effect.runFork(
-                this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
+                this.logger.info("Provider-native tool used", {
                   provider: providerName,
-                  toolName: tc.toolName,
+                  toolKind:
+                    tc.toolName === "web_search"
+                      ? "web_search"
+                      : tc.toolName === "web_fetch"
+                        ? "web_fetch"
+                        : "other",
                 }),
               );
             }
@@ -1824,37 +1853,12 @@ class AISDKService implements LLMService {
       catch: (error: unknown) => {
         const llmError = convertToLLMError(error, providerName);
 
-        const cleanMessage = extractCleanErrorMessage(error);
-
-        // Log clean error message at error level (user-facing)
-        Effect.runFork(this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`));
-
-        // Log detailed error information at debug level (for debugging)
-        const errorDetails: Record<string, unknown> = {
-          provider: providerName,
-          errorType: llmError._tag,
-          message: llmError.message,
-        };
-
-        if (error instanceof Error) {
-          const e = error as Error & {
-            code?: string;
-            status?: number;
-            statusCode?: number;
-            type?: string;
-          };
-          if (e.code) errorDetails["code"] = e.code;
-          if (e.status) errorDetails["status"] = e.status;
-          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-          if (e.type) errorDetails["type"] = e.type;
-        }
-
-        const truncatedRequestBody = truncateRequestBodyValues(error);
-        if (truncatedRequestBody) {
-          errorDetails["requestBodyValues"] = truncatedRequestBody;
-        }
-
-        Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
+        Effect.runFork(
+          this.logger.error(
+            "LLM request failed",
+            safeLLMErrorMetadata(error, providerName, llmError._tag),
+          ),
+        );
 
         return llmError;
       },
@@ -1907,9 +1911,7 @@ class AISDKService implements LLMService {
         );
         const timingStart = Date.now();
         Effect.runFork(
-          this.logger.debug(
-            `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
-          ),
+          this.logger.debug("LLM streaming completion started", { provider: providerName }),
         );
 
         const modelSelectStart = Date.now();
@@ -2021,9 +2023,9 @@ class AISDKService implements LLMService {
 
                   if (toolsDisabled) {
                     Effect.runFork(
-                      this.logger.info(
-                        `Tools were provided but skipped because ${options.model} does not support tools`,
-                      ),
+                      this.logger.info("Tools skipped because model does not support tools", {
+                        provider: providerName,
+                      }),
                     );
                   }
 
@@ -2120,47 +2122,12 @@ class AISDKService implements LLMService {
                   }
 
                   const llmError = convertToLLMError(error, providerName);
-
-                  const errorDetails: Record<string, unknown> = {
-                    provider: providerName,
-                    errorType: llmError._tag,
-                    message: llmError.message,
-                  };
-
-                  if (error instanceof Error) {
-                    const e = error as Error & {
-                      code?: string;
-                      status?: number;
-                      statusCode?: number;
-                      type?: string;
-                    };
-                    if (e.code) errorDetails["code"] = e.code;
-                    if (e.status) errorDetails["status"] = e.status;
-                    if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-                    if (e.type) errorDetails["type"] = e.type;
-                    if (typeof error === "object" && error !== null) {
-                      try {
-                        const errorObj = error as unknown as Record<string, unknown>;
-                        if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
-                      } catch {
-                        // Ignore
-                      }
-                    }
-                  }
-
-                  // Truncate requestBodyValues to keep only last 5 messages
-                  const truncatedRequestBody = truncateRequestBodyValues(error, 5);
-                  if (truncatedRequestBody) {
-                    errorDetails["requestBodyValues"] = truncatedRequestBody;
-                  }
-
-                  const cleanMessage = extractCleanErrorMessage(error);
-                  // Log clean error message at error level (user-facing)
                   Effect.runFork(
-                    this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`),
+                    this.logger.error(
+                      "LLM request failed",
+                      safeLLMErrorMetadata(error, providerName, llmError._tag),
+                    ),
                   );
-                  // Log detailed error information at debug level (for debugging)
-                  Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
 
                   void emit(Effect.fail(Option.some(llmError)));
 

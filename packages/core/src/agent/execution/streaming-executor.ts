@@ -193,13 +193,15 @@ export function executeWithStreaming(
 
             if (isInterrupted) {
               yield* streamingResult.cancel.pipe(
-                Effect.catchAll((e) =>
-                  logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`),
+                Effect.catchAll(() =>
+                  logger.debug("Stream cancellation failed", { errorType: "cancel_failed" }),
                 ),
               );
               yield* Fiber.interrupt(streamFiber).pipe(
-                Effect.catchAll((e) =>
-                  logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
+                Effect.catchAll(() =>
+                  logger.debug("Stream fiber interruption failed", {
+                    errorType: "interrupt_failed",
+                  }),
                 ),
               );
 
@@ -207,8 +209,8 @@ export function executeWithStreaming(
               yield* renderer
                 .flush()
                 .pipe(
-                  Effect.catchAll((e) =>
-                    logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
+                  Effect.catchAll(() =>
+                    logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
                   ),
                 );
 

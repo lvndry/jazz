@@ -8,6 +8,7 @@ import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import {
   isLocalServerProvider,
   LOCAL_SERVER_PROVIDERS,
+  localServerAddress,
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
@@ -18,6 +19,7 @@ import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { isValidServerAddress } from "../helpers/local-provider-url";
 import { store } from "../ui/store";
 import type { WizardMenuOption } from "../ui/WizardHome";
 
@@ -144,34 +146,37 @@ function configureLLMProviders() {
 
       if (isLocalServerProvider(provider)) {
         const currentBaseUrl = config.llm?.[provider]?.base_url;
+        const currentAddress = currentBaseUrl ? localServerAddress(currentBaseUrl) : undefined;
         const defaultUrl = LOCAL_SERVER_PROVIDERS[provider].defaultUrl;
         const address = yield* terminal.ask(
-          `${providerDisplay} server address (host:port, or full URL) (leave empty to ${currentBaseUrl ? "keep current" : `use default ${defaultUrl}`}):`,
+          `${providerDisplay} server address (host:port, or full URL) (leave empty to ${currentAddress ? `keep ${currentAddress}` : `use default ${defaultUrl}`}):`,
           {
             simple: true,
-            ...(currentBaseUrl ? { defaultValue: currentBaseUrl } : {}),
-            validate: (input) => {
-              const value = input.trim();
-              if (value.length === 0) return true;
-              try {
-                const url = new URL(/:\/\//.test(value) ? value : `http://${value}`);
-                return url.hostname.length > 0 || "Enter a valid host:port or URL.";
-              } catch {
-                return "Enter a valid host:port or URL.";
-              }
-            },
+            placeholder: currentAddress ?? defaultUrl,
+            validate: isValidServerAddress,
           },
         );
 
         if (address?.trim()) {
           const normalized = normalizeLocalProviderBaseUrl(provider, address);
           yield* configService.set(`llm.${provider}.base_url`, normalized);
-          yield* terminal.success(`${providerDisplay} server set to ${normalized}.`);
+          yield* terminal.success(
+            `${providerDisplay} server set to ${localServerAddress(normalized)}.`,
+          );
         } else {
           yield* terminal.info("No changes made.");
         }
 
-        // llama.cpp has no API key; Ollama uses one only for :cloud models.
+        // Ollama uses a key only for :cloud models; llama.cpp only behind `--api-key`.
+        if (provider === "llamacpp") {
+          const serverKey = yield* terminal.password(
+            "llama.cpp server API key (only if it runs with --api-key; leave empty to keep current):",
+          );
+          if (serverKey.trim()) {
+            yield* configService.set(`llm.${provider}.api_key`, serverKey);
+            yield* terminal.success("llama.cpp API key updated.");
+          }
+        }
         if (provider === "ollama") {
           const cloudKey = yield* terminal.password(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
@@ -301,6 +306,9 @@ function configureOutputDisplay() {
       label: string;
     }) {
       const nextValue = yield* terminal.confirm(options.prompt, options.currentValue);
+      if (nextValue === undefined) {
+        return;
+      }
       yield* configService.set(options.configKey, nextValue);
       yield* terminal.success(`${options.label} ${nextValue ? "enabled" : "disabled"}.`);
     };
@@ -491,12 +499,18 @@ function configureNotifications() {
       switch (selection) {
         case "enabled": {
           const nextValue = yield* terminal.confirm("Enable system notifications?", enabled);
+          if (nextValue === undefined) {
+            break;
+          }
           yield* configService.set("notifications.enabled", nextValue);
           yield* terminal.success(`System notifications ${nextValue ? "enabled" : "disabled"}.`);
           break;
         }
         case "sound": {
           const nextValue = yield* terminal.confirm("Enable notification sound?", sound);
+          if (nextValue === undefined) {
+            break;
+          }
           yield* configService.set("notifications.sound", nextValue);
           yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
           break;

@@ -35,7 +35,7 @@ export class CLIPresentationService implements PresentationService {
     private readonly confirm: (
       message: string,
       defaultValue?: boolean,
-    ) => Effect.Effect<boolean, never>,
+    ) => Effect.Effect<boolean | undefined, never>,
     private readonly ask: (
       message: string,
       options?: { defaultValue?: string },

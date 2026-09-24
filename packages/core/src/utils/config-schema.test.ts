@@ -39,7 +39,16 @@ describe("parseConfigFile", () => {
       workspaceMaxTotalBytesPerAgent: 1048576,
       scheduler: { mode: "in-process" },
       context: { warnThresholdRatio: 0.7, compactThresholdRatio: 0.8 },
-      telemetry: { otlp: { signals: ["traces"], headers: { authorization: "Bearer x" } } },
+      telemetry: {
+        otlp: {
+          signals: ["traces", "logs", "metrics"],
+          headers: { authorization: "Bearer x" },
+          metricsEndpoint: "http://localhost:9090/api/v1/otlp/v1/metrics",
+          maxQueuedBytes: 33_554_432,
+          maxQueueAgeMs: 604_800_000,
+          metricExportIntervalMs: 30_000,
+        },
+      },
       peers: [{ name: "sam", url: "https://sam.example", disclosure: "public" }],
       webhooks: [{ name: "deploy", agentId: "default", promptTemplate: "{{payload}}" }],
       daemon: { token: "file-fallback" },
@@ -73,6 +82,29 @@ describe("parseConfigFile", () => {
       expected: "true or false",
       actual: "false",
     });
+  });
+
+  it("rejects nonpositive exporter queue and metric intervals", () => {
+    const { config, issues } = parseConfigFile({
+      telemetry: {
+        otlp: {
+          signals: ["metrics"],
+          maxQueuedBytes: 0,
+          maxQueueAgeMs: -1,
+          metricExportIntervalMs: 0,
+        },
+      },
+    });
+
+    expect(config.telemetry?.otlp?.signals).toEqual(["metrics"]);
+    expect(config.telemetry?.otlp?.maxQueuedBytes).toBeUndefined();
+    expect(config.telemetry?.otlp?.maxQueueAgeMs).toBeUndefined();
+    expect(config.telemetry?.otlp?.metricExportIntervalMs).toBeUndefined();
+    expect(issues.map((issue) => issue.path)).toEqual([
+      "telemetry.otlp.maxQueuedBytes",
+      "telemetry.otlp.maxQueueAgeMs",
+      "telemetry.otlp.metricExportIntervalMs",
+    ]);
   });
 
   it("removes unknown keys at any depth, suggesting the setting a typo meant", () => {
