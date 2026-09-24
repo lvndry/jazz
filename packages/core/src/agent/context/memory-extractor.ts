@@ -174,7 +174,9 @@ export function extractMemories(
       const memorySources = chunk.flatMap((message) =>
         message.memorySource === undefined ? [] : [message.memorySource],
       );
-      if (memorySources.length === 0) continue;
+      if (memorySources.length === 0) {
+        continue;
+      }
       const transcript = Summarizer.renderTranscript(
         chunk.map((message) =>
           message.memorySource === undefined

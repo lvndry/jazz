@@ -372,7 +372,9 @@ function AppView({
   }, [view.runActive]);
 
   useEffect(() => {
-    if (scrollToBottomVersion > 0) setFollowLive(true);
+    if (scrollToBottomVersion > 0) {
+      setFollowLive(true);
+    }
   }, [scrollToBottomVersion]);
 
   useEffect(() => {

@@ -130,7 +130,9 @@ function walkMemoryTree(
         try: () => nodeFs.lstat(entryPath),
         catch: toError,
       }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-      if (!info || info.isSymbolicLink()) continue;
+      if (!info || info.isSymbolicLink()) {
+        continue;
+      }
       if (info.isDirectory()) {
         const nested = yield* walkMemoryTree(fs, entryPath);
         totalBytes += nested.totalBytes;
@@ -163,7 +165,9 @@ function listDirectoryEntries(
         catch: toError,
       }).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info) continue;
-      if (info.isSymbolicLink()) continue;
+      if (info.isSymbolicLink()) {
+        continue;
+      }
 
       if (info.isDirectory()) {
         entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
@@ -495,17 +499,25 @@ function existingSafeMemoryPath(
       try: () => nodeFs.lstat(scopeRoot),
       catch: toError,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) return undefined;
+    if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
+      return undefined;
+    }
     const target = yield* resolveMemoryPath(scopeRoot, relativePath).pipe(
       Effect.catchAll(() => Effect.succeed(undefined)),
     );
-    if (target === undefined) return undefined;
+    if (target === undefined) {
+      return undefined;
+    }
     const info = yield* Effect.tryPromise({
       try: () => nodeFs.lstat(target),
       catch: toError,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    if (info?.isSymbolicLink()) return undefined;
-    if (kind === "file") return info?.isFile() ? target : undefined;
+    if (info?.isSymbolicLink()) {
+      return undefined;
+    }
+    if (kind === "file") {
+      return info?.isFile() ? target : undefined;
+    }
     return info?.isDirectory() ? target : undefined;
   });
 }

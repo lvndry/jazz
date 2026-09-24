@@ -102,8 +102,6 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Custom timeout in milliseconds. Overrides the default 3-minute timeout.
    */
   readonly timeoutMs?: number;
-  /** When true, normal auto-approval policies must never bypass this tool. */
-  readonly requiresExplicitConfirmation?: boolean;
 }
 
 /**
@@ -131,7 +129,6 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     disclosure: config.disclosure,
     egress: config.egress === true,
-    ...(config.requiresExplicitConfirmation === true ? { requiresExplicitConfirmation: true } : {}),
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),
@@ -246,8 +243,6 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * purpose is to block for a long time, where that warning would be describing normal operation.
    */
   readonly longRunning?: boolean;
-  /** When true, normal auto-approval policies must never bypass this tool. */
-  readonly requiresExplicitConfirmation?: boolean;
 }
 
 /**
@@ -291,7 +286,6 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     parameters: config.parameters,
     riskLevel,
     disclosure: config.disclosure,
-    ...(config.requiresExplicitConfirmation === true ? { requiresExplicitConfirmation: true } : {}),
     ...(config.egress === true ? { egress: true } : {}),
     validate: validator,
     approvalExecuteToolName: executeToolName,
@@ -334,7 +328,6 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     disclosure: config.disclosure,
     ...(config.egress === true ? { egress: true } : {}),
     parameters: config.parameters,
-    ...(config.requiresExplicitConfirmation === true ? { requiresExplicitConfirmation: true } : {}),
     validate: validator,
     handler: config.handler,
     ...(config.createSummary ? { createSummary: config.createSummary } : {}),

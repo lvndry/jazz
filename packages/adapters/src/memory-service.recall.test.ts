@@ -1,6 +1,6 @@
 /**
- * Covers scope-aware memory discovery and the observation snapshot used by
- * shadow receipts. Observation assigns stable IDs without marking a file viewed.
+ * Covers scope-aware memory discovery and the snapshot used by opportunity
+ * receipts. A snapshot assigns stable IDs without marking a file viewed.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";

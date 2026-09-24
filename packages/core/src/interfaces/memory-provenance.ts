@@ -1,7 +1,6 @@
 /**
  * Provenance and typing for memory files: what an entry is, who asserted it,
- * when it was written, and when it was last read back. Legacy credit fields
- * remain readable but are not updated from quiet runs or automatic scoring.
+ * when it was written, and when it was last read back.
  *
  * Kept in a hidden per-scope sidecar rather than in the memory files
  * themselves. Memory files are the artifact a person edits directly — with
@@ -10,15 +9,15 @@
  * longer the injected one and shift every line number `str_replace` and
  * `insert` address.
  *
- * There is no trust field. Model-facing writes validate an exact quote against
- * host-authenticated user input at the memory tool boundary. Source
- * authentication does not prove a statement is durable or its topic is right.
+ * Model-facing writes validate an exact quote against a memory source at the
+ * memory tool boundary. A verified quote does not prove a statement is durable
+ * or its topic is right.
  *
  * Nothing here is load-bearing for recall. Recall reads the tree, so an entry
  * found or missing on disk behaves the same whether or not this file knows
  * about it, and a sidecar that is lost or corrupt costs history rather than
- * memory. Only what the files cannot express lives here: who wrote an entry
- * and legacy lesson metadata. Outcome credit is dormant pending calibration.
+ * memory. Only what the files cannot express lives here: who wrote an entry and
+ * its lesson metadata.
  */
 
 /**
@@ -70,7 +69,7 @@ export const EMPTY_MEMORY_ENTRY_CREDIT: MemoryEntryCredit = {
 export type MemoryEntryOrigin = "auto" | "user";
 
 export interface MemoryFileProvenance {
-  /** Stable through Jazz-managed edits and renames; first observation assigns legacy files an ID. */
+  /** Stable through Jazz-managed edits and renames; files created outside Jazz get one on first snapshot. */
   readonly entryId?: string;
   /** ISO 8601. */
   readonly createdAt: string;
