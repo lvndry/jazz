@@ -12,7 +12,6 @@ export default defineConfig({
   // domain-agnostic, this one constant is the only thing to change.
   site: "https://jazz-cli.vercel.app",
   trailingSlash: "never",
-  compressHTML: false,
   build: {
     format: "file",
   },

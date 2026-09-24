@@ -115,8 +115,6 @@ export interface KeyChord {
 
 export interface AppProps {
   readonly view: ViewModel;
-  /** Increments when a chat message is submitted, returning the transcript to its live edge. */
-  readonly scrollToBottomVersion?: number;
   readonly onAction: (action: KeyAction) => void;
   /**
    * First refusal on every key. Return true to consume it.
@@ -232,14 +230,7 @@ export function reuseViewport(width: number, height: number, previous: Viewport)
   return { width, height };
 }
 
-function AppView({
-  view,
-  scrollToBottomVersion = 0,
-  onAction,
-  onKey,
-  onPaste,
-  overrideContent,
-}: AppProps): React.ReactNode {
+function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -370,12 +361,6 @@ function AppView({
   useEffect(() => {
     if (view.runActive !== true) armedAt.current = undefined;
   }, [view.runActive]);
-
-  useEffect(() => {
-    if (scrollToBottomVersion > 0) {
-      setFollowLive(true);
-    }
-  }, [scrollToBottomVersion]);
 
   useEffect(() => {
     if (focus === "input") {
