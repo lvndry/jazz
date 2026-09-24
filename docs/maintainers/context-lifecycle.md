@@ -404,7 +404,8 @@ and eventually be summarized into the very compaction it was warning about.
 The warning exists so that compaction is never a surprise: there is a window where you can
 still `/compact` on your own terms, narrow the task, or raise the ceiling before the
 summarizer decides what to keep. `ContextWindowManager` owns both decisions. `usage()`
-returns the current tokens, the budget, and both flags from a single count.
+returns the current tokens, the budget, and both flags from a single count. Call
+`shouldCompact(messages)` when only the compaction threshold decision is needed.
 
 ---
 

@@ -265,32 +265,3 @@ interface InkKey {
   delete?: boolean;
   meta?: boolean;
 }
-
-// ============================================================================
-// HOC for Class Components
-// ============================================================================
-
-/**
- * Higher-order component to inject InputService into class components.
- */
-export function withInputService<P extends { inputService: InputService }>(
-  Component: React.ComponentType<P>,
-): React.FC<Omit<P, "inputService">> {
-  return function WithInputService(props: Omit<P, "inputService">) {
-    return (
-      <InputServiceContext.Consumer>
-        {(service) => {
-          if (!service) {
-            throw new Error("withInputService must be used within an InputProvider");
-          }
-          return (
-            <Component
-              {...(props as P)}
-              inputService={service}
-            />
-          );
-        }}
-      </InputServiceContext.Consumer>
-    );
-  };
-}
