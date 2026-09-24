@@ -4,7 +4,7 @@
  * `list_changed` notifications so added/removed tools stay in sync live.
  */
 
-import { Cause, Effect } from "effect";
+import { Effect } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -113,9 +113,7 @@ function subscribeToToolChanges(): Effect.Effect<
       void Effect.runPromise(
         syncServerTools(registry, entry.config, tools, entry.hasResources).pipe(
           Effect.tap((names) =>
-            logger.info(
-              `MCP server ${serverName} changed its tool list; now ${names.length} tool(s)`,
-            ),
+            logger.info("MCP server tool list changed", { toolCount: names.length }),
           ),
           Effect.catchAllCause(() => Effect.void),
         ),
@@ -164,9 +162,7 @@ export function registerMCPToolsForAgent(
 
     const allServers = yield* mcpManager.listServers();
 
-    yield* logger.debug(
-      `Found ${allServers.length} configured MCP server(s): ${allServers.map((server) => server.name).join(", ")}`,
-    );
+    yield* logger.debug("Configured MCP servers found", { serverCount: allServers.length });
 
     // Match tool names to servers by prefix rather than by splitting the name:
     // both the server name and the tool name may contain underscores.
@@ -187,11 +183,9 @@ export function registerMCPToolsForAgent(
     // former only toggles enabled/trusted on a server already defined in the latter — it
     // cannot define one), both look identical from here: the tool silently never appears.
     if (unresolvedToolNames.length > 0) {
-      yield* logger.warn(
-        `Agent references MCP tool(s) with no matching configured server, so they will not be ` +
-          `available: ${unresolvedToolNames.join(", ")}. Check that the server is declared in ` +
-          `.agents/mcp.json.`,
-      );
+      yield* logger.warn("Agent references MCP tools without a configured server", {
+        unresolvedToolCount: unresolvedToolNames.length,
+      });
     }
 
     const serversToConnect = allServers.filter(
@@ -203,9 +197,9 @@ export function registerMCPToolsForAgent(
       return [];
     }
 
-    yield* logger.debug(
-      `Connecting to ${serversToConnect.length} MCP server(s) required by agent during setup`,
-    );
+    yield* logger.debug("Connecting to required MCP servers", {
+      serverCount: serversToConnect.length,
+    });
 
     yield* subscribeToToolChanges();
 
@@ -224,7 +218,7 @@ export function registerMCPToolsForAgent(
             `Connecting to ${toPascalCase(serverName)} MCP server...`,
             "progress",
           );
-          yield* logger.debug(`Connecting to MCP server ${serverName}...`);
+          yield* logger.debug("Connecting to MCP server");
         }
 
         const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
@@ -259,11 +253,13 @@ export function registerMCPToolsForAgent(
           }
 
           if (isAuthError) {
-            yield* logger.warn(
-              `MCP server ${serverName} connection failed due to authorization: ${error.reason}`,
-            );
+            yield* logger.warn("MCP server authorization required", {
+              errorType: "authorization_required",
+            });
           } else {
-            yield* logger.error(`Failed to connect to MCP server ${serverName}: ${error.reason}`);
+            yield* logger.error("Failed to connect to MCP server", {
+              errorType: "connection_failed",
+            });
           }
 
           return;
@@ -284,12 +280,12 @@ export function registerMCPToolsForAgent(
               "info",
             );
           }
-          yield* logger.warn(
-            `Failed to discover tools from MCP server ${serverName}: ${mcpToolsResult.left.reason}`,
-          );
+          yield* logger.warn("Failed to discover MCP tools", {
+            errorType: "discovery_failed",
+          });
         }
 
-        yield* logger.debug(`Discovered ${mcpTools.length} tool(s) from MCP server ${serverName}`);
+        yield* logger.debug("Discovered MCP tools", { toolCount: mcpTools.length });
 
         if (showedConnectionUI) {
           yield* presentation.presentStatus(
@@ -311,22 +307,16 @@ export function registerMCPToolsForAgent(
         );
 
         if (registeredToolNames.length > 0) {
-          yield* logger.info(
-            `Registered ${registeredToolNames.length} MCP tool(s) from ${serverConfig.name}: ${registeredToolNames.join(", ")}`,
-          );
+          yield* logger.info("MCP tools registered", { toolCount: registeredToolNames.length });
           connectedServers.push(serverConfig.name);
         } else {
-          yield* logger.debug(
-            `MCP server ${serverConfig.name} connected but no tools were discovered`,
-          );
+          yield* logger.debug("MCP server connected without tools", { toolCount: 0 });
         }
       }).pipe(
         // Every failure inside is already turned into an Either above, so only
         // a defect can land here. One broken server must not abort the rest.
-        Effect.catchAllCause((cause) =>
-          logger.warn(
-            `Failed to register tools from MCP server ${serverConfig.name}: ${Cause.pretty(cause)}`,
-          ),
+        Effect.catchAllCause(() =>
+          logger.warn("MCP tool registration failed", { errorType: "registration_failed" }),
         ),
       );
     }

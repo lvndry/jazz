@@ -1,12 +1,16 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { TelemetryServiceTag, type TelemetryEvent } from "@jazz/core/interfaces/telemetry";
+import type { AppConfig } from "@jazz/core/types/config";
+import { serve } from "bun";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { FileTelemetrySink } from "./file-sink";
 import type { TelemetrySink } from "./sink";
-import { TelemetryServiceImpl } from "./telemetry-service";
+import { createTelemetryServiceLayer, TelemetryServiceImpl } from "./telemetry-service";
 
 class RecordingSink implements TelemetrySink {
   readonly written: TelemetryEvent[] = [];
@@ -36,6 +40,36 @@ function makeService(sinks: TelemetrySink[], overrides: { bufferSize?: number } 
 
 const USAGE = { promptTokens: 10, completionTokens: 5, totalTokens: 15 };
 
+function factoryLayer(config: AppConfig, logEntries: string[]) {
+  const configService = { appConfig: Effect.succeed(config) } as AgentConfigService;
+  const logger = {
+    debug: (message: string, meta?: Record<string, unknown>) =>
+      Effect.sync(() => {
+        logEntries.push(JSON.stringify({ message, meta }));
+      }),
+    warn: (message: string, meta?: Record<string, unknown>) =>
+      Effect.sync(() => {
+        logEntries.push(JSON.stringify({ message, meta }));
+      }),
+  } as LoggerService;
+  return createTelemetryServiceLayer().pipe(
+    Layer.provide(
+      Layer.merge(
+        Layer.succeed(AgentConfigServiceTag, configService),
+        Layer.succeed(LoggerServiceTag, logger),
+      ),
+    ),
+  );
+}
+
+function appConfig(telemetry: AppConfig["telemetry"]): AppConfig {
+  return {
+    storage: { type: "file", path: "/tmp" },
+    logging: { level: "info", format: "plain" },
+    ...(telemetry ? { telemetry } : {}),
+  };
+}
+
 describe("TelemetryServiceImpl sink fan-out", () => {
   it("writes every event to every sink", async () => {
     const first = new RecordingSink("first");
@@ -50,6 +84,26 @@ describe("TelemetryServiceImpl sink fan-out", () => {
     expect(first.written).toHaveLength(1);
     expect(second.written).toHaveLength(1);
     expect(first.written[0]!.type).toBe("llm_usage");
+  });
+
+  it("retains typed trace ancestry and session on retry events", async () => {
+    const sink = new RecordingSink("recording");
+    const service = makeService([sink]);
+    const telemetryParent = { topRunId: "root", parentRunId: "parent", sessionId: "session" };
+    await Effect.runPromise(
+      service.recordLLMRetry({
+        provider: "openai",
+        model: "gpt-5",
+        error: "network",
+        attempt: 2,
+        runId: "child",
+        conversationId: "session",
+        telemetryParent,
+      }),
+    );
+    await Effect.runPromise(service.flush());
+    expect(sink.written[0]?.conversationId).toBe("session");
+    expect(sink.written[0]?.data["telemetryParent"]).toEqual(telemetryParent);
   });
 
   it("keeps writing to healthy sinks when one fails", async () => {
@@ -87,17 +141,21 @@ describe("TelemetryServiceImpl sink fan-out", () => {
       onSinkError: (sinkName) => errors.push(sinkName),
     });
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
     await Effect.runPromise(service.flush());
 
     expect(errors).toEqual(["broken"]);
   });
 
-  it("re-enqueues events only when every sink failed", async () => {
+  it("retries a failed sink's batch on the next flush", async () => {
     const broken = new FailingSink("broken");
     const service = makeService([broken]);
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
     await Effect.runPromise(service.flush());
     await Effect.runPromise(service.flush());
 
@@ -105,17 +163,20 @@ describe("TelemetryServiceImpl sink fan-out", () => {
     expect(broken.attempts).toBe(2);
   });
 
-  it("does not re-enqueue when at least one sink succeeded", async () => {
+  it("retains a failed sink's batch without duplicating the healthy sink", async () => {
     const healthy = new RecordingSink("healthy");
     const broken = new FailingSink("broken");
     const service = makeService([broken, healthy]);
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
     await Effect.runPromise(service.flush());
     await Effect.runPromise(service.flush());
 
     // Re-enqueueing would duplicate the row in the healthy sink.
     expect(healthy.written).toHaveLength(1);
+    expect(broken.attempts).toBe(2);
   });
 
   it("drops the oldest events once the buffer ceiling is hit", async () => {
@@ -130,7 +191,9 @@ describe("TelemetryServiceImpl sink fan-out", () => {
 
     // bufferSize 2 × the 10× ceiling = 20 retained; 30 events overflows it.
     for (let index = 0; index < 30; index++) {
-      await Effect.runPromise(service.recordEvent("custom", { index }));
+      await Effect.runPromise(
+        service.recordToolInvocation({ toolName: "web_search", success: true }),
+      );
     }
     await Effect.runPromise(service.flush());
 
@@ -146,10 +209,126 @@ describe("TelemetryServiceImpl sink fan-out", () => {
       sinks: [sink],
     });
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
     await Effect.runPromise(service.flush());
 
     expect(sink.written).toHaveLength(0);
+  });
+
+  it("flushes pending events and closes sinks on shutdown", async () => {
+    let closed = 0;
+    const written: TelemetryEvent[] = [];
+    const sink: TelemetrySink = {
+      name: "closeable",
+      write: async (events) => {
+        written.push(...events);
+      },
+      close: async () => {
+        closed += 1;
+      },
+    };
+    const service = makeService([sink]);
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
+    await Effect.runPromise(service.shutdown());
+    expect(written).toHaveLength(1);
+    expect(closed).toBe(1);
+  });
+});
+
+describe("telemetry layer export wiring", () => {
+  it("does not start OTLP metrics when telemetry is globally disabled", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "jazz-disabled-"));
+    let requests = 0;
+    const server = serve({
+      port: 0,
+      fetch() {
+        requests += 1;
+        return new Response(null, { status: 200 });
+      },
+    });
+    try {
+      const layer = factoryLayer(
+        appConfig({
+          enabled: false,
+          storagePath: directory,
+          otlp: {
+            endpoint: `http://localhost:${server.port}`,
+            signals: ["metrics"],
+            metricExportIntervalMs: 100,
+            timeoutMs: 100,
+          },
+        }),
+        [],
+      );
+      const service = await Effect.runPromise(Effect.provide(TelemetryServiceTag, layer));
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      await Effect.runPromise(service.shutdown());
+      expect(requests).toBe(0);
+    } finally {
+      await server.stop(true);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("shares the process resource id and keeps URL, path, and headers out of logs", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "jazz-secret-path-"));
+    const logEntries: string[] = [];
+    const received: { path: string; body: string }[] = [];
+    const server = serve({
+      port: 0,
+      async fetch(request) {
+        received.push({
+          path: new URL(request.url).pathname,
+          body: await request.text(),
+        });
+        return new Response(null, { status: 200 });
+      },
+    });
+    try {
+      const layer = factoryLayer(
+        appConfig({
+          storagePath: directory,
+          flushIntervalMs: 0,
+          otlp: {
+            endpoint: `http://localhost:${server.port}/otlp?apikey=SECRET_QUERY`,
+            headers: { authorization: "SECRET_HEADER" },
+            signals: ["traces", "metrics"],
+          },
+        }),
+        logEntries,
+      );
+      const service = await Effect.runPromise(Effect.provide(TelemetryServiceTag, layer));
+      await Effect.runPromise(
+        service.recordLLMUsage({ provider: "openai", model: "gpt-5", usage: USAGE }),
+      );
+      await Effect.runPromise(service.flush());
+      await Effect.runPromise(service.shutdown());
+      const trace = received.find((item) => item.path.endsWith("/v1/traces"));
+      const metrics = received.find((item) => item.path.endsWith("/v1/metrics"));
+      expect(trace).toBeDefined();
+      expect(metrics).toBeDefined();
+      const traceBody = JSON.parse(trace!.body) as {
+        resourceSpans: {
+          resource: { attributes: { key: string; value: { stringValue: string } }[] };
+        }[];
+      };
+      const instance = traceBody.resourceSpans[0]!.resource.attributes.find(
+        (item) => item.key === "service.instance.id",
+      )?.value.stringValue;
+      expect(instance).toBeTruthy();
+      expect(metrics!.body).toContain(instance!);
+      const logged = logEntries.join("\n");
+      expect(logged).not.toContain("SECRET_QUERY");
+      expect(logged).not.toContain("SECRET_HEADER");
+      expect(logged).not.toContain(directory);
+    } finally {
+      await server.stop(true);
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 
@@ -180,7 +359,9 @@ describe("TelemetryServiceImpl querying", () => {
   it("includes buffered events that have not been flushed yet", async () => {
     const service = makeService([new FileTelemetrySink(storagePath, 90)]);
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
 
     const events = await Effect.runPromise(service.getEvents());
     expect(events).toHaveLength(1);
@@ -189,7 +370,9 @@ describe("TelemetryServiceImpl querying", () => {
   it("returns only buffered events when no sink can be read back", async () => {
     const service = makeService([new RecordingSink("write-only")]);
 
-    await Effect.runPromise(service.recordEvent("custom", {}));
+    await Effect.runPromise(
+      service.recordToolInvocation({ toolName: "web_search", success: true }),
+    );
 
     const events = await Effect.runPromise(service.getEvents());
     expect(events).toHaveLength(1);

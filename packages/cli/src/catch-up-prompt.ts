@@ -163,7 +163,7 @@ export function promptInteractiveCatchUp() {
         Effect.provide(QuietPresentationServiceLayer),
         Effect.tap(() =>
           logger.info("Background catch-up completed", {
-            schedules: entriesToRun.map((e) => scheduleId(e)),
+            scheduleCount: entriesToRun.length,
           }),
         ),
       ),

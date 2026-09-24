@@ -272,11 +272,11 @@ export class MCPServerManagerImpl implements MCPServerManager {
     const manager = this;
     return Effect.gen(function* () {
       if (manager.connections.has(config.name)) {
-        yield* manager.logger.debug(`MCP server ${config.name} already connected`);
+        yield* manager.logger.debug("MCP server already connected");
         return;
       }
 
-      yield* manager.logger.debug(`Connecting to MCP server: ${config.name}`);
+      yield* manager.logger.debug("MCP connection started");
 
       /**
        * One connection attempt: fresh transport and client, so a retry never reuses a
@@ -368,9 +368,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
         protocolEra,
       });
 
-      yield* manager.logger.info(
-        `Connected to MCP server: ${config.name} (${transportType} transport, ${protocolEra ?? "unknown"} protocol era)`,
-      );
+      yield* manager.logger.info("MCP server connected", { transportType });
     }).pipe(
       Effect.mapError((error: unknown) => {
         if (error instanceof MCPConnectionError) return error;
@@ -391,7 +389,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
     return Effect.gen(function* () {
       const connection = manager.connections.get(serverName);
       if (!connection) {
-        yield* manager.logger.debug(`MCP server ${serverName} not connected`);
+        yield* manager.logger.debug("MCP server was not connected");
         return;
       }
 
@@ -403,14 +401,12 @@ export class MCPServerManagerImpl implements MCPServerManager {
         try: () => connection.client.close(),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(
-        Effect.catchAll((error: unknown) =>
-          manager.logger.warn(
-            `Error closing MCP client for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        Effect.catchAll(() =>
+          manager.logger.warn("MCP client close failed", { errorType: "close_failed" }),
         ),
       );
 
-      yield* manager.logger.info(`Disconnected from MCP server: ${serverName}`);
+      yield* manager.logger.info("MCP server disconnected");
     });
   }
 
@@ -468,16 +464,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
       );
 
       if (tools.length === 0) {
-        yield* manager.logger.warn(
-          `No tools discovered from MCP server ${serverName} - the server may not have any tools available`,
-        );
+        yield* manager.logger.warn("No MCP tools discovered", { toolCount: 0 });
       } else {
-        yield* manager.logger.debug(
-          `Discovered ${tools.length} tool(s) from MCP server ${serverName}: ${tools
-            .map((tool) => tool.name)
-            .slice(0, 5)
-            .join(", ")}${tools.length > 5 ? "..." : ""}`,
-        );
+        yield* manager.logger.debug("MCP tools discovered", { toolCount: tools.length });
       }
 
       return tools;
@@ -574,7 +563,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       // found" error; absence of the capability is a normal answer, not a
       // failure.
       if (connection.capabilities?.prompts === undefined) {
-        yield* manager.logger.debug(`MCP server ${serverName} does not advertise prompts`);
+        yield* manager.logger.debug("MCP server does not advertise prompts");
         return [];
       }
 
@@ -694,9 +683,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
     if (!handler) {
       await Effect.runPromise(
-        this.logger.debug(
-          `Declined elicitation from ${serverName}: this surface cannot prompt the user`,
-        ),
+        this.logger.debug("MCP elicitation declined: surface cannot prompt the user"),
       );
       return { action: "decline" };
     }
@@ -706,7 +693,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
     // silently opened.
     if (params.mode === "url") {
       await Effect.runPromise(
-        this.logger.warn(`Declined URL-mode elicitation from ${serverName}: not supported`),
+        this.logger.warn("MCP URL-mode elicitation declined", { errorType: "unsupported_mode" }),
       );
       return { action: "decline" };
     }
@@ -735,11 +722,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
             : [...value];
       }
       return { action: "accept", content };
-    } catch (error) {
+    } catch {
       await Effect.runPromise(
-        this.logger.warn(
-          `Elicitation handler failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        this.logger.warn("MCP elicitation handler failed", { errorType: "handler_failed" }),
       );
       return { action: "cancel" };
     }
@@ -969,15 +954,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       const releaseIfOpenedHere = wasConnected
         ? Effect.void
-        : manager
-            .disconnectServer(config.name)
-            .pipe(
-              Effect.catchAll((error) =>
-                manager.logger.warn(
-                  `Error disconnecting after tool discovery for ${config.name}: ${error.reason}`,
-                ),
-              ),
-            );
+        : manager.disconnectServer(config.name).pipe(
+            Effect.catchAll(() =>
+              manager.logger.warn("MCP disconnect after discovery failed", {
+                errorType: "disconnect_failed",
+              }),
+            ),
+          );
 
       return yield* manager.getServerTools(config.name).pipe(Effect.ensuring(releaseIfOpenedHere));
     });
@@ -1006,19 +989,17 @@ export class MCPServerManagerImpl implements MCPServerManager {
     const manager = this;
     return Effect.gen(function* () {
       const serverNames = Array.from(manager.connections.keys());
-      yield* manager.logger.debug(`Disconnecting ${serverNames.length} MCP server(s)...`);
+      yield* manager.logger.debug("Disconnecting MCP servers", { serverCount: serverNames.length });
 
       yield* Effect.all(
         serverNames.map((serverName) =>
-          manager
-            .disconnectServer(serverName)
-            .pipe(
-              Effect.catchAll((error) =>
-                manager.logger.warn(
-                  `Failed to disconnect MCP server ${serverName}: ${error.reason}`,
-                ),
-              ),
+          manager.disconnectServer(serverName).pipe(
+            Effect.catchAll(() =>
+              manager.logger.warn("MCP server disconnect failed", {
+                errorType: "disconnect_failed",
+              }),
             ),
+          ),
         ),
         { concurrency: "unbounded" },
       );

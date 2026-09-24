@@ -453,7 +453,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
    * key-setup detour and the "nobody can pick here" wording live once. A bound companion
    * skips the prompt entirely, which is the only path an unattended run can take.
    */
-  const resolveCompanion = (parentAgent: Agent, role: CompanionRole, toolName: string) =>
+  const resolveCompanion = (parentAgent: Agent, role: CompanionRole, _toolName: string) =>
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
       const presentation = yield* PresentationServiceTag;
@@ -524,7 +524,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           candidateList.missingKeyProviders.length > 0
             ? ` No model that can do ${describeRole(role)} is reachable yet: adding an API key for ${candidateList.missingKeyProviders.join(", ")} would fix this.`
             : ` No provider in the catalog currently offers a conversational model with ${describeRole(role)}.`;
-        yield* logger.info(`${toolName} found no capable models`, {
+        yield* logger.info("No capable companion models available", {
           role,
           missingKeyProviders: candidateList.missingKeyProviders,
         });

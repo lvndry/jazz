@@ -29,6 +29,8 @@ const logger: LoggerService = {
   logToolCall: () => Effect.void,
   setLogGroup: () => Effect.void,
   clearLogGroup: () => Effect.void,
+  pushLogGroup: () => Effect.void,
+  popLogGroup: () => Effect.void,
 };
 
 const testLayer = Layer.mergeAll(

@@ -9,10 +9,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/inter
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import type {
   AgentUsage,
-  ClassifierUsage,
-  DecisionUsage,
   ModelUsage,
-  ProcessResourceSnapshot,
   TelemetryEvent,
   TelemetryEventType,
   TelemetryQueryOptions,
@@ -27,7 +24,8 @@ import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { sampleProcessResources } from "@jazz/core/utils/process-resources";
 import { Effect, Layer } from "effect";
 import { FileTelemetrySink } from "./file-sink";
-import { redactHeaders, resolveOtlpConfig } from "./otlp-config";
+import { OtlpMetricsSink } from "./metrics";
+import { resolveOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
 import { isEventReader, type TelemetrySink } from "./sink";
 import packageJson from "../../../../package.json";
@@ -39,6 +37,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
 const DEFAULT_RETENTION_DAYS = 90;
 /** How often to sample Jazz RSS/heap/CPU during a live run. 0 disables. */
 const DEFAULT_PROCESS_SAMPLE_INTERVAL_MS = 10_000;
+const PROCESS_INSTANCE_ID = randomUUID();
 
 /**
  * Hard ceiling on retained-but-unflushed events, as a multiple of bufferSize.
@@ -104,6 +103,8 @@ export interface TelemetryServiceOptions {
 
 export class TelemetryServiceImpl implements TelemetryService {
   private buffer: TelemetryEvent[] = [];
+  private readonly pendingBySink = new Map<TelemetrySink, TelemetryEvent[]>();
+  private flushChain: Promise<void> = Promise.resolve();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly runSamplers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly enabled: boolean;
@@ -136,15 +137,9 @@ export class TelemetryServiceImpl implements TelemetryService {
 
   // ── Recording ───────────────────────────────────────────────────
 
-  recordAgentRunStarted(data: {
-    readonly runId: string;
-    readonly agentId: string;
-    readonly agentName: string;
-    readonly conversationId: string;
-    readonly provider?: string;
-    readonly model?: string;
-    readonly process?: ProcessResourceSnapshot;
-  }): Effect.Effect<void, TelemetryError> {
+  recordAgentRunStarted(
+    data: Parameters<TelemetryService["recordAgentRunStarted"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     this.startRunSampler(data.runId, data.agentId, data.conversationId);
     return this.appendEvent(
       "agent_run_started",
@@ -156,23 +151,9 @@ export class TelemetryServiceImpl implements TelemetryService {
     );
   }
 
-  recordAgentRunCompleted(data: {
-    readonly runId: string;
-    readonly agentId: string;
-    readonly agentName: string;
-    readonly conversationId: string;
-    readonly provider?: string;
-    readonly model?: string;
-    readonly durationMs: number;
-    readonly iterationsUsed: number;
-    readonly finished: boolean;
-    readonly usage: TokenUsage;
-    readonly classifierUsage?: ClassifierUsage;
-    readonly decisionUsage?: DecisionUsage;
-    readonly process?: ProcessResourceSnapshot;
-    readonly toolCalls: number;
-    readonly toolErrors: number;
-  }): Effect.Effect<void, TelemetryError> {
+  recordAgentRunCompleted(
+    data: Parameters<TelemetryService["recordAgentRunCompleted"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     this.stopRunSampler(data.runId);
     return this.appendEvent(
       "agent_run_completed",
@@ -184,15 +165,9 @@ export class TelemetryServiceImpl implements TelemetryService {
     );
   }
 
-  recordAgentRunFailed(data: {
-    readonly runId: string;
-    readonly agentId: string;
-    readonly agentName: string;
-    readonly conversationId: string;
-    readonly error: string;
-    readonly durationMs: number;
-    readonly process?: ProcessResourceSnapshot;
-  }): Effect.Effect<void, TelemetryError> {
+  recordAgentRunFailed(
+    data: Parameters<TelemetryService["recordAgentRunFailed"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     this.stopRunSampler(data.runId);
     return this.appendEvent(
       "agent_run_failed",
@@ -204,42 +179,27 @@ export class TelemetryServiceImpl implements TelemetryService {
     );
   }
 
-  recordLLMUsage(data: {
-    readonly provider: string;
-    readonly model: string;
-    readonly usage: TokenUsage;
-    readonly agentId?: string;
-    readonly conversationId?: string;
-    readonly durationMs?: number;
-    readonly runId?: string;
-    readonly purpose?: "classifier";
-  }): Effect.Effect<void, TelemetryError> {
+  recordLLMUsage(
+    data: Parameters<TelemetryService["recordLLMUsage"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
     return this.appendEvent("llm_usage", { ...data, process: sampleProcessResources() }, opts);
   }
 
-  recordLLMRetry(data: {
-    readonly provider: string;
-    readonly model: string;
-    readonly error: string;
-    readonly attempt: number;
-    readonly agentId?: string;
-  }): Effect.Effect<void, TelemetryError> {
-    const opts: { agentId?: string } = {};
+  recordLLMRetry(
+    data: Parameters<TelemetryService["recordLLMRetry"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
+    const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
+    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
     return this.appendEvent("llm_retry", data, opts);
   }
 
-  recordToolInvocation(data: {
-    readonly toolName: string;
-    readonly success: boolean;
-    readonly durationMs?: number;
-    readonly error?: string;
-    readonly agentId?: string;
-    readonly conversationId?: string;
-  }): Effect.Effect<void, TelemetryError> {
+  recordToolInvocation(
+    data: Parameters<TelemetryService["recordToolInvocation"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     const eventType: TelemetryEventType = data.success ? "tool_invocation" : "tool_error";
     const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
@@ -247,37 +207,19 @@ export class TelemetryServiceImpl implements TelemetryService {
     return this.appendEvent(eventType, { ...data, process: sampleProcessResources() }, opts);
   }
 
-  recordCommandExecuted(data: {
-    readonly command: string;
-    readonly args?: readonly string[];
-    readonly durationMs?: number;
-    readonly success: boolean;
-    readonly error?: string;
-  }): Effect.Effect<void, TelemetryError> {
+  recordCommandExecuted(
+    data: Parameters<TelemetryService["recordCommandExecuted"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("command_executed", data);
   }
 
-  recordProcessSample(data: {
-    readonly runId: string;
-    readonly process: ProcessResourceSnapshot;
-    readonly agentId?: string;
-    readonly conversationId?: string;
-  }): Effect.Effect<void, TelemetryError> {
+  recordProcessSample(
+    data: Parameters<TelemetryService["recordProcessSample"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
     return this.appendEvent("process_sample", data, opts);
-  }
-
-  recordEvent(
-    type: TelemetryEventType,
-    data: Record<string, unknown>,
-    options?: {
-      readonly agentId?: string;
-      readonly conversationId?: string;
-    },
-  ): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent(type, data, options);
   }
 
   // ── Querying ────────────────────────────────────────────────────
@@ -374,6 +316,17 @@ export class TelemetryServiceImpl implements TelemetryService {
         }
         this.stopAllRunSamplers();
         yield* this.flushBuffer();
+        yield* Effect.promise(async () => {
+          await Promise.all(
+            this.sinks.map(async (sink) => {
+              try {
+                await sink.close?.();
+              } catch (error) {
+                this.onSinkError(sink.name, error);
+              }
+            }),
+          );
+        });
       }.bind(this),
     );
   }
@@ -444,44 +397,59 @@ export class TelemetryServiceImpl implements TelemetryService {
     return Effect.promise(() => this.flushSync());
   }
 
-  /**
-   * Write the buffer out to every sink.
-   *
-   * Promise-based because the interval timer drives it from outside any Effect
-   * context. Sinks are written concurrently and independently: one failing
-   * destination never blocks another, and no failure is surfaced to the caller.
-   * Events are re-enqueued only when every sink failed, so a working file sink
-   * plus a dead collector does not duplicate rows on disk.
-   */
-  private async flushSync(): Promise<void> {
-    if (this.buffer.length === 0 || this.sinks.length === 0) return;
+  /** Serialize flushes so a timer and a caller cannot duplicate one batch. */
+  private flushSync(): Promise<void> {
+    const next = this.flushChain.then(() => this.flushOnce());
+    this.flushChain = next.catch(() => {});
+    return next;
+  }
 
-    const toFlush = [...this.buffer];
-    this.buffer = [];
-
-    const results = await Promise.allSettled(this.sinks.map((sink) => sink.write(toFlush)));
-
-    let failures = 0;
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        failures += 1;
-        this.onSinkError(this.sinks[index]?.name ?? "unknown", result.reason);
-      }
-    });
-
-    if (failures === this.sinks.length) {
-      this.buffer.unshift(...toFlush);
+  /** Fan out independently; each failing sink retains only its own pending rows. */
+  private async flushOnce(): Promise<void> {
+    if (this.sinks.length === 0) {
       this.enforceBufferCeiling();
+      return;
     }
+    const newEvents = this.buffer;
+    this.buffer = [];
+    await Promise.all(
+      this.sinks.map(async (sink) => {
+        const pending = this.pendingBySink.get(sink) ?? [];
+        const events = pending.length === 0 ? newEvents : [...pending, ...newEvents];
+        if (events.length > 0) {
+          try {
+            await sink.write(events);
+            this.pendingBySink.delete(sink);
+          } catch (error) {
+            this.onSinkError(sink.name, error);
+            this.pendingBySink.set(sink, this.boundPending(events));
+            return;
+          }
+        }
+        if (
+          (events.length === 0 && sink.name === "otlp") ||
+          (events.length > 0 && sink.name === "otlp-metrics")
+        ) {
+          try {
+            await sink.flush?.();
+          } catch (error) {
+            this.onSinkError(sink.name, error);
+          }
+        }
+      }),
+    );
+  }
+
+  private boundPending(events: TelemetryEvent[]): TelemetryEvent[] {
+    const ceiling = this.bufferSize * MAX_BUFFER_MULTIPLIER;
+    if (events.length <= ceiling) return events;
+    const dropped = events.length - ceiling;
+    this.onEventsDropped(dropped);
+    return events.slice(dropped);
   }
 
   private enforceBufferCeiling(): void {
-    const ceiling = this.bufferSize * MAX_BUFFER_MULTIPLIER;
-    if (this.buffer.length <= ceiling) return;
-
-    const dropped = this.buffer.length - ceiling;
-    this.buffer = this.buffer.slice(dropped);
-    this.onEventsDropped(dropped);
+    this.buffer = this.boundPending(this.buffer);
   }
 
   private loadAllEvents(): Effect.Effect<TelemetryEvent[], TelemetryError> {
@@ -489,7 +457,11 @@ export class TelemetryServiceImpl implements TelemetryService {
     if (!reader) return Effect.succeed([...this.buffer]);
 
     return Effect.tryPromise({
-      try: async () => [...this.buffer, ...(await reader.readAll())],
+      try: async () => [
+        ...this.buffer,
+        ...(this.pendingBySink.get(reader) ?? []),
+        ...(await reader.readAll()),
+      ],
       catch: (error) =>
         new TelemetryError({
           operation: "read",
@@ -727,14 +699,46 @@ export function createTelemetryServiceLayer(): Layer.Layer<
 
       const sinks: TelemetrySink[] = [new FileTelemetrySink(storagePath, retentionDays)];
 
-      const otlpConfig = resolveOtlpConfig(telemetryConfig?.otlp);
-      if (otlpConfig?.enabled === true) {
-        sinks.push(new OtlpTelemetrySink(otlpConfig, packageJson.version));
+      const resolvedOtlpConfig = resolveOtlpConfig(telemetryConfig?.otlp);
+      const otlpConfig = resolvedOtlpConfig
+        ? {
+            ...resolvedOtlpConfig,
+            resourceAttributes: {
+              ...resolvedOtlpConfig.resourceAttributes,
+              "service.instance.id":
+                resolvedOtlpConfig.resourceAttributes["service.instance.id"] ?? PROCESS_INSTANCE_ID,
+            },
+          }
+        : undefined;
+      let metricsSink: OtlpMetricsSink | undefined;
+      if (enabled && otlpConfig?.enabled === true) {
+        if (otlpConfig.signals.includes("metrics")) {
+          metricsSink = new OtlpMetricsSink(otlpConfig, packageJson.version, () => {
+            Effect.runFork(logger.warn("OTLP metrics export failed"));
+          });
+          sinks.push(metricsSink);
+        }
+        if (otlpConfig.signals.some((signal) => signal === "traces" || signal === "logs"))
+          sinks.push(
+            new OtlpTelemetrySink(otlpConfig, packageJson.version, {
+              outboxPath: storagePath,
+              onExportError: (signal, error) => {
+                metricsSink?.recordExportFailure(
+                  signal,
+                  error.message.includes("partial success") ? "partial" : "request",
+                );
+                Effect.runFork(logger.warn("OTLP export failed", { signal }));
+              },
+              onQueueDropped: (count, reason) => {
+                metricsSink?.recordDropped(count, reason);
+                Effect.runFork(logger.warn("OTLP requests dropped", { dropped: count, reason }));
+              },
+            }),
+          );
       }
 
       yield* logger.debug("Telemetry service initialized", {
         enabled,
-        storagePath,
         bufferSize,
         flushIntervalMs,
         retentionDays,
@@ -742,11 +746,8 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         ...(otlpConfig && {
           otlp: {
             enabled: otlpConfig.enabled,
-            logsEndpoint: otlpConfig.logsEndpoint,
-            serviceName: otlpConfig.serviceName,
             captureContent: otlpConfig.captureContent,
-            // Headers carry credentials and must never reach the log file.
-            headers: redactHeaders(otlpConfig.headers),
+            signals: otlpConfig.signals,
           },
         }),
       });
@@ -757,11 +758,14 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         flushIntervalMs,
         processSampleIntervalMs: DEFAULT_PROCESS_SAMPLE_INTERVAL_MS,
         sinks,
-        onSinkError: (sinkName, error) => {
+        onSinkError: (sinkName) => {
+          if (sinkName === "otlp-metrics") metricsSink?.recordExportFailure("metrics", "sink");
           Effect.runFork(
             logger.warn("Telemetry sink write failed", {
-              sink: sinkName,
-              error: error instanceof Error ? error.message : String(error),
+              sink:
+                sinkName === "otlp" || sinkName === "otlp-metrics" || sinkName === "file"
+                  ? sinkName
+                  : "unknown",
             }),
           );
         },

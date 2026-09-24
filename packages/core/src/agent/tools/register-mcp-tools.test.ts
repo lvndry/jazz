@@ -50,8 +50,8 @@ describe("registerMCPToolsForAgent — server resolution warning", () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     const message = warn.mock.calls[0]![0];
-    expect(message).toContain("mcp_linear_create_issue");
-    expect(message).toContain(".agents/mcp.json");
+    expect(message).toBe("Agent references MCP tools without a configured server");
+    expect(warn.mock.calls[0]![1]).toEqual({ unresolvedToolCount: 1 });
   });
 
   it("does not warn when every referenced tool matches a configured server", async () => {
@@ -73,7 +73,7 @@ describe("registerMCPToolsForAgent — server resolution warning", () => {
     expect(debug).toHaveBeenCalledWith("Agent has no MCP tools, skipping MCP server connections");
   });
 
-  it("only names the unresolved tool when a mix of resolved and unresolved names are present", async () => {
+  it("does not log unresolved tool names when a mix of names is present", async () => {
     const { layer, warn } = harness([{ name: "notion", enabled: false }]);
 
     await Effect.runPromise(
@@ -83,8 +83,7 @@ describe("registerMCPToolsForAgent — server resolution warning", () => {
     );
 
     expect(warn).toHaveBeenCalledTimes(1);
-    const message = warn.mock.calls[0]![0];
-    expect(message).toContain("mcp_linear_create_issue");
-    expect(message).not.toContain("mcp_notion_search");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("mcp_linear_create_issue");
+    expect(warn.mock.calls[0]![1]).toEqual({ unresolvedToolCount: 1 });
   });
 });

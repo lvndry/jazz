@@ -13,7 +13,7 @@ import { TerminalServiceTag, type TerminalService } from "../../interfaces/termi
 import type { Agent, ToolExecutionContext, ToolExecutionResult } from "../../types";
 
 describe("Shell Tools", () => {
-  const createTestLayer = () => {
+  const createTestLayer = (logs?: string[]) => {
     const mockFileSystemContextService: FileSystemContextService = {
       getCwd: (_key) => Effect.succeed(process.cwd()),
       setCwd: (_key, _path) => Effect.void,
@@ -43,13 +43,18 @@ describe("Shell Tools", () => {
 
     const mockLoggerService: LoggerService = {
       debug: () => Effect.void,
-      info: () => Effect.void,
+      info: (message, metadata) =>
+        Effect.sync(() => {
+          logs?.push(JSON.stringify({ message, metadata }));
+        }),
       warn: () => Effect.void,
       error: () => Effect.void,
       writeToFile: () => Effect.void,
       logToolCall: () => Effect.void,
       setLogGroup: () => Effect.void,
       clearLogGroup: () => Effect.void,
+      pushLogGroup: () => Effect.void,
+      popLogGroup: () => Effect.void,
     };
 
     const mockTerminalService: Partial<TerminalService> = {
@@ -75,6 +80,24 @@ describe("Shell Tools", () => {
   };
 
   const shellTools = createShellCommandTools();
+
+  it("does not log command output", async () => {
+    const logs: string[] = [];
+    const secret = "private-command-output-758291";
+    const result = await Effect.runPromise(
+      shellTools.execute
+        .execute(
+          { command: `printf '${secret}'`, description: "Print test output." },
+          { agentId: "test-agent", conversationId: "test-conversation" },
+        )
+        .pipe(Effect.provide(createTestLayer(logs))),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.result).toHaveProperty("stdout", secret);
+    expect(logs.some((line) => line.includes('"stdoutChars":'))).toBe(true);
+    expect(logs.join("\n")).not.toContain(secret);
+  }, 15_000);
 
   it("should create execute_command tool with proper structure", () => {
     const tool = shellTools.approval;

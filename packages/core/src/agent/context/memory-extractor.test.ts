@@ -39,6 +39,8 @@ const mockLogger: LoggerService = {
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
   clearLogGroup: () => Effect.void,
+  pushLogGroup: () => Effect.void,
+  popLogGroup: () => Effect.void,
 };
 
 const mockAppConfig: AppConfig = {
