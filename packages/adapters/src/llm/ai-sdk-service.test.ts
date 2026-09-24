@@ -30,6 +30,7 @@ import {
   createAISDKServiceLayer,
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
+  safeLLMErrorMetadata,
   toCoreMessages,
   applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
@@ -87,6 +88,35 @@ afterAll(() => {
 });
 
 describe("AI SDK Service - Unit Tests", () => {
+  it("keeps provider error content out of log metadata", () => {
+    const secret = "private-request-body-and-api-key";
+    const error = Object.assign(new Error(secret), {
+      status: 429,
+      requestBodyValues: { prompt: secret },
+      code: secret,
+    });
+
+    expect(safeLLMErrorMetadata(error, "openai", "LLMRequestError")).toEqual({
+      provider: "openai",
+      errorType: "LLMRequestError",
+      statusCode: 429,
+    });
+    expect(JSON.stringify(safeLLMErrorMetadata(error, "openai", "LLMRequestError"))).not.toContain(
+      secret,
+    );
+    expect(
+      safeLLMErrorMetadata(
+        Object.defineProperty({}, "status", {
+          get: () => {
+            throw new Error(secret);
+          },
+        }),
+        "openai",
+        "LLMRequestError",
+      ),
+    ).toEqual({ provider: "openai", errorType: "LLMRequestError" });
+  });
+
   /**
    * Helper to create a test config layer
    */
@@ -990,12 +1020,12 @@ describe("AI SDK Service - Unit Tests", () => {
 
 describe("buildProviderOptions - ollama reasoning", () => {
   function ollamaOptions(
-    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+    reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
   ): ChatCompletionOptions {
     return {
       model: "gemma4:26b-a4b-it",
       messages: [{ role: "user", content: "hi" }],
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
     };
   }
 
@@ -1040,16 +1070,37 @@ describe("buildProviderOptions - ollama reasoning", () => {
       ollama: { think: true },
     });
   });
+
+  it("honors an exact unsupported profile instead of falling back to the provider toggle", () => {
+    expect(buildProviderOptions("ollama", ollamaOptions("high"), { kind: "unsupported" })).toEqual({
+      ollama: { think: false },
+    });
+  });
+
+  it("does not downgrade an effort rejected by an exact OpenAI profile", () => {
+    expect(
+      buildProviderOptions(
+        "openai",
+        { model: "gpt-5.1", messages: [], reasoning: "high" },
+        {
+          kind: "effort",
+          transport: "openai.responses.reasoning-effort",
+          efforts: ["low"],
+          canDisable: true,
+        },
+      ),
+    ).toEqual({ openai: { promptCacheKey: "conversation" } });
+  });
 });
 
 describe("buildProviderOptions - llamacpp reasoning", () => {
   function llamacppOptions(
-    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+    reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
   ): ChatCompletionOptions {
     return {
       model: "qwen3-8b",
       messages: [{ role: "user", content: "hi" }],
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
     };
   }
 
@@ -1107,12 +1158,12 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
 
 describe("buildProviderOptions - zhipuai reasoning", () => {
   function zhipuOptions(
-    reasoningEffort: ChatCompletionOptions["reasoning_effort"],
+    reasoningEffort: "disable" | "low" | "medium" | "high" | undefined,
   ): ChatCompletionOptions {
     return {
       model: "glm-4.6",
       messages: [{ role: "user", content: "hi" }],
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
     };
   }
 
@@ -1300,7 +1351,7 @@ describe("buildProviderOptions - openai reasoning round-trip", () => {
     ({
       model: "gpt-5",
       messages: [{ role: "user", content: "hi" }],
-      reasoning_effort: reasoningEffort,
+      ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
     }) as ChatCompletionOptions;
 
   it("enables stateless encrypted reasoning when reasoning is on", () => {

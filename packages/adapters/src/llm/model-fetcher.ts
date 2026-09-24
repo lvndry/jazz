@@ -1,3 +1,8 @@
+import {
+  isLocalServerProvider,
+  LOCAL_SERVER_PROVIDERS,
+  localServerAddress,
+} from "@jazz/core/constants/local-providers";
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@jazz/core/constants/models";
 import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
 import type { ModelInfo } from "@jazz/core/types";
@@ -552,6 +557,7 @@ async function transformLlamaCppModels(
   data: unknown,
   baseUrl: string,
   modelsDevMap: Map<string, ModelsDevMetadata> | null,
+  apiKey?: string,
 ): Promise<ModelInfo[]> {
   const response = data as LlamaCppModelsResponse;
   const models = response.data ?? [];
@@ -559,7 +565,7 @@ async function transformLlamaCppModels(
     throw new Error("No models loaded. Start `llama-server` with `-m <path>.gguf` first.");
   }
 
-  const props = await fetchLlamaCppProps(baseUrl);
+  const props = await fetchLlamaCppProps(baseUrl, apiKey);
   const ctx = props?.default_generation_settings?.n_ctx;
   const caps = props?.chat_template_caps ?? {};
   const supportsTools = caps["supports_tools"] === true && caps["supports_tool_calls"] === true;
@@ -592,6 +598,8 @@ async function transformLlamaCppModels(
   });
 }
 
+class LocalServerUnauthorizedError extends Error {}
+
 export function createModelFetcher(): ModelFetcherService {
   return {
     fetchModels: (providerName, baseUrl, endpointPath, apiKey) =>
@@ -621,6 +629,14 @@ export function createModelFetcher(): ModelFetcherService {
           });
 
           if (!response.ok) {
+            if (
+              (response.status === 401 || response.status === 403) &&
+              isLocalServerProvider(providerName)
+            ) {
+              throw new LocalServerUnauthorizedError(
+                `The ${LOCAL_SERVER_PROVIDERS[providerName].name} server at ${localServerAddress(baseUrl)} rejected the request (${response.status}). It needs an API key.`,
+              );
+            }
             if (response.status === 404) {
               if (providerName === "ollama") {
                 throw new Error(
@@ -639,7 +655,7 @@ export function createModelFetcher(): ModelFetcherService {
           }
 
           if (providerName === "llamacpp") {
-            return transformLlamaCppModels(data, baseUrl, modelsDevMap);
+            return transformLlamaCppModels(data, baseUrl, modelsDevMap, apiKey);
           }
 
           const extractor = LIST_EXTRACTORS[providerName];
@@ -650,8 +666,15 @@ export function createModelFetcher(): ModelFetcherService {
           return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
         catch: (error) => {
+          if (error instanceof LocalServerUnauthorizedError) {
+            return new LLMConfigurationError({
+              provider: providerName,
+              message: error.message,
+              reason: "unauthorized",
+            });
+          }
           if (isConnectionError(error)) {
-            const localMessage = localServerUnreachableMessage(providerName);
+            const localMessage = localServerUnreachableMessage(providerName, baseUrl);
             if (localMessage) {
               return new LLMConfigurationError({ provider: providerName, message: localMessage });
             }

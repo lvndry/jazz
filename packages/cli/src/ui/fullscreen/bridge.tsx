@@ -990,6 +990,7 @@ export function FullscreenBridge(): React.ReactNode {
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
   const busy = session.chatBusy;
+  const [submitCount, setSubmitCount] = useState(0);
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const isYolo = session.isYolo;
@@ -1335,6 +1336,7 @@ export function FullscreenBridge(): React.ReactNode {
       const active = promptRef.current;
       if (active === null || text.trim().length === 0) return;
       historyIndex.current = null;
+      setSubmitCount((count) => count + 1);
       commitComposer(EMPTY_COMPOSER);
       active.resolve(text);
     },
@@ -2364,6 +2366,7 @@ export function FullscreenBridge(): React.ReactNode {
   return (
     <App
       view={view}
+      submitCount={submitCount}
       onAction={onAction}
       onKey={onKey}
       onPaste={applyPaste}

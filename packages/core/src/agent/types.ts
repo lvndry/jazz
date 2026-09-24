@@ -1,8 +1,9 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { ToolProgressEvent } from "@/core/types/tools";
 import type {
@@ -12,6 +13,7 @@ import type {
   ToolDefinition,
   ToolExecutionContext,
 } from "@/core/types/tools";
+import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
@@ -33,6 +35,10 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
+  /** Lets the model quote `userInput` as the basis for memory writes, deletes and renames. */
+  readonly trustUserInputAsMemorySource?: boolean;
+  /** Replaces the sources derived from history and `userInput`, as the memory extractor does. */
+  readonly memorySources?: readonly MemorySource[];
   /**
    * Attachments placed directly on this run's first user message.
    *
@@ -52,6 +58,8 @@ export interface AgentRunnerOptions {
    * ended up inheriting the previous one's todo list.
    */
   readonly conversationId?: string;
+  /** Parent trace context inherited by an internal child run. */
+  readonly telemetryParent?: TelemetryTraceParent;
   /**
    * If true, this is an internal sub-agent run (e.g., summarization).
    * UI elements like thinking indicators will be suppressed.
@@ -368,6 +376,8 @@ export interface AgentRunContext {
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
+  /** Records which memory entries each model request could have used; absent without memory. */
+  readonly memoryOpportunities?: MemoryOpportunityRecorder;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.

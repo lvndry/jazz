@@ -37,6 +37,7 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -47,6 +48,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
+import { formatReasoningSelection, promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -63,7 +65,7 @@ interface AgentEditAnswers {
   llmModel?: string;
   llmApiKeyProvider?: ProviderName;
   llmApiKeyValue?: string;
-  reasoningEffort?: "disable" | "low" | "medium" | "high";
+  reasoning?: ReasoningSelection;
   numCtx?: number;
   /** New ceiling in tokens, or null to remove the ceiling. */
   maxContextTokens?: number | null;
@@ -113,7 +115,7 @@ export function editAgentCommand(
           `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
         ),
         fmt.keyValueCompact("Persona", agent.config.persona || "default"),
-        fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort || "disabled"),
+        fmt.keyValueCompact("Reasoning", formatReasoningSelection(agent.config.reasoning)),
         fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
         fmt.keyValueCompact(
           "Updated",
@@ -188,7 +190,7 @@ export function editAgentCommand(
             name: currentModelIsReasoning
               ? "Reasoning Effort"
               : "Reasoning Effort (Not supported by current model)",
-            value: "reasoningEffort",
+            value: "reasoning",
             disabled: !currentModelIsReasoning,
           },
           {
@@ -244,7 +246,7 @@ export function editAgentCommand(
           // Discover and register tools from all enabled MCP servers
           const discoveryEffects = enabledServers.map((serverConfig) =>
             Effect.gen(function* () {
-              yield* logger.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
+              yield* logger.debug("Discovering MCP tools");
               yield* terminal.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
 
               // Find the display name for this server
@@ -293,9 +295,9 @@ export function editAgentCommand(
                     yield* terminal.debug(
                       `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}${errorStack ? `\nStack: ${errorStack}` : ""}`,
                     );
-                    yield* logger.warn(
-                      `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}`,
-                    );
+                    yield* logger.warn("MCP tool discovery failed", {
+                      errorType: "discovery_failed",
+                    });
 
                     if (
                       errorMessage.includes("timeout") ||
@@ -331,9 +333,7 @@ export function editAgentCommand(
                 yield* terminal.debug(
                   `No tools discovered from ${serverConfig.name} - this could mean the server has no tools, or there was an error during discovery (check logs above)`,
                 );
-                yield* logger.warn(
-                  `No tools discovered from ${serverConfig.name} - server may have no tools available or discovery failed silently`,
-                );
+                yield* logger.warn("No MCP tools discovered", { toolCount: 0 });
                 return;
               }
 
@@ -359,9 +359,7 @@ export function editAgentCommand(
                 yield* registerTool(tool);
               }
 
-              yield* logger.info(
-                `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name} in category "${categoryDisplayName}"`,
-              );
+              yield* logger.info("MCP tools registered", { toolCount: jazzTools.length });
               yield* terminal.debug(
                 `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
               );
@@ -369,9 +367,9 @@ export function editAgentCommand(
               Effect.catchAll(() =>
                 Effect.gen(function* () {
                   // If discovery/registration fails, continue without this server's tools
-                  yield* logger.warn(
-                    `Failed to discover/register tools from MCP server ${serverConfig.name}`,
-                  );
+                  yield* logger.warn("MCP tool discovery or registration failed", {
+                    errorType: "discovery_or_registration_failed",
+                  });
                   yield* terminal.debug(
                     `Failed to discover/register tools from MCP server ${serverConfig.name}`,
                   );
@@ -425,13 +423,15 @@ export function editAgentCommand(
         // Refresh toolsByCategory to ensure we have the latest tools (including newly registered MCP tools)
         toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
-        yield* logger.debug(
-          `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
-        );
+        yield* logger.debug("Tool categories available", {
+          categoryCount: Object.keys(toolsByCategory).length,
+        });
         yield* terminal.debug(
           `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
         );
-        yield* logger.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
+        yield* logger.debug("Tool categories selected", {
+          categoryCount: editAnswers.tools.length,
+        });
         yield* terminal.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
 
         // Get tools directly from toolsByCategory using the selected display names
@@ -453,9 +453,7 @@ export function editAgentCommand(
             const normalizedKey = categoryMap.get(selectedDisplayName.toLowerCase());
             if (normalizedKey) {
               toolsInCategory = toolsByCategory[normalizedKey];
-              yield* logger.debug(
-                `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
-              );
+              yield* logger.debug("Tool category matched by normalized name");
               yield* terminal.debug(
                 `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
               );
@@ -463,17 +461,15 @@ export function editAgentCommand(
           }
 
           if (toolsInCategory && toolsInCategory.length > 0) {
-            yield* logger.debug(
-              `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
-            );
+            yield* logger.debug("Tools found in selected category", {
+              toolCount: toolsInCategory.length,
+            });
             yield* terminal.debug(
               `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
             );
             selectedToolNames.push(...toolsInCategory);
           } else {
-            yield* logger.warn(
-              `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
-            );
+            yield* logger.warn("No tools found in selected category", { toolCount: 0 });
             yield* terminal.warn(
               `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
             );
@@ -482,9 +478,9 @@ export function editAgentCommand(
 
         const uniqueToolNames = Array.from(new Set(selectedToolNames));
 
-        yield* logger.debug(
-          `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
-        );
+        yield* logger.debug("Unique selected tools resolved", {
+          toolCount: uniqueToolNames.length,
+        });
         yield* terminal.debug(
           `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
         );
@@ -499,7 +495,7 @@ export function editAgentCommand(
         ...(editAnswers.persona && { persona: editAnswers.persona }),
         ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
         ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
-        ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
+        ...(editAnswers.reasoning && { reasoning: editAnswers.reasoning }),
         ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
         ...(typeof editAnswers.maxContextTokens === "number" && {
           maxContextTokens: editAnswers.maxContextTokens,
@@ -694,11 +690,11 @@ async function promptForAgentUpdates(
       const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
 
       if (isReasoningModel) {
-        const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-        if (reasoningEffort === null) {
+        const reasoning = await promptForReasoning(terminal, currentAgent);
+        if (reasoning === null) {
           return null;
         }
-        answers.reasoningEffort = reasoningEffort;
+        answers.reasoning = reasoning;
       }
 
       break;
@@ -749,11 +745,11 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-      if (reasoningEffort === null) {
+      const reasoning = await promptForReasoning(terminal, currentAgent);
+      if (reasoning === null) {
         return null;
       }
-      answers.reasoningEffort = reasoningEffort;
+      answers.reasoning = reasoning;
     }
   }
 
@@ -863,7 +859,7 @@ async function promptForAgentUpdates(
 
     // Loop for tool selection
     while (true) {
-      selectedCategories = await Effect.runPromise(
+      const categorySelection = await Effect.runPromise(
         terminal.checkbox<string>("Select tool categories:", {
           choices: Object.keys(toolsByCategory)
             .filter(
@@ -880,6 +876,11 @@ async function promptForAgentUpdates(
             : {}),
         }),
       );
+
+      if (categorySelection === undefined) {
+        return null;
+      }
+      selectedCategories = categorySelection;
 
       if (selectedCategories.includes(searchCategoryName)) {
         const providerName = currentAgent.config.llmProvider;
@@ -909,12 +910,12 @@ async function promptForAgentUpdates(
     answers.tools = [...selectedCategories];
   }
 
-  if (fieldToUpdate === "reasoningEffort") {
-    const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
-    if (reasoningEffort === null) {
+  if (fieldToUpdate === "reasoning") {
+    const reasoning = await promptForReasoning(terminal, currentAgent);
+    if (reasoning === null) {
       return null;
     }
-    answers.reasoningEffort = reasoningEffort;
+    answers.reasoning = reasoning;
   }
 
   if (fieldToUpdate === "contextWindow") {
@@ -1004,31 +1005,9 @@ function promptForMaxContextTokens(
     );
 }
 
-async function promptForReasoningEffort(
+async function promptForReasoning(
   terminal: TerminalService,
   currentAgent: Agent,
-): Promise<"disable" | "low" | "medium" | "high" | null> {
-  const result = await Effect.runPromise(
-    terminal.select<"disable" | "low" | "medium" | "high">(
-      "What reasoning effort level would you like?",
-      {
-        choices: [
-          { name: "Low - Faster responses, basic reasoning", value: "low" },
-          {
-            name: "Medium - Balanced speed and reasoning depth (recommended)",
-            value: "medium",
-          },
-          { name: "High - Deep reasoning, slower responses", value: "high" },
-          { name: "Disable - No reasoning effort (fastest)", value: "disable" },
-        ],
-        default: currentAgent.config.reasoningEffort || "medium",
-      },
-    ),
-  );
-
-  if (!result) {
-    return null;
-  }
-
-  return result;
+): Promise<ReasoningSelection | null> {
+  return (await promptForReasoningSelection(terminal, currentAgent.config.reasoning)) ?? null;
 }

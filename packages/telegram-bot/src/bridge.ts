@@ -170,7 +170,7 @@ interface BridgeConfig {
   readonly baseAgentId: string;
   readonly provider: string;
   readonly model: string;
-  readonly reasoningEffort: string;
+  readonly reasoning: string;
   readonly approvalPolicy: string;
   /** Tool names to auto-approve without prompting, regardless of approvalPolicy. */
   readonly autoApproveTools: readonly string[];
@@ -280,7 +280,7 @@ function loadConfig(): BridgeConfig {
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     provider: process.env["JAZZ_TELEGRAM_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_TELEGRAM_MODEL"]?.trim() || "gpt-5.4",
-    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
+    reasoning: process.env["JAZZ_REASONING"]?.trim() || "medium",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
       .split(",")
@@ -1408,7 +1408,7 @@ function ensureSuggestAgent(config: BridgeConfig, sandbox: ChatSandbox): void {
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
   template.config["tools"] = [];
-  template.config.reasoningEffort = "disable";
+  template.config.reasoning = "disable";
   writeChatAgentFile(sandbox, template);
 }
 
@@ -1742,7 +1742,7 @@ async function handleCommand(
       ...(isIncognito(config.jazzHome, INCOGNITO_FILE, chatId)
         ? ["🕶️ Incognito — nothing being saved right now"]
         : []),
-      `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
+      `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoning)})`,
       `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, TZ_FILE, chatId))}</code>${hasChatTz(config.jazzHome, TZ_FILE, chatId) ? "" : " (default)"}`,
       `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, chatId)]}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
@@ -1770,7 +1770,7 @@ async function handleCommand(
       agent.config.llmProvider = parsed.provider;
       agent.config.llmModel = parsed.model;
       if (metadata !== undefined) {
-        agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
+        agent.config.reasoning = metadata.isReasoningModel ? "medium" : "disable";
       }
       writeChatAgentFile(sandbox, agent);
       await sendReply(
@@ -1778,7 +1778,7 @@ async function handleCommand(
         chatId,
         `✅ Model → ${parsed.provider}/${parsed.model}` +
           (metadata !== undefined
-            ? `\nReasoning: ${agent.config.reasoningEffort}`
+            ? `\nReasoning: ${agent.config.reasoning}`
             : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
       );
       return;
@@ -2111,7 +2111,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     }
     const reasoning = choice.isReasoningModel ? "medium" : "disable";
     agent.config.llmModel = choice.id;
-    agent.config.reasoningEffort = reasoning;
+    agent.config.reasoning = reasoning;
     writeChatAgentFile(sandbox, agent);
     confirmation = `✅ Model → ${choice.id}\nReasoning: ${reasoning}`;
   } else if (kind === "p") {
@@ -2390,12 +2390,12 @@ async function start(): Promise<void> {
       description: "Everyday assistant reachable from Telegram.",
       provider: config.provider,
       model: config.model,
-      reasoningEffort: config.reasoningEffort,
+      reasoning: config.reasoning,
     })
   ) {
     console.log(
       `Seeded agent '${config.baseAgentId}' (${config.provider}/${config.model}, ` +
-        `reasoning=${config.reasoningEffort}) into ${config.jazzHome}/agents`,
+        `reasoning=${config.reasoning}) into ${config.jazzHome}/agents`,
     );
   }
   // Drop the cached CTA agent so it re-seeds from the current template (picks

@@ -25,6 +25,7 @@ import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
+import { MAX_SOURCE_QUOTE_CHARS, formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -57,6 +58,12 @@ const EXTRACTOR_INPUT_BUDGET_RATIO = 0.5;
  * cannot loop on the compaction path.
  */
 const EXTRACTION_MAX_ITERATIONS = 8;
+
+/** Quotes allowed per rewritten user message; the model can only copy words it was shown. */
+const QUOTES_SHOWN_PER_MESSAGE = 4;
+
+/** How much of a rewritten user message's original text the extractor sees. */
+const MAX_ORIGINAL_USER_TEXT_CHARS = QUOTES_SHOWN_PER_MESSAGE * MAX_SOURCE_QUOTE_CHARS;
 
 /**
  * Build the throwaway agent that scans a transcript for memory-worthy facts.
@@ -164,17 +171,39 @@ export function extractMemories(
     });
 
     for (const chunk of chunks) {
-      const transcript = Summarizer.renderTranscript(chunk);
+      const memorySources = chunk.flatMap((message) =>
+        message.memorySource === undefined ? [] : [message.memorySource],
+      );
+      if (memorySources.length === 0) {
+        continue;
+      }
+      const transcript = Summarizer.renderTranscript(
+        chunk.map((message) =>
+          message.memorySource === undefined
+            ? message
+            : {
+                ...message,
+                content:
+                  `${formatMemorySourceTag(message.memorySource.id)} ${message.content}` +
+                  (message.content.includes(message.memorySource.text)
+                    ? ""
+                    : `\n[Original user text: ${message.memorySource.text.slice(0, MAX_ORIGINAL_USER_TEXT_CHARS)}]`),
+              },
+        ),
+      );
       const userInput =
         "The conversation excerpt below is about to be compacted away. Persist anything from it worth " +
         "remembering long term, following your instructions, then stop. If nothing qualifies, make no changes.\n\n" +
-        `<transcript>\n${transcript}\n</transcript>`;
+        `<transcript>\n${transcript}\n</transcript>\n\n` +
+        `To write memory, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
+        "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted.";
 
       yield* runRecursive({
         agent: extractor,
         userInput,
         conversationId,
         maxIterations: EXTRACTION_MAX_ITERATIONS,
+        memorySources,
       });
     }
   }).pipe(

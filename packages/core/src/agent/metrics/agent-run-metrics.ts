@@ -11,7 +11,9 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   ClassifierUsage,
   DecisionUsage,
+  TelemetryErrorCategory,
   TelemetryService,
+  TelemetryTraceParent,
   TokenUsage,
 } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
@@ -26,10 +28,12 @@ export interface AgentRunMetricsContext {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly maxIterations?: number | undefined;
   /** Per-run spend ceiling in USD, for telemetry parity with `maxIterations`. Unset = uncapped. */
   readonly maxCostUSD?: number | undefined;
+  /** Keeps a recursive run inside its parent's trace and conversation session. */
+  readonly telemetryParent?: TelemetryTraceParent;
 }
 
 interface AgentRunIterationSummary {
@@ -37,7 +41,7 @@ interface AgentRunIterationSummary {
   toolCalls: number;
   readonly toolsUsed: Set<string>;
   readonly toolCallCounts: Record<string, number>;
-  readonly errors: string[];
+  readonly errors: TelemetryErrorCategory[];
   readonly toolSequence: string[];
   toolDefinitionTokens: number;
   toolResultTokens: number;
@@ -46,6 +50,7 @@ interface AgentRunIterationSummary {
 
 export interface AgentRunMetrics {
   readonly runId: string;
+  readonly telemetryParent?: TelemetryTraceParent;
   readonly agentId: string;
   readonly agentName: string;
   readonly persona: string;
@@ -54,7 +59,7 @@ export interface AgentRunMetrics {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly maxIterations: number | undefined;
   readonly maxCostUSD: number | undefined;
   readonly startedAt: Date;
@@ -68,13 +73,13 @@ export interface AgentRunMetrics {
   /** True once any nested run spent tokens whose pricing was unavailable. */
   childCostUnknown: boolean;
   llmRetryCount: number;
-  lastError?: string;
+  lastError?: TelemetryErrorCategory;
   toolCalls: number;
   toolErrors: number;
   readonly toolsUsed: Set<string>;
   readonly toolCallCounts: Record<string, number>;
   readonly toolInvocationSequence: string[];
-  readonly errors: string[];
+  readonly errors: TelemetryErrorCategory[];
   readonly iterationSummaries: AgentRunIterationSummary[];
   currentIteration: AgentRunIterationSummary | undefined;
   firstTokenLatencyMs?: number | undefined;
@@ -110,10 +115,12 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     reasoningEffort,
     maxIterations,
     maxCostUSD,
+    telemetryParent,
   } = context;
 
   return {
     runId: randomUUID(),
+    ...(telemetryParent ? { telemetryParent } : {}),
     agentId: agent.id,
     agentName: agent.name,
     persona: agent.config.persona,
@@ -309,7 +316,7 @@ export function calibrateTokenCounter(args: {
 
 export function recordLLMRetry(metrics: AgentRunMetrics, error: unknown): void {
   metrics.llmRetryCount += 1;
-  metrics.lastError = pushError(metrics, error, "llm-retry");
+  metrics.lastError = pushError(metrics, error);
 }
 
 export function beginIteration(metrics: AgentRunMetrics, iterationNumber: number): void {
@@ -347,9 +354,9 @@ export function recordToolInvocation(metrics: AgentRunMetrics, toolName: string)
   }
 }
 
-export function recordToolError(metrics: AgentRunMetrics, toolName: string, error: unknown): void {
+export function recordToolError(metrics: AgentRunMetrics, _toolName: string, error: unknown): void {
   metrics.toolErrors += 1;
-  metrics.lastError = pushError(metrics, error, `tool:${toolName}`);
+  metrics.lastError = pushError(metrics, error);
 }
 
 /**
@@ -413,25 +420,13 @@ export function finalizeAgentRun(
   const endedAt = new Date();
   const durationMs = endedAt.getTime() - metrics.startedAt.getTime();
   const totalTokens = metrics.totalPromptTokens + metrics.totalCompletionTokens;
-  const toolsUsedList = Array.from(metrics.toolsUsed.values()).sort();
-  const sortedToolCallCounts: Record<string, number> = Object.fromEntries(
-    Object.entries(metrics.toolCallCounts).sort(([a], [b]) => a.localeCompare(b)),
-  );
-  const sanitizedLastError =
-    metrics.lastError && metrics.lastError.trim().length > 0 ? metrics.lastError : undefined;
 
   const iterationSummaries = metrics.iterationSummaries.map((summary) => ({
     iteration: summary.iteration,
     toolCalls: summary.toolCalls,
-    toolsUsed: Array.from(summary.toolsUsed.values()).sort(),
-    toolCallCounts: Object.fromEntries(
-      Object.entries(summary.toolCallCounts).sort(([a], [b]) => a.localeCompare(b)),
-    ),
-    errors: summary.errors,
-    toolSequence: summary.toolSequence,
+    errorCount: summary.errors.length,
     toolDefinitionTokens: summary.toolDefinitionTokens,
     toolResultTokens: summary.toolResultTokens,
-    toolResultSizes: summary.toolResultSizes,
   }));
 
   return Effect.gen(function* () {
@@ -464,13 +459,10 @@ export function finalizeAgentRun(
       endedAt,
       durationMs,
       retryCount: metrics.llmRetryCount,
-      ...(sanitizedLastError ? { lastError: sanitizedLastError } : {}),
+      ...(metrics.lastError ? { lastErrorCategory: metrics.lastError } : {}),
       toolCalls: metrics.toolCalls,
-      toolsUsed: toolsUsedList,
       toolErrors: metrics.toolErrors,
-      toolCallCounts: sortedToolCallCounts,
-      toolInvocationSequence: metrics.toolInvocationSequence,
-      errors: metrics.errors,
+      errorCount: metrics.errors.length,
       iterationSummaries,
       ...(metrics.firstTokenLatencyMs !== undefined
         ? { firstTokenLatencyMs: metrics.firstTokenLatencyMs }
@@ -510,7 +502,7 @@ interface TokenUsageLogPayload {
   readonly userId?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: string;
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
@@ -526,23 +518,16 @@ interface TokenUsageLogPayload {
   readonly endedAt: Date;
   readonly durationMs: number;
   readonly retryCount: number;
-  readonly lastError?: string;
+  readonly lastErrorCategory?: TelemetryErrorCategory;
   readonly toolCalls: number;
-  readonly toolsUsed: readonly string[];
   readonly toolErrors: number;
-  readonly toolCallCounts: Readonly<Record<string, number>>;
-  readonly toolInvocationSequence: readonly string[];
-  readonly errors: readonly string[];
+  readonly errorCount: number;
   readonly iterationSummaries: readonly {
     readonly iteration: number;
     readonly toolCalls: number;
-    readonly toolsUsed: readonly string[];
-    readonly toolCallCounts: Readonly<Record<string, number>>;
-    readonly errors: readonly string[];
-    readonly toolSequence: readonly string[];
+    readonly errorCount: number;
     readonly toolDefinitionTokens: number;
     readonly toolResultTokens: number;
-    readonly toolResultSizes: Readonly<Record<string, number>>;
   }[];
   readonly firstTokenLatencyMs?: number;
   readonly toolDefinitionTokens: number;
@@ -583,7 +568,7 @@ function writeTokenUsageLog(
       finished: payload.finished,
       ...(payload.costCapped === true && { costCapped: true }),
       retryCount: payload.retryCount,
-      ...(payload.lastError ? { lastError: payload.lastError } : {}),
+      ...(payload.lastErrorCategory ? { lastErrorCategory: payload.lastErrorCategory } : {}),
       promptTokens: payload.promptTokens,
       completionTokens: payload.completionTokens,
       totalTokens: payload.totalTokens,
@@ -595,10 +580,7 @@ function writeTokenUsageLog(
         : {}),
       toolCalls: payload.toolCalls,
       toolErrors: payload.toolErrors,
-      toolsUsed: payload.toolsUsed,
-      toolCallCounts: payload.toolCallCounts,
-      toolInvocationSequence: payload.toolInvocationSequence,
-      errors: payload.errors,
+      errorCount: payload.errorCount,
       iterationSummaries: payload.iterationSummaries,
       startedAt: payload.startedAt.toISOString(),
       endedAt: payload.endedAt.toISOString(),
@@ -685,6 +667,7 @@ function buildTelemetryPayload(
 
   return {
     runId: metrics.runId,
+    ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
     agentId: metrics.agentId,
     agentName: metrics.agentName,
     conversationId: metrics.conversationId,
@@ -716,6 +699,7 @@ export function emitAgentRunStarted(metrics: AgentRunMetrics): Effect.Effect<voi
   return emitTelemetry((telemetry) =>
     telemetry.recordAgentRunStarted({
       runId: metrics.runId,
+      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
       agentId: metrics.agentId,
       agentName: metrics.agentName,
       conversationId: metrics.conversationId,
@@ -734,10 +718,11 @@ export function emitAgentRunFailed(metrics: AgentRunMetrics, error: unknown): Ef
   return emitTelemetry((telemetry) =>
     telemetry.recordAgentRunFailed({
       runId: metrics.runId,
+      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
       agentId: metrics.agentId,
       agentName: metrics.agentName,
       conversationId: metrics.conversationId,
-      error: normalizeError(error),
+      error: telemetryErrorCategory(error),
       durationMs,
     }),
   );
@@ -763,6 +748,7 @@ export function emitLLMUsage(
       conversationId: metrics.conversationId,
       durationMs,
       runId: metrics.runId,
+      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
       ...(details?.purpose ? { purpose: details.purpose } : {}),
     }),
   );
@@ -774,10 +760,12 @@ export function emitLLMRetry(metrics: AgentRunMetrics, error: unknown): Effect.E
     telemetry.recordLLMRetry({
       provider: metrics.provider ?? "unknown",
       model: metrics.model ?? "unknown",
-      error: normalizeError(error),
+      error: telemetryErrorCategory(error),
       attempt: metrics.llmRetryCount,
       agentId: metrics.agentId,
+      conversationId: metrics.conversationId,
       runId: metrics.runId,
+      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
     }),
   );
 }
@@ -787,6 +775,7 @@ export function emitToolInvocation(
   metrics: AgentRunMetrics,
   data: {
     readonly toolName: string;
+    readonly toolCallId?: string;
     readonly success: boolean;
     readonly durationMs: number;
     readonly error?: unknown;
@@ -795,27 +784,71 @@ export function emitToolInvocation(
   return emitTelemetry((telemetry) =>
     telemetry.recordToolInvocation({
       toolName: data.toolName,
+      ...(data.toolCallId ? { toolCallId: data.toolCallId } : {}),
       success: data.success,
       durationMs: data.durationMs,
-      ...(data.error !== undefined && { error: normalizeError(data.error) }),
+      ...(data.error !== undefined && { error: telemetryErrorCategory(data.error) }),
       agentId: metrics.agentId,
       conversationId: metrics.conversationId,
       runId: metrics.runId,
+      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
     }),
   );
 }
 
-function normalizeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/\s+/g, " ").trim();
+/** Classify diagnostics without copying an exception's message or arbitrary name into telemetry. */
+export function telemetryErrorCategory(error: unknown): TelemetryErrorCategory {
+  let tag: unknown;
+  try {
+    if (error !== null && typeof error === "object") {
+      const candidate = error as { readonly _tag?: unknown; readonly name?: unknown };
+      tag = candidate._tag ?? candidate.name;
+    }
+  } catch {
+    return "unknown";
+  }
+
+  switch (tag) {
+    case "LLMAuthenticationError":
+      return "authentication";
+    case "LLMRateLimitError":
+      return "rate_limit";
+    case "TimeoutError":
+      return "timeout";
+    case "NetworkError":
+    case "MCPConnectionError":
+    case "MCPDisconnectionError":
+      return "network";
+    case "FilePermissionError":
+    case "StoragePermissionError":
+      return "permission";
+    case "AgentNotFoundError":
+    case "FileNotFoundError":
+    case "StorageNotFoundError":
+    case "ToolNotFoundError":
+    case "MCPToolNotFoundError":
+      return "not_found";
+    case "ValidationError":
+    case "ConfigurationValidationError":
+    case "MCPSchemaConversionError":
+      return "validation";
+    case "GenerationInterruptedError":
+    case "AbortError":
+      return "interrupted";
+    case "LLMRequestError":
+    case "LLMConfigurationError":
+    case "APIError":
+      return "provider";
+    default:
+      return "unknown";
+  }
 }
 
-function pushError(metrics: AgentRunMetrics, error: unknown, context?: string): string {
-  const normalized = normalizeError(error);
-  const contextualized = context ? `${context}: ${normalized}` : normalized;
-  metrics.errors.push(contextualized);
+function pushError(metrics: AgentRunMetrics, error: unknown): TelemetryErrorCategory {
+  const category = telemetryErrorCategory(error);
+  metrics.errors.push(category);
   if (metrics.currentIteration) {
-    metrics.currentIteration.errors.push(contextualized);
+    metrics.currentIteration.errors.push(category);
   }
-  return contextualized;
+  return category;
 }

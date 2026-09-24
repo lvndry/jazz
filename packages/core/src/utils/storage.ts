@@ -7,6 +7,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
 import { Effect, Option } from "effect";
 import {
   FILE_LOCK_MAX_RETRIES,
@@ -103,26 +104,36 @@ export interface AtomicFileWriteOptions {
   readonly mode?: number;
 }
 
-function toError(error: unknown): Error {
+/** Normalize an unknown failure into an `Error`, keeping it when it already is one. */
+export function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function isAlreadyExistsError(error: PlatformError): boolean {
+  return error._tag === "SystemError" && error.reason === "AlreadyExists";
 }
 
 /**
  * Acquire a directory mutex, reclaiming locks whose mtime exceeds the timeout.
  *
  * Staleness is based only on elapsed time, so FILE_LOCK_TIMEOUT_MS must exceed the longest
- * protected operation. The parent directory of `lockPath` must already exist, or every
- * attempt fails the same way a held lock would and just retries until the budget is spent.
- * Retry delay is jittered so several waiters don't poll in lockstep and keep losing the
+ * protected operation. The parent directory of `lockPath` is created first, so callers can
+ * lock a store before its directory exists. Only an existing lock counts as contention; any
+ * other mkdir failure (permissions, read-only filesystem) fails immediately instead of being
+ * retried into a misleading timeout. Retry delay is jittered so several waiters don't poll in lockstep and keep losing the
  * acquisition race to the same one.
  */
 function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    yield* fs
+      .makeDirectory(path.dirname(lockPath), { recursive: true })
+      .pipe(Effect.mapError(toError));
     for (let attempt = 0; attempt < FILE_LOCK_MAX_RETRIES; attempt++) {
       const acquired = yield* fs.makeDirectory(lockPath, { recursive: false }).pipe(
-        Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.as(true),
+        Effect.catchIf(isAlreadyExistsError, () => Effect.succeed(false)),
+        Effect.mapError(toError),
       );
       if (acquired) return;
 

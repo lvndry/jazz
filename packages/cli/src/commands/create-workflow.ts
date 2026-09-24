@@ -334,6 +334,11 @@ async function promptForWorkflowInfo(
           ),
         );
 
+        if (result === undefined) {
+          state.step = previousStep("catchUp")!;
+          break;
+        }
+
         state.catchUpOnRestart = result;
         state.step = "location";
         break;

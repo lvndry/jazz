@@ -184,14 +184,17 @@ export function createWebSearchTool(): ReturnType<
 
         const executor = executorMap[selectedProvider];
 
-        yield* logger.info(`Executing search with ${selectedProvider} provider...`);
+        yield* logger.debug("Web search started", { provider: selectedProvider });
 
         return yield* executor(args, apiKey).pipe(
           Effect.map((result) => ({ success: true as const, result })),
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               const message = error instanceof Error ? error.message : String(error);
-              yield* logger.error(`${selectedProvider} search failed: ${message}`);
+              yield* logger.error("Web search failed", {
+                provider: selectedProvider,
+                errorType: "provider_error",
+              });
               return {
                 success: false as const,
                 result: null,
@@ -256,7 +259,10 @@ function executeExaSearch(
     const logger = yield* LoggerServiceTag;
     const exa = new Exa(apiKey);
 
-    yield* logger.info(`Executing Exa search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "exa",
+      queryLength: args.query.length,
+    });
 
     const exaCategory = args.sourceType ? sourceTypeToCategory[args.sourceType] : undefined;
     const suppressDateFilters = exaCategory ? noDateFilterCategories.has(exaCategory) : false;
@@ -296,7 +302,10 @@ function executeExaSearch(
       },
     }));
 
-    yield* logger.info(`Exa search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "exa",
+      resultCount: results.length,
+    });
 
     return {
       results,
@@ -324,7 +333,10 @@ function executeParallelSearch(
     const logger = yield* LoggerServiceTag;
     const parallel = new Parallel({ apiKey });
 
-    yield* logger.info(`Executing Parallel search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "parallel",
+      queryLength: args.query.length,
+    });
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -355,7 +367,10 @@ function executeParallelSearch(
       ...(result.publish_date ? { publishedDate: result.publish_date } : {}),
     }));
 
-    yield* logger.info(`Parallel search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "parallel",
+      resultCount: results.length,
+    });
 
     return {
       results,
@@ -403,7 +418,10 @@ function executeTavilySearch(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    yield* logger.info(`Executing Tavily search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "tavily",
+      queryLength: args.query.length,
+    });
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -447,7 +465,10 @@ function executeTavilySearch(
       ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
     }));
 
-    yield* logger.info(`Tavily search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "tavily",
+      resultCount: results.length,
+    });
 
     return {
       results,
@@ -468,7 +489,10 @@ function executeBraveSearch(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
 
-    yield* logger.info(`Executing Brave search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "brave",
+      queryLength: args.query.length,
+    });
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -523,7 +547,10 @@ function executeBraveSearch(
       ...(result.page_age ? { publishedDate: result.page_age } : {}),
     }));
 
-    yield* logger.info(`Brave search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "brave",
+      resultCount: results.length,
+    });
 
     return {
       results,
@@ -548,7 +575,10 @@ function executePerplexitySearch(
     const logger = yield* LoggerServiceTag;
     const client = new Perplexity({ apiKey });
 
-    yield* logger.info(`Executing Perplexity search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "perplexity",
+      queryLength: args.query.length,
+    });
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -574,7 +604,10 @@ function executePerplexitySearch(
       ...(result.date ? { publishedDate: result.date } : {}),
     }));
 
-    yield* logger.info(`Perplexity search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "perplexity",
+      resultCount: results.length,
+    });
 
     return {
       results,
@@ -600,7 +633,10 @@ function executeLinkupSearch(
     const logger = yield* LoggerServiceTag;
     const client = new LinkupClient({ apiKey });
 
-    yield* logger.info(`Executing Linkup search for query: "${args.query}"`);
+    yield* logger.debug("Web search provider request started", {
+      provider: "linkup",
+      queryLength: args.query.length,
+    });
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
@@ -632,7 +668,10 @@ function executeLinkupSearch(
       });
     }
 
-    yield* logger.info(`Linkup search found ${results.length} results`);
+    yield* logger.info("Web search provider request completed", {
+      provider: "linkup",
+      resultCount: results.length,
+    });
 
     return {
       results,

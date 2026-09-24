@@ -1,6 +1,8 @@
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Box, Text, useStdout } from "ink";
 import React from "react";
+import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { THEME } from "./theme";
 
 interface AgentDetailsItem {
@@ -13,7 +15,7 @@ interface AgentDetailsItem {
     readonly persona?: string | undefined;
     readonly llmProvider: string;
     readonly llmModel: string;
-    readonly reasoningEffort?: string | undefined;
+    readonly reasoning?: ReasoningSelection | undefined;
     readonly tools?: readonly string[] | undefined;
   };
 }
@@ -132,7 +134,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
           />
           <KeyValue
             label="Reasoning"
-            value={agent.config.reasoningEffort ? String(agent.config.reasoningEffort) : "—"}
+            value={formatReasoningSelection(agent.config.reasoning)}
             innerWidth={inner - 2}
           />
         </Box>

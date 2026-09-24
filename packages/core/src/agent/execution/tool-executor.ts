@@ -21,6 +21,7 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
@@ -31,12 +32,12 @@ import {
   type ToolRiskLevel,
 } from "@/core/types/tools";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
-import { formatToolArguments } from "@/core/utils/tool-formatter";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import {
   emitToolInvocation,
   recordToolError,
   recordToolInvocation,
+  telemetryErrorCategory,
   type createAgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 
@@ -102,7 +103,6 @@ export class ToolExecutor {
         if (context.effectiveToolNames === undefined) {
           yield* logger.warn("Blocked tool call with no effective tool set configured", {
             agentId: context.agentId,
-            toolName: name,
           });
           return {
             success: false,
@@ -113,7 +113,6 @@ export class ToolExecutor {
         if (!context.effectiveToolNames.has(name)) {
           yield* logger.warn("Blocked tool call outside this run's tool set", {
             agentId: context.agentId,
-            toolName: name,
           });
           return {
             success: false,
@@ -143,7 +142,6 @@ export class ToolExecutor {
       if (toolMeta?.hidden === true && context.allowHiddenExecute !== true) {
         yield* logger.warn("Blocked direct call to hidden execute tool", {
           agentId: context.agentId,
-          toolName: name,
         });
         return {
           success: false,
@@ -165,7 +163,12 @@ export class ToolExecutor {
             Effect.catchAll((error) => {
               const message = error instanceof Error ? error.message : String(error);
               if (message.includes("timed out")) {
-                Effect.runFork(logger.warn(`Tool timeout: ${name}: ${message}`));
+                Effect.runFork(
+                  logger.warn("Tool execution timed out", {
+                    toolName: toolMeta?.name ?? "unknown",
+                    timeoutMs,
+                  }),
+                );
                 return Effect.succeed({
                   success: false,
                   result: null,
@@ -197,7 +200,7 @@ export class ToolExecutor {
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
   ): Effect.Effect<
-    { toolCallId: string; result: unknown; success: boolean; name: string },
+    ToolCallOutcome,
     Error,
     | ToolRegistry
     | LoggerService
@@ -217,6 +220,7 @@ export class ToolExecutor {
       const { name, arguments: argsString } = toolCall.function;
       recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
+      let telemetryToolName = "unknown";
 
       try {
         // Parse arguments
@@ -242,6 +246,7 @@ export class ToolExecutor {
         const toolMeta = yield* registry
           .getTool(name)
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        telemetryToolName = toolMeta?.name ?? "unknown";
         const isLongRunning = toolMeta?.longRunning === true;
 
         // Hidden tools are refused in executeTool unless allowHiddenExecute is set.
@@ -252,7 +257,6 @@ export class ToolExecutor {
           yield* logger.warn("Blocked direct call to hidden execute tool", {
             agentId,
             conversationId,
-            toolName: name,
             toolCallId: toolCall.id,
           });
           return {
@@ -273,7 +277,6 @@ export class ToolExecutor {
         yield* logger.debug("Tool execution starting", {
           agentId,
           conversationId,
-          toolName: name,
           toolCallId: toolCall.id,
         });
         // Reported regardless of display config: a caller watching over HTTP is not a
@@ -420,15 +423,11 @@ export class ToolExecutor {
 
           if (isAutoApproved) {
             yield* logger.info("Tool auto-approved by policy", {
-              toolName: name,
-              executeToolName: approvalResult.executeToolName,
               riskLevel,
               autoApprovePolicy,
             });
           } else {
             yield* logger.debug("Tool requires approval, showing approval prompt", {
-              toolName: name,
-              executeToolName: approvalResult.executeToolName,
               riskLevel,
               autoApprovePolicy,
             });
@@ -464,7 +463,6 @@ export class ToolExecutor {
 
           if (shouldPark) {
             yield* logger.info("Parking run: approval needed and nobody can answer in-process", {
-              toolName: name,
               toolCallId: toolCall.id,
             });
             return yield* Effect.fail(
@@ -493,23 +491,18 @@ export class ToolExecutor {
             if (outcome.alwaysApproveCommand && context.onAutoApproveCommand) {
               yield* context.onAutoApproveCommand(outcome.alwaysApproveCommand);
               yield* logger.info("User chose to always approve command", {
-                command: outcome.alwaysApproveCommand,
+                toolCallId: toolCall.id,
               });
             }
 
             // Handle "always approve this tool" choice (any approval tool)
             if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
               context.onAutoApproveTool(outcome.alwaysApproveTool);
-              yield* logger.info("User chose to always approve tool", {
-                toolName: outcome.alwaysApproveTool,
-              });
+              yield* logger.info("User chose to always approve tool");
             }
 
             if (!isAutoApproved) {
-              yield* logger.info("User approved tool execution", {
-                toolName: name,
-                executeToolName: approvalResult.executeToolName,
-              });
+              yield* logger.info("User approved tool execution", { toolCallId: toolCall.id });
             }
 
             // Execute the execution tool. A picker-style outcome carries the row the
@@ -554,17 +547,19 @@ export class ToolExecutor {
             });
             toolDuration = Date.now() - executeStartTime;
             finalToolName = approvalResult.executeToolName;
+            const executeToolMeta = yield* registry
+              .getTool(finalToolName)
+              .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            telemetryToolName = executeToolMeta?.name ?? "unknown";
 
             yield* logger.debug("Execution tool completed after approval", {
-              executeToolName: approvalResult.executeToolName,
               success: result.success,
               durationMs: toolDuration,
               autoApproved: isAutoApproved,
             });
           } else {
             yield* logger.info("User rejected tool execution", {
-              toolName: name,
-              userMessage: (outcome as { approved: false; userMessage?: string }).userMessage,
+              toolCallId: toolCall.id,
             });
 
             const rejectionMessage =
@@ -588,12 +583,10 @@ export class ToolExecutor {
         yield* logger.debug("Tool execution succeeded", {
           agentId,
           conversationId,
-          toolName: finalToolName,
           toolCallId: toolCall.id,
           durationMs: toolDuration,
           success: result.success,
           resultSize: resultString.length,
-          resultPreview: resultString.substring(0, 200),
         });
 
         // Emit tool execution complete
@@ -634,7 +627,8 @@ export class ToolExecutor {
         yield* presentationService.signalToolExecutionStarted();
 
         yield* emitToolInvocation(runMetrics, {
-          toolName: finalToolName,
+          toolCallId: toolCall.id,
+          toolName: telemetryToolName,
           success: result.success,
           durationMs: toolDuration,
           ...(result.success ? {} : { error: result.error ?? "Tool execution failed" }),
@@ -648,6 +642,9 @@ export class ToolExecutor {
           result: finalResult,
           success: result.success,
           name: finalToolName,
+          ...(result.success && result.memoryExposure !== undefined
+            ? { memoryExposure: result.memoryExposure }
+            : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -675,7 +672,8 @@ export class ToolExecutor {
 
         recordToolError(runMetrics, name, error);
         yield* emitToolInvocation(runMetrics, {
-          toolName: name,
+          toolCallId: toolCall.id,
+          toolName: telemetryToolName,
           success: false,
           durationMs: toolDuration,
           error,
@@ -683,9 +681,8 @@ export class ToolExecutor {
         yield* logger.error("Tool execution failed", {
           agentId,
           conversationId,
-          toolName: name,
           toolCallId: toolCall.id,
-          error: errorMessage,
+          errorType: telemetryErrorCategory(error),
         });
 
         // Release the next queued approval after this failure too, so a failed
@@ -718,7 +715,7 @@ export class ToolExecutor {
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
   ): Effect.Effect<
-    Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
+    ToolCallOutcome[],
     Error,
     | ToolRegistry
     | LoggerService
@@ -776,26 +773,11 @@ export class ToolExecutor {
         }
       }
 
-      // Log tool details
-      const toolDetails: string[] = [];
-      for (const toolCall of toolCalls) {
-        if (toolCall.type === "function") {
-          const { name, arguments: argsString } = toolCall.function;
-          try {
-            const parsed: unknown = JSON.parse(argsString);
-            const args: Record<string, unknown> =
-              parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                ? (parsed as Record<string, unknown>)
-                : {};
-            const argsText = formatToolArguments(name, args, { style: "plain" });
-            toolDetails.push(argsText ? `${name} ${argsText}` : name);
-          } catch {
-            toolDetails.push(name);
-          }
-        }
-      }
-      const toolsList = toolDetails.join(", ");
-      yield* logger.info(`${agentName} is using tools: ${toolsList}`);
+      yield* logger.debug("Agent requested tools", {
+        agentId,
+        conversationId,
+        toolCount: toolCalls.length,
+      });
 
       const approvalSet = new Set(toolsRequiringApproval);
 
@@ -872,7 +854,9 @@ export class ToolExecutor {
             preclassifiedRisk.set(toolCall.id, riskLevel);
           }
 
-          if (shouldAutoApprove(riskLevel, policy) || allowlisted) continue;
+          if (shouldAutoApprove(riskLevel, policy) || allowlisted) {
+            continue;
+          }
 
           needsAnswering.push(toolCall);
           if (needsAnswering.length === 1) {
@@ -894,7 +878,6 @@ export class ToolExecutor {
         // than going round in a circle. Nothing has run at this point on any round, which
         // is what makes replaying the batch on resume safe.
         yield* logger.info("Parking run: approval needed and nobody can answer in-process", {
-          toolName: firstRequest.toolName,
           toolCallId: firstRequest.toolCallId,
           batchSize: toolCalls.length,
           stillToAnswer: needsAnswering.length,
@@ -1039,7 +1022,15 @@ export class ToolExecutor {
   }
 }
 
-type ToolCallOutcome = { toolCallId: string; result: unknown; success: boolean; name: string };
+/** One executed tool call as the agent loop receives it. */
+export interface ToolCallOutcome {
+  readonly toolCallId: string;
+  readonly result: unknown;
+  readonly success: boolean;
+  readonly name: string;
+  /** Carried from the tool's own result so the loop never re-derives it by tool name. */
+  readonly memoryExposure?: MemoryExposure;
+}
 
 /**
  * Detach every tool call still in flight so it keeps running to completion as a daemon

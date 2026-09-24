@@ -19,6 +19,7 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "@/core/types/errors";
+import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
@@ -62,8 +63,9 @@ export function executeWithStreaming(
     const { runMetrics, provider, model, actualConversationId } = runContext;
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
-    const reasoningEffort = agent.config.reasoningEffort ?? "disable";
-    const shouldShowReasoning = displayConfig.showReasoning && reasoningEffort !== "disable";
+    const reasoning = agent.config.reasoning;
+    const reasoningLabel = describeReasoningSelection(reasoning);
+    const shouldShowReasoning = displayConfig.showReasoning && reasoningIsEnabled(reasoning);
 
     // Create renderer
     const normalizedStreamingConfig: StreamingConfig = {
@@ -78,7 +80,7 @@ export function executeWithStreaming(
       streamingConfig: normalizedStreamingConfig,
       showMetrics,
       agentName: agent.name,
-      reasoningEffort,
+      reasoning: reasoningLabel,
       ...(options.ephemeralRegionId !== undefined && {
         streamTarget: { kind: "ephemeral", regionId: options.ephemeralRegionId },
       }),
@@ -122,7 +124,7 @@ export function executeWithStreaming(
             messages: currentMessages,
             tools: runContext.tools,
             toolChoice: "auto" as const,
-            reasoning_effort: reasoningEffort,
+            ...(reasoning !== undefined ? { reasoning } : {}),
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }
               : {}),
@@ -191,13 +193,15 @@ export function executeWithStreaming(
 
             if (isInterrupted) {
               yield* streamingResult.cancel.pipe(
-                Effect.catchAll((e) =>
-                  logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`),
+                Effect.catchAll(() =>
+                  logger.debug("Stream cancellation failed", { errorType: "cancel_failed" }),
                 ),
               );
               yield* Fiber.interrupt(streamFiber).pipe(
-                Effect.catchAll((e) =>
-                  logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
+                Effect.catchAll(() =>
+                  logger.debug("Stream fiber interruption failed", {
+                    errorType: "interrupt_failed",
+                  }),
                 ),
               );
 
@@ -205,8 +209,8 @@ export function executeWithStreaming(
               yield* renderer
                 .flush()
                 .pipe(
-                  Effect.catchAll((e) =>
-                    logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
+                  Effect.catchAll(() =>
+                    logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
                   ),
                 );
 

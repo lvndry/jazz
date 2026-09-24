@@ -5,9 +5,14 @@
  * storage — independent of agent identity, so several agents can share one.
  */
 
+import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import {
+  eraseMemoryOpportunityReceiptsForScope,
+  readMemoryReceiptEpoch,
+} from "@jazz/core/agent/memory-opportunity-receipts";
 import {
   MAX_MEMORY_FILE_BYTES,
   MAX_MEMORY_FILES_PER_SCOPE,
@@ -30,25 +35,48 @@ import {
 } from "@jazz/core/interfaces/memory-provenance";
 import type {
   MemoryDirectoryEntry,
-  MemoryEntryInForce,
+  MemoryEntrySummary,
+  MemoryEntrySnapshot,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
-import { ALWAYS_SEGMENT } from "@jazz/core/memory/entry-path";
-import { getMemoryDirectory } from "@jazz/core/utils/paths";
+import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { sha256Hex } from "@jazz/core/utils/hash";
+import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
   isValidStorageKey,
   requireValidStorageKey,
-  withLock,
+  toError,
   writeFileStringAtomic,
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
 import { Effect, Layer } from "effect";
+import {
+  moveClaimSentences,
+  recordClaimSentences,
+  revokeClaimSentencesUnder,
+} from "./memory-source-ledger";
+import { withMemoryWriteLock } from "./memory-write-lock";
+
+/** Returned when a write quotes a sentence an earlier correction or forget revoked. */
+const REVOKED_CLAIM_OUTCOME: MemoryMutationOutcome = {
+  success: false,
+  message: "This user statement was forgotten or superseded; quote a new user message.",
+};
+
+/**
+ * Levels listed under a scope root: `when/<topic>/<file>`, so the first
+ * discovery call shows topic-scoped entries without a chain of directory requests.
+ */
+const SCOPE_ROOT_LISTING_DEPTH = 3;
+
+/** Levels listed under any deeper directory: `<topic>/<file>` below `when/`. */
+const SUBDIRECTORY_LISTING_DEPTH = 2;
 
 /** Raised for memory quota and scope-validity guardrail violations. */
 export class MemoryGuardrailViolation extends Error {}
@@ -58,24 +86,23 @@ const MEMORY_PATH_OPTIONS = {
   maxSegmentLength: MAX_MEMORY_PATH_SEGMENT_LENGTH,
 } as const;
 
+/**
+ * Whether a path segment belongs to Jazz rather than to saved memory: the
+ * provenance sidecar, its quarantined copies, and atomic-write temp files.
+ * Reserved segments are neither listed, counted against quota, nor addressable.
+ */
+function isReservedMemorySegment(name: string): boolean {
+  return name.startsWith(".");
+}
+
 function resolveMemoryPath(
   memoryRoot: string,
   virtualPath: string,
 ): Effect.Effect<string, VirtualPathViolation | Error> {
+  if (virtualPath.split(/[\\/]/).some(isReservedMemorySegment)) {
+    return Effect.fail(new MemoryGuardrailViolation("Hidden memory paths are reserved."));
+  }
   return resolveVirtualPath(memoryRoot, virtualPath, MEMORY_PATH_OPTIONS);
-}
-
-/**
- * Splits a memory-tool path into its leading scope segment and the remainder
- * within that scope (e.g. `"personal/notes.md"` -> `{ scope: "personal", rest:
- * "notes.md" }`). An empty or root path has no scope segment at all.
- */
-function splitScopeAndRest(virtualPath: string): { scope: string | null; rest: string } {
-  const trimmed = virtualPath.replace(/^\/+/, "");
-  if (trimmed === "") return { scope: null, rest: "" };
-  const slashIndex = trimmed.indexOf("/");
-  if (slashIndex === -1) return { scope: trimmed, rest: "" };
-  return { scope: trimmed.slice(0, slashIndex), rest: trimmed.slice(slashIndex + 1) };
 }
 
 interface MemoryTreeStats {
@@ -95,18 +122,22 @@ function walkMemoryTree(
     let totalBytes = 0;
     let fileCount = 0;
     for (const name of names) {
-      // Hidden entries are Jazz's own bookkeeping (the provenance sidecar), not
-      // saved memory, so they must not consume the operator's byte or file
-      // budget — and they are excluded from listings for the same reason.
-      if (name.startsWith(".")) continue;
+      if (isReservedMemorySegment(name)) {
+        continue;
+      }
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
-      if (!info) continue;
-      if (info.type === "Directory") {
+      const info = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(entryPath),
+        catch: toError,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (!info || info.isSymbolicLink()) {
+        continue;
+      }
+      if (info.isDirectory()) {
         const nested = yield* walkMemoryTree(fs, entryPath);
         totalBytes += nested.totalBytes;
         fileCount += nested.fileCount;
-      } else if (info.type === "File") {
+      } else if (info.isFile()) {
         totalBytes += Number(info.size);
         fileCount += 1;
       }
@@ -124,15 +155,21 @@ function listDirectoryEntries(
     const names = yield* fs
       .readDirectory(dir)
       .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-    const visible = names.filter((name) => !name.startsWith(".")).sort();
+    const visible = names.filter((name) => !isReservedMemorySegment(name)).sort();
 
     const entries: MemoryDirectoryEntry[] = [];
     for (const name of visible) {
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const info = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(entryPath),
+        catch: toError,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info) continue;
+      if (info.isSymbolicLink()) {
+        continue;
+      }
 
-      if (info.type === "Directory") {
+      if (info.isDirectory()) {
         entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
         if (depthRemaining > 1) {
           const nested = yield* listDirectoryEntries(fs, entryPath, depthRemaining - 1);
@@ -140,7 +177,7 @@ function listDirectoryEntries(
             entries.push({ ...child, name: `${name}/${child.name}` });
           }
         }
-      } else if (info.type === "File") {
+      } else if (info.isFile()) {
         entries.push({ name, kind: "file", sizeBytes: Number(info.size) });
       }
     }
@@ -174,6 +211,9 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
   >;
 
   return {
+    ...(asOptionalString(record["entryId"]) !== undefined
+      ? { entryId: record["entryId"] as string }
+      : {}),
     createdAt: asOptionalString(record["createdAt"]) ?? now,
     updatedAt: asOptionalString(record["updatedAt"]) ?? now,
     ...(asOptionalString(record["lastViewedAt"]) !== undefined
@@ -334,21 +374,152 @@ function writeScopeProvenance(
  * the caller is what keeps the index text honest across every mutation —
  * `str_replace` and `insert` change the content too, not just `create`.
  */
+/** First non-empty line without a heading marker: entries are one thought each, so this is the point. */
+function entrySummary(content: string): string | undefined {
+  const firstLine = content
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (firstLine === undefined) {
+    return undefined;
+  }
+  return firstLine.replace(/^#+\s*/, "").slice(0, MEMORY_SUMMARY_MAX_CHARS);
+}
+
 function readEntrySummary(
   fs: FileSystem.FileSystem,
   absolutePath: string,
 ): Effect.Effect<string | undefined, never> {
   return fs.readFileString(absolutePath).pipe(
-    Effect.map((content) => {
-      const firstLine = content
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0);
-      if (firstLine === undefined) return undefined;
-      return firstLine.replace(/^#+\s*/, "").slice(0, MEMORY_SUMMARY_MAX_CHARS);
-    }),
+    Effect.map(entrySummary),
     Effect.catchAll(() => Effect.succeed(undefined)),
   );
+}
+
+/** An entry file found by walking a scope, before anything is read from it. */
+interface MemoryEntryFile {
+  /** Scope-qualified path, as the memory tools address it. */
+  readonly path: string;
+  readonly scope: string;
+  /** `undefined` for an `always/` entry. */
+  readonly topic: string | undefined;
+  /** Path relative to the scope root, the key the provenance sidecar uses. */
+  readonly relativePath: string;
+  readonly filePath: string;
+}
+
+/** Every non-hidden, non-linked file directly inside `directory` of `scopeRoot`. */
+function entryFilesIn(
+  fs: FileSystem.FileSystem,
+  scope: string,
+  scopeRoot: string,
+  directory: string,
+  topic: string | undefined,
+): Effect.Effect<readonly MemoryEntryFile[], never> {
+  return Effect.gen(function* () {
+    const directoryPath = yield* existingSafeMemoryPath(scopeRoot, directory, "directory");
+    if (directoryPath === undefined) {
+      return [];
+    }
+    const names = yield* fs
+      .readDirectory(directoryPath)
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    const files: MemoryEntryFile[] = [];
+    for (const name of names.sort()) {
+      if (isReservedMemorySegment(name)) {
+        continue;
+      }
+      const relativePath = `${directory}/${name}`;
+      const filePath = yield* existingSafeMemoryPath(scopeRoot, relativePath, "file");
+      if (filePath !== undefined) {
+        files.push({ path: `${scope}/${relativePath}`, scope, topic, relativePath, filePath });
+      }
+    }
+    return files;
+  });
+}
+
+function standingEntryFiles(
+  fs: FileSystem.FileSystem,
+  scope: string,
+  scopeRoot: string,
+): Effect.Effect<readonly MemoryEntryFile[], never> {
+  return entryFilesIn(fs, scope, scopeRoot, ALWAYS_SEGMENT, undefined);
+}
+
+function conditionalEntryFiles(
+  fs: FileSystem.FileSystem,
+  scope: string,
+  scopeRoot: string,
+): Effect.Effect<readonly MemoryEntryFile[], never> {
+  return Effect.gen(function* () {
+    const topicRoot = yield* existingSafeMemoryPath(scopeRoot, WHEN_SEGMENT, "directory");
+    if (topicRoot === undefined) {
+      return [];
+    }
+    const topics = yield* fs
+      .readDirectory(topicRoot)
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    const files: MemoryEntryFile[] = [];
+    for (const topic of topics.sort()) {
+      if (!isReservedMemorySegment(topic)) {
+        files.push(
+          ...(yield* entryFilesIn(fs, scope, scopeRoot, `${WHEN_SEGMENT}/${topic}`, topic)),
+        );
+      }
+    }
+    return files;
+  });
+}
+
+function summarizeEntryFiles(
+  fs: FileSystem.FileSystem,
+  files: readonly MemoryEntryFile[],
+): Effect.Effect<readonly MemoryEntrySummary[], never> {
+  return Effect.gen(function* () {
+    const entries: MemoryEntrySummary[] = [];
+    for (const file of files) {
+      const summary = yield* readEntrySummary(fs, file.filePath);
+      if (summary !== undefined) {
+        entries.push({ path: file.path, scope: file.scope, topic: file.topic, summary });
+      }
+    }
+    return entries;
+  });
+}
+
+/** Ignore symlinks during recall discovery, including intermediate topic directories. */
+function existingSafeMemoryPath(
+  scopeRoot: string,
+  relativePath: string,
+  kind: "file" | "directory",
+): Effect.Effect<string | undefined, never> {
+  return Effect.gen(function* () {
+    const rootInfo = yield* Effect.tryPromise({
+      try: () => nodeFs.lstat(scopeRoot),
+      catch: toError,
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
+      return undefined;
+    }
+    const target = yield* resolveMemoryPath(scopeRoot, relativePath).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined)),
+    );
+    if (target === undefined) {
+      return undefined;
+    }
+    const info = yield* Effect.tryPromise({
+      try: () => nodeFs.lstat(target),
+      catch: toError,
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (info?.isSymbolicLink()) {
+      return undefined;
+    }
+    if (kind === "file") {
+      return info?.isFile() ? target : undefined;
+    }
+    return info?.isDirectory() ? target : undefined;
+  });
 }
 
 /**
@@ -377,6 +548,7 @@ function recordWrite(
 
     const updated: MemoryFileProvenance = {
       ...(existing ?? {}),
+      entryId: existing?.entryId ?? randomUUID(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       writeCount: (existing?.writeCount ?? 0) + 1,
@@ -492,6 +664,8 @@ function touchViewed(
 export interface MemoryServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/memory (or $JAZZ_HOME/memory). */
   readonly baseMemoryDirectory?: string;
+  /** Override for tests; defaults to ~/.jazz/memory-receipts (or $JAZZ_HOME/memory-receipts). */
+  readonly receiptsDirectory?: string;
   /** Override for tests; defaults to {@link MAX_MEMORY_FILE_BYTES}. */
   readonly maxFileBytes?: number;
   /** Override for tests; defaults to {@link MAX_MEMORY_TOTAL_BYTES_PER_SCOPE}. */
@@ -507,19 +681,17 @@ type ScopeResolution =
 
 export class MemoryServiceImpl implements MemoryService {
   private readonly baseMemoryDirectory: string;
+  private readonly receiptsDirectory: string;
   private readonly maxFileBytes: number;
   private readonly maxTotalBytesPerScope: number;
   private readonly maxFilesPerScope: number;
 
   constructor(options?: MemoryServiceImplOptions) {
     this.baseMemoryDirectory = options?.baseMemoryDirectory ?? getMemoryDirectory();
+    this.receiptsDirectory = options?.receiptsDirectory ?? getMemoryReceiptsDirectory();
     this.maxFileBytes = options?.maxFileBytes ?? MAX_MEMORY_FILE_BYTES;
     this.maxTotalBytesPerScope = options?.maxTotalBytesPerScope ?? MAX_MEMORY_TOTAL_BYTES_PER_SCOPE;
     this.maxFilesPerScope = options?.maxFilesPerScope ?? MAX_MEMORY_FILES_PER_SCOPE;
-  }
-
-  private memoryLockPath(scope: string): string {
-    return path.join(this.baseMemoryDirectory, `${scope}.lock`);
   }
 
   private ensureScopeRoot(
@@ -530,12 +702,19 @@ export class MemoryServiceImpl implements MemoryService {
       yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseMemoryDirectory, scope);
-      yield* fs
-        .makeDirectory(rawRoot, { recursive: true })
-        .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+      yield* fs.makeDirectory(rawRoot, { recursive: true }).pipe(Effect.mapError(toError));
+      const rootInfo = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(rawRoot),
+        catch: toError,
+      });
+      if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation("Memory scope roots cannot be symlinks."),
+        );
+      }
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: toError,
       });
     });
   }
@@ -608,15 +787,131 @@ export class MemoryServiceImpl implements MemoryService {
     });
   }
 
-  private withValidatedScopeLock<A, E, R>(
+  /** Validate a caller's scope, then run `operation` under the memory write lock. */
+  private withMemoryWriteLock<A, E, R>(
     scope: string,
     operation: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | MemoryGuardrailViolation | Error, R | FileSystem.FileSystem> {
-    const lockPath = this.memoryLockPath(scope);
-    return Effect.gen(function* () {
-      yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
-      return yield* withLock(lockPath, operation);
-    });
+    return requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation).pipe(
+      Effect.zipRight(withMemoryWriteLock(this.baseMemoryDirectory, operation)),
+    );
+  }
+
+  /** Record the quoted sentences behind a write to `target`; `false` when one was revoked. */
+  private recordClaim(
+    fs: FileSystem.FileSystem,
+    scope: string,
+    root: string,
+    target: string,
+    writeContext: MemoryWriteContext,
+  ): Effect.Effect<boolean, Error> {
+    return recordClaimSentences(
+      fs,
+      this.baseMemoryDirectory,
+      path.join(scope, path.relative(root, target)),
+      writeContext.quotedSentenceKeys,
+    );
+  }
+
+  /** Snapshot scope-eligible files, assigning and persisting a stable ID for any file without one. */
+  readonly snapshotEntries: MemoryService["snapshotEntries"] = (scopes) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const allowedScopes = [...new Set(scopes.filter(isValidStorageKey))];
+        if (allowedScopes.length === 0) {
+          return { entries: [], unreadableScopes: [] };
+        }
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          Effect.gen(
+            function* (this: MemoryServiceImpl) {
+              const entries: MemoryEntrySnapshot[] = [];
+              const unreadableScopes: string[] = [];
+              for (const scope of allowedScopes) {
+                const scopeEntries = yield* this.snapshotScope(fs, scope).pipe(
+                  Effect.catchAll(() => Effect.succeed(undefined)),
+                );
+                if (scopeEntries === undefined) {
+                  unreadableScopes.push(scope);
+                } else {
+                  entries.push(...scopeEntries);
+                }
+              }
+              return { entries, unreadableScopes };
+            }.bind(this),
+          ),
+        );
+      }.bind(this),
+    );
+
+  /** One scope's snapshot, read under the memory write lock. Each file is read once. */
+  private snapshotScope(
+    fs: FileSystem.FileSystem,
+    scope: string,
+  ): Effect.Effect<readonly MemoryEntrySnapshot[], Error, FileSystem.FileSystem> {
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const scopeRoot = yield* existingSafeMemoryPath(
+          path.join(this.baseMemoryDirectory, scope),
+          "",
+          "directory",
+        );
+        if (scopeRoot === undefined) {
+          return [];
+        }
+        const receiptEpoch = yield* readMemoryReceiptEpoch(scope, this.receiptsDirectory);
+        const files = [
+          ...(yield* standingEntryFiles(fs, scope, scopeRoot)),
+          ...(yield* conditionalEntryFiles(fs, scope, scopeRoot)),
+        ];
+        const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
+        const provenanceByPath = { ...provenance.files };
+        let provenanceChanged = false;
+        const entries: MemoryEntrySnapshot[] = [];
+        for (const file of files) {
+          const content = yield* fs
+            .readFileString(file.filePath)
+            .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          const summary = content === undefined ? undefined : entrySummary(content);
+          if (content === undefined || summary === undefined) {
+            continue;
+          }
+          const existing = provenanceByPath[file.relativePath];
+          const entryId = existing?.entryId ?? randomUUID();
+          if (existing?.entryId === undefined) {
+            const now = new Date().toISOString();
+            provenanceByPath[file.relativePath] = {
+              ...(existing ?? {}),
+              entryId,
+              createdAt: existing?.createdAt ?? now,
+              updatedAt: existing?.updatedAt ?? now,
+              writeCount: existing?.writeCount ?? 0,
+              writtenBy: existing?.writtenBy ?? [],
+            };
+            provenanceChanged = true;
+          }
+          entries.push({
+            path: file.path,
+            scope,
+            topic: file.topic,
+            summary,
+            entryId,
+            entryContentHash: sha256Hex(content),
+            receiptEpoch,
+          });
+        }
+        if (provenanceChanged) {
+          yield* writeFileStringAtomic(
+            fs,
+            path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
+            `${JSON.stringify({ files: provenanceByPath }, null, 2)}\n`,
+            { tempPrefix: "memory-provenance" },
+          );
+        }
+        return entries;
+      }.bind(this),
+    );
   }
 
   readonly view: MemoryService["view"] = (scopes, virtualPath, viewRange) =>
@@ -638,8 +933,15 @@ export class MemoryServiceImpl implements MemoryService {
             const isValidScope = isValidStorageKey(name);
             if (!isValidScope) continue;
 
-            const scopeRoot = path.join(this.baseMemoryDirectory, name);
-            const nested = yield* listDirectoryEntries(fs, scopeRoot, 2);
+            const scopeRoot = yield* existingSafeMemoryPath(
+              path.join(this.baseMemoryDirectory, name),
+              "",
+              "directory",
+            );
+            if (scopeRoot === undefined) {
+              continue;
+            }
+            const nested = yield* listDirectoryEntries(fs, scopeRoot, SCOPE_ROOT_LISTING_DEPTH);
             for (const child of nested) {
               entries.push({ ...child, name: `${name}/${child.name}` });
             }
@@ -670,7 +972,11 @@ export class MemoryServiceImpl implements MemoryService {
         }
 
         if (info.type === "Directory") {
-          const entries = yield* listDirectoryEntries(fs, target, 2);
+          const entries = yield* listDirectoryEntries(
+            fs,
+            target,
+            target === root ? SCOPE_ROOT_LISTING_DEPTH : SUBDIRECTORY_LISTING_DEPTH,
+          );
           return {
             kind: "directory",
             path: abbreviateHomePath(target),
@@ -678,9 +984,7 @@ export class MemoryServiceImpl implements MemoryService {
           } satisfies MemoryViewOutcome;
         }
 
-        const content = yield* fs
-          .readFileString(target)
-          .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+        const content = yield* fs.readFileString(target).pipe(Effect.mapError(toError));
         const lines = content.split("\n");
         const totalLines = lines.length;
 
@@ -704,11 +1008,15 @@ export class MemoryServiceImpl implements MemoryService {
         const truncated = selected.length > MEMORY_VIEW_TRUNCATE_CHARS;
         const displayContent = truncated ? selected.slice(0, MEMORY_VIEW_TRUNCATE_CHARS) : selected;
 
-        yield* touchViewed(fs, root, path.relative(root, target));
+        yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          touchViewed(fs, root, path.relative(root, target)),
+        ).pipe(Effect.catchAll(() => Effect.void));
 
         return {
           kind: "file",
-          path: abbreviateHomePath(target),
+          displayPath: abbreviateHomePath(target),
+          virtualPath: `${scope}/${path.relative(root, target).split(path.sep).join("/")}`,
           content: displayContent,
           startLine,
           totalLines,
@@ -717,34 +1025,27 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
+  readonly conditionalEntries: MemoryService["conditionalEntries"] = (scopes) =>
+    this.summarizeScopes(scopes, conditionalEntryFiles);
+
   readonly standingEntries: MemoryService["standingEntries"] = (scopes) =>
-    Effect.gen(
-      function* (this: MemoryServiceImpl) {
-        const fs = yield* FileSystem.FileSystem;
-        const entries: MemoryEntryInForce[] = [];
+    this.summarizeScopes(scopes, standingEntryFiles);
 
-        for (const scope of scopes) {
-          if (!isValidStorageKey(scope)) continue;
-          const absolute = path.join(this.baseMemoryDirectory, scope, ALWAYS_SEGMENT);
-          const names = yield* fs
-            .readDirectory(absolute)
-            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-
-          for (const name of names.sort()) {
-            if (name.startsWith(".")) continue;
-            const summary = yield* readEntrySummary(fs, path.join(absolute, name));
-            if (summary === undefined) continue;
-            entries.push({
-              path: `${scope}/${ALWAYS_SEGMENT}/${name}`,
-              topic: undefined,
-              summary,
-            });
-          }
-        }
-
-        return entries;
-      }.bind(this),
-    );
+  private summarizeScopes(
+    scopes: readonly string[],
+    listFiles: typeof standingEntryFiles,
+  ): Effect.Effect<readonly MemoryEntrySummary[], never, FileSystem.FileSystem> {
+    const baseMemoryDirectory = this.baseMemoryDirectory;
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const entries: MemoryEntrySummary[] = [];
+      for (const scope of scopes.filter(isValidStorageKey)) {
+        const files = yield* listFiles(fs, scope, path.join(baseMemoryDirectory, scope));
+        entries.push(...(yield* summarizeEntryFiles(fs, files)));
+      }
+      return entries;
+    });
+  }
 
   readonly provenance: MemoryService["provenance"] = (scopes, virtualPath) =>
     Effect.gen(
@@ -767,7 +1068,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedScopeLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -800,7 +1101,7 @@ export class MemoryServiceImpl implements MemoryService {
                   success: false,
                   message: [
                     `Error: ${abbreviateHomePath(target)} already exists.`,
-                    "Amend it with str_replace rather than adding a second entry.",
+                    "Amend the existing entry rather than adding a second one.",
                     ...(existingText.length > 0
                       ? [
                           "",
@@ -817,6 +1118,9 @@ export class MemoryServiceImpl implements MemoryService {
                 addsFile: true,
                 subject: "Creating this file",
               });
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
+              }
               yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
@@ -843,7 +1147,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedScopeLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -859,13 +1163,7 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
-              const content = yield* fs
-                .readFileString(target)
-                .pipe(
-                  Effect.catchAll((e) =>
-                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
-                  ),
-                );
+              const content = yield* fs.readFileString(target).pipe(Effect.mapError(toError));
 
               const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
               if (occurrenceLines.length === 0) {
@@ -901,6 +1199,10 @@ export class MemoryServiceImpl implements MemoryService {
                 subject: "This edit",
               });
 
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
+              }
+
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
@@ -927,7 +1229,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedScopeLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -943,13 +1245,7 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
-              const content = yield* fs
-                .readFileString(target)
-                .pipe(
-                  Effect.catchAll((e) =>
-                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
-                  ),
-                );
+              const content = yield* fs.readFileString(target).pipe(Effect.mapError(toError));
               const lines = content.split("\n");
 
               if (insertLine < 0 || insertLine > lines.length) {
@@ -981,6 +1277,10 @@ export class MemoryServiceImpl implements MemoryService {
                 subject: "This edit",
               });
 
+              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+                return REVOKED_CLAIM_OUTCOME;
+              }
+
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
@@ -1001,7 +1301,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withValidatedScopeLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1026,13 +1326,13 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
-              yield* fs
-                .remove(target, { recursive: true })
-                .pipe(
-                  Effect.catchAll((e) =>
-                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
-                  ),
-                );
+              yield* eraseMemoryOpportunityReceiptsForScope(scope, this.receiptsDirectory);
+              yield* revokeClaimSentencesUnder(
+                fs,
+                this.baseMemoryDirectory,
+                path.join(scope, path.relative(root, target)),
+              );
+              yield* fs.remove(target, { recursive: true }).pipe(Effect.mapError(toError));
 
               yield* forgetProvenance(fs, root, path.relative(root, target));
 
@@ -1067,7 +1367,7 @@ export class MemoryServiceImpl implements MemoryService {
         }
         const scope = resolvedOld.scope;
 
-        return yield* this.withValidatedScopeLock(
+        return yield* this.withMemoryWriteLock(
           scope,
           Effect.gen(
             function* (this: MemoryServiceImpl) {
@@ -1105,18 +1405,14 @@ export class MemoryServiceImpl implements MemoryService {
 
               yield* fs
                 .makeDirectory(path.dirname(destination), { recursive: true })
-                .pipe(
-                  Effect.catchAll((e) =>
-                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
-                  ),
-                );
-              yield* fs
-                .rename(source, destination)
-                .pipe(
-                  Effect.catchAll((e) =>
-                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
-                  ),
-                );
+                .pipe(Effect.mapError(toError));
+              yield* fs.rename(source, destination).pipe(Effect.mapError(toError));
+              yield* moveClaimSentences(
+                fs,
+                this.baseMemoryDirectory,
+                path.join(scope, path.relative(root, source)),
+                path.join(scope, path.relative(root, destination)),
+              );
 
               yield* moveProvenance(
                 fs,

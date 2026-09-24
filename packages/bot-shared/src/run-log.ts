@@ -3,8 +3,8 @@
  *
  * The conversation transcript is only written once a run completes, so a run that
  * hangs or times out leaves no other trace. The event stream is already decoded to
- * drive the progress message; recording it costs one append per event and is what
- * makes a stuck run diagnosable without the model server's logs.
+ * drive the progress message; recording its safe lifecycle fields costs one
+ * append per event and makes a stuck run diagnosable without private content.
  *
  * Appends are fire-and-forget: a logging failure must never interrupt a run, so
  * every error is swallowed after the first, which is reported once.
@@ -13,8 +13,56 @@
 import { appendFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-/** Events whose payload is bulky and already summarised by other lines. */
-const OMITTED_FIELDS = ["accumulated", "previewDiff"] as const;
+/** Diagnostic fields that are safe to retain from an untrusted stream event. */
+const NUMBER_FIELDS = ["durationMs", "rounds", "iteration", "count"] as const;
+const BOOLEAN_FIELDS = ["approved", "success", "ok", "cancelled"] as const;
+const RUN_EVENT_TYPES = new Set([
+  "approval_required",
+  "approval_resolved",
+  "command_risk_classified",
+  "command_risk_classifying",
+  "complete",
+  "error",
+  "stream_start",
+  "subagent_complete",
+  "subagent_result",
+  "subagent_start",
+  "text_chunk",
+  "text_start",
+  "thinking_chunk",
+  "thinking_complete",
+  "thinking_start",
+  "tool_call",
+  "tool_execution_complete",
+  "tool_execution_start",
+  "tools_detected",
+  "usage_update",
+  "user_input_required",
+]);
+
+/**
+ * Project a bridge event onto bounded operational fields. Approval text,
+ * questions, reasoning, answers, tool arguments, results, and raw errors may
+ * contain private content, so this log records only their occurrence.
+ */
+export function safeRunLogFields(
+  event: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  for (const key of NUMBER_FIELDS) {
+    const value = event[key];
+    if (typeof value === "number" && Number.isFinite(value)) fields[key] = value;
+  }
+  for (const key of BOOLEAN_FIELDS) {
+    const value = event[key];
+    if (typeof value === "boolean") fields[key] = value;
+  }
+  if (Array.isArray(event["toolNames"])) {
+    fields["toolCount"] = event["toolNames"].length;
+  }
+  if (typeof event["error"] === "string") fields["hasError"] = true;
+  return fields;
+}
 
 /**
  * Deltas arrive one per token-ish chunk, thousands to a long generation. Written
@@ -38,7 +86,7 @@ const RUNS_RETAINED = 200;
 const FLUSH_INTERVAL_MS = 2_000;
 
 export interface RunLog {
-  /** Record one event from the jazz stream. */
+  /** Record the safe operational fields of one Jazz stream event. */
   event: (event: object) => void;
   /**
    * Record the run's outcome, including a timeout or crash. Also releases the
@@ -92,17 +140,17 @@ export function createRunLog(
   const append = (record: Record<string, unknown>): void => {
     if (broken) return;
     try {
-      appendFileSync(path, `${JSON.stringify(record)}\n`);
-    } catch (error) {
+      appendFileSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+    } catch {
       broken = true;
-      console.error(`Run log ${path} disabled after write failure: ${String(error)}`);
+      console.error("Run log disabled after write failure");
     }
   };
 
   try {
-    mkdirSync(directory, { recursive: true });
-  } catch (error) {
-    console.error(`Run log directory ${directory} unavailable: ${String(error)}`);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+  } catch {
+    console.error("Run log directory unavailable");
     return nullRunLog();
   }
 
@@ -144,7 +192,9 @@ export function createRunLog(
     path,
     event: (rawEvent) => {
       const event = rawEvent as Record<string, unknown>;
-      const type = typeof event["type"] === "string" ? event["type"] : "unknown";
+      const rawType = event["type"];
+      const type =
+        typeof rawType === "string" && RUN_EVENT_TYPES.has(rawType) ? rawType : "unknown";
       if (COALESCED_TYPES.has(type)) {
         const delta = event["content"] ?? event["delta"];
         const length = typeof delta === "string" ? delta.length : 0;
@@ -158,17 +208,16 @@ export function createRunLog(
         return;
       }
       flush();
-      const record: Record<string, unknown> = now();
-      for (const [key, value] of Object.entries(event)) {
-        if ((OMITTED_FIELDS as readonly string[]).includes(key)) continue;
-        record[key] = value;
-      }
-      append(record);
+      append({ ...now(), type, ...safeRunLogFields(event) });
     },
     finish: (outcome) => {
       clearInterval(flushTimer);
       flush();
-      append({ ...now(), type: "run_finish", ...outcome });
+      append({
+        ...now(),
+        type: "run_finish",
+        ...safeRunLogFields(outcome as Record<string, unknown>),
+      });
     },
   };
 }

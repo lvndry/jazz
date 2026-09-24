@@ -726,15 +726,17 @@ describe("AgentService", () => {
       await expect(Effect.runPromise(service.validateAgentConfig(config))).resolves.toBeUndefined();
     };
 
-    it("accepts every reasoning effort level", async () => {
-      for (const effort of ["disable", "low", "medium", "high"] as const) {
-        await expectAccepted({ ...baseConfig, reasoningEffort: effort });
+    it("accepts structured reasoning selections", async () => {
+      for (const reasoning of ["disable", "minimal", "xhigh", "max"] as const) {
+        await expectAccepted({ ...baseConfig, reasoning });
       }
     });
 
-    it("rejects an unknown reasoning effort", async () => {
-      // @ts-expect-error - unknown level
-      await expectRejected({ ...baseConfig, reasoningEffort: "maximum" });
+    it("rejects an invalid reasoning selection", async () => {
+      await expectRejected({
+        ...baseConfig,
+        reasoning: "maximum" as never,
+      });
     });
 
     it("accepts temperature at both ends of the range", async () => {
@@ -793,6 +795,10 @@ describe("AgentService", () => {
     it("rejects a non-array memoryScopes value", async () => {
       // @ts-expect-error - must be an array
       await expectRejected({ ...baseConfig, memoryScopes: "work" });
+    });
+
+    it("rejects an unsafe memory scope name", async () => {
+      await expectRejected({ ...baseConfig, memoryScopes: ["../private"] });
     });
 
     it("rejects a blank memory scope", async () => {

@@ -17,6 +17,18 @@ describe("parseConfigFile", () => {
       llm: {
         streamIdleTimeoutMs: 600000,
         ollama: { base_url: "http://h:11434/api", keep_alive: "-1" },
+        capabilityOverrides: {
+          ollama: {
+            "private-reasoner:latest": {
+              reasoning: {
+                kind: "toggle",
+                transport: "ollama.chat.think",
+                canDisable: true,
+              },
+              supportsTools: false,
+            },
+          },
+        },
       },
       output: { collapseReasoning: false, streaming: { enabled: "auto", textBufferMs: 0 } },
       mcpServers: { github: { enabled: false, trusted: true } },
@@ -27,7 +39,16 @@ describe("parseConfigFile", () => {
       workspaceMaxTotalBytesPerAgent: 1048576,
       scheduler: { mode: "in-process" },
       context: { warnThresholdRatio: 0.7, compactThresholdRatio: 0.8 },
-      telemetry: { otlp: { signals: ["traces"], headers: { authorization: "Bearer x" } } },
+      telemetry: {
+        otlp: {
+          signals: ["traces", "logs", "metrics"],
+          headers: { authorization: "Bearer x" },
+          metricsEndpoint: "http://localhost:9090/api/v1/otlp/v1/metrics",
+          maxQueuedBytes: 33_554_432,
+          maxQueueAgeMs: 604_800_000,
+          metricExportIntervalMs: 30_000,
+        },
+      },
       peers: [{ name: "sam", url: "https://sam.example", disclosure: "public" }],
       webhooks: [{ name: "deploy", agentId: "default", promptTemplate: "{{payload}}" }],
       daemon: { token: "file-fallback" },
@@ -61,6 +82,29 @@ describe("parseConfigFile", () => {
       expected: "true or false",
       actual: "false",
     });
+  });
+
+  it("rejects nonpositive exporter queue and metric intervals", () => {
+    const { config, issues } = parseConfigFile({
+      telemetry: {
+        otlp: {
+          signals: ["metrics"],
+          maxQueuedBytes: 0,
+          maxQueueAgeMs: -1,
+          metricExportIntervalMs: 0,
+        },
+      },
+    });
+
+    expect(config.telemetry?.otlp?.signals).toEqual(["metrics"]);
+    expect(config.telemetry?.otlp?.maxQueuedBytes).toBeUndefined();
+    expect(config.telemetry?.otlp?.maxQueueAgeMs).toBeUndefined();
+    expect(config.telemetry?.otlp?.metricExportIntervalMs).toBeUndefined();
+    expect(issues.map((issue) => issue.path)).toEqual([
+      "telemetry.otlp.maxQueuedBytes",
+      "telemetry.otlp.maxQueueAgeMs",
+      "telemetry.otlp.metricExportIntervalMs",
+    ]);
   });
 
   it("removes unknown keys at any depth, suggesting the setting a typo meant", () => {
@@ -145,6 +189,114 @@ describe("parseConfigFile", () => {
       "output.streaming.enabled": "true, false, or auto",
       "scheduler.mode": "auto or in-process",
     });
+  });
+
+  it("accepts only closed, bounded capability overrides", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          anthropic: {
+            "claude-private": {
+              reasoning: {
+                kind: "manual",
+                transport: "anthropic.messages.extended-thinking",
+                minimumBudgetTokens: 1024,
+                maximumBudgetTokens: 8192,
+                efforts: ["low", "high"],
+                canDisable: true,
+              },
+              supportsTools: true,
+            },
+          },
+          llamacpp: {
+            "Qwen3-32B": {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 256,
+                maximumBudgetTokens: 32768,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues).toEqual([]);
+    expect(config.llm?.capabilityOverrides?.anthropic?.["claude-private"]?.supportsTools).toBe(
+      true,
+    );
+  });
+
+  it("strips unsafe or unsupported capability override controls", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          openai: {
+            gpt: {
+              reasoning: {
+                kind: "effort",
+                transport: "arbitrary.request.body",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+          unknownProvider: {},
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { openai: { gpt: {} } } } });
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        "llm.capabilityOverrides.openai.gpt.reasoning.transport",
+        "llm.capabilityOverrides.unknownProvider",
+      ]),
+    );
+  });
+
+  it("rejects impossible capability budget bounds", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          llamacpp: {
+            qwen: {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 4096,
+                maximumBudgetTokens: 1024,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({
+      llm: {
+        capabilityOverrides: {
+          llamacpp: {
+            qwen: {
+              reasoning: {
+                kind: "budget",
+                transport: "llamacpp.chat.thinking-budget",
+                minimumBudgetTokens: 4096,
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        path: "llm.capabilityOverrides.llamacpp.qwen.reasoning.maximumBudgetTokens",
+      }),
+    );
   });
 
   it("enforces context thresholds before readers can silently replace them", () => {

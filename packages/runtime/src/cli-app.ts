@@ -330,7 +330,7 @@ function registerRunCommand(program: Command): void {
                   : {}),
                 ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
-                  ? { reasoningEffort: options.reasoning }
+                  ? { reasoning: options.reasoning }
                   : {}),
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(options.maxIterations !== undefined
@@ -536,6 +536,19 @@ function registerMemoryCommands(program: Command): void {
         () =>
           import("@jazz/cli/commands/memory").then((mod) =>
             mod.forgetMemoryCommand(agent, memoryPath),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("explain <agent> <path>")
+    .description("Show stored provenance for a memory entry")
+    .action((agent: string, memoryPath: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.explainMemoryCommand(agent, memoryPath),
           ),
         cliRuntimeOptions(program),
       ),

@@ -50,8 +50,8 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   },
   {
     name: "reasoning",
-    description: "Change reasoning effort for this session only",
-    usage: "[low|medium|high|disable]",
+    description: "Change reasoning for this session only",
+    usage: "[minimal|low|medium|high|xhigh|max|disable]",
   },
   { name: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", description: "Re-send your last message" },

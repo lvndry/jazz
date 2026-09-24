@@ -193,7 +193,7 @@ function executeMCPTool(
 
     const serverName = serverConfig.name;
 
-    yield* logger.debug(`Executing MCP tool: ${serverName}.${toolName}`, { args });
+    yield* logger.debug("MCP tool execution started", { argumentCount: Object.keys(args).length });
 
     const connectionFailure = yield* ensureConnected(serverConfig);
     if (connectionFailure !== undefined) return connectionFailure;
@@ -229,9 +229,7 @@ function executeMCPTool(
 
     if (callResult._tag === "Left") {
       const error = callResult.left;
-      yield* logger.error(`MCP tool execution failed: ${serverName}.${toolName}`, {
-        error: error.reason,
-      });
+      yield* logger.error("MCP tool execution failed", { errorType: "mcp_call_failed" });
       return { success: false, result: null, error: error.reason };
     }
 

@@ -1,6 +1,8 @@
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Box, Text } from "ink";
 import React from "react";
+import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { formatToolsLine, getTerminalWidth, padRight } from "@/cli/utils/string-utils";
 import { getGlyphs } from "./glyphs";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -16,7 +18,7 @@ interface AgentListItem {
   readonly config: {
     readonly llmProvider: string;
     readonly llmModel: string;
-    readonly reasoningEffort?: string | undefined;
+    readonly reasoning?: ReasoningSelection | undefined;
     readonly persona?: string | undefined;
     readonly tools?: readonly string[] | undefined;
   };
@@ -107,7 +109,7 @@ export function AgentsList(props: {
       >
         {props.agents.map((agent, index) => {
           const persona = agent.config.persona ?? "default";
-          const reasoning = agent.config.reasoningEffort ?? "—";
+          const reasoning = formatReasoningSelection(agent.config.reasoning);
           const description =
             agent.description && agent.description !== agent.name ? agent.description : "";
 

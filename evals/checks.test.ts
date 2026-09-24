@@ -9,6 +9,7 @@ import {
   fileStateCheck,
   machineSpecGroundingCheck,
   plausibleFreeDiskGB,
+  requiredAndForbiddenPatternCheck,
   toolGroundedAnswerCheck,
   toolUsedCheck,
 } from "./checks";
@@ -59,6 +60,41 @@ describe("constraintCheck", () => {
     const bad = constraintCheck(r, [{ name: "conflict", test: (a) => a.includes("tuesday") }]);
     expect(bad.pass).toBe(false);
     expect(bad.detail).toContain("conflict");
+  });
+});
+describe("requiredAndForbiddenPatternCheck", () => {
+  it("passes when every required signal matches and no forbidden signal does", () => {
+    const checked = requiredAndForbiddenPatternCheck(
+      "Three bullets. Run bun test evals.",
+      [
+        { name: "shape", pattern: /three bullets/i },
+        { name: "verification", pattern: /bun test evals/i },
+      ],
+      [/friend joke/i],
+    );
+    expect(checked.pass).toBe(true);
+    expect(checked.score).toBe(1);
+  });
+
+  it("fails with a zero score when a forbidden signal appears", () => {
+    const checked = requiredAndForbiddenPatternCheck(
+      "Run bun test evals. Here's a joke.",
+      [{ name: "verification", pattern: /bun test evals/i }],
+      [/joke/i],
+    );
+    expect(checked.pass).toBe(false);
+    expect(checked.score).toBe(0);
+    expect(checked.detail).toBe("a forbidden pattern appeared in the answer");
+  });
+
+  it("accepts predicate signals", () => {
+    const hasTwoLines = (answer: string) => answer.split("\n").length === 2;
+    expect(
+      requiredAndForbiddenPatternCheck("one\ntwo", [{ name: "lines", pattern: hasTwoLines }]).pass,
+    ).toBe(true);
+    expect(
+      requiredAndForbiddenPatternCheck("one", [{ name: "lines", pattern: hasTwoLines }]).score,
+    ).toBe(0);
   });
 });
 

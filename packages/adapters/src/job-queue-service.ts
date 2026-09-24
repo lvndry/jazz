@@ -44,6 +44,7 @@ import {
   requireValidStorageKey,
   withLock,
   writeFileStringAtomic,
+  toError,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
@@ -52,10 +53,6 @@ export class JobQueueGuardrailViolation extends Error {}
 
 function newId(): string {
   return Math.random().toString(36).slice(2, 10);
-}
-
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 function clamp(value: number, min: number, max: number): number {

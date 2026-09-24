@@ -14,8 +14,7 @@ import { createRoot } from "@opentui/react";
 import { FullscreenBridge } from "./bridge";
 import { mountFullscreen } from "./mount";
 
-export { decideFullscreen, explainPlain } from "./mount";
-export type { PlainReason } from "./mount";
+export { decideFullscreen } from "./mount";
 
 export interface FullscreenHandle {
   readonly release: () => void;

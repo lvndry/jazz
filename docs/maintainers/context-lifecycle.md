@@ -116,6 +116,30 @@ estimate.
 
 ---
 
+### Memory observations at the request boundary
+
+The runner snapshots every file in the agent's allowed memory scopes once per run, reading each
+file once, and takes a fresh snapshot after the run's own `manage_memory` writes. Writes by other
+processes show up on the next run. The snapshot skips linked scopes and files so external paths
+cannot enter receipts or provenance, and a scope it cannot read is skipped and logged rather than
+failing the others. The store assigns an ID on first snapshot and hashes the current file content.
+
+Pending receipts are written in a fiber forked beside the provider call, so they add no latency to
+the request; the loop joins it once the provider responds and completes the receipts. Exposure
+comes from the rendered standing line, or from the `memoryExposure` a successful `view_memory`
+call declares, keyed by canonical path and counted only while that exact tool message remains in
+the request. Directory listings, cleared or edited results, and merely selected candidates have no
+exposure. A failed provider call leaves receipts pending, so a crash cannot look like a success.
+Each message's content is hashed once and reused while it is unchanged, so identifying a request
+costs work proportional to what changed (`bun bench/memory-opportunity-receipts.bench.ts`).
+
+The store keeps at most 128 receipts per entry, pruning once every 32 writes. Forgetting a file
+starts a new epoch for its scope under the scope's lock and removes the whole scope's receipts;
+tickets from an older epoch cannot write after deletion, which also covers missing or stale
+provenance IDs. An unreadable epoch file is moved aside and replaced. `memory explain` shows five
+recent records without raw memory text. Calibration must use independent labels before any
+receipt can drive lesson changes or skill proposals.
+
 ## 2 · Trimming: turn-aware, never mid-tool-call
 
 Trimming is checked after every reply, against 95% of the context budget. The subtlety
@@ -258,6 +282,14 @@ their discipline: find the right scope, read the file before changing it, one fi
 replace stale facts instead of appending duplicates. The scopes are the parent agent's; the
 writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
 the agent wrote at the user's direct request.
+
+The extractor receives authenticated source IDs for the original user messages in the chunk.
+The write tool checks an exact quoted span against those messages. A chunk with no authenticated
+user source is skipped, and text inside tool output or a rendered transcript cannot create its
+own user source.
+Corrected and forgotten claims revoke the sentences they quoted in the hidden cross-scope source
+ledger. An extractor attempting to re-save a superseded quote from those sentences receives a
+failed write; other sentences of the same message, and any new user message, can still be quoted.
 
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own

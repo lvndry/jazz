@@ -21,6 +21,8 @@ const mockLogger = {
   warn: () => Effect.void,
   error: () => Effect.void,
   setLogGroup: () => Effect.void,
+  pushLogGroup: () => Effect.void,
+  popLogGroup: () => Effect.void,
   clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
@@ -132,13 +134,24 @@ describe("summarize_context", () => {
     role: string;
     content: string;
     kind?: string;
+    memorySource?: { id: string; text: string };
   }> {
-    const messages: Array<{ role: string; content: string; kind?: string }> = [
+    const messages: Array<{
+      role: string;
+      content: string;
+      kind?: string;
+      memorySource?: { id: string; text: string };
+    }> = [
       { role: "system", content: "system" },
       { role: "assistant", content: "Earlier work: migrated auth module.", kind: "summary" },
     ];
     for (let index = 0; index < 20; index++) {
-      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      const userText = `ask ${index} ` + "detail ".repeat(100);
+      messages.push({
+        role: "user",
+        content: userText,
+        memorySource: { id: `user:${index}`, text: userText },
+      });
       messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
     }
     return messages;
@@ -281,6 +294,39 @@ describe("spawn_subagent auto-approve inheritance", () => {
       expect(captured?.autoApprovedCommands).toEqual(["git status"]);
       expect(captured?.autoApprovedTools).toEqual(["read_file"]);
       expect(captured?.ephemeralRegionId).toBe("eph-test");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent trace context", () => {
+  it("passes the parent run, session, and dispatch call to the child", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "child-conversation",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        telemetryTraceParent: {
+          topRunId: "root-run",
+          parentRunId: "parent-run",
+          sessionId: "root-session",
+        },
+        toolCallId: "dispatch-1",
+      });
+      expect(captured?.telemetryParent).toEqual({
+        topRunId: "root-run",
+        parentRunId: "parent-run",
+        sessionId: "root-session",
+        parentToolCallId: "dispatch-1",
+      });
     } finally {
       spy.mockRestore();
     }
@@ -516,7 +562,10 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const effortParent: Agent = {
         ...parentAgent,
-        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+        config: {
+          persona: "default",
+          reasoning: "medium",
+        } as Agent["config"],
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
@@ -526,13 +575,13 @@ describe("spawn_subagent reasoning effort", () => {
       await Effect.runPromise(
         (
           tool.execute(
-            { task: "deep review", persona: "coder", reasoningEffort: "high" },
+            { task: "deep review", persona: "coder", reasoning: "high" },
             { agentId: effortParent.id, parentAgent: effortParent },
           ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
         ).pipe(Effect.provide(testLayer)),
       );
 
-      expect(captured()?.agent.config.reasoningEffort).toBe("high");
+      expect(captured()?.agent.config.reasoning).toBe("high");
     } finally {
       spy.mockRestore();
     }
@@ -545,7 +594,10 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const effortParent: Agent = {
         ...parentAgent,
-        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+        config: {
+          persona: "default",
+          reasoning: "medium",
+        } as Agent["config"],
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
@@ -561,7 +613,7 @@ describe("spawn_subagent reasoning effort", () => {
         ).pipe(Effect.provide(testLayer)),
       );
 
-      expect(captured()?.agent.config.reasoningEffort).toBe("medium");
+      expect(captured()?.agent.config.reasoning).toBe("medium");
     } finally {
       spy.mockRestore();
     }
@@ -574,7 +626,7 @@ describe("spawn_subagent reasoning effort", () => {
       const { presentation } = createPresentationHarness();
       const result = (await runSpawnWithArgs(presentation, {
         task: "do a thing",
-        reasoningEffort: "maximum",
+        reasoning: "maximum",
       })) as { success: boolean; error?: string };
 
       expect(result.success).toBe(false);

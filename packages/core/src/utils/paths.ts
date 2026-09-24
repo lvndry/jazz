@@ -260,6 +260,11 @@ export function getGlobalWorkflowsDirectory(): string {
   return path.join(getJazzHomeDirectory(), "workflows");
 }
 
+/** Returns the directory holding memory opportunity receipts, one subdirectory per scope. */
+export function getMemoryReceiptsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "memory-receipts");
+}
+
 /**
  * Returns the directory holding the memory-recall log: a JSONL record of
  * whether each run consulted memory before answering, kept separate from

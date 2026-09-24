@@ -62,13 +62,13 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { JsonValue } from "@jazz/core/types/message";
+import type {
+  ReasoningControlSurface,
+  ReasoningSelection,
+} from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { safeParseJson } from "@jazz/core/utils/json";
-import {
-  convertToLLMError,
-  extractCleanErrorMessage,
-  truncateRequestBodyValues,
-} from "@jazz/core/utils/llm-error";
+import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -104,6 +104,7 @@ import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import { saveModelGeneratedFiles } from "./generated-files";
+import { resolveModelCapabilities } from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -117,6 +118,32 @@ import {
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+
+/** Diagnostic fields from provider errors that cannot contain request or response content. */
+export function safeLLMErrorMetadata(
+  error: unknown,
+  provider: ProviderName,
+  errorType: string,
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = { provider, errorType };
+  if (error !== null && typeof error === "object") {
+    try {
+      const record = error as Record<string, unknown>;
+      const status = record["status"] ?? record["statusCode"];
+      if (
+        typeof status === "number" &&
+        Number.isInteger(status) &&
+        status >= 100 &&
+        status <= 599
+      ) {
+        metadata["statusCode"] = status;
+      }
+    } catch {
+      return metadata;
+    }
+  }
+  return metadata;
+}
 
 /** DelayedPromise fields on streamText results reject when the stream fails. */
 const STREAM_TEXT_PROMISE_FIELDS = [
@@ -632,12 +659,13 @@ function getProviderNativeWebSearchTool(
       default:
         return null;
     }
-  } catch (error) {
+  } catch {
     if (logger) {
       Effect.runFork(
-        logger.warn(
-          `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        logger.warn("Provider-native web search unavailable", {
+          provider: providerName,
+          errorType: "native_tool_unavailable",
+        }),
       );
     }
     return null;
@@ -901,6 +929,7 @@ function selectModel(
       const llamacpp = createOpenAICompatible({
         name: "llamacpp",
         baseURL,
+        includeUsage: true,
         ...(headers ? { headers } : {}),
       });
       model = llamacpp(modelId);
@@ -932,6 +961,7 @@ function selectModel(
       const orcarouter = createOpenAICompatible({
         name: "orcarouter",
         baseURL: "https://api.orcarouter.ai/v1",
+        includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       model = orcarouter(modelId);
@@ -1039,15 +1069,128 @@ export function buildProviderCacheFingerprint(
   }
 }
 
+/** Project Jazz's portable effort vocabulary onto providers without an exact profile yet. */
+function toProviderEffort(
+  selection: ReasoningSelection | undefined,
+): "disable" | "low" | "medium" | "high" | undefined {
+  if (!selection) return undefined;
+  if (selection === "disable") return "disable";
+  return selection === "minimal"
+    ? "low"
+    : selection === "xhigh" || selection === "max"
+      ? "high"
+      : selection;
+}
+
+/** A portable effort has a deterministic token budget when a template exposes one. */
+function reasoningBudget(
+  selection: Exclude<ReasoningSelection, "disable">,
+  minimum: number,
+  maximum: number | undefined,
+): number {
+  const requested =
+    selection === "minimal" || selection === "low"
+      ? 1024
+      : selection === "medium"
+        ? 4096
+        : selection === "high"
+          ? 16384
+          : 32768;
+  return Math.min(Math.max(requested, minimum), maximum ?? Number.POSITIVE_INFINITY);
+}
+
+/** Serialize only a capability-resolved control. */
+function buildResolvedReasoningOptions(
+  selection: ReasoningSelection | undefined,
+  control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
+): ProviderOptions | undefined {
+  if (!selection || !control || control.kind === "unknown" || control.kind === "unsupported") {
+    return undefined;
+  }
+
+  switch (control.transport) {
+    case "openai.responses.reasoning-effort": {
+      if (selection === "disable" || !control.efforts.includes(selection)) return undefined;
+      return {
+        openai: {
+          promptCacheKey: "conversation",
+          reasoningEffort: selection === "max" ? "xhigh" : selection,
+          reasoningSummary: "auto",
+          systemMessageMode: "system",
+          store: false,
+          include: ["reasoning.encrypted_content"],
+        } satisfies OpenAIResponsesProviderOptions,
+      };
+    }
+    case "anthropic.messages.extended-thinking": {
+      if (selection === "disable") return undefined;
+      return {
+        anthropic: {
+          thinking: {
+            type: "enabled",
+            budgetTokens: reasoningBudget(
+              selection,
+              control.minimumBudgetTokens,
+              control.maximumBudgetTokens,
+            ),
+          },
+        } satisfies AnthropicProviderOptions,
+      };
+    }
+    case "anthropic.messages.adaptive-thinking": {
+      if (selection === "disable") return undefined;
+      return {
+        anthropic: {
+          thinking: { type: "adaptive" },
+          outputConfig: { effort: selection },
+        },
+      };
+    }
+    case "ollama.chat.think":
+      return { ollama: { think: selection !== "disable" } };
+    case "llamacpp.chat.enable-thinking":
+      return {
+        llamacpp: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
+      };
+    case "llamacpp.chat.thinking-budget": {
+      if (selection === "disable") return undefined;
+      return {
+        llamacpp: {
+          chat_template_kwargs: {
+            thinking_budget: reasoningBudget(
+              selection,
+              control.minimumBudgetTokens,
+              control.maximumBudgetTokens,
+            ),
+          },
+        },
+      };
+    }
+  }
+}
+
+/**
+ * Convert a model-neutral selection into provider options.
+ *
+ * An exact resolved profile is authoritative: unsupported or unavailable
+ * efforts are serialized as disabled rather than falling through to a generic
+ * provider serializer. Unknown profiles preserve the established serializer.
+ */
 export function buildProviderOptions(
   providerName: ProviderName,
   options: ChatCompletionOptions,
+  control?: ReasoningControlSurface | { readonly kind: "unknown" },
 ): ProviderOptions | undefined {
+  const resolved = buildResolvedReasoningOptions(options.reasoning, control);
+  if (resolved !== undefined) return resolved;
+  if (control && control.kind !== "unknown") {
+    return buildProviderOptions(providerName, { ...options, reasoning: "disable" });
+  }
+  const reasoningEffort = toProviderEffort(options.reasoning);
   const normalizedProvider = providerName.toLowerCase();
 
   switch (normalizedProvider) {
     case "openai": {
-      const reasoningEffort = options.reasoning_effort;
       const openaiOptions: OpenAIResponsesProviderOptions = {
         promptCacheKey: "conversation",
       };
@@ -1066,7 +1209,6 @@ export function buildProviderOptions(
       return { openai: openaiOptions };
     }
     case "anthropic": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         return {
           anthropic: {
@@ -1077,7 +1219,6 @@ export function buildProviderOptions(
       break;
     }
     case "gemini": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         const geminiProReasoningEffort = options.model.includes("gemini-3")
           ? reasoningEffort
@@ -1094,7 +1235,6 @@ export function buildProviderOptions(
       break;
     }
     case "xai": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         const xaiOptions: XaiResponsesProviderOptions = { reasoningEffort };
         return { xai: xaiOptions };
@@ -1104,7 +1244,7 @@ export function buildProviderOptions(
     case "ollama": {
       // Ollama defaults thinking ON when no flag is sent, which empties content and
       // drops tool calls, so disabling must explicitly send think:false.
-      const think = !!(options.reasoning_effort && options.reasoning_effort !== "disable");
+      const think = reasoningEffort !== undefined && reasoningEffort !== "disable";
       // num_ctx nests under `options`; without it Ollama truncates to a small default.
       const numCtx =
         typeof options.num_ctx === "number" && options.num_ctx > 0 ? options.num_ctx : undefined;
@@ -1116,7 +1256,6 @@ export function buildProviderOptions(
       };
     }
     case "openrouter": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         // Map Jazz's reasoning_effort to OpenRouter's effort levels
         // Jazz uses: "low" | "medium" | "high" | "disable"
@@ -1139,7 +1278,6 @@ export function buildProviderOptions(
       break;
     }
     case "moonshotai": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         // Moonshot thinking models (kimi-k2-thinking) support budgeted reasoning
         const budgetMap: Record<string, number> = {
@@ -1157,7 +1295,6 @@ export function buildProviderOptions(
       break;
     }
     case "alibaba": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         const budgetMap: Record<string, number> = {
           low: 1024,
@@ -1174,7 +1311,6 @@ export function buildProviderOptions(
       break;
     }
     case "cerebras": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         return {
           cerebras: {
@@ -1186,7 +1322,6 @@ export function buildProviderOptions(
     }
     case "llamacpp": {
       // vLLM supports a thinking toggle, not a reasoning-token budget.
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort === "disable") {
         return {
           llamacpp: {
@@ -1204,7 +1339,6 @@ export function buildProviderOptions(
       break;
     }
     case "fireworks": {
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         const budgetMap: Record<string, number> = {
           low: 1024,
@@ -1225,7 +1359,6 @@ export function buildProviderOptions(
       // body, so `thinking` is passed in the API's native snake_case shape. GLM-4.5+
       // models toggle reasoning on/off only (no effort levels or token budget), so
       // any non-disable effort maps to "enabled".
-      const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort === "disable") {
         return { zhipu: { thinking: { type: "disabled" } } };
       }
@@ -1529,11 +1662,7 @@ class AISDKService implements LLMService {
           options.providerApiKeys,
         );
         const timingStart = Date.now();
-        Effect.runFork(
-          this.logger.debug(
-            `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
-          ),
-        );
+        Effect.runFork(this.logger.debug("LLM completion started", { provider: providerName }));
 
         const modelSelectStart = Date.now();
         const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
@@ -1542,6 +1671,22 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const resolvedCapabilities = resolveModelCapabilities({
+          provider: providerName,
+          modelId: options.model,
+          catalog: {
+            ...(modelInfo?.isReasoningModel !== undefined && {
+              supportsReasoning: modelInfo.isReasoningModel,
+            }),
+            ...(modelInfo?.supportsTools !== undefined && {
+              supportsTools: modelInfo.supportsTools,
+            }),
+          },
+          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
+            undefined && {
+            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
+          }),
+        });
         // STEP 6: Tools selection
         // Check if the selected model supports tools
         // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
@@ -1549,7 +1694,8 @@ class AISDKService implements LLMService {
         const isGatewayModel =
           OPENROUTER_GATEWAY_MODELS.has(options.model) ||
           ORCAROUTER_GATEWAY_MODELS.has(options.model);
-        const supportsTools: boolean = isGatewayModel || (modelInfo?.supportsTools ?? false);
+        const supportsTools: boolean =
+          isGatewayModel || (resolvedCapabilities.supportsTools ?? false);
         const {
           tools: requestedTools,
           toolChoice: requestedToolChoice,
@@ -1560,7 +1706,11 @@ class AISDKService implements LLMService {
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
-        const providerOptions = buildProviderOptions(providerName, options);
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          resolvedCapabilities.reasoning,
+        );
 
         const messageConversionStart = Date.now();
         // Attachments are stored as paths, so their payloads are loaded (or uploaded) here,
@@ -1599,14 +1749,17 @@ class AISDKService implements LLMService {
           ),
         );
         Effect.runFork(
-          this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`),
+          this.logger.info("LLM completion finished", {
+            provider: providerName,
+            durationMs: Date.now() - timingStart,
+          }),
         );
 
         if (toolsDisabled) {
           Effect.runFork(
-            this.logger.info(
-              `Tools were provided but skipped because ${options.model} does not support tools`,
-            ),
+            this.logger.info("Tools skipped because model does not support tools", {
+              provider: providerName,
+            }),
           );
         }
 
@@ -1646,9 +1799,14 @@ class AISDKService implements LLMService {
           for (const tc of result.toolCalls) {
             if (providerNativeToolNames.has(tc.toolName)) {
               Effect.runFork(
-                this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
+                this.logger.info("Provider-native tool used", {
                   provider: providerName,
-                  toolName: tc.toolName,
+                  toolKind:
+                    tc.toolName === "web_search"
+                      ? "web_search"
+                      : tc.toolName === "web_fetch"
+                        ? "web_fetch"
+                        : "other",
                 }),
               );
             }
@@ -1709,37 +1867,12 @@ class AISDKService implements LLMService {
       catch: (error: unknown) => {
         const llmError = convertToLLMError(error, providerName);
 
-        const cleanMessage = extractCleanErrorMessage(error);
-
-        // Log clean error message at error level (user-facing)
-        Effect.runFork(this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`));
-
-        // Log detailed error information at debug level (for debugging)
-        const errorDetails: Record<string, unknown> = {
-          provider: providerName,
-          errorType: llmError._tag,
-          message: llmError.message,
-        };
-
-        if (error instanceof Error) {
-          const e = error as Error & {
-            code?: string;
-            status?: number;
-            statusCode?: number;
-            type?: string;
-          };
-          if (e.code) errorDetails["code"] = e.code;
-          if (e.status) errorDetails["status"] = e.status;
-          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-          if (e.type) errorDetails["type"] = e.type;
-        }
-
-        const truncatedRequestBody = truncateRequestBodyValues(error);
-        if (truncatedRequestBody) {
-          errorDetails["requestBodyValues"] = truncatedRequestBody;
-        }
-
-        Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
+        Effect.runFork(
+          this.logger.error(
+            "LLM request failed",
+            safeLLMErrorMetadata(error, providerName, llmError._tag),
+          ),
+        );
 
         return llmError;
       },
@@ -1792,9 +1925,7 @@ class AISDKService implements LLMService {
         );
         const timingStart = Date.now();
         Effect.runFork(
-          this.logger.debug(
-            `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
-          ),
+          this.logger.debug("LLM streaming completion started", { provider: providerName }),
         );
 
         const modelSelectStart = Date.now();
@@ -1803,7 +1934,28 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const providerOptions = buildProviderOptions(providerName, options);
+        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const resolvedCapabilities = resolveModelCapabilities({
+          provider: providerName,
+          modelId: options.model,
+          catalog: {
+            ...(modelInfo?.isReasoningModel !== undefined && {
+              supportsReasoning: modelInfo.isReasoningModel,
+            }),
+            ...(modelInfo?.supportsTools !== undefined && {
+              supportsTools: modelInfo.supportsTools,
+            }),
+          },
+          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
+            undefined && {
+            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
+          }),
+        });
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          resolvedCapabilities.reasoning,
+        );
 
         // Message conversion timing
         const messageConversionStart = Date.now();
@@ -1820,217 +1972,204 @@ class AISDKService implements LLMService {
           ),
         );
 
-        return { timingStart, model, providerOptions, coreMessages };
+        return {
+          timingStart,
+          model,
+          modelInfo,
+          resolvedCapabilities,
+          providerOptions,
+          coreMessages,
+        };
       },
       catch: (error) => convertToLLMError(error, providerName),
     }).pipe(
-      Effect.flatMap(({ timingStart, model, providerOptions, coreMessages }) => {
-        const abortController = new AbortController();
+      Effect.flatMap(
+        ({
+          timingStart,
+          model,
+          modelInfo,
+          resolvedCapabilities,
+          providerOptions,
+          coreMessages,
+        }) => {
+          const abortController = new AbortController();
 
-        const responseDeferred = createDeferred<ChatCompletionResponse>();
+          const responseDeferred = createDeferred<ChatCompletionResponse>();
 
-        let processorRef: StreamProcessor | null = null;
-        const stream = Stream.async<StreamEvent, LLMError>(
-          (
-            emit: (
-              effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
-            ) => void,
-          ) => {
-            void (async (): Promise<void> => {
-              let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
-              try {
-                const streamTextStart = Date.now();
-                Effect.runFork(
-                  this.logger.debug(
-                    `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
-                  ),
-                );
-
-                const modelInfo = await this.resolveModelInfo(providerName, options.model);
-                const reasoningParser = selectParser({
-                  provider: providerName,
-                  modelId: options.model,
-                  ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
-                  ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
-                });
-                // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
-                // underlying models, so we assume tool support and pass tools through.
-                const isGatewayModel =
-                  OPENROUTER_GATEWAY_MODELS.has(options.model) ||
-                  ORCAROUTER_GATEWAY_MODELS.has(options.model);
-                const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
-                const {
-                  tools: requestedTools,
-                  toolChoice: requestedToolChoice,
-                  toolsDisabled,
-                } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
-
-                const prepared = this.prepareTools(providerName, requestedTools);
-                const tools = prepared?.tools;
-
-                if (toolsDisabled) {
+          let processorRef: StreamProcessor | null = null;
+          const stream = Stream.async<StreamEvent, LLMError>(
+            (
+              emit: (
+                effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+              ) => void,
+            ) => {
+              void (async (): Promise<void> => {
+                let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
+                try {
+                  const streamTextStart = Date.now();
                   Effect.runFork(
-                    this.logger.info(
-                      `Tools were provided but skipped because ${options.model} does not support tools`,
+                    this.logger.debug(
+                      `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
                     ),
                   );
-                }
 
-                streamTextResult = streamText({
-                  model,
-                  messages: coreMessages,
-                  allowSystemInMessages: true,
-                  maxRetries: AI_SDK_MAX_RETRIES,
-                  ...(typeof options.temperature === "number" &&
-                  modelInfo?.supportsTemperature !== false
-                    ? { temperature: options.temperature }
-                    : {}),
-                  ...(tools ? { tools } : {}),
-                  ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
-                  ...(providerOptions ? { providerOptions } : {}),
-                  abortSignal: abortController.signal,
-                  stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
-                });
-                const result = streamTextResult;
-
-                Effect.runFork(
-                  this.logger.debug(
-                    `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
-                  ),
-                );
-
-                const providerNativeToolNames = prepared?.providerNativeToolNames;
-
-                const processor = new StreamProcessor(
-                  {
-                    providerName,
-                    modelName: options.model,
-                    streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
-                    hasReasoningEnabled: !!(
-                      options.reasoning_effort && options.reasoning_effort !== "disable"
-                    ),
-                    startTime: Date.now(),
+                  const reasoningParser = selectParser({
+                    provider: providerName,
+                    modelId: options.model,
+                    ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
+                    ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
+                  });
+                  // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+                  // underlying models, so we assume tool support and pass tools through.
+                  const isGatewayModel =
+                    OPENROUTER_GATEWAY_MODELS.has(options.model) ||
+                    ORCAROUTER_GATEWAY_MODELS.has(options.model);
+                  const supportsTools =
+                    isGatewayModel || (resolvedCapabilities.supportsTools ?? false);
+                  const {
+                    tools: requestedTools,
+                    toolChoice: requestedToolChoice,
                     toolsDisabled,
-                    ...(typeof options.num_ctx === "number" &&
-                      options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
-                    ...(providerNativeToolNames && { providerNativeToolNames }),
-                    ...(reasoningParser ? { reasoningParser } : {}),
-                    ...(prepared
-                      ? {
-                          toolDefinitionChars: prepared.toolDefinitionChars,
-                          toolDefinitionCount: Object.keys(prepared.tools).length,
-                        }
+                  } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
+
+                  const prepared = this.prepareTools(providerName, requestedTools);
+                  const tools = prepared?.tools;
+
+                  if (toolsDisabled) {
+                    Effect.runFork(
+                      this.logger.info("Tools skipped because model does not support tools", {
+                        provider: providerName,
+                      }),
+                    );
+                  }
+
+                  streamTextResult = streamText({
+                    model,
+                    messages: coreMessages,
+                    allowSystemInMessages: true,
+                    maxRetries: AI_SDK_MAX_RETRIES,
+                    ...(typeof options.temperature === "number" &&
+                    modelInfo?.supportsTemperature !== false
+                      ? { temperature: options.temperature }
                       : {}),
-                  },
-                  emit,
-                  this.logger,
-                );
-                processorRef = processor;
+                    ...(tools ? { tools } : {}),
+                    ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
+                    ...(providerOptions ? { providerOptions } : {}),
+                    abortSignal: abortController.signal,
+                    stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                  });
+                  const result = streamTextResult;
 
-                // Process the stream and get final response
-                const finalResponse = await processor.process(result);
-
-                // `files` resolves once the stream finishes, so media a model emitted mid-answer
-                // is saved after the text has already been rendered. Awaited here rather than in
-                // the processor so streaming stays purely about text deltas.
-                const files = await Promise.race([
-                  result.files,
-                  new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
-                ]);
-                if (files === undefined) {
                   Effect.runFork(
-                    this.logger.warn(
-                      "[LLM] Stream finished but `files` never resolved; skipping generated-file capture",
-                      { provider: providerName, model: options.model },
+                    this.logger.debug(
+                      `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
                     ),
                   );
-                }
-                const streamedArtifacts = await saveModelGeneratedFiles(files ?? [], options.model);
 
-                // Resolve deferred for consumers who just await response
-                responseDeferred.resolve(
-                  streamedArtifacts.length > 0
-                    ? { ...finalResponse, artifacts: streamedArtifacts }
-                    : finalResponse,
-                );
+                  const providerNativeToolNames = prepared?.providerNativeToolNames;
 
-                // Close the stream
-                processor.close();
-              } catch (error) {
-                // Suppress unhandled rejections on streamText DelayedPromise fields.
-                // When the stream fails these all reject; we only consume fullStream,
-                // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
-                if (streamTextResult) {
-                  suppressStreamTextUnhandledRejections(streamTextResult);
-                }
+                  const processor = new StreamProcessor(
+                    {
+                      providerName,
+                      modelName: options.model,
+                      streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
+                      hasReasoningEnabled:
+                        options.reasoning !== undefined && options.reasoning !== "disable",
+                      startTime: Date.now(),
+                      toolsDisabled,
+                      ...(typeof options.num_ctx === "number" &&
+                        options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
+                      ...(providerNativeToolNames && { providerNativeToolNames }),
+                      ...(reasoningParser ? { reasoningParser } : {}),
+                      ...(prepared
+                        ? {
+                            toolDefinitionChars: prepared.toolDefinitionChars,
+                            toolDefinitionCount: Object.keys(prepared.tools).length,
+                          }
+                        : {}),
+                    },
+                    emit,
+                    this.logger,
+                  );
+                  processorRef = processor;
 
-                const llmError = convertToLLMError(error, providerName);
+                  // Process the stream and get final response
+                  const finalResponse = await processor.process(result);
 
-                const errorDetails: Record<string, unknown> = {
-                  provider: providerName,
-                  errorType: llmError._tag,
-                  message: llmError.message,
-                };
+                  // `files` resolves once the stream finishes, so media a model emitted mid-answer
+                  // is saved after the text has already been rendered. Awaited here rather than in
+                  // the processor so streaming stays purely about text deltas.
+                  const files = await Promise.race([
+                    result.files,
+                    new Promise<undefined>((resolve) =>
+                      setTimeout(() => resolve(undefined), 5_000),
+                    ),
+                  ]);
+                  if (files === undefined) {
+                    Effect.runFork(
+                      this.logger.warn(
+                        "[LLM] Stream finished but `files` never resolved; skipping generated-file capture",
+                        { provider: providerName, model: options.model },
+                      ),
+                    );
+                  }
+                  const streamedArtifacts = await saveModelGeneratedFiles(
+                    files ?? [],
+                    options.model,
+                  );
 
-                if (error instanceof Error) {
-                  const e = error as Error & {
-                    code?: string;
-                    status?: number;
-                    statusCode?: number;
-                    type?: string;
-                  };
-                  if (e.code) errorDetails["code"] = e.code;
-                  if (e.status) errorDetails["status"] = e.status;
-                  if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
-                  if (e.type) errorDetails["type"] = e.type;
-                  if (typeof error === "object" && error !== null) {
-                    try {
-                      const errorObj = error as unknown as Record<string, unknown>;
-                      if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
-                    } catch {
-                      // Ignore
-                    }
+                  // Resolve deferred for consumers who just await response
+                  responseDeferred.resolve(
+                    streamedArtifacts.length > 0
+                      ? { ...finalResponse, artifacts: streamedArtifacts }
+                      : finalResponse,
+                  );
+
+                  // Close the stream
+                  processor.close();
+                } catch (error) {
+                  // Suppress unhandled rejections on streamText DelayedPromise fields.
+                  // When the stream fails these all reject; we only consume fullStream,
+                  // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
+                  if (streamTextResult) {
+                    suppressStreamTextUnhandledRejections(streamTextResult);
+                  }
+
+                  const llmError = convertToLLMError(error, providerName);
+                  Effect.runFork(
+                    this.logger.error(
+                      "LLM request failed",
+                      safeLLMErrorMetadata(error, providerName, llmError._tag),
+                    ),
+                  );
+
+                  void emit(Effect.fail(Option.some(llmError)));
+
+                  responseDeferred.reject(llmError);
+                } finally {
+                  if (processorRef && !abortController.signal.aborted) {
+                    processorRef.cancel();
                   }
                 }
+              })();
+            },
+          );
 
-                // Truncate requestBodyValues to keep only last 5 messages
-                const truncatedRequestBody = truncateRequestBodyValues(error, 5);
-                if (truncatedRequestBody) {
-                  errorDetails["requestBodyValues"] = truncatedRequestBody;
-                }
-
-                const cleanMessage = extractCleanErrorMessage(error);
-                // Log clean error message at error level (user-facing)
-                Effect.runFork(this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`));
-                // Log detailed error information at debug level (for debugging)
-                Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
-
-                void emit(Effect.fail(Option.some(llmError)));
-
-                responseDeferred.reject(llmError);
-              } finally {
-                if (processorRef && !abortController.signal.aborted) {
-                  processorRef.cancel();
-                }
+          return Effect.succeed({
+            stream,
+            response: Effect.tryPromise({
+              try: () => responseDeferred.promise,
+              catch: (error) => convertToLLMError(error, providerName),
+            }),
+            cancel: Effect.sync(() => {
+              if (processorRef) {
+                processorRef.cancel();
               }
-            })();
-          },
-        );
-
-        return Effect.succeed({
-          stream,
-          response: Effect.tryPromise({
-            try: () => responseDeferred.promise,
-            catch: (error) => convertToLLMError(error, providerName),
-          }),
-          cancel: Effect.sync(() => {
-            if (processorRef) {
-              processorRef.cancel();
-            }
-            abortController.abort();
-          }),
-        });
-      }), // close Effect.flatMap
+              abortController.abort();
+            }),
+          });
+        },
+      ), // close Effect.flatMap
     ); // close pipe
   }
 }

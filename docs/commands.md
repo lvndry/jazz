@@ -35,7 +35,8 @@ agents, update configuration. The home screen reports what is ready under **setu
 under **environment**, the same machine facts every agent receives in its system prompt: date,
 OS with shell and user, working directory, and hardware. Both come from one source, so the screen
 cannot drift from what agents are actually told. On a short terminal the environment report is the
-first section dropped, after the tip.
+first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
+setting, tool, workflow, or example task available in Jazz.
 
 ---
 
@@ -49,7 +50,8 @@ jazz run --agent <id> [prompt]
 ```
 
 The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY.
+absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
+treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                              |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -390,12 +392,13 @@ See [Configuration](./configure/jazz.md).
 
 ## `jazz memory`
 
-| Command                             | Purpose                                                   |
-| ----------------------------------- | --------------------------------------------------------- |
-| `jazz memory list <agent>`          | List durable memory files available to an agent           |
-| `jazz memory show <agent> <path>`   | Print one memory file as the agent reads it               |
-| `jazz memory forget <agent> <path>` | Permanently delete one memory file                        |
-| `jazz memory recall`                | Report memory consultation; `--surface <name>` filters it |
+| Command                              | Purpose                                                       |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `jazz memory list <agent>`           | List durable memory files available to an agent               |
+| `jazz memory show <agent> <path>`    | Print one memory file as the agent reads it                   |
+| `jazz memory forget <agent> <path>`  | Permanently delete one memory file                            |
+| `jazz memory explain <agent> <path>` | Show provenance and recent opportunity receipts for one entry |
+| `jazz memory recall`                 | Report memory consultation; `--surface <name>` filters it     |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 

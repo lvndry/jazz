@@ -168,12 +168,62 @@ flowchart TB
 has to ask for them — a preference the user stated is not something they should have to restate.
 
 **Topic-scoped entries** (`when/<topic>/`) are the agent's responsibility to discover. The agent
-calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest. This
-is deliberate: automatic topic matching cannot do semantic association ("squats" does not match
-"workout" lexically), and injecting a topic list biases the agent toward shoehorning into
-existing topics instead of creating new ones when they're needed.
+calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest.
+Automatic topic selection remains a measured research path: an extra model call must improve
+task results enough to justify its latency, cost, and potential irrelevant exposure.
 
 The cost of recall tracks how much is relevant, not how much has ever been remembered.
+
+### Trusted capture and correction
+
+Every `manage_memory` write quotes the user. A message typed in the terminal, or passed to
+`jazz run` as its positional argument, carries a `[memory source <id>]` tag; the model sets
+`source_ref` to that ID and `source_quote` to words copied exactly from the message. Earlier
+messages in the same conversation stay quotable. A prompt piped to `jazz run` on stdin, inline
+`--history-json`, tool output, web pages, model summaries, replayed chat commands, and synthetic
+sub-agent prompts carry no tag and cannot become user facts. The saved entry contains the user's
+quoted words, and a rejected citation says whether the ID, the quote, or its length was wrong.
+
+`amend` replaces an existing entry only when the quote names what that entry is about. `delete`
+and `rename` need a quoted sentence that opens with the request ("Forget my favorite fruit") and
+names the entry, so "Don't forget I'm vegetarian" cannot be cut down to a forget request and
+"remove the old logs" cannot delete a food preference. A secret or sensitive claim is refused
+when it appears anywhere in the quoted sentence or in the subject or topic it would be filed under.
+
+Creating an entry also requires an explicit relevance topic. A favorite fruit can be filed under
+`food` for later shopping or meal tasks. The literal topic `always` is reserved for a preference
+that should affect nearly every task, such as concise replies. This choice is made by the agent
+and remains measurable; an incorrect topic can still cause missed or irrelevant recall.
+
+When a sourced fact is corrected or forgotten, a hidden source ledger revokes the sentences it
+was quoted from before the file changes. Later compaction cannot re-save the old claim from those
+sentences, even by quoting a different part of one, while other facts from the same message stay
+quotable: correcting "I like tea" in "I like tea. I'm vegetarian." leaves the second sentence
+usable. A fresh user statement can establish the fact again. The ledger spans memory scopes and
+stores hashed sentence keys and paths, never quotes. Forgetting never waits on it: with an
+unreadable ledger the delete still happens and cited writes stay paused, and a full ledger drops
+its oldest revocations. Memories created before source tracking have no sentences to revoke;
+their original conversation history may need manual review after a forget request.
+
+### Memory opportunity receipts
+
+Jazz records which memory entries each model request could have used. A receipt stays `pending`
+if the request does not complete. Once the provider accepts the request, the receipt records a
+standing entry only if its exact rendered line was in the system prompt, and a `view_memory` file
+only if the exact tool result survived into the request. A listed directory or a cleared or
+edited tool result does not count as an exposure. An eligible entry with no exposure is recorded
+too, so unshown candidates stay inspectable. Eligibility means the agent could access the scope.
+
+Receipts contain entry IDs, content hashes, paths, timestamps, and exposure kinds, never user
+quotes or transcript text. Each entry keeps its newest 128 receipts; `jazz memory explain` shows
+the latest five. Forgetting an entry starts a new epoch for its scope and erases every receipt in
+that scope, including records whose old entry IDs can no longer be recovered, so an in-flight run
+cannot write old receipts back. Receipts award no `helped`, `failed`, or `missed` credit and do
+not change recall or memory content.
+
+These gates check where the words came from. They do not prove a statement is durable or that it
+belongs in the selected entry; those decisions still need evaluation. Jazz does not infer a change
+in the person's preferences without something they said.
 
 ### Automatic extraction at compaction
 

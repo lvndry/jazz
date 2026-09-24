@@ -8,6 +8,9 @@ describe("isAllowedEvalModel", () => {
     expect(isAllowedEvalModel("openrouter", "qwen/qwen3-next-80b-a3b-instruct:free")).toBe(true);
     expect(isAllowedEvalModel("openrouter", "meta-llama/llama-3.1-8b:free")).toBe(true);
   });
+  it("allows Ollama models", () => {
+    expect(isAllowedEvalModel("ollama", "gemma4:31b-cloud")).toBe(true);
+  });
   it("allows only the cheap OpenAI tiers", () => {
     expect(isAllowedEvalModel("openai", "gpt-5.4-nano")).toBe(true);
     expect(isAllowedEvalModel("openai", "gpt-5.4-mini")).toBe(true);

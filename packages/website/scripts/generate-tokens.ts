@@ -44,8 +44,6 @@ ${cssBlock(PALETTES.dark, "  ")}
 const tokensTs = `// GENERATED from @jazz/cli's ui/theme.ts and ui/glyphs.ts — do not edit by hand.
 // Regenerate with: bun run tokens (from packages/website/).
 
-export const PALETTES = ${JSON.stringify(PALETTES, null, 2)} as const;
-
 export const GLYPHS = ${JSON.stringify(GLYPHS.unicode, null, 2)} as const;
 
 export const MOTION = ${JSON.stringify(MOTION, null, 2)} as const;

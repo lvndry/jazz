@@ -12,6 +12,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ConversationMessages } from "@/core/types";
 import { LLMRateLimitError } from "@/core/types/errors";
+import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
@@ -46,8 +47,9 @@ export function executeWithoutStreaming(
     const { runMetrics, provider, model } = runContext;
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
-    const reasoningEffort = agent.config.reasoningEffort ?? "disable";
-    const shouldShowReasoning = displayConfig.showReasoning && reasoningEffort !== "disable";
+    const reasoning = agent.config.reasoning;
+    const reasoningLabel = describeReasoningSelection(reasoning);
+    const shouldShowReasoning = displayConfig.showReasoning && reasoningIsEnabled(reasoning);
 
     // Some presentation services (the headless one-shot `--events` emitter) only
     // surface tool lifecycle events through a streaming renderer. On this batch
@@ -62,7 +64,7 @@ export function executeWithoutStreaming(
             streamingConfig: { enabled: true },
             showMetrics,
             agentName: agent.name,
-            reasoningEffort,
+            reasoning: reasoningLabel,
           })
         : null;
 
@@ -76,7 +78,7 @@ export function executeWithoutStreaming(
             messages: currentMessages,
             tools: runContext.tools,
             toolChoice: "auto" as const,
-            reasoning_effort: reasoningEffort,
+            ...(reasoning !== undefined ? { reasoning } : {}),
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }
               : {}),

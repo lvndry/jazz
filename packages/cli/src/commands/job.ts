@@ -11,7 +11,7 @@ import { Effect } from "effect";
 export function runJobsCommand(options: { agent: string }) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    yield* logger.info("Draining background jobs", { agentId: options.agent });
+    yield* logger.info("Draining background jobs");
     yield* drainAgentJobs(options.agent);
   });
 }

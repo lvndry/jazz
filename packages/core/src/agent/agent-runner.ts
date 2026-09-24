@@ -29,18 +29,21 @@ import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
+import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import type { ActivePreference } from "@/core/memory/preference-line";
+import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
@@ -56,9 +59,16 @@ import {
   Summarizer,
   type CompactionOutcome,
   type CompactionProgressObserver,
+  type RecursiveRunner,
 } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
+import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
+import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
+import {
+  createAgentRunMetrics,
+  emitAgentRunStarted,
+  telemetryErrorCategory,
+} from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
@@ -110,7 +120,7 @@ import { normalizeToolConfig } from "./utils/tool-config";
 function resolveActivePreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
+): Effect.Effect<readonly ActivePreference[], never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
@@ -118,18 +128,20 @@ function resolveActivePreferences(
       return [];
     }
     const memoryService = memoryServiceOption.value;
-
     return yield* Effect.gen(function* () {
-      const entries = yield* memoryService.standingEntries(memoryScopes);
-      return entries.map((entry) => ({ summary: entry.summary }));
+      const standingEntries = yield* memoryService.standingEntries(memoryScopes);
+      return standingEntries.map((entry) => ({
+        scope: entry.scope,
+        summary: entry.summary,
+      }));
     }).pipe(
       Effect.catchAll((error) =>
         logger
           .warn("Failed to read memory; running without it", {
-            scopes: memoryScopes,
-            error: error instanceof Error ? error.message : String(error),
+            scopeCount: memoryScopes.length,
+            errorCategory: telemetryErrorCategory(error),
           })
-          .pipe(Effect.as<{ summary: string }[]>([])),
+          .pipe(Effect.as<readonly ActivePreference[]>([])),
       ),
     );
   });
@@ -338,9 +350,10 @@ function initializeAgentRun(
     const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
+      ...(options.telemetryParent ? { telemetryParent: options.telemetryParent } : {}),
       provider,
       model,
-      reasoningEffort: agent.config.reasoningEffort ?? "disable",
+      reasoningEffort: agent.config.reasoning ?? "disable",
       maxIterations: resolvedMaxIterations,
       maxCostUSD: resolvedMaxCostUSD,
     });
@@ -350,9 +363,7 @@ function initializeAgentRun(
     // Level 1: List all available skills (metadata only)
     const relevantSkills = yield* skillService.listSkills();
     const logger = yield* LoggerServiceTag;
-    yield* logger.debug(
-      `[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map((s) => s.name).join(", ")}`,
-    );
+    yield* logger.debug("Skills discovered", { count: relevantSkills.length });
 
     // One plugin session owns every hook/provider registration for this run. It remains alive
     // through tool execution so policy hooks and routing share the same bounded budgets and is
@@ -384,7 +395,7 @@ function initializeAgentRun(
             Effect.catchAll((error) =>
               logger
                 .warn("Plugin session failed to open; using deterministic behavior", {
-                  error: error.message,
+                  errorCategory: telemetryErrorCategory(error),
                 })
                 .pipe(Effect.as(Option.none())),
             ),
@@ -404,7 +415,7 @@ function initializeAgentRun(
                   ? Effect.failCause(cause)
                   : logger
                       .warn("Plugin skill routing failed; using deterministic behavior", {
-                        error: String(cause),
+                        errorCategory: telemetryErrorCategory(cause),
                       })
                       .pipe(Effect.as(undefined)),
               ),
@@ -442,8 +453,9 @@ function initializeAgentRun(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          yield* logger.warn(`Failed to register MCP tools for agent: ${errorMessage}`);
+          yield* logger.warn("Failed to register MCP tools for agent", {
+            errorCategory: telemetryErrorCategory(error),
+          });
           // Continue even if MCP registration fails - tools might not be needed
           return [];
         }),
@@ -494,7 +506,7 @@ function initializeAgentRun(
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
     // outright, so the model is never even offered a way to persist anything.
     if (options.disablePersistence === true) {
-      combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
+      combinedToolNames = combinedToolNames.filter((name) => name !== MANAGE_MEMORY_TOOL_NAME);
     }
 
     // Same reasoning for the tools that solicit an answer from a human. Failing the
@@ -515,7 +527,7 @@ function initializeAgentRun(
       if (withheld.length > 0) {
         yield* logger.info("Tools withheld by inherited allowlist", {
           agentId: agent.id,
-          withheld,
+          withheldCount: withheld.length,
         });
       }
     }
@@ -581,11 +593,9 @@ function initializeAgentRun(
     // no project to honor, so it never gets them.
     const projectInstructions = yield* resolveProjectInstructions(persona, agent.id, options);
     if (projectInstructions.length > 0) {
-      yield* logger.debug(
-        `[AGENTS.md] Loaded ${projectInstructions.length} instruction file(s): ${projectInstructions
-          .map((file) => file.path)
-          .join(", ")}`,
-      );
+      yield* logger.debug("AGENTS.md instruction files loaded", {
+        count: projectInstructions.length,
+      });
     }
 
     // Attachment ingestion needs the agent's cwd to resolve relative paths the user typed, and
@@ -605,11 +615,27 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
+    const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
+    const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+    const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
+      ? createMemoryOpportunityRecorder({
+          snapshotEntries: () => memoryServiceForReceipts.value.snapshotEntries(memoryScopes),
+          fileSystem: yield* FileSystem.FileSystem,
+          logger,
+          viewMemoryOffered: expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
+        })
+      : undefined;
+
+    const currentMemorySource: MemorySource | undefined =
+      options.trustUserInputAsMemorySource === true && options.isResume !== true
+        ? { id: `user:${runMetrics.runId}`, text: userInput }
+        : undefined;
+    const memorySources =
+      options.memorySources ?? collectMemorySources(history, currentMemorySource);
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -619,6 +645,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(currentMemorySource !== undefined ? { memorySource: currentMemorySource } : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
@@ -662,6 +689,12 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      memorySources,
+      telemetryTraceParent: {
+        topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
+        parentRunId: runMetrics.runId,
+        sessionId: runMetrics.telemetryParent?.sessionId ?? actualConversationId,
+      },
       memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
@@ -750,6 +783,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      ...(memoryOpportunities !== undefined ? { memoryOpportunities } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {
@@ -775,6 +809,11 @@ function initializeAgentRun(
       knownSkills: relevantSkills,
     };
   });
+}
+
+/** Preserve the active trace when compaction or memory extraction starts a recursive run. */
+export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
+  return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
 }
 
 /**
@@ -861,12 +900,12 @@ export class AgentRunner {
             : {}),
         };
 
-        const runRecursive = (runOpts: {
-          agent: Agent;
-          userInput: string;
-          conversationId: string;
-          maxIterations?: number;
-        }) => AgentRunner.runRecursive(runOpts);
+        const runRecursive = createNestedRunExecutor({
+          topRunId: runContext.runMetrics.telemetryParent?.topRunId ?? runContext.runMetrics.runId,
+          parentRunId: runContext.runMetrics.runId,
+          sessionId:
+            runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
+        });
 
         const execute = shouldStream
           ? executeWithStreaming(
@@ -973,7 +1012,7 @@ export class AgentRunner {
             Effect.catchAll((error) =>
               logger
                 .warn("Plugin session failed to open for /compact; summarizing without pruning", {
-                  error: error.message,
+                  errorCategory: telemetryErrorCategory(error),
                 })
                 .pipe(Effect.as(Option.none())),
             ),

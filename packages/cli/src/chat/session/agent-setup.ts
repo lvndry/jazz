@@ -57,12 +57,9 @@ export function setupAgent(
 
     if (setupResult._tag === "Left") {
       // MCP setup had errors, but we continue anyway
-      const error = setupResult.left;
-      const errorMessage =
-        typeof error === "object" && error !== null && "message" in error
-          ? String((error as { message: unknown }).message)
-          : String(error);
-      yield* logger.warn(`Some MCP connections failed during agent setup: ${errorMessage}`);
+      yield* logger.warn("Some MCP connections failed during agent setup", {
+        errorType: "connection_failed",
+      });
       yield* presentation.presentStatus(
         "Some MCP servers could not be connected. The agent will continue with available tools.",
         "warning",
@@ -102,9 +99,7 @@ function registerMcpPromptCommands(
     for (const serverName of connectedServers) {
       const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.either);
       if (prompts._tag === "Left") {
-        yield* logger.debug(
-          `Could not list prompts for MCP server ${serverName}: ${prompts.left.reason}`,
-        );
+        yield* logger.debug("MCP prompt listing failed", { errorType: "prompt_list_failed" });
         continue;
       }
 
@@ -129,9 +124,7 @@ function registerMcpPromptCommands(
     setMcpPromptCommands(commands);
 
     if (commands.length > 0) {
-      yield* logger.info(
-        `Registered ${commands.length} MCP prompt command(s): ${commands.map((command) => `/${command.name}`).join(", ")}`,
-      );
+      yield* logger.info("MCP prompt commands registered", { commandCount: commands.length });
     }
   });
 }

@@ -68,6 +68,13 @@ import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/w
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
 import { describeTier } from "@/cli/commands/peers";
+import {
+  CLI_REASONING_EFFORTS,
+  isCliReasoningValue,
+  promptForReasoningSelection,
+  reasoningSelectionFromCliValue,
+  reasoningSelectionToCliValue,
+} from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -748,8 +755,10 @@ function handleAgentsCommand(
           fmt.keyValue("Model", `${ag.config.llmProvider}/${ag.config.llmModel}`),
         );
         yield* terminal.log(fmt.keyValue("Persona", ag.config.persona));
-        if (ag.config.reasoningEffort) {
-          yield* terminal.log(fmt.keyValue("Reasoning", ag.config.reasoningEffort));
+        if (ag.config.reasoning) {
+          yield* terminal.log(
+            fmt.keyValue("Reasoning", reasoningSelectionToCliValue(ag.config.reasoning)),
+          );
         }
         yield* terminal.log(fmt.blank());
       }
@@ -1211,7 +1220,7 @@ function handleCopyCommand(
 }
 
 /**
- * Handle /reasoning command - Change reasoning effort for this session only.
+ * Handle /reasoning command - Change structured reasoning selection for this session only.
  *
  * The level is applied to the live agent for the rest of the session but is
  * never written back to the stored agent config, so it resets on the next
@@ -1224,58 +1233,53 @@ function handleReasoningCommand(
   agent: CommandContext["agent"],
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
-  const validLevels = ["low", "medium", "high", "disable"] as const;
-  const isLevel = (value: string): value is (typeof validLevels)[number] =>
-    (validLevels as readonly string[]).includes(value);
+  const validValues = [...CLI_REASONING_EFFORTS, "disable"] as const;
 
-  const applyLevel = (level: (typeof validLevels)[number]): CommandResult => {
+  const applyValue = (value: (typeof validValues)[number]): CommandResult => {
     // Session-only: override the in-memory agent config without persisting it.
     const newAgent = {
       ...agent,
-      config: { ...agent.config, reasoningEffort: level },
+      config: { ...agent.config, reasoning: reasoningSelectionFromCliValue(value) },
     };
     return { shouldContinue: true, newAgent };
   };
 
   return Effect.gen(function* () {
     if (args.length > 0) {
-      const level = args[0] ?? "";
-      if (!isLevel(level)) {
-        yield* terminal.error(`Invalid reasoning level. Use: ${validLevels.join(", ")}`);
+      const value = args[0] ?? "";
+      if (args.length !== 1 || !isCliReasoningValue(value)) {
+        yield* terminal.error(`Invalid reasoning level. Use: ${validValues.join(", ")}`);
         yield* terminal.log("");
         return { shouldContinue: true };
       }
-      yield* terminal.success(`Reasoning effort set to: ${level} (this session only)`);
+      yield* terminal.success(`Reasoning set to: ${value} (this session only)`);
       yield* terminal.log("");
-      return applyLevel(level);
+      return applyValue(value);
     }
 
     if (terminal.isInteractive) {
-      const selected = yield* terminal.select<(typeof validLevels)[number]>(
-        "Set reasoning effort for this session:",
-        {
-          choices: validLevels.map((level) => ({
-            name: level,
-            value: level,
-            ...(level === (agent.config.reasoningEffort ?? "disable")
-              ? { description: "current" }
-              : {}),
-          })),
-          default: agent.config.reasoningEffort ?? "disable",
-        },
+      const selected = yield* Effect.promise(() =>
+        promptForReasoningSelection(
+          terminal,
+          agent.config.reasoning,
+          "Set reasoning effort for this session:",
+        ),
       );
       if (!selected) {
         yield* terminal.log("");
         return { shouldContinue: true };
       }
-      yield* terminal.success(`Reasoning effort set to: ${selected} (this session only)`);
+      const value = reasoningSelectionToCliValue(selected);
+      yield* terminal.success(`Reasoning set to: ${value} (this session only)`);
       yield* terminal.log("");
-      return applyLevel(selected);
+      return applyValue(value);
     }
 
     yield* terminal.log(fmt.heading("Reasoning Effort (this session)"));
-    yield* terminal.log(fmt.keyValueCompact("Current", agent.config.reasoningEffort ?? "default"));
-    yield* terminal.info(`Levels: ${validLevels.join(", ")}`);
+    yield* terminal.log(
+      fmt.keyValueCompact("Current", reasoningSelectionToCliValue(agent.config.reasoning)),
+    );
+    yield* terminal.info(`Levels: ${validValues.join(", ")}`);
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
@@ -1482,6 +1486,10 @@ function handleConfigCommand(
         default: agentToolNames,
       });
 
+      if (selected === undefined) {
+        return { shouldContinue: true };
+      }
+
       const newTools = [...selected];
 
       // Report changes
@@ -1514,7 +1522,9 @@ function handleConfigCommand(
     yield* terminal.log(
       fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
     );
-    yield* terminal.log(fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "—"));
+    yield* terminal.log(
+      fmt.keyValueCompact("Reasoning", reasoningSelectionToCliValue(agent.config.reasoning)),
+    );
 
     const agentToolNames = normalizeToolConfig(agent.config.tools, { agentId: agent.id });
     yield* terminal.log(fmt.keyValueCompact("Tools", `${agentToolNames.length} enabled`));
@@ -2039,7 +2049,7 @@ function handleInfoCommand(
       fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
     );
     yield* terminal.log(
-      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
+      fmt.keyValueCompact("Reasoning", reasoningSelectionToCliValue(agent.config.reasoning)),
     );
     const totalTools = agent.config.tools?.length ?? 0;
     yield* terminal.log(fmt.keyValueCompact("Tools", `${totalTools} available`));
@@ -2842,7 +2852,7 @@ function handleMemoryCommand(
         const provenance = yield* memoryService
           .provenance(scopes, args[0])
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-        yield* terminal.log(fmt.heading(outcome.path));
+        yield* terminal.log(fmt.heading(outcome.displayPath));
         if (provenance !== undefined) {
           yield* terminal.log(
             `updated ${provenance.updatedAt.slice(0, 10)} · ${provenance.writeCount} write(s)\n`,

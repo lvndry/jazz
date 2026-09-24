@@ -372,16 +372,6 @@ export class ContextWindowManager {
   }
 
   /**
-   * Check if messages should be summarized.
-   *
-   * @deprecated Use {@link shouldCompact}, which measures against the context
-   * budget rather than the trim budget.
-   */
-  shouldSummarize(messages: ChatMessage[]): boolean {
-    return this.shouldCompact(messages);
-  }
-
-  /**
    * Get current configuration
    */
   getConfig(): ContextWindowConfig {

@@ -35,7 +35,7 @@ export class CLIPresentationService implements PresentationService {
     private readonly confirm: (
       message: string,
       defaultValue?: boolean,
-    ) => Effect.Effect<boolean, never>,
+    ) => Effect.Effect<boolean | undefined, never>,
     private readonly ask: (
       message: string,
       options?: { defaultValue?: string },
@@ -166,7 +166,7 @@ export class CLIPresentationService implements PresentationService {
         streamingConfig: config.streamingConfig,
         showMetrics: config.showMetrics,
         agentName: config.agentName,
-        reasoningEffort: config.reasoningEffort,
+        reasoning: config.reasoning,
       };
       const renderer = new CLIRenderer(rendererConfig);
       const streamingRenderer: StreamingRenderer = {

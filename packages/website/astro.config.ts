@@ -12,6 +12,10 @@ export default defineConfig({
   // domain-agnostic, this one constant is the only thing to change.
   site: "https://jazz-cli.vercel.app",
   trailingSlash: "never",
+  // Compression drops a line break that is the only space between text and an
+  // inline element, gluing words ("intopackages/", "don'tturn"). Prettier wraps
+  // long paragraphs exactly there, so keeping whitespace is the only fix that holds.
+  compressHTML: false,
   build: {
     format: "file",
   },

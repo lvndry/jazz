@@ -2,7 +2,9 @@
  * Application configuration types
  */
 
+import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { ModelCapabilityOverride } from "./model-capabilities";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
 import type { WebhookConfig } from "./webhook";
@@ -133,7 +135,7 @@ export interface OtlpTelemetryConfig {
    * into a waterfall, and what LLM-observability backends accept — Langfuse
    * ingests OTLP traces and not logs.
    */
-  readonly signals?: readonly ("traces" | "logs")[];
+  readonly signals?: readonly ("traces" | "logs" | "metrics")[];
   /** Collector base URL, e.g. `http://localhost:4318`. Env: OTEL_EXPORTER_OTLP_ENDPOINT. */
   readonly endpoint?: string;
   /**
@@ -147,6 +149,8 @@ export interface OtlpTelemetryConfig {
    * Env: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.
    */
   readonly logsEndpoint?: string;
+  /** Full metrics URL including path. Env: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT. */
+  readonly metricsEndpoint?: string;
   /** Extra HTTP headers, typically auth. Env: OTEL_EXPORTER_OTLP_HEADERS. */
   readonly headers?: Readonly<Record<string, string>>;
   /** `service.name` on exported records. Defaults to "jazz". Env: OTEL_SERVICE_NAME. */
@@ -165,6 +169,12 @@ export interface OtlpTelemetryConfig {
   readonly captureContent?: boolean;
   /** Per-request timeout in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
+  /** Maximum disk space used by pending OTLP traces and logs. Defaults to 32 MiB. */
+  readonly maxQueuedBytes?: number;
+  /** Maximum age of pending OTLP traces and logs in milliseconds. Defaults to seven days. */
+  readonly maxQueueAgeMs?: number;
+  /** Metric export interval in milliseconds. Defaults to 30 seconds. */
+  readonly metricExportIntervalMs?: number;
 }
 
 /**
@@ -230,6 +240,15 @@ export interface LLMConfig {
    * legitimately exceed the default before their first streamed part.
    */
   readonly streamIdleTimeoutMs?: number;
+  /**
+   * Local corrections for provider/model controls models.dev cannot describe.
+   *
+   * Keys are exact provider-facing model IDs. Values select only Jazz-owned,
+   * schema-validated transports; they cannot inject arbitrary request options.
+   */
+  readonly capabilityOverrides?: Partial<
+    Record<ProviderName, Readonly<Record<string, ModelCapabilityOverride>>>
+  >;
   readonly ai_gateway?: LLMProviderConfig;
   readonly alibaba?: LLMProviderConfig;
   readonly anthropic?: AnthropicProviderConfig;

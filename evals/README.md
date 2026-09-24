@@ -17,6 +17,39 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
+### Personal memory design comparison
+
+The acceptance journey tests same-turn capture, unrelated and hypothetical turns, shopping-list
+recall, tool-output injection, correction, and forgetting across new conversations in a private
+`JAZZ_HOME` per sample. It checks that the favorite-fruit fact is stored under `when/food/`, not
+`always/`, so a good answer on the unrelated turn cannot hide an `always/` prompt injection. The
+correction and forget turns pass only when the earlier fact was actually saved:
+
+```bash
+bun evals/personal-memory-journey.ts --samples 3 --model gemma4:31b-cloud
+```
+
+The JSON report lands in `evals/report/` (gitignored). The model name can be replaced with an
+available local Ollama tool-capable model. Each turn records `costKnown`; treat `costUSD: 0`
+as unpriced when `costKnown` is false.
+
+The journey report includes pending, injected, viewed, and unshown memory observation receipt
+counts. Forgetting must leave no retained receipts. To exercise the separate, read-only lifecycle
+judge against curated reference labels, run:
+
+```bash
+bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud
+bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud --held-out
+```
+
+These small labels are independent of the model prompt but are not user-reviewed human labels.
+The runner validates every enum and evidence reference and reports abstentions, invalid responses,
+and false personal write proposals. An invalid response counts as wrong on both cause and action,
+never as an abstention. Its output cannot mutate memory, provenance, skills, or policy.
+
+Both memory runners write their agent into a temporary `JAZZ_HOME` and pass it through the same
+free-or-cheap model guardrail as `bun run evals`.
+
 Reports land in `evals/report/` (gitignored). Metrics: pass@1, pass@k,
 **Pass^k** (reliability), bootstrap CI, cost-normalized, per-domain + overall.
 

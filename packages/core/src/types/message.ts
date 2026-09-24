@@ -31,14 +31,39 @@ export interface StoredReasoningPart {
  * Messages form the conversation context between a user and an AI assistant.
  * Each message has a role, content, and optionally tool-specific metadata.
  */
+/** User text the host received directly, which the model may quote as the basis for a memory write. */
+export interface MemorySource {
+  readonly id: string;
+  readonly text: string;
+}
+
+/** A memory entry a tool showed the model, declared by the tool that showed it. */
+export interface MemoryExposure {
+  /** Canonical `<scope>/<rest>` path, as the memory tools address it. */
+  readonly path: string;
+  /** sha256 of the entry text shown; equals the entry's content hash when `complete`. */
+  readonly shownContentHash: string;
+  /** Whether the whole entry was shown rather than a partial range. */
+  readonly complete: boolean;
+}
+
+/** An exposure plus the hash of the tool message carrying it, so an edited or cleared message no longer counts. */
+export interface MemoryDelivery extends MemoryExposure {
+  readonly messageContentHash: string;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Retained through compaction so a later turn can still quote it; tool output never carries one. */
+  memorySource?: MemorySource;
   name?: string;
   /**
    * For role === "tool": the id of the tool call this message responds to
    */
   tool_call_id?: string;
+  /** A memory entry this tool result showed; counted as exposed only while these exact bytes reach a request. */
+  memoryDelivery?: MemoryDelivery;
   /**
    * Set when this message's original content has been replaced by a placeholder to
    * reclaim context (see `clearToolResults`). Marks the message as already reclaimed

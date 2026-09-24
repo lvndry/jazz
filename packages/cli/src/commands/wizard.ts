@@ -10,6 +10,7 @@ import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
+import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -141,7 +142,6 @@ export function wizardCommand() {
           if (creationResult._tag === "Left") {
             // Creation failed
             yield* terminal.error(`Failed to create agent: ${String(creationResult.left)}`);
-            yield* terminal.clear();
             break;
           }
 
@@ -376,7 +376,7 @@ function startChatWithAgent(
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
     yield* terminal.log(`Working directory: ${process.cwd().replace(os.homedir(), "~")}`);
     yield* terminal.log(
-      `${agentModelString(agent.config)} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
+      `${agentModelString(agent.config)} - Reasoning: ${formatReasoningSelection(agent.config.reasoning)}`,
     );
     if (agent.description) {
       yield* terminal.log(`Description: ${agent.description}`);
@@ -523,11 +523,19 @@ function promptNotificationsOnFirstRun(
       true, // Default to yes
     );
 
+    if (enableNotifications === undefined) {
+      yield* terminal.info("Skipped. Configure notifications anytime in Settings.");
+      yield* terminal.log("");
+      return;
+    }
+
     yield* configService.set("notifications.enabled", enableNotifications);
 
     if (enableNotifications) {
       const enableSound = yield* terminal.confirm("Play a sound with notifications?", true);
-      yield* configService.set("notifications.sound", enableSound);
+      if (enableSound !== undefined) {
+        yield* configService.set("notifications.sound", enableSound);
+      }
       yield* terminal.success("Notifications enabled! Change anytime in Settings.");
     } else {
       yield* terminal.info("Notifications disabled. Enable anytime in Settings.");
