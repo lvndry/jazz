@@ -19,10 +19,11 @@ bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 
 ### Personal memory design comparison
 
-The current acceptance journey tests same-turn capture, unrelated and hypothetical turns,
-shopping-list recall, tool-output injection, correction, and forgetting across new conversations
-in a private `JAZZ_HOME` per sample. It also checks that the favorite-fruit fact is topic scoped,
-so a good answer on the unrelated turn cannot hide an `always/` prompt injection:
+The acceptance journey tests same-turn capture, unrelated and hypothetical turns, shopping-list
+recall, tool-output injection, correction, and forgetting across new conversations in a private
+`JAZZ_HOME` per sample. It checks that the favorite-fruit fact is stored under `when/food/`, not
+`always/`, so a good answer on the unrelated turn cannot hide an `always/` prompt injection. The
+correction and forget turns pass only when the earlier fact was actually saved:
 
 ```bash
 bun evals/personal-memory-journey.ts --samples 3 --model gemma4:31b-cloud
@@ -33,14 +34,13 @@ available local Ollama tool-capable model. Each turn records `costKnown`; treat 
 as unpriced when `costKnown` is false.
 
 The September 2026 paired multi-session experiment compared ordinary agent-driven recall with
-a one-call capture and retrieval preflight. Its isolated runner and prototype are preserved in
-commit `a9a51bbf`; the summary and limitations are in
+a one-call capture and retrieval preflight. The summary and limitations are in
 [the personal-memory evaluation](./results/personal-memory-2026-09-23.md). The extra call did not
-improve task success in the tested journeys, so it is not part of the current agent path.
+improve task success in the tested journeys, so it is not part of the agent path.
 
-The shadow receipt branch extends the journey report with pending, injected, viewed, and unshown
-opportunity counts. Forgetting must leave no retained receipts. To exercise the separate,
-read-only lifecycle judge against curated reference labels, run:
+The journey report includes pending, injected, viewed, and unshown memory observation receipt
+counts. Forgetting must leave no retained receipts. To exercise the separate, read-only lifecycle
+judge against curated reference labels, run:
 
 ```bash
 bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud
@@ -48,9 +48,13 @@ bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud --held-out
 ```
 
 These small labels are independent of the model prompt but are not user-reviewed human labels.
-The runner validates every enum and evidence reference and reports abstentions and false personal
-write proposals. Its output cannot mutate memory, provenance, skills, or policy. See
+The runner validates every enum and evidence reference and reports abstentions, invalid responses,
+and false personal write proposals. An invalid response counts as wrong on both cause and action,
+never as an abstention. Its output cannot mutate memory, provenance, skills, or policy. See
 [the observation and judgment result](./results/memory-observation-2026-09-23.md).
+
+Both memory runners write their agent into a temporary `JAZZ_HOME` and pass it through the same
+free-or-cheap model guardrail as `bun run evals`.
 
 Reports land in `evals/report/` (gitignored). Metrics: pass@1, pass@k,
 **Pass^k** (reliability), bootstrap CI, cost-normalized, per-domain + overall.

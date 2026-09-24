@@ -1,13 +1,14 @@
-# Shadow memory observations and judgment check — 2026-09-23
+# Memory observations and judgment check — 2026-09-23
 
 The original agent-driven personal-memory journey passed its answer rubric while injecting a
 favorite-fruit entry from `always/` on unrelated turns. That exposure was invisible to its
-`view_memory`-call and answer-contamination proxy. PR #646 now requires an explicit relevance
-topic for a new entry and lists topic file paths in the first discovery call. Three fresh-home
-journeys then passed 24/24 turns with the fruit under `when/food/`.
+`view_memory`-call and answer-contamination proxy. Capture requires an explicit relevance topic
+for a new entry, and the first discovery call lists topic file paths. Three fresh-home journeys
+then passed 24/24 turns with the fruit under `when/food/`.
 
-This branch records each scope-eligible entry at every model request, including entries never
-shown. In a separate isolated eight-turn journey after receipt locking, 8/8 turns passed:
+Memory observation receipts record each scope-eligible entry at every model request, including
+entries never shown. In a separate isolated eight-turn journey after receipt locking, 8/8 turns
+passed:
 
 | Turn                              |   Receipts | Injected exposures | File-view exposures | Eligible but unshown |
 | --------------------------------- | ---------: | -----------------: | ------------------: | -------------------: |
@@ -37,13 +38,15 @@ separately from the judge prompt, but have not been reviewed by a human user.
 
 | Label set                                   | Cases | Cause labels correct | Actions correct | False personal write proposals | Notable error                                                                      |
 | ------------------------------------------- | ----: | -------------------: | --------------: | -----------------------------: | ---------------------------------------------------------------------------------- |
-| Development, before the tighter action gate |    12 |                   10 |               8 |                              1 | The model proposed `record` for a memory gap; the validator now rejects it.        |
+| Development, before the tighter action gate |    12 |                   10 |               8 |                              1 | The model proposed `record` for a memory gap; the validator rejects it.            |
 | Held-out, after the gate and prompt update  |    10 |                    9 |               9 |                              0 | It treated memory whose read tool was unavailable as an actionable memory gap.     |
 | Held-out, repeat with the same gate         |    10 |                    8 |               9 |                              0 | The tool-unavailable case recurred; it also called quoted web text an agent error. |
 
 The first held-out run cost an estimated $0.060 over 104,546 tokens; the repeat cost $0.033
-over 56,082 tokens. The differing cause accuracy and small, non-human-labeled sample are enough
+over 56,082 tokens. These numbers predate the fix that scores an invalid response as wrong rather
+than as a correct `unknown`/`abstain`, so they may be inflated and need a re-run. The differing
+cause accuracy and small, non-human-labeled sample are enough
 to keep automatic lesson changes and skill proposals off.
-The shadow receipts deliberately leave relevance `unknown` and award no `helped`, `failed`, or
+The observation receipts deliberately leave relevance `unknown` and award no `helped`, `failed`, or
 `missed` credit. More diverse user-reviewed labels and independently checked downstream task
 outcomes are needed before any promotion gate can be considered.
