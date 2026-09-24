@@ -33,11 +33,6 @@ The JSON report lands in `evals/report/` (gitignored). The model name can be rep
 available local Ollama tool-capable model. Each turn records `costKnown`; treat `costUSD: 0`
 as unpriced when `costKnown` is false.
 
-The September 2026 paired multi-session experiment compared ordinary agent-driven recall with
-a one-call capture and retrieval preflight. The summary and limitations are in
-[the personal-memory evaluation](./results/personal-memory-2026-09-23.md). The extra call did not
-improve task success in the tested journeys, so it is not part of the agent path.
-
 The journey report includes pending, injected, viewed, and unshown memory observation receipt
 counts. Forgetting must leave no retained receipts. To exercise the separate, read-only lifecycle
 judge against curated reference labels, run:
@@ -50,8 +45,7 @@ bun evals/memory-judgment-calibration.ts --model gemma4:31b-cloud --held-out
 These small labels are independent of the model prompt but are not user-reviewed human labels.
 The runner validates every enum and evidence reference and reports abstentions, invalid responses,
 and false personal write proposals. An invalid response counts as wrong on both cause and action,
-never as an abstention. Its output cannot mutate memory, provenance, skills, or policy. See
-[the observation and judgment result](./results/memory-observation-2026-09-23.md).
+never as an abstention. Its output cannot mutate memory, provenance, skills, or policy.
 
 Both memory runners write their agent into a temporary `JAZZ_HOME` and pass it through the same
 free-or-cheap model guardrail as `bun run evals`.
