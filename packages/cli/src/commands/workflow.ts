@@ -276,7 +276,6 @@ export function runWorkflowCommand(
           now - scheduledAtTime < RECENT_SCHEDULE_THRESHOLD_MS
         ) {
           yield* logger.info("Scheduler-triggered run skipped: workflow was just scheduled", {
-            schedule: scheduleId(scheduleMeta),
             scheduledAt: scheduleMeta.scheduledAt,
             elapsedMs: now - scheduledAtTime,
           });
@@ -400,10 +399,7 @@ export function runWorkflowCommand(
 
     yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
-      workflow: workflowName,
-      schedule: scheduleLabel,
-      agent: agent.name,
-      autoApprove: autoApprovePolicy,
+      autoApprove: autoApprovePolicy === true,
     });
 
     const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
@@ -670,10 +666,11 @@ export function scheduleWorkflowCommand(
     // On macOS, ask if the workflow should also run on login/wake to catch missed runs
     let runAtLoad = false;
     if (schedulerType === "launchd") {
-      runAtLoad = yield* terminal.confirm(
-        "Run on login? (catches missed runs when your Mac was asleep)",
-        false,
-      );
+      runAtLoad =
+        (yield* terminal.confirm(
+          "Run on login? (catches missed runs when your Mac was asleep)",
+          false,
+        )) === true;
       yield* terminal.log("");
     }
 
@@ -765,7 +762,7 @@ export function unscheduleWorkflowCommand(target: string) {
           default: [],
         },
       );
-      if (selected.length === 0) {
+      if (selected === undefined || selected.length === 0) {
         yield* terminal.info("Nothing selected.");
         return;
       }
@@ -829,7 +826,7 @@ export function catchupWorkflowCommand() {
       { choices, default: [] },
     );
 
-    if (selected.length === 0) {
+    if (selected === undefined || selected.length === 0) {
       yield* terminal.info("No workflows selected. Exiting.");
       return;
     }

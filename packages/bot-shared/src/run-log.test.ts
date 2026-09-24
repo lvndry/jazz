@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { createRunLog, nullRunLog } from "./run-log";
+import { createRunLog, nullRunLog, safeRunLogFields } from "./run-log";
 
 function readRecords(dataDir: string): Record<string, unknown>[] {
   const directory = join(dataDir, "logs", "runs");
@@ -29,7 +29,7 @@ describe("createRunLog", () => {
       "tool_execution_start",
       "run_finish",
     ]);
-    expect(records.at(-1)).toMatchObject({ ok: false, error: "timed out", rounds: 7 });
+    expect(records.at(-1)).toMatchObject({ ok: false, hasError: true, rounds: 7 });
   });
 
   it("stamps every record with elapsed time so a slow round is visible", () => {
@@ -51,8 +51,71 @@ describe("createRunLog", () => {
       previewDiff: "d".repeat(10_000),
     });
     const record = readRecords(dataDir)[1] as Record<string, unknown>;
-    expect(record["message"]).toBe("rm -rf build");
+    expect(record["message"]).toBeUndefined();
     expect(record).not.toHaveProperty("previewDiff");
+  });
+
+  it("omits content and credential-bearing fields from bridge event and outcome records", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
+    const log = createRunLog(dataDir, "chat-1");
+    const secret = "private-token-value";
+    log.event({
+      type: "approval_required",
+      toolName: "execute_command",
+      toolCallId: "tool-1",
+      message: `curl --token ${secret}`,
+      question: secret,
+      task: secret,
+      result: { apiKey: secret },
+      approved: false,
+    });
+    log.finish({ ok: false, error: `failed with ${secret}` });
+
+    const records = readRecords(dataDir);
+    expect(records[1]).toMatchObject({
+      type: "approval_required",
+      approved: false,
+    });
+    expect(records[1]).not.toHaveProperty("toolName");
+    expect(records[1]).not.toHaveProperty("toolCallId");
+    expect(records[2]).toMatchObject({ type: "run_finish", ok: false, hasError: true });
+    expect(JSON.stringify(records)).not.toContain(secret);
+  });
+
+  it("keeps bounded structured diagnostics while dropping arbitrary strings", () => {
+    expect(
+      safeRunLogFields({
+        toolNames: ["read_file", "bad name", "execute_command"],
+        durationMs: 123,
+        content: "private text",
+        error: "private failure text",
+      }),
+    ).toEqual({ toolCount: 3, durationMs: 123, hasError: true });
+  });
+
+  it("does not persist model supplied names or identifiers even when they look valid", () => {
+    const secret = "private_token_value";
+    expect(
+      JSON.stringify(
+        safeRunLogFields({
+          toolName: secret,
+          toolNames: [secret],
+          toolCallId: secret,
+          requestId: secret,
+        }),
+      ),
+    ).not.toContain(secret);
+  });
+
+  it("does not persist a model supplied event type as freeform text", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
+    const log = createRunLog(dataDir, "chat-1");
+    const injectedType = "private_token_value";
+    log.event({ type: injectedType, message: "private content" });
+    log.finish({ ok: true });
+    const records = readRecords(dataDir);
+    expect(records[1]?.["type"]).toBe("unknown");
+    expect(JSON.stringify(records)).not.toContain(injectedType);
   });
 
   it("keeps a conversation's turns sorted and never collides", () => {

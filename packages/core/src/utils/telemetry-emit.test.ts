@@ -16,10 +16,10 @@ function stubTelemetry(overrides: Partial<TelemetryService>): TelemetryService {
     recordToolInvocation: notCalled,
     recordCommandExecuted: notCalled,
     recordProcessSample: notCalled,
-    recordEvent: notCalled,
     getEvents: notCalled,
     getUsageSummary: notCalled,
     flush: notCalled,
+    shutdown: notCalled,
     ...overrides,
   } as TelemetryService;
 }
@@ -34,16 +34,16 @@ describe("emitTelemetry", () => {
   it("calls the service when one is present", async () => {
     let called = false;
     const telemetry = stubTelemetry({
-      recordEvent: () =>
+      recordCommandExecuted: () =>
         Effect.sync(() => {
           called = true;
         }),
     });
 
     await Effect.runPromise(
-      emitTelemetry((service) => service.recordEvent("custom", {})).pipe(
-        Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry)),
-      ),
+      emitTelemetry((service) =>
+        service.recordCommandExecuted({ command: "run", success: true }),
+      ).pipe(Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry))),
     );
 
     expect(called).toBe(true);
@@ -51,28 +51,28 @@ describe("emitTelemetry", () => {
 
   it("swallows telemetry failures rather than failing the caller", async () => {
     const telemetry = stubTelemetry({
-      recordEvent: () =>
+      recordCommandExecuted: () =>
         Effect.fail(new TelemetryError({ operation: "write", message: "disk full" })),
     });
 
     await Effect.runPromise(
-      emitTelemetry((service) => service.recordEvent("custom", {})).pipe(
-        Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry)),
-      ),
+      emitTelemetry((service) =>
+        service.recordCommandExecuted({ command: "run", success: true }),
+      ).pipe(Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry))),
     );
   });
 
   it("swallows defects thrown by the service", async () => {
     const telemetry = stubTelemetry({
-      recordEvent: () => {
+      recordCommandExecuted: () => {
         throw new Error("boom");
       },
     });
 
     await Effect.runPromise(
-      emitTelemetry((service) => service.recordEvent("custom", {})).pipe(
-        Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry)),
-      ),
+      emitTelemetry((service) =>
+        service.recordCommandExecuted({ command: "run", success: true }),
+      ).pipe(Effect.provide(Layer.succeed(TelemetryServiceTag, telemetry))),
     );
   });
 });

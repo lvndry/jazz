@@ -251,9 +251,9 @@ function buildCommandTool(
           );
 
           if (!outcome.ok) {
-            yield* logger.debug(
-              `Custom tool "${definition.name}" command execution failed: ${outcome.error}`,
-            );
+            yield* logger.debug("Custom tool command execution failed", {
+              errorType: "command_failed",
+            });
             return { success: false, result: null, error: outcome.error };
           }
 
@@ -382,9 +382,7 @@ export function registerCustomToolsForAgent(
           Option.isSome(existingDefinition) &&
           isDeepEqual(existingDefinition.value, definition)
         ) {
-          yield* logger.debug(
-            `Custom tool "${definition.name}" is already registered with an identical definition, skipping re-registration`,
-          );
+          yield* logger.debug("Identical custom tool already registered");
           continue;
         }
 
@@ -420,7 +418,7 @@ export function registerCustomToolsForAgent(
         );
         yield* registry.registerTool(commandTool, CUSTOM_TOOLS_CATEGORY);
 
-        yield* logger.debug(`Registered custom tool "${definition.name}" (command handler)`);
+        yield* logger.debug("Registered custom tool", { handlerType: "command" });
         continue;
       }
 
@@ -429,7 +427,7 @@ export function registerCustomToolsForAgent(
       );
       yield* registry.registerTool(tool, CUSTOM_TOOLS_CATEGORY);
 
-      yield* logger.debug(`Registered custom tool "${definition.name}" (record handler)`);
+      yield* logger.debug("Registered custom tool", { handlerType: "record" });
     }
   });
 }

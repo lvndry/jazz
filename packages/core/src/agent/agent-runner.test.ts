@@ -1,8 +1,8 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
-import { afterEach, describe, expect, it, mock, type Mock } from "bun:test";
+import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import { AgentRunner, renderSkillRoutingAdvisory } from "./agent-runner";
+import { AgentRunner, createNestedRunExecutor, renderSkillRoutingAdvisory } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -66,6 +66,8 @@ const mockLogger = {
   warn: mock(() => Effect.void),
   error: mock(() => Effect.void),
   setLogGroup: mock(() => Effect.void),
+  pushLogGroup: mock(() => Effect.void),
+  popLogGroup: mock(() => Effect.void),
   clearLogGroup: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
@@ -321,6 +323,39 @@ describe("AgentRunner", () => {
   };
 
   describe("runRecursive", () => {
+    it("keeps compaction and extraction children in the active trace", async () => {
+      let received: AgentRunnerOptions | undefined;
+      const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+        received = options;
+        return Effect.succeed({
+          content: "summary",
+          conversationId: options.conversationId ?? "child",
+        });
+      });
+      try {
+        const runChild = createNestedRunExecutor({
+          topRunId: "top-run",
+          parentRunId: "parent-run",
+          sessionId: "parent-conversation",
+        });
+        await runWithTestLayers(
+          runChild({
+            agent: mockAgent,
+            userInput: "summarize",
+            conversationId: "child-conversation",
+          }),
+        );
+        expect(received?.telemetryParent).toEqual({
+          topRunId: "top-run",
+          parentRunId: "parent-run",
+          sessionId: "parent-conversation",
+        });
+        expect(received?.conversationId).toBe("child-conversation");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
     it("should force non-streaming for internal runs", async () => {
       const options = {
         ...defaultOptions,

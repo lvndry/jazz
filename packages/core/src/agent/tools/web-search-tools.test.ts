@@ -52,7 +52,11 @@ describe("WebSearchTool", () => {
     vi.clearAllMocks();
   });
 
-  const createMockServices = (config: AppConfig, apiKeys: Record<string, string> = {}) => {
+  const createMockServices = (
+    config: AppConfig,
+    apiKeys: Record<string, string> = {},
+    logs?: string[],
+  ) => {
     const mockConfigService = {
       get: vi.fn().mockReturnValue(Effect.fail(new Error("Config not found"))),
       getOrElse: vi.fn().mockImplementation((key: string) => {
@@ -68,14 +72,24 @@ describe("WebSearchTool", () => {
     };
 
     const mockLoggerService = {
-      debug: vi.fn().mockReturnValue(Effect.void),
-      info: vi.fn().mockReturnValue(Effect.void),
+      debug: vi.fn().mockImplementation((message: string, metadata?: Record<string, unknown>) =>
+        Effect.sync(() => {
+          logs?.push(JSON.stringify({ message, metadata }));
+        }),
+      ),
+      info: vi.fn().mockImplementation((message: string, metadata?: Record<string, unknown>) =>
+        Effect.sync(() => {
+          logs?.push(JSON.stringify({ message, metadata }));
+        }),
+      ),
       warn: vi.fn().mockReturnValue(Effect.void),
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
       logToolCall: vi.fn().mockReturnValue(Effect.void),
       setLogGroup: vi.fn().mockReturnValue(Effect.void),
       clearLogGroup: vi.fn().mockReturnValue(Effect.void),
+      pushLogGroup: vi.fn().mockReturnValue(Effect.void),
+      popLogGroup: vi.fn().mockReturnValue(Effect.void),
     };
 
     return Layer.merge(
@@ -207,6 +221,24 @@ describe("WebSearchTool", () => {
         },
       },
     ];
+
+    it("does not log a private search query", async () => {
+      const secret = "private-search-query-758291";
+      const logs: string[] = [];
+      mockExaSearch.mockResolvedValue({ results: [] });
+      const layer = createMockServices(mockAppConfig, { exa: "exa-key" }, logs);
+
+      const result = await Effect.runPromise(
+        createWebSearchTool()
+          .execute({ query: secret }, { agentId: "test" })
+          .pipe(Effect.provide(layer)),
+      );
+
+      expect(result.success).toBe(true);
+      expect(JSON.stringify(result.result)).toContain(secret);
+      expect(logs.length).toBeGreaterThan(0);
+      expect(logs.join("\n")).not.toContain(secret);
+    });
 
     describe.each(providers)("Provider: $name", (provider) => {
       it(`should use the configured provider (${provider.name})`, async () => {

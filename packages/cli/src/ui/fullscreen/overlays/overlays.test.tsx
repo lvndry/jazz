@@ -25,11 +25,19 @@ import {
 import { Search } from "./Search";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
-import type { ApprovalOverlay, SearchOverlay, Viewport } from "../types";
+import {
+  MIN_HEIGHT,
+  MIN_WIDTH,
+  type ApprovalOverlay,
+  type SearchOverlay,
+  type Viewport,
+} from "../types";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const NARROW: Viewport = { width: 70, height: 18 };
-/** The smallest terminal the fullscreen interface will start in. */
+/** The compact geometry the fullscreen interface supports. */
+const COMPACT: Viewport = { width: MIN_WIDTH, height: MIN_HEIGHT };
+/** The narrow baseline used to exercise a scrollable approval body. */
 const TINY: Viewport = { width: 60, height: 12 };
 
 /**
@@ -320,6 +328,27 @@ describe("approval overlay", () => {
     narrow.renderer.destroy();
   });
 
+  it("keeps account details and both control rows visible at the compact floor", async () => {
+    const compact = await draw(
+      <Approval
+        model={{ ...APPROVAL, account: "averylongmailbox@example.com" }}
+        viewport={COMPACT}
+      />,
+      COMPACT,
+    );
+    const frame = compact.captureCharFrame();
+    const lines = rows(frame);
+    expect(lines).toHaveLength(COMPACT.height);
+    for (const line of lines) expect([...line]).toHaveLength(COMPACT.width);
+    expect(frame).toContain("averylongmailbox@");
+    expect(frame).toContain("example.com");
+    expect(frame).toContain("Account");
+    expect(frame).toContain("enter accept");
+    expect(frame).toContain("esc reject");
+    expect(frame).toContain("up/down more");
+    compact.renderer.destroy();
+  });
+
   // A multi-kilobyte command would bury the rest of the card, so the collapsed
   // preview clips. Ctrl+O expands; the expanded view wraps, and what still
   // does not fit is reachable by scrolling — the tail is never undiscoverable.
@@ -397,6 +426,27 @@ describe("approval overlay", () => {
       expanded.renderer.destroy();
     });
 
+    it("keeps the complete field value available by scrolling in compact mode", async () => {
+      const value = `${"x".repeat(140)}TAIL`;
+      const { renderer, captureCharFrame } = await draw(
+        <Approval
+          model={{
+            ...LONG,
+            fields: [{ label: "command", value }],
+            consequence: "",
+            fieldOffset: 999,
+          }}
+          viewport={COMPACT}
+        />,
+        COMPACT,
+      );
+      const frame = captureCharFrame();
+      expect(rows(frame)).toHaveLength(COMPACT.height);
+      for (const row of rows(frame)) expect([...row]).toHaveLength(COMPACT.width);
+      expect(frame).toContain("TAIL");
+      renderer.destroy();
+    });
+
     it("says how much is below the fold and reveals it when scrolled", async () => {
       const first = await draw(
         <Approval
@@ -432,6 +482,23 @@ describe("approval overlay", () => {
 });
 
 describe("search overlay", () => {
+  it("keeps the search and selected hit inside the compact floor", async () => {
+    const { renderer, captureCharFrame } = await draw(
+      <Search
+        model={SEARCH}
+        viewport={COMPACT}
+      />,
+      COMPACT,
+    );
+    const frame = captureCharFrame();
+    const lines = rows(frame);
+    expect(lines).toHaveLength(COMPACT.height);
+    for (const line of lines) expect([...line]).toHaveLength(COMPACT.width);
+    expect(frame).toContain("deploy");
+    expect(frame).toContain("enter");
+    renderer.destroy();
+  });
+
   it("shows the query, the scope, the hits, the count and the keys", async () => {
     const { renderer, captureCharFrame } = await draw(
       <Search

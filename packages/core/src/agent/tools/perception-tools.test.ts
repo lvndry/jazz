@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -16,6 +16,7 @@ import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import * as modelsDevActual from "@/core/utils/models-dev";
+import { AgentRunner } from "../agent-runner";
 
 // Deterministic catalog for the unconfigured-provider lookup: openai has an
 // image-capable chat model, everything else is absent.
@@ -393,6 +394,43 @@ describe("generate_media", () => {
     expect(outcome.success).toBe(false);
     expect(outcome.result).toBeNull();
     expect(outcome.error).toContain("is not a valid provider/model id");
+  });
+
+  it("keeps a bound companion under the dispatching tool span", async () => {
+    let childOptions: Parameters<typeof AgentRunner.runRecursive>[0] | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      childOptions = options;
+      return Effect.succeed({ content: "", conversationId: options.conversationId ?? "child" });
+    });
+    try {
+      await runTool(
+        "generate_media",
+        { modality: "image", prompt: "a red circle" },
+        makeContext({
+          parentAgent: {
+            ...parentAgent,
+            config: {
+              ...parentAgent.config,
+              companions: { "generate:image": "ollama/draws-things" },
+            },
+          },
+          toolCallId: "dispatch-call",
+          telemetryTraceParent: {
+            topRunId: "root-run",
+            parentRunId: "parent-run",
+            sessionId: "root-session",
+          },
+        }),
+      );
+      expect(childOptions?.telemetryParent).toEqual({
+        topRunId: "root-run",
+        parentRunId: "parent-run",
+        parentToolCallId: "dispatch-call",
+        sessionId: "root-session",
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

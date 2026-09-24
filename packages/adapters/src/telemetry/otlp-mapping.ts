@@ -1,4 +1,14 @@
-import type { TelemetryEvent, TelemetryEventType } from "@jazz/core/interfaces/telemetry";
+/**
+ * Projects Jazz's local telemetry events into bounded, content-safe OTLP
+ * attributes. Only named fields are exported; unknown event data stays local.
+ */
+
+import { createHash } from "node:crypto";
+import type {
+  TelemetryErrorCategory,
+  TelemetryEvent,
+  TelemetryEventType,
+} from "@jazz/core/interfaces/telemetry";
 
 /**
  * Targeted version of the OpenTelemetry GenAI semantic conventions.
@@ -6,7 +16,8 @@ import type { TelemetryEvent, TelemetryEventType } from "@jazz/core/interfaces/t
  * These attribute names are still evolving upstream. Pin the version here so a
  * rename upstream is a deliberate, visible change rather than silent drift.
  */
-export const GENAI_SEMCONV_VERSION = "1.27.0";
+export const GENAI_SEMCONV_VERSION =
+  "open-telemetry/semantic-conventions-genai@8ffdf568e1b4391a99adb081db16e8102e36918e";
 
 /** OTLP/JSON `AnyValue`. */
 export type OtlpAnyValue =
@@ -23,6 +34,8 @@ export interface OtlpKeyValue {
 export interface OtlpLogRecord {
   readonly timeUnixNano: string;
   readonly observedTimeUnixNano: string;
+  readonly traceId?: string;
+  readonly spanId?: string;
   readonly severityNumber: number;
   readonly severityText: string;
   readonly body: { readonly stringValue: string };
@@ -39,27 +52,69 @@ export interface OtlpLogsPayload {
   }[];
 }
 
-/**
- * Event data keys that carry user or model text. Dropped unless the operator
- * explicitly opted into content capture.
- *
- * No event Jazz emits today populates any of these — the list exists so that
- * adding a content-bearing field later cannot leak it by default.
- */
-const CONTENT_KEYS = new Set([
-  "prompt",
-  "prompts",
-  "completion",
-  "content",
-  "messages",
-  "input",
-  "output",
-  "text",
-  "arguments",
-  "result",
-  "userMessage",
-  "lastUserMessage",
-]);
+/** Only these event fields are safe to export as scalar attributes. */
+const SAFE_FIELDS: Record<TelemetryEventType, readonly string[]> = {
+  agent_run_started: ["runId", "agentName", "provider", "model"],
+  agent_run_completed: [
+    "runId",
+    "agentName",
+    "provider",
+    "model",
+    "durationMs",
+    "iterationsUsed",
+    "finished",
+    "toolCalls",
+    "toolErrors",
+  ],
+  agent_run_failed: ["runId", "agentName", "durationMs"],
+  llm_request: ["runId", "provider", "model", "durationMs", "purpose"],
+  llm_usage: ["runId", "durationMs", "purpose"],
+  llm_retry: ["runId", "attempt"],
+  tool_invocation: ["runId", "toolName", "success", "durationMs"],
+  tool_error: ["runId", "toolName", "success", "durationMs"],
+  command_executed: ["command", "success", "durationMs"],
+  workflow_executed: [],
+  workflow_scheduled: [],
+  session_started: [],
+  session_ended: [],
+  process_sample: ["runId"],
+  custom: [],
+};
+
+const USAGE_FIELDS = [
+  "promptTokens",
+  "completionTokens",
+  "totalTokens",
+  "reasoningTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "toolDefinitionTokens",
+  "toolResultTokens",
+  "toolDefinitionsOffered",
+] as const;
+const CLASSIFIER_USAGE_FIELDS = [
+  "promptTokens",
+  "completionTokens",
+  "totalTokens",
+  "requests",
+  "durationMs",
+] as const;
+const DECISION_USAGE_FIELDS = [
+  "inputTokens",
+  "outputTokens",
+  "requests",
+  "durationMs",
+  "costUSD",
+  "costUnknown",
+] as const;
+const PROCESS_FIELDS = [
+  "rssBytes",
+  "heapUsedBytes",
+  "heapTotalBytes",
+  "externalBytes",
+  "cpuUserMs",
+  "cpuSystemMs",
+] as const;
 
 const MAX_ATTRIBUTE_CHARS_REDACTED = 256;
 const MAX_ATTRIBUTE_CHARS_FULL = 8192;
@@ -68,9 +123,128 @@ const SEVERITY_BY_EVENT_TYPE: Partial<Record<TelemetryEventType, [number, string
   agent_run_failed: [17, "ERROR"],
   tool_error: [17, "ERROR"],
   llm_retry: [13, "WARN"],
+  llm_usage: [5, "DEBUG"],
+  tool_invocation: [5, "DEBUG"],
+  process_sample: [5, "DEBUG"],
 };
 
 const DEFAULT_SEVERITY: [number, string] = [9, "INFO"];
+
+const ERROR_CATEGORIES: ReadonlySet<string> = new Set<TelemetryErrorCategory>([
+  "authentication",
+  "rate_limit",
+  "timeout",
+  "network",
+  "permission",
+  "not_found",
+  "validation",
+  "interrupted",
+  "provider",
+  "unknown",
+]);
+
+/** Stable ids let logs correlate with trace spans even when exported in separate batches. */
+function deriveId(seed: string, bytes: number): string {
+  return createHash("sha256")
+    .update(seed)
+    .digest("hex")
+    .slice(0, bytes * 2);
+}
+
+export function traceIdForRun(runId: string): string {
+  return deriveId(`jazz-trace:${runId}`, 16);
+}
+
+export function rootSpanIdForRun(runId: string): string {
+  return deriveId(`jazz-run:${runId}`, 8);
+}
+
+export function toolSpanIdForCall(runId: string, toolCallId: string): string {
+  return deriveId(`jazz-tool:${runId}:${toolCallId}`, 8);
+}
+
+export function spanIdForEvent(eventId: string): string {
+  return deriveId(`jazz-event:${eventId}`, 8);
+}
+
+export interface RunIdentity {
+  readonly id: string;
+  readonly traceRunId: string;
+  readonly isRunScoped: boolean;
+  readonly parentRunId?: string;
+  readonly parentToolCallId?: string;
+}
+
+/** Resolve recursive runs to their original trace while retaining child span identity. */
+export function runIdentityOf(event: TelemetryEvent): RunIdentity {
+  const runId = event.data["runId"];
+  if (typeof runId === "string" && runId.length > 0) {
+    const traceParent = event.data["telemetryParent"];
+    if (traceParent && typeof traceParent === "object" && !Array.isArray(traceParent)) {
+      const parent = traceParent as Record<string, unknown>;
+      if (typeof parent["topRunId"] === "string" && typeof parent["parentRunId"] === "string") {
+        return {
+          id: runId,
+          traceRunId: parent["topRunId"],
+          isRunScoped: true,
+          parentRunId: parent["parentRunId"],
+          ...(typeof parent["parentToolCallId"] === "string"
+            ? { parentToolCallId: parent["parentToolCallId"] }
+            : {}),
+        };
+      }
+    }
+    return { id: runId, traceRunId: runId, isRunScoped: true };
+  }
+  // A conversation without a run is a session, not an emitted root span. Give
+  // the event its own trace; langfuse.session.id still groups the conversation.
+  return { id: event.id, traceRunId: event.id, isRunScoped: false };
+}
+
+export function spanIdentityOf(event: TelemetryEvent): {
+  readonly runId: string;
+  readonly isRunScoped: boolean;
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly parentSpanId?: string;
+} {
+  const {
+    id: runId,
+    traceRunId,
+    isRunScoped,
+    parentRunId,
+    parentToolCallId,
+  } = runIdentityOf(event);
+  const rootSpanId = rootSpanIdForRun(runId);
+  const isRunSpan = event.type === "agent_run_completed" || event.type === "agent_run_failed";
+  const isRunStart = event.type === "agent_run_started";
+  const isProcessSample = event.type === "process_sample";
+  const isToolSpan = event.type === "tool_invocation" || event.type === "tool_error";
+  const toolCallId = event.data["toolCallId"];
+  const spanId =
+    isRunSpan || isRunStart || isProcessSample
+      ? rootSpanId
+      : isToolSpan && typeof toolCallId === "string" && toolCallId.length > 0
+        ? toolSpanIdForCall(runId, toolCallId)
+        : spanIdForEvent(event.id);
+  const parentSpanId = isRunSpan
+    ? parentRunId
+      ? parentToolCallId
+        ? toolSpanIdForCall(parentRunId, parentToolCallId)
+        : rootSpanIdForRun(parentRunId)
+      : undefined
+    : isRunScoped && !isRunStart && !isProcessSample
+      ? rootSpanId
+      : undefined;
+
+  return {
+    runId,
+    isRunScoped,
+    traceId: traceIdForRun(traceRunId),
+    spanId,
+    ...(parentSpanId ? { parentSpanId } : {}),
+  };
+}
 
 export function stringAttribute(key: string, value: string): OtlpKeyValue {
   return { key, value: { stringValue: value } };
@@ -79,6 +253,10 @@ export function stringAttribute(key: string, value: string): OtlpKeyValue {
 /** int64 is encoded as a string in proto3 JSON. */
 export function intAttribute(key: string, value: number): OtlpKeyValue {
   return { key, value: { intValue: String(Math.trunc(value)) } };
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function attributeFromPrimitive(
@@ -95,48 +273,56 @@ function attributeFromPrimitive(
   return stringAttribute(key, value.length > maxChars ? value.slice(0, maxChars) : value);
 }
 
-/**
- * Flatten nested event data into dotted attribute keys, skipping keys that are
- * consumed by the semantic-convention mapping and content keys when content
- * capture is off.
- */
-function flattenData(
+function appendSafeScalars(
   data: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
   prefix: string,
-  skipTopLevelKeys: ReadonlySet<string>,
-  captureContent: boolean,
   attributes: OtlpKeyValue[],
-  depth = 0,
 ): void {
-  const maxChars = captureContent ? MAX_ATTRIBUTE_CHARS_FULL : MAX_ATTRIBUTE_CHARS_REDACTED;
-
-  for (const [key, value] of Object.entries(data)) {
-    if (depth === 0 && skipTopLevelKeys.has(key)) continue;
-    if (!captureContent && CONTENT_KEYS.has(key)) continue;
-    if (value === null || value === undefined) continue;
-
-    const attributeKey = `${prefix}${key}`;
-
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      attributes.push(attributeFromPrimitive(attributeKey, value, maxChars));
-      continue;
-    }
-
-    if (Array.isArray(value)) {
-      attributes.push(intAttribute(`${attributeKey}.count`, value.length));
-      continue;
-    }
-
-    if (typeof value === "object" && depth < 3) {
-      flattenData(
-        value as Record<string, unknown>,
-        `${attributeKey}.`,
-        skipTopLevelKeys,
-        captureContent,
-        attributes,
-        depth + 1,
+  for (const field of fields) {
+    const value = data[field];
+    if (typeof value === "string" || typeof value === "boolean") {
+      attributes.push(
+        attributeFromPrimitive(`${prefix}${field}`, value, MAX_ATTRIBUTE_CHARS_REDACTED),
+      );
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      attributes.push(
+        attributeFromPrimitive(`${prefix}${field}`, value, MAX_ATTRIBUTE_CHARS_REDACTED),
       );
     }
+  }
+}
+
+function appendSafeRecord(
+  data: Readonly<Record<string, unknown>>,
+  field: string,
+  fields: readonly string[],
+  prefix: string,
+  attributes: OtlpKeyValue[],
+): void {
+  const value = data[field];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
+  appendSafeScalars(value as Record<string, unknown>, fields, prefix, attributes);
+}
+
+/** Content is serialized only when the operator explicitly opted in. */
+function appendContent(event: TelemetryEvent, attributes: OtlpKeyValue[]): void {
+  const data = event.data;
+  const input = data["input"] ?? data["prompt"] ?? data["arguments"];
+  const output = data["output"] ?? data["completion"] ?? data["result"];
+  for (const [key, value] of [
+    ["input", input],
+    ["output", output],
+  ] as const) {
+    if (value === undefined || value === null) continue;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value);
+    } catch {
+      continue;
+    }
+    if (typeof serialized !== "string" || serialized.length > MAX_ATTRIBUTE_CHARS_FULL) continue;
+    attributes.push(stringAttribute(`langfuse.observation.${key}`, serialized));
   }
 }
 
@@ -155,27 +341,39 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
     attributes.push(stringAttribute("jazz.conversation.id", event.conversationId));
 
   const data = event.data;
-  const consumed = new Set<string>();
+  const telemetryParent = data["telemetryParent"];
+  const parent =
+    telemetryParent && typeof telemetryParent === "object" && !Array.isArray(telemetryParent)
+      ? (telemetryParent as Record<string, unknown>)
+      : undefined;
+  const sessionId = parent?.["sessionId"] ?? event.conversationId ?? data["conversationId"];
+  if (typeof sessionId === "string" && sessionId.length > 0) {
+    attributes.push(stringAttribute("langfuse.session.id", sessionId));
+  }
+  if (event.agentId) {
+    attributes.push(stringAttribute("langfuse.observation.metadata.agent_id", event.agentId));
+  }
+  if (typeof data["runId"] === "string") {
+    attributes.push(stringAttribute("langfuse.trace.name", "jazz-agent-run"));
+  }
 
   // GenAI attributes describe one model call. An agent run is a rollup of many,
   // so tagging it with them makes observability backends read it as a further
   // LLM call and price its totals on top of the calls they already summarise —
   // double-counting every run's tokens and cost. The rollup keeps its numbers
   // under jazz.* instead.
-  const describesSingleLLMCall = event.type === "llm_usage" || event.type === "llm_retry";
+  const describesSingleLLMCall = event.type === "llm_usage";
 
   if (describesSingleLLMCall) {
     const provider = data["provider"];
     if (typeof provider === "string") {
-      attributes.push(stringAttribute("gen_ai.system", provider));
-      consumed.add("provider");
+      attributes.push(stringAttribute("gen_ai.provider.name", provider));
     }
 
     const model = data["model"];
     if (typeof model === "string") {
       attributes.push(stringAttribute("gen_ai.request.model", model));
       attributes.push(stringAttribute("gen_ai.response.model", model));
-      consumed.add("model");
     }
 
     attributes.push(stringAttribute("gen_ai.operation.name", "chat"));
@@ -188,21 +386,55 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
     if (describesSingleLLMCall) {
       const promptTokens = usageRecord["promptTokens"];
       const completionTokens = usageRecord["completionTokens"];
-      if (typeof promptTokens === "number") {
+      if (isTokenCount(promptTokens)) {
         attributes.push(intAttribute("gen_ai.usage.input_tokens", promptTokens));
       }
-      if (typeof completionTokens === "number") {
+      if (isTokenCount(completionTokens)) {
         attributes.push(intAttribute("gen_ai.usage.output_tokens", completionTokens));
       }
     }
 
-    // Everything else (cache, reasoning, tool-token estimates, and the run
-    // rollup's totals) has no semconv equivalent and stays under jazz.usage.*.
-    flattenData(usageRecord, "jazz.usage.", new Set(), captureContent, attributes);
-    consumed.add("usage");
+    if (describesSingleLLMCall) {
+      const cacheReadTokens = usageRecord["cacheReadTokens"];
+      const cacheWriteTokens = usageRecord["cacheWriteTokens"];
+      const reasoningTokens = usageRecord["reasoningTokens"];
+      if (isTokenCount(cacheReadTokens)) {
+        attributes.push(intAttribute("gen_ai.usage.cache_read.input_tokens", cacheReadTokens));
+      }
+      if (isTokenCount(cacheWriteTokens)) {
+        attributes.push(intAttribute("gen_ai.usage.cache_write.input_tokens", cacheWriteTokens));
+      }
+      if (isTokenCount(reasoningTokens)) {
+        attributes.push(intAttribute("gen_ai.usage.reasoning.output_tokens", reasoningTokens));
+      }
+    }
+    appendSafeScalars(usageRecord, USAGE_FIELDS, "jazz.usage.", attributes);
   }
 
-  flattenData(data, "jazz.", consumed, captureContent, attributes);
+  appendSafeScalars(data, SAFE_FIELDS[event.type], "jazz.", attributes);
+  appendSafeRecord(
+    data,
+    "classifierUsage",
+    CLASSIFIER_USAGE_FIELDS,
+    "jazz.classifierUsage.",
+    attributes,
+  );
+  appendSafeRecord(data, "decisionUsage", DECISION_USAGE_FIELDS, "jazz.decisionUsage.", attributes);
+  appendSafeRecord(data, "process", PROCESS_FIELDS, "jazz.process.", attributes);
+  if (
+    event.type === "agent_run_failed" ||
+    event.type === "tool_error" ||
+    event.type === "llm_retry"
+  ) {
+    const category = data["error"];
+    attributes.push(
+      stringAttribute(
+        "error.type",
+        typeof category === "string" && ERROR_CATEGORIES.has(category) ? category : event.type,
+      ),
+    );
+  }
+  if (captureContent) appendContent(event, attributes);
 
   return attributes;
 }
@@ -210,10 +442,20 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
 export function toLogRecord(event: TelemetryEvent, captureContent: boolean): OtlpLogRecord {
   const timeUnixNano = String(BigInt(new Date(event.timestamp).getTime()) * 1_000_000n);
   const [severityNumber, severityText] = SEVERITY_BY_EVENT_TYPE[event.type] ?? DEFAULT_SEVERITY;
+  const runId = event.data["runId"];
+  const hasEventSpan =
+    event.type !== "agent_run_started" &&
+    event.type !== "command_executed" &&
+    event.type !== "process_sample";
+  const spanContext =
+    (typeof runId === "string" && runId.length > 0) || hasEventSpan
+      ? spanIdentityOf(event)
+      : undefined;
 
   return {
     timeUnixNano,
     observedTimeUnixNano: timeUnixNano,
+    ...(spanContext ? { traceId: spanContext.traceId, spanId: spanContext.spanId } : {}),
     severityNumber,
     severityText,
     body: { stringValue: event.type },

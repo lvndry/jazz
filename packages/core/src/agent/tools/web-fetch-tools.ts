@@ -96,7 +96,9 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
           } satisfies ToolExecutionResult;
         }
 
-        yield* logger.debug(`[Web Fetch] Fetching ${args.url}`);
+        yield* logger.debug("Web fetch started", {
+          urlScheme: parsedUrl.protocol.slice(0, -1),
+        });
 
         const response = yield* Effect.tryPromise({
           try: (signal) => fetchWithUserAgentFallback(args.url, { signal }),
@@ -148,9 +150,9 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
             title = extracted.right.title?.trim() ?? "";
             fullContent = extracted.right.content.trim();
           } else {
-            yield* logger.debug(
-              `[Web Fetch] Defuddle extraction failed for ${args.url}: ${extracted.left.message}`,
-            );
+            yield* logger.debug("Web extraction failed; using HTML text fallback", {
+              errorType: "extraction_failed",
+            });
             title = body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
             fullContent = body
               .replace(/<script\b[^<]*(?:(?!<\/script\b[^>]*>)<[^<]*)*<\/script\b[^>]*>/gi, " ")

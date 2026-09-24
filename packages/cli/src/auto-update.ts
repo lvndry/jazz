@@ -53,10 +53,10 @@ export function autoCheckForUpdate(): Effect.Effect<
     // Perform the check with a timeout to avoid blocking startup for too long
     const result = yield* checkForUpdate().pipe(
       Effect.timeout(2000), // 2 seconds timeout
-      Effect.catchAll((error) => {
+      Effect.catchAll(() => {
         // Log error but don't fail the program
         return Effect.gen(function* () {
-          yield* logger.debug(`Auto-update check failed: ${String(error)}`);
+          yield* logger.debug("Auto-update check failed", { errorType: "check_failed" });
           return null; // Return null to indicate failure/timeout
         });
       }),
@@ -64,9 +64,11 @@ export function autoCheckForUpdate(): Effect.Effect<
 
     // Update the last check timestamp regardless of result to avoid blocking startup repeatedly on failures
     yield* fs.writeFileString(checkFilePath, now.toString()).pipe(
-      Effect.catchAll((err) =>
+      Effect.catchAll(() =>
         Effect.gen(function* () {
-          yield* logger.debug(`Failed to write update check file: ${String(err)}`);
+          yield* logger.warn("Failed to write update check timestamp", {
+            errorType: "state_write_failed",
+          });
         }),
       ),
     );

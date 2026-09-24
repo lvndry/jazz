@@ -94,6 +94,6 @@ export function confirmSessionLimitOverage(
         `Session ${overage.metric} limit reached: ${formatSessionLimitMetric(overage.metric, overage.used)} used, limit ${formatSessionLimitMetric(overage.metric, overage.limit)}.`,
       );
     }
-    return yield* terminal.confirm("Continue anyway?", false);
+    return (yield* terminal.confirm("Continue anyway?", false)) === true;
   });
 }

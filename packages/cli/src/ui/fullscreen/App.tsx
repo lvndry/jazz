@@ -1,4 +1,11 @@
 /** @jsxImportSource @opentui/react */
+/**
+ * The fullscreen conversation shell.
+ *
+ * Mount `App` under OpenTUI with a `ViewModel` and an action handler. The shell
+ * routes keyboard input, tracks focus, and sizes the transcript, live work,
+ * composer, footer, and overlays to the current terminal viewport.
+ */
 import {
   read as readPeerLedger,
   readLastSeenInboundAt,
@@ -46,6 +53,7 @@ import { Question } from "./overlays/Question";
 import { Search } from "./overlays/Search";
 import { TextPrompt } from "./overlays/TextPrompt";
 import { computePeerNotice } from "./peer-notice";
+import { clipTerminalCells } from "./terminal-cells";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import {
@@ -139,18 +147,37 @@ export interface AppProps {
 }
 
 /**
- * Below the minimum there is no honest frame to draw, so draw none.
+ * Below the compact floor there is not enough room for a transcript row and
+ * the complete approval controls, so show a short resize hint instead.
  *
- * A partial frame is worse than a message: box edges land in the wrong places
- * and the reader cannot tell a layout bug from a small window. This says the
- * size it needs, the size it has, and the way out.
+ * The hint fits the actual viewport, including a terminal too narrow for the
+ * full explanation. The ordinary conversation path reflows to the measured
+ * width and height above this floor.
  */
 function TooSmall({ width, height }: { width: number; height: number }): React.ReactNode {
+  const lines =
+    width >= 18
+      ? [
+          `jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}`,
+          `terminal ${width}x${height}`,
+          "resize or --no-tui",
+        ]
+      : ["resize"];
+
   return (
     <box style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}>
-      <text style={{ fg: THEME.selected }}>{`jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}`}</text>
-      <text style={{ fg: THEME.muted }}>{`this terminal is ${width}x${height}`}</text>
-      <text style={{ fg: THEME.muted }}>resize, or run with --no-tui</text>
+      {lines.slice(0, Math.max(0, height)).map((line, index) => (
+        <text
+          key={`${String(index)}:${line}`}
+          style={{
+            fg: index === 0 ? THEME.selected : THEME.muted,
+            wrapMode: "none",
+            truncate: true,
+          }}
+        >
+          {clipTerminalCells(line, Math.max(0, width))}
+        </text>
+      ))}
     </box>
   );
 }

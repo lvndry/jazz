@@ -59,8 +59,10 @@ destination, and a local operator must consent to those declarations for the cur
 Secrets resolve from environment variables, then the OS keyring, then a mode-`0600` local config
 fallback when no keyring is usable. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
-telemetry serializers redact known credential fields, but transcripts and non-secret user content
-remain sensitive plaintext.
+telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
+events omit command text, tool arguments, results, and prompt/completion text. The local tool audit
+record keeps a bounded argument shape; transcripts and other local records remain sensitive plaintext.
+Pending OTLP traces and logs are stored in a private, bounded outbox until delivery or expiry.
 
 ### Remote entry points
 

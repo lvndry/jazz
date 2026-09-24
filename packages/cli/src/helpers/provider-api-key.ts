@@ -7,6 +7,7 @@ export type ProviderApiKeyPromptResult = "saved" | "already-set" | "skipped" | "
 
 /**
  * Prompt for a provider API key when none is configured (config, keyring, or env).
+ * `force` prompts even over a configured key, for when the provider rejected it.
  * Empty input is never persisted — that used to make `has()` report a key that
  * chat then sent as a blank Bearer token.
  */
@@ -17,9 +18,10 @@ export async function ensureProviderApiKey(options: {
   readonly displayName: string;
   readonly required: boolean;
   readonly reason?: string;
+  readonly force?: boolean;
 }): Promise<ProviderApiKeyPromptResult> {
   const config = await Effect.runPromise(options.configService.appConfig);
-  if (configuredProviderNames(config).includes(options.provider)) {
+  if (!options.force && configuredProviderNames(config).includes(options.provider)) {
     return "already-set";
   }
 

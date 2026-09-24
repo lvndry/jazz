@@ -1,188 +1,132 @@
 ---
-description: "Record every Jazz run locally and export OpenTelemetry traces to your own collector or to Langfuse: spans, token usage, tool calls, and what stays private."
+description: "Use Jazz's local audit trail and OTLP traces, logs, and metrics with a collector, SigNoz, Datadog, Prometheus, or Langfuse."
 ---
 
 # Observability
 
-Jazz records every run locally and can push the same events to an OpenTelemetry collector you
-already operate. This matters most for the "agent running on a server you own" case, where the
-local NDJSON file is not where you go to look.
+Jazz writes a local audit trail for every run. When you configure an OTLP endpoint, it also exports selected OpenTelemetry signals. The default is traces only. OTLP uses HTTP: traces and logs are JSON, and metrics are protobuf.
 
-## What Jazz records
+## Local records and signals
 
-Each run emits:
+Local telemetry events are NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`, retained for 90 days by default. Operational logs live under `~/.jazz/logs/`. The local event stream includes run start and terminal state, LLM usage and retries, tool outcomes, periodic process samples, and CLI command completion. It is recorded even when no OTLP endpoint is configured.
 
-| Event                                       | When                                                                                                                                                                                                                                                              |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_run_started` / `agent_run_completed` | Once per run; a run emits exactly one terminal event. `usage` is the agent-loop model, `classifierUsage` is the command-risk classifier, and `decisionUsage` is bounded plugin-provider counters/cost. These stay separate. Both ends carry a `process` snapshot. |
-| `agent_run_failed`                          | Instead of `completed` when the run dies                                                                                                                                                                                                                          |
-| `llm_usage`                                 | Per LLM request, with token usage and wall-clock `durationMs`. Classifier calls are tagged `purpose: "classifier"` and use the harness model, not the agent's.                                                                                                    |
-| `llm_retry`                                 | Per failed LLM attempt                                                                                                                                                                                                                                            |
-| `tool_invocation` / `tool_error`            | Per tool call, with duration                                                                                                                                                                                                                                      |
-| `process_sample`                            | Jazz process RSS/heap/CPU every 10s while a run is live. Not a span.                                                                                                                                                                                              |
-| `command_executed`                          | Per CLI command, with the command path only                                                                                                                                                                                                                       |
+| OTLP signal | What Jazz sends                                                                                                                                             | Typical use                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Traces      | One trace per top-level run, with child LLM, retry, and tool spans; subagents, model companions, summarizers, and memory extractors join their parent trace | Latency, model and tool waterfalls, Langfuse            |
+| Logs        | Structured telemetry events with severity and trace context where available                                                                                 | Event search and trace correlation in SigNoz or Datadog |
+| Metrics     | Counters, duration histograms, and process measurements                                                                                                     | Dashboards and alerts in Prometheus, SigNoz, or Datadog |
 
-They land in `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson` and are pruned after
-`telemetry.retentionDays` (90 by default). This happens whether or not you export anywhere.
+OTLP logs are telemetry event records. They are separate from the local operational log file. Routine tool diagnostics at INFO level contain IDs, outcomes, and durations, not command text, arguments, results, or error messages. Local tool audit records retain a bounded, redacted argument shape; protect `~/.jazz` as sensitive data.
 
-## Exporting to a collector
+## Configure an OTLP collector
 
-Point Jazz at any OTLP/HTTP endpoint:
+Set a base endpoint to enable export, and select the signals you need:
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-That is the whole setup: an endpoint alone turns export on. To try it end to end, run a
-collector that prints what it receives:
-
-```bash
-docker run --rm -p 4318:4318 otel/opentelemetry-collector
-```
-
-Then run any agent and watch the events arrive. To configure it persistently instead of by
-environment, use `telemetry.otlp` in `~/.jazz/config.json`. See
-[Configuration](../configure/jazz.md#telemetry).
-
-## Signals: traces and logs
-
-Jazz exports **traces** by default. Spans are what turn a run into a waterfall, and they are
-what LLM-observability backends accept. Langfuse ingests OTLP traces and not logs.
-
-Each run becomes one trace: the run is the root span, and every LLM request, retry, and tool
-call is a child span under it. Span timings are derived from each event's recorded duration, so
-a span is written when the operation _finishes_.
-
-Set `telemetry.otlp.signals` to also (or instead) export log records, for a collector routing
-into a log store:
-
-```json
-{ "telemetry": { "otlp": { "signals": ["traces", "logs"] } } }
-```
-
-**Known limitation:** trace grouping is derived from the run id rather than a span context
-threaded through the agent loop, so a subagent run gets its own trace instead of nesting under
-the parent run's span. Everything within a single run nests correctly.
-
-## Exporting to Langfuse
-
-Langfuse ingests OTLP traces directly, so it needs no separate integration. Two settings: its
-traces endpoint, and a Basic auth header built from your key pair.
-
-Get a public and secret key from **Settings → API keys** in your Langfuse project, then either
-export them for one shell:
-
-```bash
-export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel/v1/traces
-export OTEL_EXPORTER_OTLP_HEADERS="authorization=Basic $(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64)"
-```
-
-or configure it once in `~/.jazz/config.json`, which is what you want on a server:
-
 ```json
 {
   "telemetry": {
     "otlp": {
-      "tracesEndpoint": "https://cloud.langfuse.com/api/public/otel/v1/traces",
-      "headers": { "authorization": "Basic cGstbGYtMTIzNDU2Nzg6c2stbGYtODc2NTQzMjE=" },
-      "serviceName": "jazz",
-      "signals": ["traces"]
+      "signals": ["traces", "logs", "metrics"],
+      "serviceName": "jazz"
     }
   }
 }
 ```
 
-The header value is `base64(public_key:secret_key)`. Use `tracesEndpoint` rather than `endpoint`,
-because Langfuse does not serve OTLP at `<base>/v1/traces`.
+The base endpoint gains `/v1/traces`, `/v1/logs`, and `/v1/metrics`. A signal-specific endpoint must include its full path. Config values take precedence over environment variables. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` supply resource identity; set `deployment.environment.name` and `service.version` through resource attributes when useful for filtering. Jazz uses OTLP/HTTP, so point it at an HTTP receiver, normally port 4318.
 
-Then run anything and look at **Tracing → Traces**:
+An invalid endpoint or a selected signal without an endpoint produces a startup error log naming the config field or environment variable. Jazz disables OTLP export for that process while continuing the agent run. Endpoint values are omitted from the diagnostic because they may contain credentials. An invalid explicit config value does not silently fall back to an environment value.
+
+`telemetry.otlp.signals` defaults to `["traces"]`. With only a signal-specific endpoint, explicitly select that signal. The supported environment overrides are `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and their per-signal `*_HEADERS` forms. Jazz percent-decodes header values. Keep credentials in environment or a secret store rather than committing them in config.
+
+## Backend recipes
+
+### SigNoz
+
+Point Jazz at your SigNoz OTLP/HTTP ingestion endpoint and select all three signals:
 
 ```bash
-jazz run --agent default "what is 2+2"
+export OTEL_SERVICE_NAME=jazz
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.<region>.signoz.cloud:443
+export OTEL_EXPORTER_OTLP_HEADERS=signoz-ingestion-key=<your-ingestion-key>
 ```
 
-One trace per run, named for the run, with the agent-loop LLM call as a child span carrying
-`gen_ai.request.model` and the input and output token counts. A run that used tools shows each
-call as its own span with its duration, so a slow turn reads as a waterfall rather than a total.
-Cost in Langfuse comes from its own model pricing applied to those token counts, so check that
-your model is in its price list before trusting the dollar figures.
+For self-hosted SigNoz, use its collector's HTTP endpoint, commonly `http://<collector>:4318`. Search the service name in **Services**, **Logs Explorer**, and **Metrics Explorer**. SigNoz documents the [endpoint and header format](https://signoz.io/docs/ingestion/opentelemetry-environment-variables/). Jazz does not use `OTEL_EXPORTER_OTLP_PROTOCOL`; its transport is fixed as described above.
 
-Self-hosted Langfuse works the same way with your own host in place of `cloud.langfuse.com`.
+### Datadog
 
-Two things that will waste an afternoon otherwise. **Do not add `logs` to `signals`**: Langfuse
-has no logs endpoint, and those requests fail while traces keep working, so the symptom is a log
-full of errors and a dashboard that looks fine. And `OTEL_EXPORTER_OTLP_HEADERS` values are
-percent-decoded per the OpenTelemetry spec, so base64 padding (`=`) survives, but a literal `%`
-in a header value has to be written `%25`.
+For production, point Jazz at a local Datadog Agent or OpenTelemetry Collector OTLP/HTTP receiver. Enable the Agent's OTLP HTTP receiver, then set:
 
-## Attributes
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
 
-Spans and log records carry the same attributes. Where the OpenTelemetry GenAI semantic
-conventions define one, Jazz uses it:
+Select `["traces", "logs", "metrics"]` in Jazz config. The Datadog Agent accepts traces and metrics when OTLP ingestion is enabled; [OTLP log ingestion needs separate log collection and OTLP log settings](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/). Datadog [recommends Agent or Collector ingestion](https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest/) for production. Direct cloud intake has signal-specific endpoints and payload limits; use those endpoints only after configuring each signal deliberately.
 
-| Attribute                                                  | Value                               |
-| ---------------------------------------------------------- | ----------------------------------- |
-| `gen_ai.system`                                            | Provider (`anthropic`, `openai`, …) |
-| `gen_ai.request.model` / `gen_ai.response.model`           | Model id                            |
-| `gen_ai.operation.name`                                    | `chat`                              |
-| `gen_ai.usage.input_tokens` / `gen_ai.usage.output_tokens` | Token counts                        |
+### Prometheus
 
-Everything else is namespaced under `jazz.*`: `jazz.agent.id`, `jazz.conversation.id`,
-`jazz.run.id`, `jazz.toolName`, `jazz.durationMs`, `jazz.purpose` (`classifier` on
-command-risk calls), `jazz.classifierUsage.*`, `jazz.decisionUsage.*`, `jazz.process.*` (RSS, heap, cumulative CPU),
-and the cache and reasoning token counts that have no semconv equivalent, under
-`jazz.usage.*`.
-
-**Latency** is wall-clock `durationMs` on each `llm_usage` and `tool_invocation` span, which
-is per-call time, including classifier round-trips. The run span is the sum of waiting, not
-of CPU.
-
-**Process resources** are Jazz itself (the Bun process): RSS, V8 heap, and cumulative user
-and system CPU. They are sampled at run start, on every LLM and tool event (so a trace
-waterfall is also a memory/CPU series), every 10 seconds during the run, and at run end.
-GPU is not recorded. Jazz does not run the model; a local LLM's accelerator belongs to
-Ollama, llama.cpp, or whichever server you pointed at.
-
-`process_sample` events fill the gaps between calls (waiting on approval, a slow model).
-They are exported as log records when `logs` is in `signals`, and never as spans.
-
-These attribute names are still moving upstream. Jazz pins the semconv version it targets in
-`packages/adapters/src/telemetry/otlp-mapping.ts`; treat a rename upstream as a deliberate change.
-
-## Prompts and completions
-
-By default Jazz exports **no** user or model text. Content-bearing fields are dropped and every
-remaining string attribute is truncated to 256 characters, so a stack trace or a long tool name
-cannot smuggle content out.
-
-Turning this off is deliberate and config-only. There is no environment variable for it:
+Prometheus receives metrics only. Start it with `--web.enable-otlp-receiver`, then configure the full metrics URL and select only metrics:
 
 ```json
-{ "telemetry": { "otlp": { "captureContent": true } } }
+{
+  "telemetry": {
+    "otlp": {
+      "metricsEndpoint": "http://localhost:9090/api/v1/otlp/v1/metrics",
+      "signals": ["metrics"]
+    }
+  }
+}
 ```
 
-Enabling it sends prompts, model output, and tool arguments to whatever endpoint you configured.
-Today no event Jazz emits carries content, so the flag changes nothing yet; it exists so that
-adding a content-bearing field later cannot leak it by default.
+The [Prometheus OTLP receiver](https://prometheus.io/docs/guides/opentelemetry/) is disabled by default. It accepts OTLP/HTTP protobuf at `/api/v1/otlp/v1/metrics`. Send traces and logs to another receiver if needed.
 
-## Failure behavior
+### Langfuse
 
-Telemetry is best-effort by construction and never fails or slows a run:
+Langfuse receives traces, not OTLP logs or metrics. Configure its full traces endpoint and Basic authentication:
 
-- Sinks are written concurrently and independently, so a dead collector does not stop the local
-  file, and vice versa.
-- Failed writes are retried on the next flush, but only when _every_ sink failed, so a working
-  file sink plus a dead collector never duplicates rows on disk.
-- If the collector stays down, the buffer stops growing at ten times `bufferSize` and the oldest
-  events are dropped with a warning in the log.
-- HTTP failures retry three times with backoff. A `401` or other non-retryable status fails fast
-  rather than burning attempts.
-
-## Turning it all off
-
-```json
-{ "telemetry": { "enabled": false } }
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel/v1/traces
+export OTEL_EXPORTER_OTLP_HEADERS="authorization=Basic $(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64),x-langfuse-ingestion-version=4"
+export OTEL_RESOURCE_ATTRIBUTES=langfuse.environment=production
 ```
 
-This stops local recording as well as export. To keep local files but stop exporting, set
-`telemetry.otlp.enabled` to `false`, which leaves the endpoint configured.
+Keep `signals` at `["traces"]`. Use your region's host or self-hosted host as appropriate. The root run is an agent observation, LLM calls are generation observations, and tool calls are tool observations. A conversation is mapped to the Langfuse session ID on each span; nested subagent runs share the parent trace. Token counts include cache usage when the provider reports it. Langfuse calculates cost from its own model pricing, so check your model's price configuration before relying on cost totals. See [Langfuse's OTLP mapping](https://langfuse.com/integrations/native/opentelemetry).
+
+Langfuse's [best-practices guide](https://langfuse.com/docs/observability/best-practices) recommends one trace per unit of work, a session for the conversation, interleaved generations and tools, and stable observation names. Jazz follows that structure for top-level runs. It does not send input, output, or reasoning text, so content-based evaluators and dataset experiments will see empty fields. The `x-langfuse-ingestion-version=4` header enables current ingestion behavior; validate the resulting trace in a non-production environment if migrating existing Langfuse dashboards or evaluators. The [v4 migration guide](https://langfuse.com/integrations/native/opentelemetry/migration-to-v4) explains the changed mappings. Set `langfuse.environment` as a resource attribute to keep development and production traces separate.
+
+## Trace and metric fields
+
+Jazz uses `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.operation.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, and cache or reasoning token attributes when available. `langfuse.observation.type` marks agent, generation, and tool spans. Jazz IDs and additional counters use the `jazz.*` namespace. Dashboard queries using the old `gen_ai.system` field should migrate to `gen_ai.provider.name`.
+
+Metric names and low-cardinality dimensions are:
+
+| Metric                                                             | Unit    | Dimensions                               |
+| ------------------------------------------------------------------ | ------- | ---------------------------------------- |
+| `jazz.agent.runs`                                                  | count   | agent ID, status                         |
+| `jazz.tool.calls`                                                  | count   | canonical tool name, status              |
+| `jazz.llm.calls`                                                   | count   | operation, provider, model               |
+| `jazz.llm.tokens`                                                  | tokens  | operation, provider, model, input/output |
+| `jazz.agent.run.duration`                                          | seconds | agent ID, status                         |
+| `jazz.tool.call.duration`                                          | seconds | canonical tool name, status              |
+| `gen_ai.client.operation.duration`                                 | seconds | operation, provider, model               |
+| `jazz.process.memory.rss` / `jazz.process.memory.heap_used`        | bytes   | process resource                         |
+| `jazz.process.cpu.user` / `jazz.process.cpu.system`                | seconds | cumulative CPU time                      |
+| `jazz.telemetry.export.failures` / `jazz.telemetry.export.dropped` | count   | signal and bounded reason                |
+
+Metrics use cumulative temporality and a 30-second export interval by default. The service resource includes a process-specific `service.instance.id` unless you set one. Prometheus may normalize dots in metric names to underscores; inspect its target before writing queries.
+
+Short-lived CLI runs export a zero `jazz.agent.runs` sample at run start and a terminal sample on shutdown. This gives Prometheus a before/after pair for the run counter even when the 30-second interval never fires. Query each instance's rate before summing across instances, and use a window that contains both samples. For Prometheus's default name translation, `sum by (status) (rate(jazz_agent_runs_total{job="jazz"}[5m]))` shows run activity. The model- and tool-specific counters may still have only a terminal sample in a short process; use traces or OTLP logs for exact short-run event counts. Rates for those counters are most useful when Jazz runs as a long-lived daemon. Prometheus recommends cumulative temporality for its OTLP receiver; its delta-to-cumulative mode is currently experimental.
+
+## Privacy and delivery
+
+Jazz's shared telemetry event stream does not contain prompt, completion, tool argument, or tool result text. String attributes are bounded and known credential-bearing fields are redacted. `captureContent` defaults to false; setting it to true currently does not add content to events or OTLP. This setting is reserved for a future explicit per-destination content path. Never assume an OTLP collector is a private boundary; configure only approved endpoints.
+
+Traces and logs have independent disk-backed queues under `<telemetry.storagePath>/otlp-outbox`. They contain payloads but no authentication headers, use private file permissions, and retry independently of local event files. Queue limits default to 32 MiB and seven days; oldest pending payloads are dropped with a warning when those limits are reached. Retryable HTTP responses (`429`, `502`, `503`, `504`) and network failures get bounded retries, honoring `Retry-After`. Other HTTP failures are dropped with a warning. An OTLP partial-success response is acknowledged and reported, not retried. An ambiguous connection failure may produce a duplicate after retry or restart; consumers should use stable trace/span IDs where possible.
+
+Metrics use the OpenTelemetry SDK's cumulative aggregation and periodic exporter. They are flushed on clean shutdown but are not stored in the disk outbox, so a crash or prolonged outage can lose a metric interval. Logs and telemetry also flush on normal CLI shutdown. Observability failures are best-effort and do not block agent actions.
+
+Set `telemetry.otlp.maxQueuedBytes`, `telemetry.otlp.maxQueueAgeMs`, and `telemetry.otlp.metricExportIntervalMs` to tune delivery. Set `telemetry.otlp.enabled` to false to retain local records without export, or `telemetry.enabled` to false to disable both local telemetry events and OTLP. Operational logs remain governed by logging config.

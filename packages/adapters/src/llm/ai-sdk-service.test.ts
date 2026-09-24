@@ -30,6 +30,7 @@ import {
   createAISDKServiceLayer,
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
+  safeLLMErrorMetadata,
   toCoreMessages,
   applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
@@ -87,6 +88,35 @@ afterAll(() => {
 });
 
 describe("AI SDK Service - Unit Tests", () => {
+  it("keeps provider error content out of log metadata", () => {
+    const secret = "private-request-body-and-api-key";
+    const error = Object.assign(new Error(secret), {
+      status: 429,
+      requestBodyValues: { prompt: secret },
+      code: secret,
+    });
+
+    expect(safeLLMErrorMetadata(error, "openai", "LLMRequestError")).toEqual({
+      provider: "openai",
+      errorType: "LLMRequestError",
+      statusCode: 429,
+    });
+    expect(JSON.stringify(safeLLMErrorMetadata(error, "openai", "LLMRequestError"))).not.toContain(
+      secret,
+    );
+    expect(
+      safeLLMErrorMetadata(
+        Object.defineProperty({}, "status", {
+          get: () => {
+            throw new Error(secret);
+          },
+        }),
+        "openai",
+        "LLMRequestError",
+      ),
+    ).toEqual({ provider: "openai", errorType: "LLMRequestError" });
+  });
+
   /**
    * Helper to create a test config layer
    */
