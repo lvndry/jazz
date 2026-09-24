@@ -7,6 +7,7 @@ describe("parseEnvelope", () => {
       ok: true,
       answer: "hi",
       costUSD: 0.001,
+      costKnown: true,
       tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
       toolCalls: [{ id: "t1", name: "read_file", arguments: "{}" }],
     });
@@ -14,12 +15,17 @@ describe("parseEnvelope", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.answer).toBe("hi");
     expect(parsed.costUSD).toBe(0.001);
+    expect(parsed.costKnown).toBe(true);
     expect(parsed.tokenUsage.totalTokens).toBe(15);
     expect(parsed.toolCalls[0]?.name).toBe("read_file");
   });
 
   it("throws on non-JSON output", () => {
     expect(() => parseEnvelope("garbage not json")).toThrow();
+  });
+
+  it("marks a missing cost flag unknown instead of treating zero as free", () => {
+    expect(parseEnvelope(JSON.stringify({ ok: true, costUSD: 0 })).costKnown).toBe(false);
   });
 
   it("throws when ok is false", () => {

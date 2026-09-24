@@ -270,6 +270,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /** Exact user messages authenticated by the host; tool output cannot add to this set. */
+  readonly memoryUserSources?: readonly { readonly id: string; readonly text: string }[];
   /** Trace context inherited by a child agent invoked from this tool. */
   readonly telemetryTraceParent?: TelemetryTraceParent;
   /** Memory scopes available to this run. */

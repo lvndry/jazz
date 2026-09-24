@@ -38,6 +38,7 @@ export function parseEnvelope(stdout: string): Envelope {
     ok: true,
     answer: typeof envelope["answer"] === "string" ? envelope["answer"] : "",
     costUSD: typeof envelope["costUSD"] === "number" ? envelope["costUSD"] : 0,
+    costKnown: envelope["costKnown"] === true,
     tokenUsage: {
       promptTokens: usage["promptTokens"] ?? 0,
       completionTokens: usage["completionTokens"] ?? 0,
@@ -50,7 +51,7 @@ export function parseEnvelope(stdout: string): Envelope {
 }
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const MAIN_TS = join(REPO_ROOT, "src", "main.ts");
+const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
 const REPORT_DIR = join(REPO_ROOT, "evals", "report");
 
 export interface RunJazzOptions {
@@ -59,6 +60,8 @@ export interface RunJazzOptions {
   workspaceDir: string;
   cassettePath: string;
   cassetteMode?: "record" | "replay";
+  /** Disable fetch interception when a live provider uses HTTP through the same process. */
+  useWebCassette?: boolean;
   reasoningEffort?: string;
   timeoutMs: number;
   runId: string;
@@ -68,6 +71,8 @@ export interface RunJazzOptions {
   jazzHome?: string;
   /** Cap iterations, e.g. to stop a run partway without killing the process. */
   maxIterations?: number;
+  /** Skip streaming NDJSON when a task only needs the final envelope and tool calls. */
+  captureEvents?: boolean;
 }
 
 /**
@@ -88,13 +93,12 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     "--agent",
     options.agentId,
     "--json",
-    "--events",
-    "all",
     "--approval-policy",
     "high-risk",
     "--timeout",
     String(options.timeoutMs),
   ];
+  if (options.captureEvents !== false) argv.push("--events", "all");
   if (options.reasoningEffort) argv.push("--reasoning", options.reasoningEffort);
   if (options.conversationId) argv.push("--conversation", options.conversationId);
   if (options.maxIterations !== undefined) {
@@ -105,8 +109,12 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     cwd: options.workspaceDir,
     env: {
       ...process.env,
-      JAZZ_WEB_CASSETTE: options.cassettePath,
-      JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+      ...(options.useWebCassette === false
+        ? {}
+        : {
+            JAZZ_WEB_CASSETTE: options.cassettePath,
+            JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+          }),
       ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
     },
     stdout: "pipe",
