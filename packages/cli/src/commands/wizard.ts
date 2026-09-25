@@ -1,16 +1,21 @@
 import os from "node:os";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
+import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
+import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
+import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -208,7 +213,41 @@ export function wizardCommand() {
               }),
             ),
           );
-          yield* showAgentList(listedAgents, lastUsedAgentId);
+          let previouslyOpenedId: string | undefined;
+          while (true) {
+            const selectedAgent = yield* showAgentList(
+              listedAgents,
+              lastUsedAgentId,
+              previouslyOpenedId,
+            );
+            if (selectedAgent === null) break;
+            previouslyOpenedId = selectedAgent.id;
+            const metadata = isZeroCostLocalModel(
+              selectedAgent.config.llmProvider,
+              selectedAgent.config.llmModel,
+            )
+              ? undefined
+              : yield* Effect.tryPromise({
+                  try: () =>
+                    getModelsDevMetadata(
+                      selectedAgent.config.llmModel,
+                      selectedAgent.config.llmProvider,
+                    ),
+                  catch: (error) => error,
+                }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            const llmService = yield* LLMServiceTag;
+            const appConfig = yield* configService.appConfig;
+            const hostUrl =
+              isLocalServerProvider(selectedAgent.config.llmProvider) &&
+              (selectedAgent.config.llmProvider !== "ollama" ||
+                !isOllamaCloudModel(selectedAgent.config.llmModel))
+                ? llmService.resolveLocalProviderBaseUrl(
+                    selectedAgent.config.llmProvider,
+                    appConfig.llm,
+                  )
+                : undefined;
+            yield* showAgentDetails(selectedAgent, metadata, hostUrl);
+          }
           break;
         }
 
@@ -304,20 +343,52 @@ function agentChoicesFor(
 export function showAgentList(
   agents: readonly Agent[],
   lastUsedAgentId: string | null | undefined,
-): Effect.Effect<void, never, never> {
-  return Effect.async<void>((resume) => {
+  previouslyOpenedId?: string,
+): Effect.Effect<Agent | null, never, never> {
+  return Effect.async<Agent | null>((resume) => {
     const sorted = sortAgents(agents, lastUsedAgentId);
     store.setActiveMenu(
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: agentChoicesFor(sorted, lastUsedAgentId),
+        ...(previouslyOpenedId === undefined
+          ? {}
+          : {
+              initialIndex: Math.max(
+                0,
+                sorted.findIndex((agent) => agent.id === previouslyOpenedId),
+              ),
+            }),
       },
-      () => {
-        resume(Effect.succeed(undefined));
+      (result) => {
+        resume(
+          Effect.succeed(
+            result.kind === "exit"
+              ? null
+              : (agents.find((agent) => agent.id === result.value) ?? null),
+          ),
+        );
       },
+    );
+  });
+}
+
+/** Display one selected agent until the reader returns to the list. */
+function showAgentDetails(
+  agent: Agent,
+  metadata: Awaited<ReturnType<typeof getModelsDevMetadata>>,
+  hostUrl: string | undefined,
+): Effect.Effect<void, never, never> {
+  return Effect.async<void>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "agent-details",
+        name: agent.name,
+        fields: agentDetailFields(agent, metadata, hostUrl),
+      },
+      () => resume(Effect.void),
     );
   });
 }

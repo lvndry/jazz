@@ -33,7 +33,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
-   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable.
+   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable. In a conversation, the terminal header shows the resolved `host:port` beside a local model when there is room; it hides credentials and does not show a local endpoint for Ollama Cloud models.
 
 3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 

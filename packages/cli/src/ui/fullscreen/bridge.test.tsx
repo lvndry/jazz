@@ -19,6 +19,7 @@ import { InkPresentationService } from "@/cli/presentation/ink-presentation-serv
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
+import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
 import { THEME } from "../theme";
@@ -150,6 +151,17 @@ describe("fullscreen bridge", () => {
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
     expect(text).toContain("20k/40k $0.04");
+  });
+
+  it("shows the resolved local endpoint beside a conversation model", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({
+        provider: "vllm",
+        model: "qwen3",
+        localModelHosts: { vllm: "gpu.example:8000" },
+      });
+    });
+    expect(text).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
   });
 
   it("hydrates identity into the header without crowding the mark", async () => {
@@ -840,8 +852,7 @@ describe("fullscreen bridge", () => {
       store.setActiveMenu({
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [
           { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
@@ -852,12 +863,12 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("qwen-coder");
     expect(text).toContain("claude-sonnet-4");
     expect(text).toContain("qwen2.5-coder");
-    expect(text).toContain("enter back");
+    expect(text).toContain("enter details");
     expect(text).not.toContain("enter start");
     store.setActiveMenu(null);
   });
 
-  it("leaves the list-agents screen on enter or escape without selecting", async () => {
+  it("selects an agent on Enter and leaves the list on Escape", async () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
@@ -865,8 +876,7 @@ describe("fullscreen bridge", () => {
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [
           { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
@@ -879,15 +889,14 @@ describe("fullscreen bridge", () => {
 
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush, 100);
-    expect(selected).toEqual(["EXIT"]);
+    expect(selected).toEqual(["a1"]);
 
     selected.length = 0;
     store.setActiveMenu(
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" }],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
@@ -915,6 +924,39 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("esc");
     expect(text).not.toContain("move");
     store.setActiveMenu(null);
+  });
+
+  it("opens a scrollable detail screen and returns on Escape", async () => {
+    const selected: string[] = [];
+    const rendered = await testRender(<FullscreenBridge />, { width: 60, height: 14 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "agent-details",
+        name: "Research",
+        fields: [
+          { section: "Model", label: "Provider", value: "vllm" },
+          { section: "Model", label: "Model", value: "qwen" },
+          { section: "Model", label: "Input price", value: "$0/M tokens" },
+          { section: "Model", label: "Output price", value: "$0/M tokens" },
+          { section: "Model", label: "Host URL", value: "http://gpu.example:8000/v1" },
+          { section: "Access", label: "Tools denied", value: "execute_command" },
+        ],
+      },
+      (result) => selected.push(result.kind),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("agent: Research");
+    expect(rendered.captureCharFrame()).toContain("Input price");
+    for (let index = 0; index < 3; index += 1) {
+      await rendered.mockInput.pressKey("ARROWDOWN");
+      await settleKeypress(rendered.flush);
+    }
+    expect(rendered.captureCharFrame()).toContain("Tools denied");
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(selected).toEqual(["exit"]);
   });
 
   it("filters skills, opens details, returns to the filtered list, then closes", async () => {

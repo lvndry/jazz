@@ -3,7 +3,7 @@
 /**
  * The header: one row, four fact groups, never hidden.
  *
- *   ▎ jazz                    model ∙ apps 3 of 4 ∙ ████░░░░ 47%
+ *   ▎ jazz        model · host:port ∙ apps 3 of 4 ∙ ████░░░░ 47%
  *
  * The restraint is the design. The mark stays alone on the left; version and
  * cwd are on the home wordmark, not here. Connector health is a count rather
@@ -92,7 +92,18 @@ export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs())
         { text: " jazz", fg: THEME.selected },
       ],
     },
-    { key: "model", segments: [{ text: model.model, fg: THEME.secondary }] },
+    {
+      key: "model",
+      segments: [
+        { text: model.model, fg: THEME.secondary },
+        ...(model.localHost === undefined
+          ? []
+          : [
+              { text: ` ${glyphs.bullet} `, fg: THEME.muted },
+              { text: model.localHost, fg: THEME.muted },
+            ]),
+      ],
+    },
   ];
   const connectors = connectorsGroup(model.connectors);
   if (connectors !== undefined) groups.push(connectors);
@@ -119,6 +130,14 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
       ? 0
       : list.reduce((total, group) => total + terminalSegmentsWidth(group.segments), 0) +
         terminalCellWidth(separator) * (list.length - 1);
+
+  // The endpoint is useful context, but the model and health facts take priority.
+  // Keep it in the model group so it can never survive after the model drops.
+  if (model.localHost !== undefined && minimumMarkWidth + 1 + factsWidth(facts) > viewport.width) {
+    facts = facts.map((group) =>
+      group.key === "model" ? { ...group, segments: group.segments.slice(0, 1) } : group,
+    );
+  }
 
   while (facts.length > 0 && minimumMarkWidth + 1 + factsWidth(facts) > viewport.width) {
     facts = facts.slice(1);

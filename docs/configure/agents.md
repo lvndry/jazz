@@ -135,3 +135,10 @@ memory, deny `manage_memory` in its persona, or run it with `jazz run --ephemera
 
 Run `jazz agent show <name>` to inspect the resolved agent and `/tools` inside chat to see the tools
 available to that run.
+
+In the interactive `jazz` home menu, choose **List agents**, move to an agent, and press Enter to
+inspect its configuration. The detail screen shows provider, model, reasoning, persona, input and
+output prices per million tokens, the effective host URL for a self-hosted model, model settings,
+tool access, companions, and timestamps. Use Up/Down to scroll and Escape to return to the list.
+Prices are shown as unknown when the model catalog has no rate; local models running on your own
+server show $0 for provider inference. API keys and custom tool commands remain hidden.
