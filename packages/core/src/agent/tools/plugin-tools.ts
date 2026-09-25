@@ -10,16 +10,35 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types";
-import type { JsonValue, PluginToolInfo, PluginToolResult } from "@/core/types/plugin";
-import { defineApprovalTool, defineTool, type ToolValidator } from "./base-tool";
+import type {
+  JsonValue,
+  PluginToolInfo,
+  PluginToolPreparation,
+  PluginToolResult,
+} from "@/core/types/plugin";
+import { defineTool, type ToolValidator } from "./base-tool";
 
 /** How the host runs a plugin tool by name; supplied by the caller (a plugin session). */
 export type PluginToolInvoker = (
   name: string,
   args: Record<string, unknown>,
+  context: import("@/core/types").ToolExecutionContext,
 ) => Effect.Effect<PluginToolResult>;
 
-const APPROVAL_ARGS_PREVIEW_LIMIT = 500;
+export interface PluginToolApprovalInvoker {
+  readonly run: PluginToolInvoker;
+  readonly prepare: (
+    name: string,
+    args: Record<string, unknown>,
+    context: import("@/core/types").ToolExecutionContext,
+  ) => Effect.Effect<PluginToolPreparation | PluginToolResult>;
+  readonly execute: (
+    name: string,
+    args: Record<string, unknown>,
+    prepared: unknown,
+    context: import("@/core/types").ToolExecutionContext,
+  ) => Effect.Effect<PluginToolResult>;
+}
 
 /** The registry/model-facing name for a plugin tool, namespaced so it never collides. */
 export function pluginJazzToolName(pluginId: string, toolName: string): string {
@@ -132,13 +151,6 @@ function toExecutionResult(outcome: PluginToolResult): ToolExecutionResult {
     : { success: true, result: outcome.content };
 }
 
-function previewArguments(args: Record<string, unknown>): string {
-  const serialized = JSON.stringify(args);
-  return serialized.length <= APPROVAL_ARGS_PREVIEW_LIMIT
-    ? serialized
-    : `${serialized.slice(0, APPROVAL_ARGS_PREVIEW_LIMIT)}… (truncated)`;
-}
-
 /**
  * Convert one plugin tool declaration into the Jazz tool(s) to register. A read-only tool is a
  * single tool; anything else is an approval pair. `invoke` runs the plugin's handler for this
@@ -146,15 +158,18 @@ function previewArguments(args: Record<string, unknown>): string {
  */
 export function adaptPluginToolToJazz(
   info: PluginToolInfo,
-  invoke: PluginToolInvoker,
+  invoke: PluginToolApprovalInvoker,
 ): readonly Tool[] {
   const jazzToolName = pluginJazzToolName(info.pluginId, info.name);
   // The model is shown the declared JSON Schema (jsonSchema below); the Zod parameters stay open
   // because the enforced gate is makeArgumentValidator, run against that same declared schema.
   const parameters = z.object({}).passthrough();
   const jsonSchema = info.parameters as Readonly<Record<string, unknown>>;
-  const run = (args: Record<string, unknown>): Effect.Effect<ToolExecutionResult> =>
-    invoke(info.name, args).pipe(Effect.map(toExecutionResult));
+  const run = (
+    args: Record<string, unknown>,
+    context: import("@/core/types").ToolExecutionContext,
+  ): Effect.Effect<ToolExecutionResult> =>
+    invoke.run(info.name, args, context).pipe(Effect.map(toExecutionResult));
 
   if (info.riskLevel === "read-only") {
     return [
@@ -168,27 +183,53 @@ export function adaptPluginToolToJazz(
         hidden: false,
         riskLevel: "read-only",
         validate: makeArgumentValidator(info.parameters),
-        handler: (args) => run(args),
+        handler: (args, context) => run(args, context),
       }),
     ];
   }
 
-  return defineApprovalTool<never, Record<string, unknown>>({
+  const executeToolName = `execute_${jazzToolName}`;
+  const approval = defineTool<never, Record<string, unknown>>({
     name: jazzToolName,
     description: info.description,
     disclosure: "private",
     egress: info.egress,
     parameters,
+    jsonSchema,
     riskLevel: info.riskLevel,
     validate: makeArgumentValidator(info.parameters),
-    approvalMessage: (args) =>
-      Effect.succeed(
-        [
-          `Plugin: ${info.pluginId}`,
-          `Tool: ${info.name}`,
-          `Arguments: ${previewArguments(args)}`,
-        ].join("\n"),
+    approvalExecuteToolName: executeToolName,
+    handler: (args, context) =>
+      invoke.prepare(info.name, args, context).pipe(
+        Effect.map((proposal) => {
+          if ("isError" in proposal && proposal.isError === true)
+            return toExecutionResult(proposal);
+          if (!("message" in proposal))
+            return { success: false, result: proposal.content, error: proposal.content };
+          return {
+            success: false,
+            result: {
+              approvalRequired: true,
+              message: proposal.message,
+              previewDiff: proposal.previewDiff,
+              executeToolName,
+              executeArgs: { args, prepared: proposal.prepared },
+            },
+            error: `Approval required: ${jazzToolName} requires user confirmation.`,
+          };
+        }),
       ),
-    handler: (args) => run(args),
-  }).all();
+  });
+  const execute = defineTool<never, { args: Record<string, unknown>; prepared: unknown }>({
+    name: executeToolName,
+    description: `Performs approved plugin tool ${info.name}.`,
+    hidden: true,
+    disclosure: "private",
+    egress: info.egress,
+    parameters: z.object({ args: z.record(z.string(), z.unknown()), prepared: z.unknown() }),
+    riskLevel: info.riskLevel,
+    handler: ({ args, prepared }, context) =>
+      invoke.execute(info.name, args, prepared, context).pipe(Effect.map(toExecutionResult)),
+  });
+  return [approval, execute];
 }

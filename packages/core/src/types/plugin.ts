@@ -231,6 +231,19 @@ export interface PluginToolResult {
   readonly isError?: boolean;
 }
 
+/** Agent working directory and cooperative cancellation supplied by the host. */
+export interface PluginToolContext {
+  readonly signal: AbortSignal;
+  readonly cwd: string;
+}
+
+/** Serialized approval plan; persisted when a run parks. */
+export interface PluginToolPreparation {
+  readonly message: string;
+  readonly previewDiff?: string;
+  readonly prepared: JsonValue;
+}
+
 /**
  * The runtime half of a plugin tool: the handler the host invokes when the model calls the tool.
  * `name` must match a {@link PluginToolDeclaration} in the manifest, or registration is rejected.
@@ -239,7 +252,16 @@ export interface PluginToolRegistration {
   readonly name: string;
   readonly handler: (
     args: Record<string, unknown>,
-    context: { readonly signal: AbortSignal },
+    context: PluginToolContext,
+  ) => Promise<PluginToolResult>;
+  readonly prepare?: (
+    args: Record<string, unknown>,
+    context: PluginToolContext,
+  ) => Promise<PluginToolPreparation>;
+  readonly executePrepared?: (
+    args: Record<string, unknown>,
+    prepared: JsonValue,
+    context: PluginToolContext,
   ) => Promise<PluginToolResult>;
 }
 

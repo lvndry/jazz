@@ -4,7 +4,11 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { ToolExecutionContext } from "@/core/types";
 import type { PluginToolInfo, PluginToolResult } from "@/core/types/plugin";
-import { adaptPluginToolToJazz, pluginJazzToolName, type PluginToolInvoker } from "./plugin-tools";
+import {
+  adaptPluginToolToJazz,
+  pluginJazzToolName,
+  type PluginToolApprovalInvoker,
+} from "./plugin-tools";
 
 const context = { agentId: "test-agent" } as ToolExecutionContext;
 
@@ -20,10 +24,11 @@ function info(overrides: Partial<PluginToolInfo> = {}): PluginToolInfo {
   };
 }
 
-const succeeds =
-  (result: PluginToolResult): PluginToolInvoker =>
-  () =>
-    Effect.succeed(result);
+const succeeds = (result: PluginToolResult): PluginToolApprovalInvoker => ({
+  run: () => Effect.succeed(result),
+  prepare: () => Effect.succeed({ message: "Review plugin call", prepared: null }),
+  execute: () => Effect.succeed(result),
+});
 
 describe("adaptPluginToolToJazz", () => {
   it("namespaces the tool name by plugin id", () => {
@@ -70,9 +75,12 @@ describe("adaptPluginToolToJazz", () => {
 
   it("rejects arguments that violate the declared schema before the handler runs", async () => {
     let handlerCalled = false;
-    const invoke: PluginToolInvoker = () => {
-      handlerCalled = true;
-      return Effect.succeed({ content: "should not run" });
+    const invoke: PluginToolApprovalInvoker = {
+      ...succeeds({ content: "should not run" }),
+      run: () => {
+        handlerCalled = true;
+        return Effect.succeed({ content: "should not run" });
+      },
     };
     const tools = adaptPluginToolToJazz(
       info({
@@ -126,5 +134,46 @@ describe("adaptPluginToolToJazz", () => {
     );
     expect(gated.success).toBe(false);
     expect((gated.result as { approvalRequired?: boolean }).approvalRequired).toBe(true);
+  });
+
+  it("carries the approved diff and prepared state into the hidden execution tool", async () => {
+    let executed: unknown;
+    const tools = adaptPluginToolToJazz(info({ riskLevel: "high-risk" }), {
+      run: () => Effect.succeed({ content: "unexpected" }),
+      prepare: () =>
+        Effect.succeed({
+          message: "Apply rename",
+          previewDiff: "-old\n+new",
+          prepared: { snapshot: "sha256:before" },
+        }),
+      execute: (_name, _args, prepared) => {
+        executed = prepared;
+        return Effect.succeed({ content: "changed" });
+      },
+    });
+    const proposal = await Effect.runPromise(
+      tools[0]!.execute({ text: "old" }, context) as Effect.Effect<
+        { result: unknown },
+        Error,
+        never
+      >,
+    );
+    const result = proposal.result as {
+      message: string;
+      previewDiff: string;
+      executeArgs: Record<string, unknown>;
+    };
+    expect(result.message).toBe("Apply rename");
+    expect(result.previewDiff).toBe("-old\n+new");
+    expect(executed).toBeUndefined();
+    const completed = await Effect.runPromise(
+      tools[1]!.execute(result.executeArgs, context) as Effect.Effect<
+        { success: boolean; result: unknown },
+        Error,
+        never
+      >,
+    );
+    expect(executed).toEqual({ snapshot: "sha256:before" });
+    expect(completed).toEqual({ success: true, result: "changed" });
   });
 });

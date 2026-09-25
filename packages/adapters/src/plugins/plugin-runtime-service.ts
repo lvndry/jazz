@@ -21,6 +21,7 @@ import {
   type PluginPersonaInfo,
   type PluginSkillInfo,
   type PluginToolInfo,
+  type PluginToolPreparation,
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
 import { Effect, Layer } from "effect";
@@ -91,10 +92,11 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
     agentId: string,
     name: string,
     args: Record<string, unknown>,
+    cwd: string,
   ): Effect.Effect<PluginToolResult> {
     return Effect.acquireUseRelease(
       this.openSession({ agentId }),
-      (session: PluginSession) => session.runTool(name, args),
+      (session: PluginSession) => session.runTool(name, args, cwd),
       (session: PluginSession) => session.close(),
     ).pipe(
       Effect.catchAll(() =>
@@ -102,6 +104,41 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
           content: `plugin tool ${name} is unavailable`,
           isError: true,
         }),
+      ),
+    );
+  }
+
+  prepareAgentTool(
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+    cwd: string,
+  ): Effect.Effect<PluginToolPreparation | PluginToolResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => session.prepareTool(name, args, cwd),
+      (session: PluginSession) => session.close(),
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed({ content: `plugin tool ${name} is unavailable`, isError: true as const }),
+      ),
+    );
+  }
+
+  executePreparedAgentTool(
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+    prepared: unknown,
+    cwd: string,
+  ): Effect.Effect<PluginToolResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => session.executePreparedTool(name, args, prepared, cwd),
+      (session: PluginSession) => session.close(),
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed({ content: `plugin tool ${name} is unavailable`, isError: true as const }),
       ),
     );
   }

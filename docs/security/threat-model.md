@@ -49,6 +49,13 @@ applying edits based on the same old contents, including when approval was parke
 do not honor Jazz's lock; the digest check detects changes already present at execution, but it
 cannot make an uncooperative external write atomic with Jazz's write.
 
+The optional LSP plugin starts an operator-configured local language server. Its semantic queries
+are read-only tools; its mutating tools declare high risk and show the server's actual text diff through the existing
+approval gate and carry a prepared edit into parked approvals. At execution they recheck complete
+file snapshots while holding Jazz's per-file edit locks. Server-initiated edits and executable code
+action commands are denied. Multi-file renames are not one atomic transaction, and a configured
+server runs with the user's OS authority.
+
 ### Disclosure and egress
 
 Risk, disclosure, and egress are separate metadata. A read-only web request can transmit private

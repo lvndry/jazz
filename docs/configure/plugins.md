@@ -135,6 +135,9 @@ command safer.
 
 ## Tools
 
+For a complete optional tool plugin, see the [generic LSP plugin](./lsp-plugin.md), which
+connects configured language servers to semantic code navigation and approved refactors.
+
 A plugin may contribute model-callable tools. Each tool is declared in the manifest — name,
 description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-risk` /
 `high-risk`), and whether calling it sends model-authored content off the machine (`egress`) — and
@@ -148,6 +151,13 @@ arguments against that schema before the handler runs**. A `read-only` tool runs
 else becomes an approval-gated tool, so a person confirms it under the active approval policy exactly
 like a built-in. A handler that throws, times out, or is unavailable returns an error result to the
 model rather than crashing the run.
+
+Tool handlers receive the agent's current working directory and an abort signal. A mutating tool
+may register both `prepare` and `executePrepared`: `prepare` returns an approval message, optional
+diff, and JSON-serializable prepared data. Jazz persists that data with the approval, including
+parked runs. Only the hidden execution tool receives it, after approval. The plugin must revalidate
+any files or remote state that could have changed while approval was pending. Without those
+callbacks, Jazz shows a bounded argument preview and runs the ordinary handler after approval.
 
 ```jsonc
 // jazz-plugin.json

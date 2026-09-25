@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.plugins.lsp",
+  "name": "Language Server Protocol",
+  "version": "0.1.0",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": [],
+  "decisionProviders": [],
+  "tools": [
+    {
+      "name": "diagnostics",
+      "description": "Get current diagnostics for a source file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "document_symbols",
+      "description": "List symbols defined in a source file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "workspace_symbols",
+      "description": "Search symbols in the workspace of a source file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "definition",
+      "description": "Find the definition of a symbol.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line"
+          },
+          "character": {
+            "type": "integer",
+            "description": "1-based UTF-16 character"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "character"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "references",
+      "description": "Find references to a symbol.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line"
+          },
+          "character": {
+            "type": "integer",
+            "description": "1-based UTF-16 character"
+          },
+          "includeDeclaration": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "character"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "hover",
+      "description": "Get type and documentation at a position.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line"
+          },
+          "character": {
+            "type": "integer",
+            "description": "1-based UTF-16 character"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "character"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "code_actions",
+      "description": "List code actions for a source range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "startCharacter": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "endCharacter": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file",
+          "startLine",
+          "startCharacter",
+          "endLine",
+          "endCharacter"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    },
+    {
+      "name": "rename_symbol",
+      "description": "Rename a symbol across workspace files with diff approval and stale-file protection.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line"
+          },
+          "character": {
+            "type": "integer",
+            "description": "1-based UTF-16 character"
+          },
+          "newName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "line",
+          "character",
+          "newName"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "high-risk",
+      "egress": false
+    },
+    {
+      "name": "apply_code_action",
+      "description": "Apply an edit-bearing code action by exact title with diff approval.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "startCharacter": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "endCharacter": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer",
+            "description": "Zero-based index from code_actions, required when titles repeat"
+          }
+        },
+        "required": [
+          "file",
+          "startLine",
+          "startCharacter",
+          "endLine",
+          "endCharacter",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "high-risk",
+      "egress": false
+    },
+    {
+      "name": "format_document",
+      "description": "Format a document with diff approval and stale-file protection.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Source file path, relative to the agent working directory"
+          },
+          "tabSize": {
+            "type": "integer"
+          },
+          "insertSpaces": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "additionalProperties": false
+      },
+      "riskLevel": "high-risk",
+      "egress": false
+    }
+  ],
+  "commands": [],
+  "personas": [],
+  "skills": [],
+  "lifecycleHooks": [],
+  "network": {
+    "destinations": []
+  },
+  "dataSent": [],
+  "secrets": []
+}

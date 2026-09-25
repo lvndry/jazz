@@ -177,12 +177,36 @@ export interface PluginToolResult {
   readonly isError?: boolean;
 }
 
+/** Trusted host context for a tool invocation; cwd follows the agent's current directory. */
+export interface PluginToolContext {
+  readonly signal: AbortSignal;
+  readonly cwd: string;
+}
+
+/** An immutable proposal persisted with Jazz's approval, including parked approvals. */
+export interface PluginToolPreparation {
+  readonly message: string;
+  readonly previewDiff?: string;
+  readonly prepared: JsonValue;
+}
+
 /** The runtime handler for a tool the manifest declares; the name must match a declaration. */
 export interface PluginToolRegistration {
   readonly name: string;
   readonly handler: (
     args: Record<string, unknown>,
-    context: { readonly signal: AbortSignal },
+    context: PluginToolContext,
+  ) => Promise<PluginToolResult>;
+  /** Build the exact proposal before approval; only valid for mutating tools. */
+  readonly prepare?: (
+    args: Record<string, unknown>,
+    context: PluginToolContext,
+  ) => Promise<PluginToolPreparation>;
+  /** Revalidate and apply the prepared proposal after Jazz approves it. */
+  readonly executePrepared?: (
+    args: Record<string, unknown>,
+    prepared: JsonValue,
+    context: PluginToolContext,
   ) => Promise<PluginToolResult>;
 }
 

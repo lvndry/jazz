@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@jazz/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"] }
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

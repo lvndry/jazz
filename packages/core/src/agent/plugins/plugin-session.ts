@@ -32,6 +32,8 @@ import {
   type PluginToolDeclaration,
   type PluginToolRegistration,
   type PluginToolResult,
+  type PluginToolPreparation,
+  type JsonValue,
   type SkillRouteOutcome,
 } from "@/core/types/plugin";
 import {
@@ -96,6 +98,8 @@ type RegisteredTool = {
   readonly pluginId: string;
   readonly declaration: PluginToolDeclaration;
   readonly handler: PluginToolRegistration["handler"];
+  readonly prepare?: PluginToolRegistration["prepare"];
+  readonly executePrepared?: PluginToolRegistration["executePrepared"];
 };
 
 type RegisteredCommand = {
@@ -168,6 +172,7 @@ export function createPluginSession(
       let reservedCostUSD = 0;
       let closed = false;
       const timeoutMs = options.hookTimeoutMs ?? DEFAULT_PLUGIN_HOOK_TIMEOUT_MS;
+      const toolTimeoutMs = options.toolTimeoutMs ?? 30_000;
 
       const registerPlugin = (plugin: LoadedPlugin): void => {
         const manifest = validatePluginManifest(plugin.manifest);
@@ -220,10 +225,23 @@ export function createPluginSession(
                 throw new Error(`plugin did not declare tool ${registration.name}`);
               if (tools.has(registration.name))
                 throw new Error(`tool ${registration.name} already has a handler in this run`);
+              if (
+                (registration.prepare === undefined) !==
+                (registration.executePrepared === undefined)
+              )
+                throw new Error(
+                  `tool ${registration.name} must register both prepare and executePrepared`,
+                );
+              if (registration.prepare !== undefined && declaration.riskLevel === "read-only")
+                throw new Error(`read-only tool ${registration.name} cannot prepare a mutation`);
               tools.set(registration.name, {
                 pluginId: manifest.id,
                 declaration,
                 handler: registration.handler,
+                ...(registration.prepare && { prepare: registration.prepare }),
+                ...(registration.executePrepared && {
+                  executePrepared: registration.executePrepared,
+                }),
               });
             },
           },
@@ -423,19 +441,87 @@ export function createPluginSession(
         },
         listTools: () =>
           [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
-        runTool: (name, args) =>
+        runTool: (name, args, cwd) =>
           Effect.promise(async () => {
             if (closed) return toolError("plugin session closed");
             const registered = tools.get(name);
             if (!registered) return toolError(`no plugin handler for tool ${name}`);
             try {
-              return await deadline((signal) => registered.handler(args, { signal }), timeoutMs);
+              return await deadline(
+                (signal) => registered.handler(args, { signal, cwd }),
+                toolTimeoutMs,
+              );
             } catch (error) {
               options.reportFailure?.(
                 registered.pluginId,
                 error instanceof Error ? error.message : String(error),
               );
               return toolError(`tool ${name} failed`);
+            }
+          }),
+        prepareTool: (name, args, cwd) =>
+          Effect.promise(async (): Promise<PluginToolPreparation | PluginToolResult> => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            if (!registered.prepare) {
+              return {
+                message: `Plugin: ${registered.pluginId}\nTool: ${name}\nArguments: ${JSON.stringify(args).slice(0, 500)}`,
+                prepared: null,
+              };
+            }
+            try {
+              const result = await deadline(
+                (signal) => registered.prepare!(args, { signal, cwd }),
+                toolTimeoutMs,
+              );
+              const serialized = JSON.stringify(result.prepared);
+              if (
+                typeof result.message !== "string" ||
+                result.message.length === 0 ||
+                result.message.length > 4_000 ||
+                (result.previewDiff !== undefined &&
+                  (typeof result.previewDiff !== "string" ||
+                    result.previewDiff.length > 1_000_000)) ||
+                serialized === undefined ||
+                serialized.length > 8_000_000
+              )
+                return toolError(`tool ${name} returned an invalid approval proposal`);
+              return { ...result, prepared: JSON.parse(serialized) as JsonValue };
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(
+                `tool ${name} preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }),
+        executePreparedTool: (name, args, prepared, cwd) =>
+          Effect.promise(async () => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            try {
+              return registered.executePrepared
+                ? await deadline(
+                    (signal) =>
+                      registered.executePrepared!(args, prepared as JsonValue, { signal, cwd }),
+                    toolTimeoutMs,
+                  )
+                : await deadline(
+                    (signal) => registered.handler(args, { signal, cwd }),
+                    toolTimeoutMs,
+                  );
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(
+                `tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
             }
           }),
         emitLifecycle: (event: LifecycleEvent) =>

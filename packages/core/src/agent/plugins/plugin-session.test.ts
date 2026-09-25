@@ -322,10 +322,21 @@ const toolManifest = {
   ],
 };
 
-const makeToolSession = (module: LoadedPlugin["module"]) =>
+const makeToolSession = (
+  module: LoadedPlugin["module"],
+  riskLevel: "read-only" | "high-risk" = "read-only",
+) =>
   createPluginSession({
     agentId: "a",
-    plugins: [{ manifest: toolManifest, module }],
+    plugins: [
+      {
+        manifest: {
+          ...toolManifest,
+          tools: toolManifest.tools.map((tool) => ({ ...tool, riskLevel })),
+        },
+        module,
+      },
+    ],
     metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
     resolveSecret: async () => "secret",
   });
@@ -344,7 +355,9 @@ it("lists a declared tool and runs its handler", async () => {
   );
   expect(session.listTools().map((tool) => tool.name)).toEqual(["reverse_text"]);
   expect(session.listTools()[0]?.pluginId).toBe("com.example.router");
-  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  const result = await Effect.runPromise(
+    session.runTool("reverse_text", { text: "abc" }, process.cwd()),
+  );
   expect(result).toEqual({ content: "cba" });
 });
 
@@ -374,7 +387,9 @@ it("returns an error result when the handler throws, so the host falls back", as
       },
     }),
   );
-  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  const result = await Effect.runPromise(
+    session.runTool("reverse_text", { text: "abc" }, process.cwd()),
+  );
   expect(result.isError).toBe(true);
 });
 
@@ -390,8 +405,29 @@ it("returns an error result for an unknown tool name", async () => {
       },
     }),
   );
-  const result = await Effect.runPromise(session.runTool("does_not_exist", {}));
+  const result = await Effect.runPromise(session.runTool("does_not_exist", {}, process.cwd()));
   expect(result.isError).toBe(true);
+});
+
+it("rejects a non-serializable prepared approval before showing it", async () => {
+  const session = await Effect.runPromise(
+    makeToolSession(
+      {
+        apiVersion: 1,
+        register(api) {
+          api.tools.register({
+            name: "reverse_text",
+            handler: async () => ({ content: "unused" }),
+            prepare: async () => ({ message: "Review", prepared: { value: BigInt(1) } as never }),
+            executePrepared: async () => ({ content: "unused" }),
+          });
+        },
+      },
+      "high-risk",
+    ),
+  );
+  const result = await Effect.runPromise(session.prepareTool("reverse_text", {}, process.cwd()));
+  expect("isError" in result && result.isError).toBe(true);
 });
 
 const lifecycleManifest = {
