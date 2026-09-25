@@ -10,14 +10,27 @@ Jazz connects only to MCP servers referenced by the active agent. Connections an
 
 ## Add a local server
 
-Pass the server command after `--` so its flags are not parsed as Jazz options:
+For a simple executable, put the command after the server name. Jazz options such as `--env` can
+follow the command:
+
+```bash
+jazz mcp add my-server /path/to/my-mcp-server \
+  --env SERVICE_URL="https://your-service-url" \
+  --env SERVICE_API_KEY="your-api-key" \
+  --env LOG_LEVEL=info
+```
+
+If the server command has its own flags, put Jazz options before `--` and put the server command
+and its arguments after it. The delimiter keeps those flags from being parsed as Jazz options:
 
 ```bash
 jazz mcp add notes -- \
   npx -y @modelcontextprotocol/server-filesystem "$HOME/notes"
 ```
 
-Jazz writes the definition to the standard user-level `~/.agents/mcp.json`. A repository can commit `./.agents/mcp.json`; project definitions override user definitions with the same name.
+Jazz writes the definition, including `--env` values, to the standard user-level `~/.agents/mcp.json`.
+Keep credentials out of committed project configs. A repository can commit `./.agents/mcp.json`;
+project definitions override user definitions with the same name.
 
 Equivalent JSON:
 
