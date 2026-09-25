@@ -17,6 +17,10 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
+For a local vLLM or llama.cpp evaluation, point an eval agent at the running server and
+set its `llmProvider` to `vllm` or `llamacpp`. The eval cost guardrail accepts these
+user-run providers; the server must still be available throughout the run.
+
 ### Personal memory design comparison
 
 The acceptance journey tests same-turn capture, unrelated and hypothetical turns, shopping-list

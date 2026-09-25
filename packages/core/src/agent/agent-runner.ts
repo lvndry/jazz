@@ -22,6 +22,7 @@ import {
   type LLMService,
   type LlamaCppServerModel,
   type OllamaShowExtras,
+  type VllmServerModel,
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -224,6 +225,26 @@ export function resolveLlamaCppServerModel(
 }
 
 /**
+ * Read the model vLLM is serving at run start and its context limit.
+ *
+ * A server can change between runs. Keep the configured ID if still advertised; otherwise
+ * use the first served entry. A failed lookup leaves the saved model and context estimate
+ * in place so the server can still handle the request or report an explicit error.
+ */
+export function resolveVllmServerModel(
+  preferredModelId: string,
+  llmConfig?: LLMConfig,
+): Effect.Effect<VllmServerModel, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("vllm", llmConfig);
+    return yield* llmService
+      .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+  });
+}
+
+/**
  * The agent's tracked working directory, or the process cwd when no filesystem context exists.
  *
  * The agent can `cd` mid-session, so this is not the same as `process.cwd()` — which matters
@@ -313,13 +334,17 @@ function initializeAgentRun(
     const history: ChatMessage[] = options.conversationHistory || [];
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
-    // llama.cpp serves whatever model is loaded and can change between runs, so the stored id is
-    // only a hint. Ask the server what it is actually serving; the resolved model and window then
-    // flow into metrics, the footer, and context accounting. A pinned numCtx still wins later.
+    // Local servers can change models between runs. The live model and window flow into
+    // metrics, the footer, and context accounting; the saved ID is a fallback.
     const servedLlamaCppModel =
       provider === "llamacpp" ? yield* resolveLlamaCppServerModel(appConfig.llm) : undefined;
-    const model = servedLlamaCppModel?.modelId ?? agent.config.llmModel;
-    const serverContextWindow = servedLlamaCppModel?.contextWindow;
+    const servedVllmModel =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const model = servedLlamaCppModel?.modelId ?? servedVllmModel?.modelId ?? agent.config.llmModel;
+    const serverContextWindow =
+      servedLlamaCppModel?.contextWindow ?? servedVllmModel?.contextWindow;
 
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is

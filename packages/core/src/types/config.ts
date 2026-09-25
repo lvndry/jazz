@@ -223,6 +223,12 @@ export interface LlamaCppProviderConfig {
   readonly base_url?: string;
 }
 
+/** Connection settings for a user-operated vLLM OpenAI-compatible server. */
+export interface VllmProviderConfig {
+  readonly api_key?: string;
+  readonly base_url?: string;
+}
+
 export interface AnthropicProviderConfig {
   readonly api_key?: string;
   /**
@@ -266,6 +272,7 @@ export interface LLMConfig {
   readonly openrouter?: LLMProviderConfig;
   readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
+  readonly vllm?: VllmProviderConfig;
   readonly xai?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;
 }

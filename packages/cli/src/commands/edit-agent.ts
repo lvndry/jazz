@@ -9,8 +9,8 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
-import type { ProviderName } from "@jazz/core/constants/models";
-import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
   defaultOllamaContextWindow,
@@ -47,6 +47,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { formatReasoningSelection, promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
@@ -641,29 +642,74 @@ async function promptForAgentUpdates(
       const providerDisplayName =
         providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
-      const keyResult = await ensureProviderApiKey({
-        configService,
-        terminal,
-        provider: llmProvider,
-        displayName: providerDisplayName,
-        required: llmProvider !== "ollama" && llmProvider !== "llamacpp",
-      });
-      if (keyResult === "cancelled") {
-        continue;
+      if (llmProvider === "vllm") {
+        const urlResult = await ensureLocalProviderBaseUrl({
+          configService,
+          terminal,
+          provider: llmProvider,
+        });
+        if (urlResult === "cancelled") {
+          continue;
+        }
       }
 
-      const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
-        (error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Failed to get provider info: ${message}`);
-        },
-      );
+      if (!isLocalServerProvider(llmProvider)) {
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: llmProvider,
+          displayName: providerDisplayName,
+          required: true,
+        });
+        if (keyResult === "cancelled") {
+          continue;
+        }
+      }
 
-      const llmModel = await Effect.runPromise(
-        terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-          choices: buildModelChoices(llmProvider, providerInfo.supportedModels),
-        }),
+      let providerInfo: LLMProvider;
+      const providerResult = await Effect.runPromise(
+        llmService.getProvider(llmProvider).pipe(Effect.either),
       );
+      if (
+        providerResult._tag === "Left" &&
+        llmProvider === "vllm" &&
+        providerResult.left.reason === "unauthorized"
+      ) {
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: llmProvider,
+          displayName: providerDisplayName,
+          required: true,
+          force: true,
+          reason: providerResult.left.message,
+        });
+        if (keyResult === "cancelled") continue;
+        providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider));
+      } else if (providerResult._tag === "Left") {
+        throw providerResult.left;
+      } else {
+        providerInfo = providerResult.right;
+      }
+
+      const soleVllmModel =
+        llmProvider === "vllm" && providerInfo.supportedModels.length === 1
+          ? providerInfo.supportedModels[0]?.id
+          : undefined;
+      if (llmProvider === "vllm" && !soleVllmModel) {
+        await Effect.runPromise(
+          terminal.info(
+            "Jazz uses this vLLM model while it is served. If the server stops listing it, Jazz uses the first live model instead.",
+          ),
+        );
+      }
+      const llmModel =
+        soleVllmModel ??
+        (await Effect.runPromise(
+          terminal.search<string>(`Select model for ${providerDisplayName}:`, {
+            choices: buildModelChoices(llmProvider, providerInfo.supportedModels),
+          }),
+        ));
 
       if (!llmModel) {
         return null;
@@ -769,7 +815,7 @@ async function promptForAgentUpdates(
       }
 
       const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
-      const isOptional = provider === "ollama" || provider === "llamacpp";
+      const isOptional = isLocalServerProvider(provider);
       if (existingAgentOverride) {
         await Effect.runPromise(
           terminal.info(

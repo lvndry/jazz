@@ -22,8 +22,8 @@ a scheduled workflow, a GitHub Action that reviews your pull requests, or a Tele
 Discord bot on a server you own. Same agent, same tools, same memory. When a job needs your
 permission it asks you wherever you are, rather than stopping.
 
-18 providers are supported, including OpenAI, Anthropic, Google, Mistral, Groq, and
-OpenRouter, plus `ollama` and `llama.cpp` for local models with no API key. Everything else
+20 providers are supported, including OpenAI, Anthropic, Google, Mistral, Groq, and
+OpenRouter, plus `ollama`, `llama.cpp`, and `vllm` for self-hosted models with no API key unless the server requires one. Everything else
 connects through [MCP](https://modelcontextprotocol.io/).
 
 One agent can compose different models by capability: keep the model you trust for reasoning and

@@ -28,6 +28,29 @@ function terminal(options: {
 }
 
 describe("ensureLocalProviderBaseUrl", () => {
+  it("uses vLLM's port and stores the OpenAI-compatible API path", async () => {
+    const saved: Array<{ key: string; value: unknown }> = [];
+    const placeholders: Array<string | undefined> = [];
+
+    const result = await ensureLocalProviderBaseUrl({
+      provider: "vllm",
+      configService: configService({
+        appConfig: {},
+        set: (key, value) => saved.push({ key, value }),
+      }),
+      terminal: terminal({
+        ask: (_message, options) => {
+          placeholders.push(options?.placeholder);
+          return Effect.succeed("gpu.example:8000");
+        },
+      }),
+    });
+
+    expect(result).toBe("saved");
+    expect(placeholders).toEqual(["http://127.0.0.1:8000"]);
+    expect(saved).toEqual([{ key: "llm.vllm.base_url", value: "http://gpu.example:8000/v1" }]);
+  });
+
   it("asks once and normalizes a llama.cpp host:port", async () => {
     const asked: Array<{ message: string; defaultValue?: string; placeholder?: string }> = [];
     const saved: Array<{ key: string; value: unknown }> = [];

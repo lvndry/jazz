@@ -83,7 +83,7 @@ There's no single best answer, but a few reliable calls:
 
 - **A cheap fast model for scheduled digests and CI review.** These read and summarize; they don't need frontier reasoning, and they run often enough for cost to matter.
 - **A strong model for anything multi-step or ambiguous.** Long autonomous runs are where weak models lose the thread, and a failed 40-minute run costs more than the model would have.
-- **A local model (`ollama`, `llamacpp`) when prompts must stay local.** No provider key or per-token cost. Network-capable tools and exporters remain separate choices; see [Local and air-gapped models](./local-models.md).
+- **A self-hosted model (`ollama`, `llamacpp`, `vllm`) when prompts must stay on your infrastructure.** No provider key unless the server requires one, and no provider per-token cost. Network-capable tools and exporters remain separate choices; see [Local and air-gapped models](./local-models.md).
 - **`summarizerModel` cheap, main model expensive.** Compaction is summarization; it rarely needs your best model, and it runs on long tasks precisely when you're already spending.
 - **Primary model for orchestration, companions for media.** Keep the tool-capable model you trust and route image, audio, or video understanding and generation to specialists.
 

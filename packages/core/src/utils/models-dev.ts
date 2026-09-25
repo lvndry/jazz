@@ -306,7 +306,7 @@ export async function getModelsDevProviderModels(
   if (!data) {
     throw new Error(
       isOfflineMode()
-        ? "Model catalog unavailable: JAZZ_OFFLINE is set and no cached catalog exists. Local providers (ollama, llamacpp) list models without the catalog."
+        ? "Model catalog unavailable: JAZZ_OFFLINE is set and no cached catalog exists. Local providers (ollama, llamacpp, vllm) list models without the catalog."
         : "Could not load the model catalog from models.dev — check your network connection and try again",
     );
   }

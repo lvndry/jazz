@@ -2,7 +2,12 @@ import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import { AgentRunner, createNestedRunExecutor, renderSkillRoutingAdvisory } from "./agent-runner";
+import {
+  AgentRunner,
+  createNestedRunExecutor,
+  renderSkillRoutingAdvisory,
+  resolveVllmServerModel,
+} from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -244,6 +249,47 @@ const mockLlmService = {
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
 } as unknown as LLMService;
 
+describe("resolveVllmServerModel", () => {
+  it("reads the currently served model and context window", async () => {
+    const requests: Array<{ baseUrl: string; preferredModelId: string; apiKey?: string }> = [];
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: (baseUrl, preferredModelId, apiKey) => {
+        requests.push({ baseUrl, preferredModelId, ...(apiKey ? { apiKey } : {}) });
+        return Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+      },
+    };
+    const served = await Effect.runPromise(
+      resolveVllmServerModel("stale-model", {
+        vllm: { api_key: "local-key" },
+      }).pipe(Effect.provideService(LLMServiceTag, service)),
+    );
+    expect(served).toEqual({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+    expect(requests).toEqual([
+      {
+        baseUrl: "http://localhost:8000/v1",
+        preferredModelId: "stale-model",
+        apiKey: "local-key",
+      },
+    ]);
+  });
+
+  it("keeps running with an unknown window when the server lookup fails", async () => {
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: () => Effect.fail(new Error("server unavailable")),
+    };
+    const served = await Effect.runPromise(
+      resolveVllmServerModel("configured-alias").pipe(
+        Effect.provideService(LLMServiceTag, service),
+      ),
+    );
+    expect(served).toEqual({});
+  });
+});
+
 const mockMcpServerManager = {
   connectServer: mock(() => Effect.fail(new Error("Not implemented"))),
   disconnectServer: mock(() => Effect.void),
@@ -372,6 +418,43 @@ describe("AgentRunner", () => {
   });
 
   describe("run", () => {
+    it("uses the vLLM model currently served for this run", async () => {
+      const requestedModels: string[] = [];
+      const preferredModels: string[] = [];
+      const llm = {
+        ...mockLlmService,
+        resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+        fetchVllmServerModel: (_baseUrl: string, preferredModelId: string) => {
+          preferredModels.push(preferredModelId);
+          return Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+        },
+        createChatCompletion: (_provider: string, options: { model: string }) => {
+          requestedModels.push(options.model);
+          return Effect.succeed({
+            id: "test-completion",
+            model: options.model,
+            content: "Hello world",
+          });
+        },
+      } as unknown as LLMService;
+      const agent: Agent = {
+        ...mockAgent,
+        config: {
+          ...mockAgent.config,
+          llmProvider: "vllm",
+          llmModel: "stale-model-from-last-run",
+        },
+      };
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, agent, stream: false, maxIterations: 1 }),
+        { llm },
+      );
+
+      expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
+      expect(preferredModels).toEqual(["stale-model-from-last-run"]);
+    });
+
     it("should execute agent with streaming when enabled", async () => {
       const options = {
         ...defaultOptions,

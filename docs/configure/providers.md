@@ -1,5 +1,5 @@
 ---
-description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, Groq, Mistral, and ten other supported APIs."
+description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, Groq, and other supported APIs."
 ---
 
 # Configure model providers
@@ -32,6 +32,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `openai`     | `OPENAI_API_KEY`                                                  |
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
+| `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
 | `xai`        | `XAI_API_KEY`                                                     |
 | `zhipuai`    | `ZHIPU_API_KEY`                                                   |
 
@@ -91,14 +92,25 @@ Models tagged `:cloud` or `-cloud` execute through Ollama Cloud and need `OLLAMA
 
 ## llama.cpp
 
-Jazz connects to `llama-server`, vLLM, and other OpenAI-compatible servers through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key` (vLLM's `--api-key` too); when it answers 401, `jazz agent create` asks for the key, and `jazz config` → **LLM Providers** can set it.
+Jazz connects to `llama-server` through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key`; when it answers 401, `jazz agent create` asks for the key, and `jazz config` → **LLM Providers** can set it.
 
 ```bash
 llama-server -m /models/model.gguf --jinja --port 8080
 jazz agent create
 ```
 
-Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata when the server provides it. For reasoning models, Jazz maps the agent's reasoning effort string to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template. vLLM only needs its normal `/v1` OpenAI-compatible endpoint; start it on the port you enter, commonly `8000`.
+Use `--jinja` when the model should call tools. Jazz reads `/props` for context and chat-template metadata when the server provides it. For reasoning models, Jazz maps the agent's reasoning effort string to llama.cpp's supported thinking controls; behavior depends on a recent server and a compatible template.
+
+## vLLM
+
+Use the separate `vllm` provider for a vLLM server. Its default base URL is `http://127.0.0.1:8000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.vllm.base_url`; you can also set `VLLM_BASE_URL` or use `jazz config` → **LLM Providers**. Jazz reads `/v1/models`: it selects the sole served ID automatically, or asks you to choose when the server lists several. On each run, Jazz refreshes the model list and uses the saved ID while it is still listed; if it disappears, Jazz uses the first live ID and its context window. Configure `llm.vllm.api_key` or `VLLM_API_KEY` if the server uses `--api-key`; an authorization error during agent creation prompts for the key.
+
+```bash
+vllm serve <model> --port 8000
+jazz agent create
+```
+
+Jazz uses vLLM's OpenAI-compatible chat API. Tool calls require a compatible model and server configuration, commonly `--enable-auto-tool-choice` with the matching `--tool-call-parser`; `/v1/models` alone cannot prove those flags are enabled. Follow [vLLM's tool-calling guide](https://docs.vllm.ai/en/latest/features/tool_calling/) for the model-specific setup. For a server reachable beyond the host, protect the deployment at the network boundary: [vLLM documents](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/) that `--api-key` does not authenticate every endpoint.
 
 ## Model capability overrides
 
@@ -133,7 +145,7 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-A hosted provider answers well inside two minutes. Ollama or llama.cpp loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+A hosted provider answers well inside two minutes. Ollama, llama.cpp, or vLLM loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000
@@ -147,7 +159,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 ## Offline operation
 
-`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and library requests. It does not make a hosted provider work offline. Use Ollama or llama.cpp, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
+`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and library requests. It does not make a hosted provider work offline. Use Ollama, llama.cpp, or vLLM, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
 
 ## Diagnose provider failures
 
@@ -159,6 +171,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 - Unknown model: rerun agent editing after the provider catalog is reachable; do not copy a model name from an old documentation page.
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.
+- Tool-call failures on vLLM: confirm the model's chat template, automatic tool choice, and matching parser are configured on the server.
 - Unexpected context truncation on Ollama: pin `numCtx` on the agent and ensure the server can allocate it.
 
 Read [Creating agents](../getting-started/create-an-agent.md), [Local models](../getting-started/local-models.md), and [Adding a provider](../maintainers/add-a-provider.md) next.

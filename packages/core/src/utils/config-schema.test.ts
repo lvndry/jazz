@@ -17,6 +17,7 @@ describe("parseConfigFile", () => {
       llm: {
         streamIdleTimeoutMs: 600000,
         ollama: { base_url: "http://h:11434/api", keep_alive: "-1" },
+        vllm: { base_url: "http://h:8000/v1", api_key: "local-key" },
         capabilityOverrides: {
           ollama: {
             "private-reasoner:latest": {
@@ -26,6 +27,16 @@ describe("parseConfigFile", () => {
                 canDisable: true,
               },
               supportsTools: false,
+            },
+          },
+          vllm: {
+            "Qwen/Qwen3-8B": {
+              reasoning: {
+                kind: "effort",
+                transport: "vllm.chat.reasoning-effort",
+                efforts: ["low", "medium", "high"],
+                canDisable: true,
+              },
             },
           },
         },

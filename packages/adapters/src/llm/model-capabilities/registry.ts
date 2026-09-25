@@ -81,6 +81,16 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
       },
     },
   },
+  vllm: {
+    default: {
+      reasoning: {
+        kind: "effort",
+        efforts: ["low", "medium", "high"],
+        canDisable: true,
+        transport: "vllm.chat.reasoning-effort",
+      },
+    },
+  },
 } as const satisfies ModelCapabilityRegistry;
 
 /**
@@ -107,6 +117,8 @@ export function isTransportValidForProvider(
         transport === "llamacpp.chat.enable-thinking" ||
         transport === "llamacpp.chat.thinking-budget"
       );
+    case "vllm":
+      return transport === "vllm.chat.reasoning-effort";
     default:
       return false;
   }

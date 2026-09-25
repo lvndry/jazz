@@ -92,6 +92,7 @@ const mockLLMService: LLMService = {
   supportsNativeWebSearch: () => Effect.succeed(false),
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
+  fetchVllmServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 
@@ -128,11 +129,11 @@ const mockPresentationService: PresentationService = {
 };
 
 // Create a mock layer for testing
-function createTestLayer() {
+function createTestLayer(overrides?: { readonly llm?: LLMService }) {
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
     Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-    Layer.succeed(LLMServiceTag, mockLLMService),
+    Layer.succeed(LLMServiceTag, overrides?.llm ?? mockLLMService),
     Layer.succeed(PresentationServiceTag, mockPresentationService),
   );
 }
@@ -1106,5 +1107,39 @@ describe("bounded summarizer input", () => {
     for (const input of inputs.slice(1)) {
       expect(input).toContain("Existing summary");
     }
+  });
+
+  it("chunks against a newly served vLLM window instead of the saved model estimate", async () => {
+    const preferredModels: string[] = [];
+    const llm: LLMService = {
+      ...mockLLMService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: (_baseUrl, preferredModelId) => {
+        preferredModels.push(preferredModelId);
+        return Effect.succeed({ modelId: "new-model", contextWindow: 512 });
+      },
+    };
+    const agent = createMockAgent({
+      config: {
+        llmProvider: "vllm",
+        llmModel: "old-model",
+        persona: "default",
+        tools: [],
+      },
+    });
+    const chunks: string[] = [];
+    const runner: RecursiveRunner = (options) => {
+      chunks.push(options.userInput);
+      return Effect.succeed({ content: "summary", conversationId: "test-conv" });
+    };
+
+    await Effect.runPromise(
+      Summarizer.summarizeHistory(messages(8, 400), agent, "conv-1", runner).pipe(
+        Effect.provide(createTestLayer({ llm })),
+      ) as Effect.Effect<ChatMessage, Error, never>,
+    );
+
+    expect(preferredModels).toEqual(["old-model"]);
+    expect(chunks.length).toBeGreaterThan(1);
   });
 });

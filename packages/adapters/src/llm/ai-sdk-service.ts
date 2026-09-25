@@ -108,6 +108,7 @@ import { resolveModelCapabilities } from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
+  fetchVllmServerModel,
   listModelsForProvider,
 } from "./model-fetcher";
 import {
@@ -809,6 +810,9 @@ function getConfiguredProviders(
   if (!addedProviders.has("llamacpp")) {
     providers.push({ name: "llamacpp", apiKey: llmConfig?.llamacpp?.api_key ?? "" });
   }
+  if (!addedProviders.has("vllm")) {
+    providers.push({ name: "vllm", apiKey: llmConfig?.vllm?.api_key ?? "" });
+  }
 
   return providers;
 }
@@ -918,17 +922,19 @@ function selectModel(
       model = ollamaInstance(modelId);
       break;
     }
-    case "llamacpp": {
-      const apiKey = llmConfig?.llamacpp?.api_key;
-      const baseURL = resolveLocalProviderBaseUrl("llamacpp", llmConfig);
+    case "llamacpp":
+    case "vllm": {
+      const localProvider = providerName === "vllm" ? "vllm" : "llamacpp";
+      const apiKey = resolveApiKey(localProvider);
+      const baseURL = resolveLocalProviderBaseUrl(localProvider, llmConfig);
       const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
-      const llamacpp = createOpenAICompatible({
-        name: "llamacpp",
+      const localServer = createOpenAICompatible({
+        name: localProvider,
         baseURL,
         includeUsage: true,
         ...(headers ? { headers } : {}),
       });
-      model = llamacpp(modelId);
+      model = localServer(modelId);
       break;
     }
     case "openrouter": {
@@ -1039,8 +1045,9 @@ export function buildProviderCacheFingerprint(
       const cfg = llmConfig.ollama;
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}|${cfg?.keep_alive ?? ""}`;
     }
-    case "llamacpp": {
-      const cfg = llmConfig.llamacpp;
+    case "llamacpp":
+    case "vllm": {
+      const cfg = llmConfig[providerName];
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
     }
     case "anthropic": {
@@ -1137,6 +1144,10 @@ function buildResolvedReasoningOptions(
     case "llamacpp.chat.enable-thinking":
       return {
         llamacpp: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
+      };
+    case "vllm.chat.reasoning-effort":
+      return {
+        vllm: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
       };
     case "llamacpp.chat.thinking-budget": {
       if (selection === "disable") return undefined;
@@ -1307,7 +1318,6 @@ export function buildProviderOptions(
       break;
     }
     case "llamacpp": {
-      // vLLM supports a thinking toggle, not a reasoning-token budget.
       if (reasoningEffort === "disable") {
         return {
           llamacpp: {
@@ -1320,6 +1330,14 @@ export function buildProviderOptions(
           llamacpp: {
             chat_template_kwargs: { enable_thinking: true },
           },
+        };
+      }
+      break;
+    }
+    case "vllm": {
+      if (reasoningEffort) {
+        return {
+          vllm: { reasoningEffort: reasoningEffort === "disable" ? "none" : reasoningEffort },
         };
       }
       break;
@@ -1505,7 +1523,7 @@ class AISDKService implements LLMService {
             if (!apiKey) {
               // API Key is optional for Ollama
               const lower = providerName.toLowerCase();
-              if (lower === "ollama" || lower === "llamacpp") {
+              if (lower === "ollama" || lower === "llamacpp" || lower === "vllm") {
                 return Effect.succeed(void 0);
               }
               return Effect.fail(
@@ -1891,8 +1909,19 @@ class AISDKService implements LLMService {
     });
   };
 
+  readonly fetchVllmServerModel = (
+    baseUrl: string,
+    preferredModelId: string,
+    apiKey?: string,
+  ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
+    return Effect.tryPromise({
+      try: () => fetchVllmServerModel(baseUrl, preferredModelId, apiKey),
+      catch: (error) => error,
+    });
+  };
+
   readonly resolveLocalProviderBaseUrl = (
-    provider: "llamacpp" | "ollama",
+    provider: "llamacpp" | "ollama" | "vllm",
     llmConfig?: LLMConfig,
   ): string => {
     return resolveLocalProviderBaseUrl(provider, llmConfig);

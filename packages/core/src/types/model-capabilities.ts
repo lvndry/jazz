@@ -58,7 +58,8 @@ export type ReasoningTransport =
   | "anthropic.messages.adaptive-thinking"
   | "ollama.chat.think"
   | "llamacpp.chat.enable-thinking"
-  | "llamacpp.chat.thinking-budget";
+  | "llamacpp.chat.thinking-budget"
+  | "vllm.chat.reasoning-effort";
 
 /**
  * The controls an exact provider-facing model ID accepts.
@@ -75,7 +76,7 @@ export type ReasoningControlSurface =
     }
   | {
       readonly kind: "effort";
-      readonly transport: "openai.responses.reasoning-effort";
+      readonly transport: "openai.responses.reasoning-effort" | "vllm.chat.reasoning-effort";
       readonly efforts: readonly CapabilityReasoningEffort[];
       readonly canDisable: boolean;
     }

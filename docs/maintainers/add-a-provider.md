@@ -14,7 +14,7 @@ Source:
 
 ---
 
-## One port, 18 providers
+## One port, 20 providers
 
 `core/` defines an `LLMService` interface. `services/llm/ai-sdk-service.ts` is the only
 implementation, and it delegates to the Vercel AI SDK.
@@ -41,6 +41,7 @@ flowchart TB
     subgraph local["Local: no API key"]
         L1["Ollama"]
         L2["llama.cpp"]
+        L3["vLLM"]
     end
 
     CORE --> IMPL --> SDK
@@ -70,9 +71,9 @@ this never becomes a hard dependency.
 
 ```mermaid
 flowchart TD
-    NEED(["Need metadata for<br/>provider/model"]) --> LOCAL{"Local provider?<br/>ollama / llamacpp"}
+    NEED(["Need metadata for<br/>provider/model"]) --> LOCAL{"Local provider?<br/>ollama / llamacpp / vllm"}
 
-    LOCAL -->|yes| ASK["Ask the local server<br/>Ollama /api/tags + /api/show<br/>llama.cpp /props<br/><i>no catalog needed at all</i>"]
+    LOCAL -->|yes| ASK["Ask the local server<br/>Ollama /api/tags + /api/show<br/>llama.cpp /props<br/>vLLM /v1/models<br/><i>no catalog needed at all</i>"]
     LOCAL -->|no| OFF{"JAZZ_OFFLINE?"}
 
     OFF -->|no| FETCH["Fetch models.dev<br/>(or JAZZ_MODELS_DEV_URL mirror)"]

@@ -33,6 +33,7 @@ describe("secret registry", () => {
     expect(envVarForSecretPath("llm.anthropic.api_key")).toBe("ANTHROPIC_API_KEY");
     expect(envVarForSecretPath("llm.gemini.api_key")).toBe("GOOGLE_GENERATIVE_AI_API_KEY");
     expect(envVarForSecretPath("llm.ollama.api_key")).toBe("OLLAMA_API_KEY");
+    expect(envVarForSecretPath("llm.vllm.api_key")).toBe("VLLM_API_KEY");
     expect(envVarForSecretPath("web_search.exa.api_key")).toBe("EXA_API_KEY");
     expect(envVarForSecretPath("logging.level")).toBeUndefined();
   });
@@ -58,8 +59,9 @@ describe("secret registry", () => {
     expect(SECRET_PATHS).toContain("telemetry.otlp.headers.authorization");
   });
 
-  it("checks the keyring for an Ollama API key on load, even when the file has none", () => {
+  it("checks the keyring for local-server API keys on load, even when the file has none", () => {
     expect(SECRET_PATHS).toContain("llm.ollama.api_key");
+    expect(SECRET_PATHS).toContain("llm.vllm.api_key");
   });
 
   it("has no env var for OTLP headers, which OTEL_EXPORTER_OTLP_HEADERS supplies as a set", () => {

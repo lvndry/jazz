@@ -7,7 +7,12 @@
 import { Effect, Option } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import type { LLMService } from "@/core/interfaces/llm";
+import {
+  LLMServiceTag,
+  type LLMService,
+  type LlamaCppServerModel,
+  type VllmServerModel,
+} from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import type { PresentationService } from "@/core/interfaces/presentation";
@@ -212,6 +217,33 @@ export function selectSummarizerModel(parentAgent: Agent): {
     config: parentConfig,
     warning: `Invalid summarizerModel "${configured}" — falling back to parent model ${parentConfig.provider}/${parentConfig.model}`,
   };
+}
+
+/**
+ * Resolve the local summarizer's current model and runtime context window before
+ * splitting its transcript. The recursive run repeats the lookup when sending each
+ * chunk, but doing it here prevents an obsolete saved model/window from forming
+ * chunks larger than the server can accept.
+ */
+function resolveLocalSummarizerModel(
+  provider: ProviderName,
+  preferredModelId: string,
+): Effect.Effect<LlamaCppServerModel | VllmServerModel, never, LLMService | AgentConfigService> {
+  return Effect.gen(function* () {
+    if (provider !== "llamacpp" && provider !== "vllm") return {};
+    const configService = yield* AgentConfigServiceTag;
+    const llmService = yield* LLMServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl(provider, appConfig.llm);
+    if (provider === "llamacpp") {
+      return yield* llmService
+        .fetchLlamaCppServerModel(baseUrl, appConfig.llm?.llamacpp?.api_key)
+        .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
+    }
+    return yield* llmService
+      .fetchVllmServerModel(baseUrl, preferredModelId, appConfig.llm?.vllm?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+  });
 }
 
 /** What a compaction produced: the rebuilt history, and its size either side of the rebuild. */
@@ -813,19 +845,31 @@ export const Summarizer = {
       // what the summarizer's own model can hold. Fold it in chunks when it does not
       // fit, reusing the merge prompt: chunk 1 becomes a summary, each later chunk is
       // merged into it, so the result is one record rather than a pile of fragments.
+      const servedModel = yield* resolveLocalSummarizerModel(
+        summarizerModelConfig.provider,
+        summarizerModelConfig.model,
+      );
       const summarizerHint: ModelHint = {
         provider: summarizerModelConfig.provider,
-        modelId: summarizerModelConfig.model,
+        modelId: servedModel.modelId ?? summarizerModelConfig.model,
       };
       const summarizerMetadata = yield* Effect.tryPromise({
-        try: () =>
-          getModelsDevMetadata(summarizerModelConfig.model, summarizerModelConfig.provider),
+        try: () => getModelsDevMetadata(summarizerHint.modelId, summarizerModelConfig.provider),
         catch: () => new Error("Failed to fetch summarizer model metadata"),
       }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
       const summarizerWindow = resolveEffectiveContextWindow({
         provider: summarizerModelConfig.provider,
         ...(summarizerMetadata && { modelMaxTokens: summarizerMetadata.contextWindow }),
+        ...(servedModel.contextWindow !== undefined && {
+          serverContextWindow: servedModel.contextWindow,
+        }),
+        ...(summarizer.config.numCtx !== undefined && {
+          pinnedContextWindow: summarizer.config.numCtx,
+        }),
+        ...(summarizer.config.maxContextTokens !== undefined && {
+          agentMaxTokens: summarizer.config.maxContextTokens,
+        }),
       }).tokens;
       const inputBudget = Math.floor(summarizerWindow * SUMMARIZER_INPUT_BUDGET_RATIO);
 
