@@ -47,6 +47,13 @@ it governs, and it should beat your personal default without you disabling anyth
 Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
 creating personas, workflows and skills themselves.
 
+In an interactive terminal, `/skills` opens a searchable catalog of built-in, global,
+shared-agent, project, and plugin skills. Type to filter by name, source, or description;
+use Up and Down to choose a skill, Enter to read its full description and source
+(and its location when file-backed),
+and Escape to return to the list or conversation. Non-interactive sessions print the
+complete catalog instead.
+
 ## The skill marketplace
 
 The Jazz website's [Marketplace](https://jazz-cli.vercel.app/library) publishes reviewed skills

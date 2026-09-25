@@ -15,6 +15,7 @@
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
+import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
@@ -78,11 +79,15 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { hostForModel } from "../local-model-hosts";
+import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
@@ -1072,6 +1077,11 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
+  const [skillField, skillFieldRef, setSkillField] = useSynchronizedState({ value: "", caret: 0 });
+  const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
+    null,
+  );
+  const [skillDetailOffset, skillDetailOffsetRef, setSkillDetailOffset] = useSynchronizedState(0);
   // The index reset for a replacement menu runs a frame after the menu lands;
   // a keypress in that gap must not read the old menu's selection into the new
   // one, so the index only counts for the menu it was moved on.
@@ -1149,8 +1159,11 @@ export function FullscreenBridge(): React.ReactNode {
   }, [approval, setApprovalArmedState]);
 
   useEffect(() => {
-    setMenuIndex(0);
-  }, [menu, setMenuIndex]);
+    setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
+    setSkillField({ value: "", caret: 0 });
+    setSkillDetail(null);
+    setSkillDetailOffset(0);
+  }, [menu, setMenuIndex, setSkillField, setSkillDetail, setSkillDetailOffset]);
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
@@ -1425,6 +1438,12 @@ export function FullscreenBridge(): React.ReactNode {
     (raw: string): boolean => {
       const pasted = normalizePaste(raw);
       if (pasted.length === 0) return true;
+      if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
+        const flat = flattenPaste(pasted);
+        setSkillField((field) => insertTextAt(field.value, field.caret, flat));
+        setMenuIndex(0);
+        return true;
+      }
       if (menuRef.current !== null || approvalRef.current !== null) return true;
 
       if (searchQueryRef.current !== null) {
@@ -1495,7 +1514,14 @@ export function FullscreenBridge(): React.ReactNode {
       if (composerAvailable) insertAtCaret(pasted);
       return true;
     },
-    [insertAtCaret, updatePromptEditor, updatePromptFile, updatePromptQuestion],
+    [
+      insertAtCaret,
+      updatePromptEditor,
+      updatePromptFile,
+      updatePromptQuestion,
+      setSkillField,
+      setMenuIndex,
+    ],
   );
 
   // The approval card owns the keyboard while it is up. Enter accepts, Esc
@@ -1586,9 +1612,105 @@ export function FullscreenBridge(): React.ReactNode {
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
+        if (openMenu.kind === "skills") {
+          const detail = skillDetailRef.current;
+          if (detail !== null) {
+            if (name === "escape" || name === "return" || name === "enter") {
+              setSkillDetail(null);
+              setSkillDetailOffset(0);
+            } else if (
+              name === "up" ||
+              name === "k" ||
+              name === "down" ||
+              name === "j" ||
+              name === "pageup" ||
+              name === "pagedown"
+            ) {
+              const maxOffset = Math.max(
+                0,
+                skillDetailRows(detail, viewport.width).length - skillDetailBodyRows(viewport),
+              );
+              const step =
+                name === "pageup" || name === "pagedown" ? skillDetailBodyRows(viewport) : 1;
+              const direction = name === "up" || name === "k" || name === "pageup" ? -1 : 1;
+              setSkillDetailOffset(
+                Math.max(0, Math.min(maxOffset, skillDetailOffsetRef.current + direction * step)),
+              );
+            }
+            return true;
+          }
+          if (name === "escape") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          const field = skillFieldRef.current;
+          const matches = filterSkills(openMenu.skills, field.value);
+          const selected = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
+            const step = name === "pageup" || name === "pagedown" ? skillListRows(viewport) : 1;
+            const direction = name === "up" || name === "pageup" ? -1 : 1;
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(0, Math.min(Math.max(0, matches.length - 1), selected + direction * step)),
+            );
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const skill = matches[selected];
+            if (skill !== undefined) {
+              setSkillDetail(skill);
+              setSkillDetailOffset(0);
+            }
+            return true;
+          }
+          const nextField = applyTextFieldKey(field, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextField !== null) {
+            setSkillField(nextField);
+            if (nextField.value !== field.value) {
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(0);
+            }
+          }
+          return true;
+        }
+        if (openMenu.kind === "agent-details") {
+          const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          const maxOffset = Math.max(
+            0,
+            agentDetailsRows(openMenu.fields, viewport.width).length -
+              agentDetailsBodyHeight(viewport),
+          );
+          if (name === "up" || name === "k" || name === "down" || name === "j") {
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(
+                0,
+                Math.min(maxOffset, menuSelection + (name === "up" || name === "k" ? -1 : 1)),
+              ),
+            );
+            return true;
+          }
+          if (name === "escape" || name === "q" || name === "return" || name === "enter") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          return true;
+        }
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
-        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+        const menuSelection =
+          menuIndexForRef.current === openMenu
+            ? menuIndexRef.current
+            : openMenu.kind === "agents"
+              ? (openMenu.initialIndex ?? 0)
+              : 0;
         if (name === "up" || name === "k") {
           menuIndexForRef.current = openMenu;
           setMenuIndex(Math.max(0, menuSelection - 1));
@@ -1601,12 +1723,8 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (name === "return" || name === "enter") {
           if (openMenu.kind === "agents") {
-            if (openMenu.browse === true) {
-              store.completePrompt({ kind: "exit" });
-            } else {
-              const choice = openMenu.agents[menuSelection];
-              if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
-            }
+            const choice = openMenu.agents[menuSelection];
+            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
           } else {
             const choice = openMenu.options[menuSelection];
             if (choice !== undefined) {
@@ -2278,6 +2396,10 @@ export function FullscreenBridge(): React.ReactNode {
       setAgentCursor,
       inspectSubagent,
       sendToInspectedSubagent,
+      setSkillField,
+      setSkillDetail,
+      setSkillDetailOffset,
+      setMenuIndex,
     ],
   );
 
@@ -2341,17 +2463,26 @@ export function FullscreenBridge(): React.ReactNode {
     // elapsedMs ticks the per-row clocks.
   }, [subagentRuns, agentCursor, inspectedId, elapsedMs]);
 
-  const header = useMemo<HeaderModel>(
-    () => ({
+  const header = useMemo<HeaderModel>(() => {
+    const localHost = hostForModel(stats.provider, stats.model, stats.localModelHosts);
+    return {
       version: packageJson.version,
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
+      ...(localHost === undefined ? {} : { localHost }),
       connectors: [...connectors].map(([name, status]) => ({ name, status })),
       contextUsed: stats.tokensInContext ?? 0,
       contextMax: stats.maxContextTokens ?? 0,
-    }),
-    [workingDirectory, stats.model, stats.tokensInContext, stats.maxContextTokens, connectors],
-  );
+    };
+  }, [
+    workingDirectory,
+    stats.model,
+    stats.provider,
+    stats.localModelHosts,
+    stats.tokensInContext,
+    stats.maxContextTokens,
+    connectors,
+  ]);
 
   const overlay = useMemo<Overlay | undefined>(() => {
     // An approval outranks search: it is a decision the agent is blocked on, and
@@ -2520,7 +2651,23 @@ export function FullscreenBridge(): React.ReactNode {
   // its place. App's own `useKeyboard` call has to stay mounted for any of this
   // to receive a key at all — arrows, enter, or Ctrl+C.
   const overrideContent: React.ReactNode | undefined =
-    menu?.kind === "agents" ? (
+    menu?.kind === "skills" ? (
+      <SkillBrowser
+        skills={menu.skills}
+        query={skillField.value}
+        caret={skillField.caret}
+        selected={menuIndex}
+        detail={skillDetail}
+        detailOffset={skillDetailOffset}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agent-details" ? (
+      <AgentDetails
+        {...menu}
+        offset={menuIndex}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agents" ? (
       <AgentPicker
         agents={menu.agents}
         selectedIndex={menuIndex}

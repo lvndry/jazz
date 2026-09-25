@@ -4,6 +4,7 @@
  * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
+import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { useSyncExternalStore } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
@@ -13,6 +14,7 @@ import {
   type ScrollbackState,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
+import type { LocalModelHosts } from "./local-model-hosts";
 import {
   appendToSubagentRun,
   finishSubagentRun,
@@ -131,10 +133,27 @@ export interface ActiveAgentMenu {
   readonly title: string;
   readonly action: string;
   readonly agents: readonly ActiveAgentChoice[];
-  readonly browse?: boolean;
+  readonly initialIndex?: number;
 }
 
-export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
+/** Read-only agent configuration, projected to safe display rows by the wizard. */
+export interface ActiveAgentDetails {
+  readonly kind: "agent-details";
+  readonly name: string;
+  readonly fields: readonly {
+    readonly section: string;
+    readonly label: string;
+    readonly value: string;
+  }[];
+}
+
+/** Skill catalog presented as a searchable, read-only terminal surface. */
+export interface ActiveSkillMenu {
+  readonly kind: "skills";
+  readonly skills: readonly SkillMetadata[];
+}
+
+export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu | ActiveAgentDetails | ActiveSkillMenu;
 
 /** Discriminated surface a renderer paints in place of the chat transcript. */
 export type SurfaceIntent = ActiveMenu;
@@ -159,6 +178,8 @@ export interface PendingApproval {
 export interface RunStats {
   readonly model?: string;
   readonly provider?: string;
+  /** Resolved endpoint hosts for the conversation's local model providers. */
+  readonly localModelHosts?: LocalModelHosts;
   readonly tokensInContext?: number;
   readonly maxContextTokens?: number;
   /** Session-cumulative billed prompt tokens. Distinct from `tokensInContext`. */

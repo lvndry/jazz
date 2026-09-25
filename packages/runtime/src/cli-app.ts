@@ -811,13 +811,15 @@ function registerMCPCommands(program: Command): void {
       "after",
       `
 Examples:
+  jazz mcp add my-server /path/to/my-mcp-server --env SERVICE_API_KEY=...
   jazz mcp add notes -- npx -y @modelcontextprotocol/server-filesystem ~/notes
   jazz mcp add linear --transport http https://mcp.linear.app/mcp
   jazz mcp add db --env PGHOST=localhost -- my-db-server
   jazz mcp add '{"srv": {"command": "my-server"}}'
   pbpaste | jazz mcp add
 
-Put the server's own command after \`--\` whenever it takes flags of its own.
+Jazz options can follow a simple server command. If the server command takes flags of its own,
+put Jazz options before \`--\` and the server command and its arguments after it.
 Remote servers that need a login: run \`jazz mcp auth <name>\` after adding.
 `,
     )

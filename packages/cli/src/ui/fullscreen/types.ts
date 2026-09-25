@@ -161,6 +161,7 @@ export interface HeaderModel {
   readonly version: string;
   readonly cwd: string;
   readonly model: string;
+  readonly localHost?: string;
   readonly connectors: readonly Connector[];
   readonly contextUsed: number;
   readonly contextMax: number;

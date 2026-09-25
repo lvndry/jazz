@@ -13,12 +13,17 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./fullscreen/screens/AgentDetails";
+import { windowStart } from "./fullscreen/screens/AgentPicker";
+import { skillDetailBodyRows, skillListRows } from "./fullscreen/screens/SkillBrowser";
+import { clipTerminalCells } from "./fullscreen/terminal-cells";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
+import { filterSkills, skillDetailRows, skillLine } from "./skill-browser";
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -166,6 +171,8 @@ const OutputIsland = React.memo(OutputIslandComponent);
 // ============================================================================
 
 function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
+  if (menu.kind === "skills") return <InkSkillBrowserView menu={menu} />;
+  if (menu.kind === "agent-details") return <InkAgentDetailsView menu={menu} />;
   const options =
     menu.kind === "agents"
       ? menu.agents.map((agent) => ({
@@ -174,21 +181,184 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
         }))
       : menu.options;
   const title = menu.title;
-  const browse = menu.kind === "agents" && menu.browse === true;
 
   return (
     <WizardHome
       options={options}
+      {...(menu.kind === "agents" && menu.initialIndex !== undefined
+        ? { initialIndex: menu.initialIndex }
+        : {})}
       {...(title === undefined ? {} : { title })}
       onSelect={(value) => {
-        if (browse) {
-          store.completePrompt({ kind: "exit" });
-          return;
-        }
         store.completePrompt({ kind: "select", value });
       }}
       onExit={() => store.completePrompt({ kind: "exit" })}
     />
+  );
+}
+
+/** Searchable Ink fallback for the same `/skills` catalog as fullscreen. */
+function InkSkillBrowserView({
+  menu,
+}: {
+  readonly menu: Extract<ActiveMenu, { readonly kind: "skills" }>;
+}): React.ReactElement {
+  const { cols, rows } = useTerminalDimensions();
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState(0);
+  const [detail, setDetail] = useState<(typeof menu.skills)[number] | null>(null);
+  const [offset, setOffset] = useState(0);
+  const matches = filterSkills(menu.skills, query);
+  const visibleRows = skillListRows({ width: cols, height: rows });
+  const start = windowStart(matches.length, selected, visibleRows);
+  const detailRows = detail === null ? [] : skillDetailRows(detail, cols);
+  const detailHeight = skillDetailBodyRows({ width: cols, height: rows });
+  const maxOffset = Math.max(0, detailRows.length - detailHeight);
+
+  useInput((input, key) => {
+    if (detail !== null) {
+      if (key.escape || key.return) {
+        setDetail(null);
+        setOffset(0);
+      } else if (key.upArrow || input === "k") {
+        setOffset((value) => Math.max(0, value - 1));
+      } else if (key.downArrow || input === "j") {
+        setOffset((value) => Math.min(maxOffset, value + 1));
+      }
+      return;
+    }
+    if (key.escape) {
+      store.completePrompt({ kind: "exit" });
+    } else if (key.upArrow) {
+      setSelected((value) => Math.max(0, value - 1));
+    } else if (key.downArrow) {
+      setSelected((value) => Math.min(Math.max(0, matches.length - 1), value + 1));
+    } else if (key.return) {
+      const skill = matches[selected];
+      if (skill !== undefined) setDetail(skill);
+    } else if (key.backspace || key.delete) {
+      setQuery((value) => [...value].slice(0, -1).join(""));
+      setSelected(0);
+    } else if (!key.ctrl && !key.meta && input.length > 0 && !/\p{Cc}/u.test(input)) {
+      setQuery((value) => value + input);
+      setSelected(0);
+    }
+  });
+
+  if (detail !== null) {
+    const first = Math.min(offset, maxOffset);
+    return (
+      <Box
+        flexDirection="column"
+        paddingX={2}
+      >
+        <Text
+          bold
+          color={THEME.primary}
+        >{`skill: ${detail.name}`}</Text>
+        <Text> </Text>
+        {detailRows.slice(first, first + detailHeight).map((row, index) => (
+          <Text
+            key={first + index}
+            bold={row.heading}
+            color={row.heading ? THEME.primary : THEME.secondary}
+          >
+            {row.text || " "}
+          </Text>
+        ))}
+        <Text dimColor>up down scroll · esc back</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      flexDirection="column"
+      paddingX={2}
+    >
+      <Text
+        bold
+        color={THEME.primary}
+      >{`skills  ${matches.length} of ${menu.skills.length}`}</Text>
+      <Text
+        color={THEME.secondary}
+        wrap="truncate"
+      >{`Search: ${query || "type to filter by name, source, or description"}`}</Text>
+      <Text> </Text>
+      {matches.length === 0 ? (
+        <Text>
+          {menu.skills.length === 0
+            ? "No skills found. Add a SKILL.md under ./skills/."
+            : "No matching skills."}
+        </Text>
+      ) : (
+        matches.slice(start, start + visibleRows).map((skill, index) => (
+          <Text
+            key={`${skill.source}:${skill.name}`}
+            color={start + index === selected ? THEME.selected : THEME.secondary}
+            bold={start + index === selected}
+          >
+            {`${start + index === selected ? "▏" : " "} ${clipTerminalCells(skillLine(skill.name), Math.max(1, cols - 18))}  ${skill.source}`}
+          </Text>
+        ))
+      )}
+      <Text dimColor>
+        {cols < 60
+          ? "type search · up down move"
+          : "type search · up down move · enter details · esc close"}
+      </Text>
+      {cols < 60 ? <Text dimColor>enter details · esc close</Text> : null}
+    </Box>
+  );
+}
+
+/** Ink fallback for the same inspector shown in the fullscreen terminal. */
+function InkAgentDetailsView({
+  menu,
+}: {
+  readonly menu: Extract<ActiveMenu, { readonly kind: "agent-details" }>;
+}): React.ReactElement {
+  const { cols, rows: terminalRows } = useTerminalDimensions();
+  const [offset, setOffset] = useState(0);
+  const viewport = { width: cols, height: terminalRows };
+  const rows = agentDetailsRows(menu.fields, cols);
+  const bodyHeight = agentDetailsBodyHeight(viewport);
+  const maxOffset = Math.max(0, rows.length - bodyHeight);
+  const start = Math.min(offset, maxOffset);
+
+  useInput((input, key) => {
+    if (key.escape || key.return || input === "q") {
+      store.completePrompt({ kind: "exit" });
+    } else if (key.upArrow || input === "k") {
+      setOffset((value) => Math.max(0, value - 1));
+    } else if (key.downArrow || input === "j") {
+      setOffset((value) => Math.min(maxOffset, value + 1));
+    }
+  });
+
+  return (
+    <Box
+      flexDirection="column"
+      paddingX={2}
+    >
+      <Text
+        bold
+        color={THEME.primary}
+      >
+        Agent: {menu.name}
+      </Text>
+      <Text> </Text>
+      {rows.slice(start, start + bodyHeight).map((row, index) => (
+        <Text
+          key={start + index}
+          {...(row.section ? { color: THEME.primary } : {})}
+          bold={row.section}
+        >
+          {row.text || " "}
+        </Text>
+      ))}
+      <Text dimColor>up down scroll esc back</Text>
+    </Box>
   );
 }
 

@@ -317,6 +317,10 @@ runs with colour disabled, which makes ordinary colour assertions vacuous.
 └────────────────────────────────────────────┘
 ```
 
+The conversation header places a local model's resolved `host:port` immediately after its model
+name. When width is tight, the host drops before the model or health facts. Ollama Cloud models
+do not get a local host label.
+
 Usage on the right is billed input/output tokens plus estimated USD, compactly
 formatted (`20k/40k $0.26`). Mode and spend never drop at a narrow width.
 
