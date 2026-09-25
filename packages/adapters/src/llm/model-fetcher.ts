@@ -191,15 +191,15 @@ type OllamaShowResponse = {
 
 type LlamaCppModelEntry = { id: string; max_model_len?: number };
 type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
-type OpenAiLocalModelEntry = { id: string; parent?: string; max_model_len?: number };
+type OpenAICompatibleModelCard = { id: string; parent?: string; max_model_len?: number };
 
 /** Accept only usable model cards from vLLM and SGLang's external `/v1/models` responses. */
-function parseOpenAiLocalModels(data: unknown): OpenAiLocalModelEntry[] {
+function parseOpenAICompatibleModels(data: unknown): OpenAICompatibleModelCard[] {
   if (typeof data !== "object" || data === null || !("data" in data) || !Array.isArray(data.data)) {
     return [];
   }
   const cards = data.data as readonly unknown[];
-  const models: OpenAiLocalModelEntry[] = [];
+  const models: OpenAICompatibleModelCard[] = [];
   for (const card of cards) {
     if (typeof card !== "object" || card === null || !("id" in card)) continue;
     if (typeof card.id !== "string" || card.id.trim().length === 0) continue;
@@ -217,9 +217,9 @@ function parseOpenAiLocalModels(data: unknown): OpenAiLocalModelEntry[] {
 }
 
 /** LoRA cards can omit their length; use the listed base model's served limit. */
-function openAiLocalContextWindow(
-  model: OpenAiLocalModelEntry,
-  models: readonly OpenAiLocalModelEntry[],
+function resolveModelCardContextWindow(
+  model: OpenAICompatibleModelCard,
+  models: readonly OpenAICompatibleModelCard[],
 ): number | undefined {
   if (model.max_model_len !== undefined) return model.max_model_len;
   return models.find((candidate) => candidate.id === model.parent)?.max_model_len;
@@ -301,7 +301,7 @@ export async function fetchLlamaCppServerModel(
 }
 
 /** Read a live OpenAI-compatible local model card, preferring the configured ID. */
-async function fetchOpenAiLocalServerModel(
+async function fetchOpenAICompatibleServerModel(
   baseUrl: string,
   preferredModelId: string,
   apiKey?: string,
@@ -311,9 +311,9 @@ async function fetchOpenAiLocalServerModel(
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
     const response = await fetch(`${baseUrl}/models`, { method: "GET", headers });
     if (!response.ok) return {};
-    const models = parseOpenAiLocalModels(await response.json());
+    const models = parseOpenAICompatibleModels(await response.json());
     const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
-    const contextWindow = model ? openAiLocalContextWindow(model, models) : undefined;
+    const contextWindow = model ? resolveModelCardContextWindow(model, models) : undefined;
     return {
       ...(typeof model?.id === "string" && model.id.length > 0 ? { modelId: model.id } : {}),
       ...(typeof contextWindow === "number" &&
@@ -333,7 +333,7 @@ export function fetchVllmServerModel(
   preferredModelId: string,
   apiKey?: string,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
-  return fetchOpenAiLocalServerModel(baseUrl, preferredModelId, apiKey);
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
 }
 
 /** Resolve SGLang's currently served model and context window. */
@@ -342,7 +342,7 @@ export function fetchSglangServerModel(
   preferredModelId: string,
   apiKey?: string,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
-  return fetchOpenAiLocalServerModel(baseUrl, preferredModelId, apiKey);
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
 }
 
 /**
@@ -664,12 +664,12 @@ async function transformLlamaCppModels(
 }
 
 /** vLLM and SGLang report active max_model_len but do not expose tool parser flags. */
-function transformOpenAiLocalModels(
+function transformOpenAICompatibleModels(
   data: unknown,
   modelsDevMap: Map<string, ModelsDevMetadata> | null,
   provider: "vllm" | "sglang",
 ): ModelInfo[] {
-  const models = parseOpenAiLocalModels(data);
+  const models = parseOpenAICompatibleModels(data);
   if (models.length === 0) {
     throw new Error(
       provider === "vllm"
@@ -678,7 +678,7 @@ function transformOpenAiLocalModels(
     );
   }
   return models.map((model) => {
-    const contextWindow = openAiLocalContextWindow(model, models);
+    const contextWindow = resolveModelCardContextWindow(model, models);
     const entry: RawModelEntry = {
       id: model.id,
       displayName: model.id,
@@ -767,7 +767,7 @@ export function createModelFetcher(): ModelFetcherService {
           }
 
           if (providerName === "vllm" || providerName === "sglang") {
-            return transformOpenAiLocalModels(data, modelsDevMap, providerName);
+            return transformOpenAICompatibleModels(data, modelsDevMap, providerName);
           }
 
           const extractor = LIST_EXTRACTORS[providerName];
