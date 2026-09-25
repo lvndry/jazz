@@ -91,6 +91,16 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
       },
     },
   },
+  sglang: {
+    default: {
+      reasoning: {
+        kind: "effort",
+        efforts: ["low", "medium", "high"],
+        canDisable: true,
+        transport: "sglang.chat.reasoning-effort",
+      },
+    },
+  },
 } as const satisfies ModelCapabilityRegistry;
 
 /**
@@ -119,6 +129,8 @@ export function isTransportValidForProvider(
       );
     case "vllm":
       return transport === "vllm.chat.reasoning-effort";
+    case "sglang":
+      return transport === "sglang.chat.reasoning-effort";
     default:
       return false;
   }

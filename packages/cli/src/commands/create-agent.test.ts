@@ -120,6 +120,50 @@ describe("promptForAgentInfo", () => {
     expect(saved).toEqual([{ key: "llm.vllm.base_url", value: "http://127.0.0.1:8000/v1" }]);
   });
 
+  it("lets the user choose among SGLang's served model IDs", async () => {
+    const searched: string[] = [];
+    const saved: Array<{ key: string; value: unknown }> = [];
+    const provider: LLMProvider = {
+      name: "sglang",
+      defaultModel: "base",
+      supportedModels: [
+        { id: "base", supportsTools: true, isReasoningModel: false },
+        { id: "adapter", supportsTools: true, isReasoningModel: false },
+      ],
+      authenticate: () => Effect.void,
+    };
+    const result = await promptForAgentInfo(
+      ["default"],
+      {},
+      {
+        listProviders: () =>
+          Effect.succeed([{ name: "sglang", displayName: "SGLang", configured: true }]),
+        getProvider: () => Effect.succeed(provider),
+      } as unknown as LLMService,
+      {
+        appConfig: Effect.succeed({}),
+        set: (key: string, value: unknown) => {
+          saved.push({ key, value });
+          return Effect.void;
+        },
+      } as unknown as AgentConfigService,
+      new Map(),
+      terminal({
+        search: ((message) => {
+          searched.push(message);
+          return Effect.succeed(message.includes("Which LLM provider") ? "sglang" : "adapter");
+        }) as TerminalService["search"],
+        ask: (message) => Effect.succeed(message.includes("Name") ? "sglang-agent" : ""),
+        select: (() => Effect.succeed("default")) as TerminalService["select"],
+      }),
+      new Set(),
+    );
+
+    expect(result).toMatchObject({ llmProvider: "sglang", llmModel: "adapter" });
+    expect(searched).toHaveLength(2);
+    expect(saved).toEqual([{ key: "llm.sglang.base_url", value: "http://127.0.0.1:30000/v1" }]);
+  });
+
   it("creates a llama.cpp agent around the live server model without a model picker", async () => {
     const searched: string[] = [];
     const asked: string[] = [];

@@ -46,6 +46,16 @@ describe("resolveEffectiveContextWindow", () => {
     expect(effective).toMatchObject({ tokens: 32768, source: "pinned" });
   });
 
+  it("caps SGLang accounting at its served limit even when numCtx is higher", () => {
+    expect(
+      resolveEffectiveContextWindow({
+        provider: "sglang",
+        pinnedContextWindow: 131072,
+        serverContextWindow: 32768,
+      }),
+    ).toMatchObject({ tokens: 32768, source: "pinned" });
+  });
+
   it("prefers the pinned window over the one the server currently reports", () => {
     const effective = resolveEffectiveContextWindow({
       provider: "ollama",

@@ -1,5 +1,5 @@
 ---
-description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, Groq, and other supported APIs."
+description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, SGLang, Groq, and other supported APIs."
 ---
 
 # Configure model providers
@@ -31,6 +31,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `ollama`     | `OLLAMA_API_KEY` for Ollama Cloud or protected servers            |
 | `openai`     | `OPENAI_API_KEY`                                                  |
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
+| `sglang`     | `SGLANG_API_KEY` when the server requires bearer authentication   |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
 | `xai`        | `XAI_API_KEY`                                                     |
@@ -112,6 +113,17 @@ jazz agent create
 
 Jazz uses vLLM's OpenAI-compatible chat API. Tool calls require a compatible model and server configuration, commonly `--enable-auto-tool-choice` with the matching `--tool-call-parser`; `/v1/models` alone cannot prove those flags are enabled. Follow [vLLM's tool-calling guide](https://docs.vllm.ai/en/latest/features/tool_calling/) for the model-specific setup. For a server reachable beyond the host, protect the deployment at the network boundary: [vLLM documents](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/) that `--api-key` does not authenticate every endpoint.
 
+## SGLang
+
+Use the `sglang` provider for an SGLang server. The default base URL is `http://127.0.0.1:30000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.sglang.base_url`; `SGLANG_BASE_URL` and `jazz config` → **LLM Providers** also work. Jazz discovers current IDs from `/v1/models`, selecting the sole model automatically or offering a picker for multiple IDs such as loaded LoRA adapters. At the start of each run it keeps the saved ID if still served, otherwise uses the first current ID. It also reads the live `max_model_len` for context accounting; a LoRA card without a length inherits its listed base model's length.
+
+```bash
+python -m sglang.launch_server --model-path <model> --port 30000
+jazz agent create
+```
+
+Set `llm.sglang.api_key` or `SGLANG_API_KEY` if the server requires bearer authentication. Jazz prompts for a key when model listing returns 401 or 403. SGLang uses the OpenAI-compatible chat API. Tool calls need a compatible model and the matching `--tool-call-parser`; reasoning output needs an appropriate `--reasoning-parser` for the model. `/v1/models` does not report parser configuration, so test those features against your server. See [SGLang's reasoning guide](https://docs.sglang.ai/advanced_features/separate_reasoning.html) and [server argument reference](https://docs.sglang.ai/advanced_features/server_arguments.html). `numCtx` limits Jazz's accounting; it does not change the server's context length.
+
 ## Model capability overrides
 
 Models.dev supplies broad metadata such as context length, tool support, and whether a model reasons. It does not describe every provider or local-template reasoning control. Jazz applies its own exact `provider + model` capability profiles after catalog metadata. For a private model or a self-hosted template, an operator can provide a strict local correction under `llm.capabilityOverrides`; overrides use only Jazz-defined transports and cannot inject arbitrary provider request fields.
@@ -145,7 +157,7 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-A hosted provider answers well inside two minutes. Ollama, llama.cpp, or vLLM loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+A hosted provider answers well inside two minutes. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000
@@ -159,7 +171,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 ## Offline operation
 
-`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and library requests. It does not make a hosted provider work offline. Use Ollama, llama.cpp, or vLLM, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
+`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and library requests. It does not make a hosted provider work offline. Use Ollama, llama.cpp, vLLM, or SGLang, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
 
 ## Diagnose provider failures
 
@@ -172,6 +184,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.
 - Tool-call failures on vLLM: confirm the model's chat template, automatic tool choice, and matching parser are configured on the server.
+- Tool-call failures on SGLang: confirm the model's chat template and matching `--tool-call-parser` are configured on the server.
 - Unexpected context truncation on Ollama: pin `numCtx` on the agent and ensure the server can allocate it.
 
 Read [Creating agents](../getting-started/create-an-agent.md), [Local models](../getting-started/local-models.md), and [Adding a provider](../maintainers/add-a-provider.md) next.

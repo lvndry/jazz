@@ -28,6 +28,10 @@ import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
 import {
+  isLocalServerProvider,
+  type LocalServerProvider,
+} from "@jazz/core/constants/local-providers";
+import {
   OPENROUTER_GATEWAY_MODELS,
   ORCAROUTER_GATEWAY_MODELS,
   type ProviderName,
@@ -108,6 +112,7 @@ import { resolveModelCapabilities } from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
+  fetchSglangServerModel,
   fetchVllmServerModel,
   listModelsForProvider,
 } from "./model-fetcher";
@@ -813,6 +818,9 @@ function getConfiguredProviders(
   if (!addedProviders.has("vllm")) {
     providers.push({ name: "vllm", apiKey: llmConfig?.vllm?.api_key ?? "" });
   }
+  if (!addedProviders.has("sglang")) {
+    providers.push({ name: "sglang", apiKey: llmConfig?.sglang?.api_key ?? "" });
+  }
 
   return providers;
 }
@@ -835,7 +843,7 @@ function selectModel(
     return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
   };
 
-  switch (providerName.toLowerCase()) {
+  switch (providerName) {
     case "openai": {
       const apiKey = resolveApiKey("openai");
       model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
@@ -923,13 +931,13 @@ function selectModel(
       break;
     }
     case "llamacpp":
-    case "vllm": {
-      const localProvider = providerName === "vllm" ? "vllm" : "llamacpp";
-      const apiKey = resolveApiKey(localProvider);
-      const baseURL = resolveLocalProviderBaseUrl(localProvider, llmConfig);
+    case "vllm":
+    case "sglang": {
+      const apiKey = resolveApiKey(providerName);
+      const baseURL = resolveLocalProviderBaseUrl(providerName, llmConfig);
       const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
       const localServer = createOpenAICompatible({
-        name: localProvider,
+        name: providerName,
         baseURL,
         includeUsage: true,
         ...(headers ? { headers } : {}),
@@ -983,7 +991,7 @@ function selectModel(
       break;
     }
     default:
-      throw new Error(`Unsupported provider: ${providerName}`);
+      throw new Error("Unsupported provider");
   }
 
   // Store in cache
@@ -1046,7 +1054,8 @@ export function buildProviderCacheFingerprint(
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}|${cfg?.keep_alive ?? ""}`;
     }
     case "llamacpp":
-    case "vllm": {
+    case "vllm":
+    case "sglang": {
       const cfg = llmConfig[providerName];
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
     }
@@ -1148,6 +1157,10 @@ function buildResolvedReasoningOptions(
     case "vllm.chat.reasoning-effort":
       return {
         vllm: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
+      };
+    case "sglang.chat.reasoning-effort":
+      return {
+        sglang: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
       };
     case "llamacpp.chat.thinking-budget": {
       if (selection === "disable") return undefined;
@@ -1342,6 +1355,14 @@ export function buildProviderOptions(
       }
       break;
     }
+    case "sglang": {
+      if (reasoningEffort) {
+        return {
+          sglang: { reasoningEffort: reasoningEffort === "disable" ? "none" : reasoningEffort },
+        };
+      }
+      break;
+    }
     case "fireworks": {
       if (reasoningEffort && reasoningEffort !== "disable") {
         const budgetMap: Record<string, number> = {
@@ -1521,9 +1542,8 @@ class AISDKService implements LLMService {
             const apiKey = providerConfig?.api_key;
 
             if (!apiKey) {
-              // API Key is optional for Ollama
-              const lower = providerName.toLowerCase();
-              if (lower === "ollama" || lower === "llamacpp" || lower === "vllm") {
+              // User-run local servers need a key only when configured to require one.
+              if (isLocalServerProvider(providerName)) {
                 return Effect.succeed(void 0);
               }
               return Effect.fail(
@@ -1920,8 +1940,19 @@ class AISDKService implements LLMService {
     });
   };
 
+  readonly fetchSglangServerModel = (
+    baseUrl: string,
+    preferredModelId: string,
+    apiKey?: string,
+  ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
+    return Effect.tryPromise({
+      try: () => fetchSglangServerModel(baseUrl, preferredModelId, apiKey),
+      catch: (error) => error,
+    });
+  };
+
   readonly resolveLocalProviderBaseUrl = (
-    provider: "llamacpp" | "ollama" | "vllm",
+    provider: LocalServerProvider,
     llmConfig?: LLMConfig,
   ): string => {
     return resolveLocalProviderBaseUrl(provider, llmConfig);

@@ -11,9 +11,10 @@ describe("isAllowedEvalModel", () => {
   it("allows Ollama models", () => {
     expect(isAllowedEvalModel("ollama", "gemma4:31b-cloud")).toBe(true);
   });
-  it("allows models served by user-run llama.cpp and vLLM servers", () => {
+  it("allows models served by user-run llama.cpp, vLLM, and SGLang servers", () => {
     expect(isAllowedEvalModel("llamacpp", "local.gguf")).toBe(true);
     expect(isAllowedEvalModel("vllm", "Qwen/Qwen3-8B")).toBe(true);
+    expect(isAllowedEvalModel("sglang", "Qwen/Qwen3-8B")).toBe(true);
   });
   it("allows only the cheap OpenAI tiers", () => {
     expect(isAllowedEvalModel("openai", "gpt-5.4-nano")).toBe(true);

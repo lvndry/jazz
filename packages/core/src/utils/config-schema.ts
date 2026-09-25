@@ -35,6 +35,7 @@ import type {
   MCPServerOverride,
   NotificationsConfig,
   OllamaProviderConfig,
+  SglangProviderConfig,
   OtlpTelemetryConfig,
   SchedulerConfig,
   SchedulerMode,
@@ -138,7 +139,11 @@ const toggleReasoningSchema = z.strictObject({
 
 const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
-  transport: z.enum(["openai.responses.reasoning-effort", "vllm.chat.reasoning-effort"]),
+  transport: z.enum([
+    "openai.responses.reasoning-effort",
+    "vllm.chat.reasoning-effort",
+    "sglang.chat.reasoning-effort",
+  ]),
   efforts: capabilityReasoningEfforts,
   canDisable: flag,
 });
@@ -258,6 +263,12 @@ const llmShape = {
   openai: apiKeyOnly,
   openrouter: apiKeyOnly,
   orcarouter: apiKeyOnly,
+  sglang: z
+    .strictObject({
+      api_key: text.exactOptional(),
+      base_url: text.exactOptional(),
+    } satisfies SchemaShape<SglangProviderConfig>)
+    .exactOptional(),
   togetherai: apiKeyOnly,
   vllm: z
     .strictObject({

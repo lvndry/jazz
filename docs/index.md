@@ -33,7 +33,7 @@ Jazz is not a chat wrapper. It adds the machinery required for useful work: tool
 - **More than one generic assistant:** create multiple agents with different models, personas, tools, memory scopes, and safety ceilings.
 - **Several models inside one identity:** bind separate companions for image, audio, and video understanding or generation while the primary model keeps the plan, tools, memory, and conversation.
 - **Approvals that survive unattended work:** decline safely, ask on an interactive surface, or park a run and resume it after remote approval.
-- **Provider choice without losing the harness:** use cloud providers, Ollama, llama.cpp, or vLLM while keeping Jazz's tools, context controls, workflows, and surfaces.
+- **Provider choice without losing the harness:** use cloud providers, Ollama, llama.cpp, vLLM, or SGLang while keeping Jazz's tools, context controls, workflows, and surfaces.
 - **Harness quality you can measure:** the eval suite tests whether context, prompts, and tools improve task reliability instead of assuming a change helped.
 - **Optional advisory plugins:** install explicitly trusted, digest-pinned extensions without adding
   their code, credentials, network calls, or latency to other users' runs.

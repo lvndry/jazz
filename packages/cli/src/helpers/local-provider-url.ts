@@ -2,7 +2,7 @@
  * First-use configuration for local model servers.
  *
  * Agent creation needs a reachable base URL before it asks the LLM service to discover models.
- * This helper keeps that prompt consistent for Ollama, llama.cpp, and vLLM, persists the normalized URL,
+ * This helper keeps that prompt consistent for Ollama, llama.cpp, vLLM, and SGLang, persists the normalized URL,
  * and leaves already-configured or environment-configured servers alone.
  */
 
@@ -40,7 +40,7 @@ export function isValidServerAddress(input: string): boolean | string {
  * nothing.
  *
  * The visible default intentionally omits the provider REST path: users think in terms of the
- * server address, while normalization adds `/api` for Ollama and `/v1` for llama.cpp and vLLM. The default
+ * server address, while normalization adds `/api` for Ollama and `/v1` for the other servers. The default
  * is a placeholder rather than prefilled text so typing replaces it instead of appending to it; an
  * empty submission means that placeholder, and an Escape returns to provider selection.
  */

@@ -6,6 +6,7 @@ import {
   AgentRunner,
   createNestedRunExecutor,
   renderSkillRoutingAdvisory,
+  resolveSglangServerModel,
   resolveVllmServerModel,
 } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
@@ -290,6 +291,49 @@ describe("resolveVllmServerModel", () => {
   });
 });
 
+describe("resolveSglangServerModel", () => {
+  it("reads the current model and passes its configured key", async () => {
+    const requests: Array<{ baseUrl: string; preferredModelId: string; apiKey?: string }> = [];
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+      fetchSglangServerModel: (baseUrl, preferredModelId, apiKey) => {
+        requests.push({ baseUrl, preferredModelId, ...(apiKey ? { apiKey } : {}) });
+        return Effect.succeed({ modelId: "new-model", contextWindow: 32768 });
+      },
+    };
+    expect(
+      await Effect.runPromise(
+        resolveSglangServerModel("previous-model", { sglang: { api_key: "local-key" } }).pipe(
+          Effect.provideService(LLMServiceTag, service),
+        ),
+      ),
+    ).toEqual({ modelId: "new-model", contextWindow: 32768 });
+    expect(requests).toEqual([
+      {
+        baseUrl: "http://localhost:30000/v1",
+        preferredModelId: "previous-model",
+        apiKey: "local-key",
+      },
+    ]);
+  });
+
+  it("keeps saved settings when the live lookup fails", async () => {
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+      fetchSglangServerModel: () => Effect.fail(new Error("server unavailable")),
+    };
+    expect(
+      await Effect.runPromise(
+        resolveSglangServerModel("previous-model").pipe(
+          Effect.provideService(LLMServiceTag, service),
+        ),
+      ),
+    ).toEqual({});
+  });
+});
+
 const mockMcpServerManager = {
   connectServer: mock(() => Effect.fail(new Error("Not implemented"))),
   disconnectServer: mock(() => Effect.void),
@@ -453,6 +497,34 @@ describe("AgentRunner", () => {
 
       expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
       expect(preferredModels).toEqual(["stale-model-from-last-run"]);
+    });
+
+    it("uses the SGLang model currently served for this run", async () => {
+      const requestedModels: string[] = [];
+      const llm = {
+        ...mockLlmService,
+        resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+        fetchSglangServerModel: () =>
+          Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 32768 }),
+        createChatCompletion: (_provider: string, options: { model: string }) => {
+          requestedModels.push(options.model);
+          return Effect.succeed({
+            id: "test-completion",
+            model: options.model,
+            content: "Hello world",
+          });
+        },
+      } as unknown as LLMService;
+      const agent: Agent = {
+        ...mockAgent,
+        config: { ...mockAgent.config, llmProvider: "sglang", llmModel: "stale-model" },
+      };
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, agent, stream: false, maxIterations: 1 }),
+        { llm },
+      );
+      expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
     });
 
     it("should execute agent with streaming when enabled", async () => {

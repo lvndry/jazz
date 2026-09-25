@@ -37,6 +37,12 @@ export interface VllmServerModel {
   readonly contextWindow?: number;
 }
 
+/** A currently served SGLang model ID and its context limit, when available. */
+export interface SglangServerModel {
+  readonly modelId?: string;
+  readonly contextWindow?: number;
+}
+
 export interface LLMService {
   /**
    * Get a provider by name
@@ -101,6 +107,13 @@ export interface LLMService {
     preferredModelId: string,
     apiKey?: string,
   ) => Effect.Effect<VllmServerModel, unknown>;
+
+  /** Reads SGLang's `/v1/models` with the same live-ID selection as vLLM. */
+  readonly fetchSglangServerModel: (
+    baseUrl: string,
+    preferredModelId: string,
+    apiKey?: string,
+  ) => Effect.Effect<SglangServerModel, unknown>;
 
   /**
    * Resolves the base URL a local provider is reachable at, from config,

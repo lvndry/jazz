@@ -229,6 +229,12 @@ export interface VllmProviderConfig {
   readonly base_url?: string;
 }
 
+/** Connection settings for a user-operated SGLang OpenAI-compatible server. */
+export interface SglangProviderConfig {
+  readonly api_key?: string;
+  readonly base_url?: string;
+}
+
 export interface AnthropicProviderConfig {
   readonly api_key?: string;
   /**
@@ -272,6 +278,7 @@ export interface LLMConfig {
   readonly openrouter?: LLMProviderConfig;
   readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
+  readonly sglang?: SglangProviderConfig;
   readonly vllm?: VllmProviderConfig;
   readonly xai?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;

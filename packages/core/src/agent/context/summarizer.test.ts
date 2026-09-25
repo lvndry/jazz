@@ -93,6 +93,7 @@ const mockLLMService: LLMService = {
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
   fetchVllmServerModel: () => Effect.succeed({}),
+  fetchSglangServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 
@@ -1140,6 +1141,29 @@ describe("bounded summarizer input", () => {
     );
 
     expect(preferredModels).toEqual(["old-model"]);
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it("chunks against SGLang's currently served window after the model changes", async () => {
+    const llm: LLMService = {
+      ...mockLLMService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+      fetchSglangServerModel: () => Effect.succeed({ modelId: "new-model", contextWindow: 512 }),
+    };
+    const agent = createMockAgent({
+      config: { llmProvider: "sglang", llmModel: "old-model", persona: "default", tools: [] },
+    });
+    const chunks: string[] = [];
+    const runner: RecursiveRunner = (options) => {
+      chunks.push(options.userInput);
+      return Effect.succeed({ content: "summary", conversationId: "test-conv" });
+    };
+
+    await Effect.runPromise(
+      Summarizer.summarizeHistory(messages(8, 400), agent, "conv-1", runner).pipe(
+        Effect.provide(createTestLayer({ llm })),
+      ) as Effect.Effect<ChatMessage, Error, never>,
+    );
     expect(chunks.length).toBeGreaterThan(1);
   });
 });

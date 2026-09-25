@@ -179,6 +179,7 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("ollama");
       expect(providerNames).toContain("llamacpp");
       expect(providerNames).toContain("vllm");
+      expect(providerNames).toContain("sglang");
 
       // Check configured status
       const openaiProvider = result.find((p) => p.name === "openai");
@@ -248,11 +249,12 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(3); // Local-server providers need no API key.
+        expect(configuredProviders.length).toBe(4); // Local-server providers need no API key.
         const configuredNames = configuredProviders.map((p) => p.name);
         expect(configuredNames).toContain("ollama");
         expect(configuredNames).toContain("llamacpp");
         expect(configuredNames).toContain("vllm");
+        expect(configuredNames).toContain("sglang");
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -303,7 +305,12 @@ describe("AI SDK Service - Unit Tests", () => {
 
       for (const provider of AVAILABLE_PROVIDERS) {
         // Local servers are always added without requiring an API key.
-        if (provider === "ollama" || provider === "llamacpp" || provider === "vllm") {
+        if (
+          provider === "ollama" ||
+          provider === "llamacpp" ||
+          provider === "vllm" ||
+          provider === "sglang"
+        ) {
           // Check for local-provider handling - look for providers.push with the provider name
           const providerQuoted = `"${provider}"`;
           if (!functionSection.includes(providerQuoted)) {
@@ -1198,6 +1205,38 @@ describe("buildProviderOptions - vLLM reasoning", () => {
       prompt: "hi",
       providerOptions,
     });
+    expect(requestBody?.["reasoning_effort"]).toBe("medium");
+  });
+});
+
+describe("buildProviderOptions - SGLang reasoning", () => {
+  const options: ChatCompletionOptions = {
+    model: "Qwen/Qwen3-8B",
+    messages: [{ role: "user", content: "hi" }],
+  };
+
+  it("sends the selected effort through SGLang's chat endpoint", async () => {
+    expect(buildProviderOptions("sglang", { ...options, reasoning: "disable" })).toEqual({
+      sglang: { reasoningEffort: "none" },
+    });
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "sglang",
+      baseURL: "http://sglang.test/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    const providerOptions = buildProviderOptions("sglang", { ...options, reasoning: "medium" });
+    if (!providerOptions) throw new Error("expected SGLang provider options");
+    await generateText({ model: provider(options.model), prompt: "hi", providerOptions });
     expect(requestBody?.["reasoning_effort"]).toBe("medium");
   });
 });

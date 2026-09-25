@@ -25,7 +25,7 @@ export const EVAL_CONFIG: EvalConfig = {
 
 /**
  * Cost guardrail: eval runs may ONLY use free or cheap models — any OpenRouter
- * ":free" model, a user-run llama.cpp or vLLM server, any Ollama model (local
+ * ":free" model, a user-run llama.cpp, vLLM, or SGLang server, any Ollama model (local
  * inference, or a `-cloud` tag metered by the user's Ollama plan rather than
  * per token), or the two cheap OpenAI tiers
  * (gpt-5.4-nano / gpt-5.4-mini). Anything else (e.g. full gpt-5.4) is rejected
@@ -38,7 +38,12 @@ export function isAllowedEvalModel(provider: string, model: string): boolean {
   if (provider === "openrouter" && model.endsWith(":free")) {
     return true;
   }
-  if (provider === "ollama" || provider === "llamacpp" || provider === "vllm") {
+  if (
+    provider === "ollama" ||
+    provider === "llamacpp" ||
+    provider === "vllm" ||
+    provider === "sglang"
+  ) {
     return true;
   }
   if (provider === "openai" && (ALLOWED_OPENAI_EVAL_MODELS as readonly string[]).includes(model)) {

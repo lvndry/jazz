@@ -32,6 +32,7 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   orcarouter: "ORCAROUTER_API_KEY",
+  sglang: "SGLANG_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",
   vllm: "VLLM_API_KEY",
   xai: "XAI_API_KEY",

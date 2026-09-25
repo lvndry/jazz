@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   createModelFetcher,
   fetchLlamaCppServerModel,
+  fetchSglangServerModel,
   fetchVllmServerModel,
   fetchModelsDevModels,
   resolveOllamaToolSupport,
@@ -143,6 +144,77 @@ describe("ModelFetcher", () => {
     ]);
     expect(models.every((model) => model.supportsTools)).toBe(true);
     expect(requestedUrls).toEqual(["http://localhost:8000/v1/models"]);
+  });
+
+  it("lists SGLang base and LoRA models with the served context window", async () => {
+    const requestedUrls: string[] = [];
+    global.fetch = mock((url: string) => {
+      requestedUrls.push(url);
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "base", max_model_len: 32768 },
+              { id: "adapter", parent: "base", max_model_len: null },
+            ],
+          }),
+      });
+    }) as unknown as typeof fetch;
+
+    const models = await Effect.runPromise(
+      fetcher.fetchModels("sglang", "http://localhost:30000/v1", "/models"),
+    );
+    expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
+      ["base", 32768],
+      ["adapter", 32768],
+    ]);
+    expect(models.every((model) => model.supportsTools)).toBe(true);
+    expect(requestedUrls).toEqual(["http://localhost:30000/v1/models"]);
+  });
+
+  it("selects the current SGLang model, falling back when the saved ID disappears", async () => {
+    const authorizations: Array<string | null> = [];
+    global.fetch = mock((_url: string, init?: RequestInit) => {
+      authorizations.push(new Headers(init?.headers).get("Authorization"));
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "new-base", max_model_len: 16384 },
+              { id: "lora", parent: "new-base", max_model_len: null },
+            ],
+          }),
+      });
+    }) as unknown as typeof fetch;
+
+    expect(await fetchSglangServerModel("http://localhost:30000/v1", "lora", "secret")).toEqual({
+      modelId: "lora",
+      contextWindow: 16384,
+    });
+    expect(await fetchSglangServerModel("http://localhost:30000/v1", "old-base")).toEqual({
+      modelId: "new-base",
+      contextWindow: 16384,
+    });
+    expect(authorizations).toEqual(["Bearer secret", null]);
+  });
+
+  it("reports missing and protected SGLang servers at model discovery", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) }),
+    ) as unknown as typeof fetch;
+    expect(await fetchSglangServerModel("http://localhost:30000/v1", "old")).toEqual({});
+    await expect(
+      Effect.runPromise(fetcher.fetchModels("sglang", "http://localhost:30000/v1", "/models")),
+    ).rejects.toThrow("No models loaded");
+
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: false, status: 401, statusText: "Unauthorized" }),
+    ) as unknown as typeof fetch;
+    await expect(
+      Effect.runPromise(fetcher.fetchModels("sglang", "http://localhost:30000/v1", "/models")),
+    ).rejects.toThrow("needs an API key");
   });
 
   it("uses vLLM's served context limit over catalog metadata while retaining catalog tool support", async () => {

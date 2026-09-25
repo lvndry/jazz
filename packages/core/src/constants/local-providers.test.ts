@@ -8,9 +8,10 @@ import {
 
 describe("LOCAL_MODEL_PROVIDERS", () => {
   it("lists exactly the local model servers", () => {
-    expect(LOCAL_MODEL_PROVIDERS).toEqual(["llamacpp", "ollama", "vllm"]);
+    expect(LOCAL_MODEL_PROVIDERS).toEqual(["llamacpp", "ollama", "sglang", "vllm"]);
     expect(isLocalServerProvider("llamacpp")).toBe(true);
     expect(isLocalServerProvider("vllm")).toBe(true);
+    expect(isLocalServerProvider("sglang")).toBe(true);
     expect(isLocalServerProvider("openai")).toBe(false);
   });
 });
@@ -20,6 +21,7 @@ describe("isZeroCostLocalModel", () => {
     expect(isZeroCostLocalModel("llamacpp", "local.gguf")).toBe(true);
     expect(isZeroCostLocalModel("ollama", "qwen3:8b")).toBe(true);
     expect(isZeroCostLocalModel("vllm", "org/model")).toBe(true);
+    expect(isZeroCostLocalModel("sglang", "org/model")).toBe(true);
   });
 
   it("excludes Ollama Cloud models, which bill remotely", () => {

@@ -1,6 +1,6 @@
 /**
  * Metadata and helpers for providers that serve models from the user's own
- * machine (Ollama, llama.cpp, vLLM), used for unreachable-server diagnostics and
+ * machine (Ollama, llama.cpp, vLLM, SGLang), used for unreachable-server diagnostics and
  * zero-cost detection.
  */
 import type { ProviderName } from "@/core/constants/models";
@@ -10,6 +10,7 @@ import { isOllamaCloudModel } from "@/core/constants/ollama";
 export const LOCAL_MODEL_PROVIDERS = [
   "llamacpp",
   "ollama",
+  "sglang",
   "vllm",
 ] as const satisfies readonly ProviderName[];
 
@@ -28,6 +29,12 @@ export const LOCAL_SERVER_PROVIDERS = {
     defaultUrl: "http://127.0.0.1:11434",
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
+  },
+  sglang: {
+    name: "SGLang",
+    defaultUrl: "http://127.0.0.1:30000",
+    envVar: "SGLANG_BASE_URL",
+    startHint: "python -m sglang.launch_server --model-path <model> --port 30000",
   },
   vllm: {
     name: "vLLM",

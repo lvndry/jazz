@@ -8,7 +8,12 @@ import {
 } from "./models";
 
 describe("resolveLocalProviderBaseUrl", () => {
-  const ENV_VARS = ["LLAMACPP_BASE_URL", "OLLAMA_BASE_URL", "VLLM_BASE_URL"] as const;
+  const ENV_VARS = [
+    "LLAMACPP_BASE_URL",
+    "OLLAMA_BASE_URL",
+    "VLLM_BASE_URL",
+    "SGLANG_BASE_URL",
+  ] as const;
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -41,6 +46,18 @@ describe("resolveLocalProviderBaseUrl", () => {
       "https://gpu.test/v1",
     );
     expect(normalizeLocalProviderBaseUrl("vllm", "gpu.test:8000")).toBe("http://gpu.test:8000/v1");
+  });
+
+  it("resolves SGLang's default, environment, and config URL", () => {
+    expect(resolveLocalProviderBaseUrl("sglang")).toBe("http://127.0.0.1:30000/v1");
+    process.env["SGLANG_BASE_URL"] = "http://env-host:30000/v1";
+    expect(resolveLocalProviderBaseUrl("sglang")).toBe("http://env-host:30000/v1");
+    expect(
+      resolveLocalProviderBaseUrl("sglang", { sglang: { base_url: "https://gpu.test/v1" } }),
+    ).toBe("https://gpu.test/v1");
+    expect(normalizeLocalProviderBaseUrl("sglang", "gpu.test:30000")).toBe(
+      "http://gpu.test:30000/v1",
+    );
   });
 
   it("uses LLAMACPP_BASE_URL env var over default", () => {
