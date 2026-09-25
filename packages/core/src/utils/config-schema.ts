@@ -46,6 +46,7 @@ import type {
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
+import type { HostProfile } from "@/core/types/host";
 import {
   CAPABILITY_REASONING_EFFORTS,
   type ModelCapabilityOverride,
@@ -383,6 +384,15 @@ const peerShape = {
   allow: names.exactOptional(),
 } satisfies SchemaShape<PeerConfig>;
 
+const hostShape = {
+  name: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  sshTarget: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/),
+  workspacePath: z
+    .string()
+    .regex(/^\/(?:[a-zA-Z0-9._-]+\/?)+$/)
+    .refine((value) => value.split("/").every((part) => part !== ".." && part !== ".")),
+} satisfies SchemaShape<HostProfile>;
+
 const webhookShape = {
   name: z.string().min(1),
   agentId: z.string().min(1),
@@ -418,6 +428,7 @@ const configFileShape = {
   workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
   peers: z.array(z.strictObject(peerShape)).exactOptional(),
+  hosts: z.array(z.strictObject(hostShape)).exactOptional(),
   webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
   daemon: z.strictObject({ token: text.exactOptional() }).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;

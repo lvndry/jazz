@@ -616,6 +616,146 @@ function registerConfigCommands(program: Command): void {
     );
 }
 
+/** Register operator-owned SSH destinations separately from agent peers. */
+function registerHostsCommands(program: Command): void {
+  const hosts = program.command("hosts").description("Manage your SSH servers for /detach");
+  const run = (loadEffect: () => Promise<CliCommandEffect>) =>
+    runCliAction(loadEffect, cliRuntimeOptions(program), { skipCatchUp: true });
+  hosts
+    .command("list")
+    .description("List registered servers")
+    .action(() =>
+      run(() => import("@jazz/cli/commands/hosts").then((mod) => mod.listHostsCommand())),
+    );
+  hosts
+    .command("add <name> <ssh-target> <workspace-path>")
+    .description("Register a server and its private remote workspace")
+    .action((name: string, sshTarget: string, workspacePath: string) =>
+      run(() =>
+        import("@jazz/cli/commands/hosts").then((mod) =>
+          mod.addHostCommand(name, sshTarget, workspacePath),
+        ),
+      ),
+    );
+  hosts
+    .command("remove <name>")
+    .description("Forget a registered server locally")
+    .action((name: string) =>
+      run(() => import("@jazz/cli/commands/hosts").then((mod) => mod.removeHostCommand(name))),
+    );
+  hosts
+    .command("doctor <name>")
+    .description("Check SSH, disk, platform, Jazz, and daemon")
+    .action((name: string) =>
+      run(() => import("@jazz/cli/commands/hosts").then((mod) => mod.doctorHostCommand(name))),
+    );
+  hosts
+    .command("_import-secret <path>", { hidden: true })
+    .description("Internal: import a provider secret over SSH")
+    .action(async (secretPath: string) => {
+      const [{ importRemoteSecretCommand }, { Effect }] = await Promise.all([
+        import("@jazz/cli/commands/hosts"),
+        import("effect"),
+      ]);
+      await Effect.runPromise(importRemoteSecretCommand(secretPath));
+    });
+}
+
+/** Register user status plus private stdin-only endpoints used by SSH handoff. */
+function registerDetachCommands(program: Command): void {
+  const detach = program
+    .command("detach")
+    .description("Inspect a conversation running on your server");
+  detach
+    .command("status <handoff-id>")
+    .description("Read a remote handoff's current state")
+    .action(async (id: string) => {
+      const [{ detachStatusCommand }, { Effect }] = await Promise.all([
+        import("@jazz/cli/commands/detach"),
+        import("effect"),
+      ]);
+      await Effect.runPromise(detachStatusCommand(id));
+    });
+  detach
+    .command("approve <handoff-id>")
+    .description("Approve a parked remote action")
+    .action(async (id: string) => {
+      const [{ detachApprovalCommand }, { Effect }] = await Promise.all([
+        import("@jazz/cli/commands/detach"),
+        import("effect"),
+      ]);
+      await Effect.runPromise(detachApprovalCommand(id, true));
+    });
+  detach
+    .command("reject <handoff-id>")
+    .description("Reject a parked remote action")
+    .action(async (id: string) => {
+      const [{ detachApprovalCommand }, { Effect }] = await Promise.all([
+        import("@jazz/cli/commands/detach"),
+        import("effect"),
+      ]);
+      await Effect.runPromise(detachApprovalCommand(id, false));
+    });
+  detach
+    .command("pull <handoff-id>")
+    .description("Stage completed results and preview local conflicts")
+    .action(async (id: string) => {
+      const [{ detachPullCommand }, { Effect }] = await Promise.all([
+        import("@jazz/cli/commands/detach"),
+        import("effect"),
+      ]);
+      await Effect.runPromise(detachPullCommand(id));
+    });
+  detach
+    .command("_protocol", { hidden: true })
+    .description("Internal: identify the handoff protocol")
+    .action(() => {
+      process.stdout.write("jazz-detach-1\n");
+    });
+  detach
+    .command("_receive", { hidden: true })
+    .description("Internal: receive a handoff bundle")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.receiveDetachedBundleCommand();
+    });
+  detach
+    .command("_start", { hidden: true })
+    .description("Internal: queue a detached run")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.startDetachedRunCommand();
+    });
+  detach
+    .command("_status", { hidden: true })
+    .description("Internal: inspect a detached run")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.detachedRunStatusCommand();
+    });
+  detach
+    .command("_approve", { hidden: true })
+    .description("Internal: approve a detached run")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.answerDetachedRunCommand(true);
+    });
+  detach
+    .command("_reject", { hidden: true })
+    .description("Internal: reject a detached run")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.answerDetachedRunCommand(false);
+    });
+  detach
+    .command("_pull", { hidden: true })
+    .description("Internal: stream a detached result")
+    .action(async () => {
+      const mod = await import("@jazz/cli/commands/detach-internal");
+      await mod.pullDetachedRunCommand();
+    });
+}
+
 /**
  * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
  * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
@@ -2136,6 +2276,8 @@ export function createCLIApp(): Command {
   registerSkillCommands(program);
   registerPluginCommands(program);
   registerConfigCommands(program);
+  registerHostsCommands(program);
+  registerDetachCommands(program);
   registerMemoryCommands(program);
   registerWebhookCommands(program);
   registerMCPCommands(program);

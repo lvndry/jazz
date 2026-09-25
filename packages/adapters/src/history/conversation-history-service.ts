@@ -17,6 +17,7 @@
 
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
@@ -62,11 +63,17 @@ export function saveConversation(
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
   const lockPath = agentConversationLockPath(conversation.agentId, dir);
   return Effect.gen(function* () {
+    yield* Effect.tryPromise(() =>
+      assertConversationWritable(conversation.agentId, conversation.conversationId),
+    );
     yield* ensureLockDirectory(lockPath);
 
     yield* withLock(
       lockPath,
       Effect.gen(function* () {
+        yield* Effect.tryPromise(() =>
+          assertConversationWritable(conversation.agentId, conversation.conversationId),
+        );
         yield* recordConversationTranscript(
           {
             agentId: conversation.agentId,

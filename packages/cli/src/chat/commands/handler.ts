@@ -74,6 +74,12 @@ import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
 import { describeTier } from "@/cli/commands/peers";
 import {
+  cancelDetachTransfer,
+  commitDetachTransfer,
+  DetachCommitError,
+  prepareDetachTransfer,
+} from "@/cli/detach/orchestrator";
+import {
   CLI_REASONING_EFFORTS,
   isCliReasoningValue,
   promptForReasoningSelection,
@@ -131,6 +137,9 @@ export function handleSpecialCommand(
 
       case "fork":
         return yield* handleForkCommand(terminal, conversationHistory);
+
+      case "detach":
+        return yield* handleDetachCommand(terminal, context, command.args);
 
       case "help":
         return yield* handleHelpCommand(terminal, command.args);
@@ -234,6 +243,127 @@ export function handleSpecialCommand(
       default:
         return { shouldContinue: true };
     }
+  });
+}
+
+/** Move the current conversation only after a reviewed snapshot receives a remote start receipt. */
+function handleDetachCommand(
+  terminal: TerminalService,
+  context: CommandContext,
+  args: readonly string[],
+): Effect.Effect<CommandResult, never, FileSystemContextService> {
+  return Effect.gen(function* () {
+    const hostName = args[0];
+    if (hostName === undefined || args.length !== 1) {
+      yield* terminal.warn("Usage: /detach <registered-host>. Run jazz hosts list to see hosts.");
+      return { shouldContinue: true };
+    }
+    if (context.queuedAfterCommand) {
+      yield* terminal.warn(
+        "Messages are queued after /detach. Clear or send them before moving this conversation.",
+      );
+      return { shouldContinue: true };
+    }
+    if (!terminal.isInteractive) {
+      yield* terminal.error("/detach needs an interactive terminal to review the transfer.");
+      return { shouldContinue: true };
+    }
+
+    const continuation = yield* terminal.ask("What should Jazz continue doing on the host?", {
+      cancellable: true,
+      simple: true,
+      validate: (value) => value.trim().length > 0 || "Enter a continuation instruction.",
+    });
+    if (continuation === undefined) {
+      yield* terminal.info("Detach cancelled. This conversation remains local.");
+      return { shouldContinue: true };
+    }
+
+    const fileSystemContext = yield* FileSystemContextServiceTag;
+    const cwd = yield* fileSystemContext.getCwd({
+      agentId: context.agent.id,
+      conversationId: context.conversationId,
+    });
+    const prepared = yield* Effect.either(
+      Effect.tryPromise(() =>
+        prepareDetachTransfer({
+          agentId: context.agent.id,
+          conversationId: context.conversationId,
+          history: context.conversationHistory,
+          hostName,
+          cwd,
+          continuation: continuation.trim(),
+        }),
+      ),
+    );
+    if (prepared._tag === "Left") {
+      yield* terminal.error(`Could not prepare detach: ${String(prepared.left)}`);
+      return { shouldContinue: true };
+    }
+
+    const preview = prepared.right;
+    yield* terminal.log(`Host: ${preview.hostName}`);
+    yield* terminal.log(
+      `Transfer: ${preview.manifest.entries.length} files, ${Math.ceil(preview.bytes / 1024)} KiB`,
+    );
+    yield* terminal.log("The snapshot includes this repository's Git HEAD and history.");
+    for (const entry of preview.manifest.entries.slice(0, 12)) {
+      yield* terminal.log(`  ${JSON.stringify(entry.relativePath)}`);
+    }
+    if (preview.manifest.entries.length > 12) {
+      yield* terminal.log(`  …and ${preview.manifest.entries.length - 12} more files`);
+    }
+    for (const warning of preview.warnings) yield* terminal.warn(warning);
+    yield* terminal.log(
+      `Credentials: ${preview.credentialNames.length > 0 ? preview.credentialNames.join(", ") : "none"}`,
+    );
+    yield* terminal.log(
+      `Remote limits: ${preview.approvalPolicy} approvals, $${preview.maxCostUSD} cost, ` +
+        `${Math.round(preview.maxDurationMs / 3_600_000)}h, ${preview.maxIterations} iterations`,
+    );
+    yield* terminal.log(`Continue: ${preview.continuation}`);
+    const approved = yield* terminal.confirm(
+      `Copy this state to ${preview.hostName} and continue there?`,
+      false,
+    );
+    if (approved !== true) {
+      const canceled = yield* Effect.either(Effect.tryPromise(() => cancelDetachTransfer(preview)));
+      if (canceled._tag === "Left") {
+        yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.left)}`);
+      }
+      yield* terminal.info("Detach cancelled. This conversation remains local.");
+      return { shouldContinue: true };
+    }
+
+    yield* terminal.info("Transferring and starting the remote run…");
+    const committed = yield* Effect.either(
+      Effect.tryPromise({
+        try: () => commitDetachTransfer(preview),
+        catch: (error) => error,
+      }),
+    );
+    if (committed._tag === "Left") {
+      yield* terminal.error(`Detach did not complete: ${String(committed.left)}`);
+      if (committed.left instanceof DetachCommitError && committed.left.localMayContinue) {
+        yield* terminal.info(
+          "The transfer stopped before remote ownership. This conversation is still local.",
+        );
+        return { shouldContinue: true };
+      }
+      yield* terminal.warn(
+        `Check jazz detach status ${preview.handoffId} before retrying; remote ownership may be uncertain.`,
+      );
+      return { shouldContinue: false };
+    }
+    const receipt = committed.right;
+    yield* terminal.success(`Remote run ${receipt.state} on ${receipt.hostName}.`);
+    if (receipt.state === "parked") {
+      yield* terminal.warn(`It needs a decision: jazz detach status ${receipt.handoffId}`);
+    } else {
+      yield* terminal.log("You can close this terminal; the remote host owns the conversation.");
+    }
+    yield* terminal.log(`Check progress: jazz detach status ${receipt.handoffId}`);
+    return { shouldContinue: false };
   });
 }
 

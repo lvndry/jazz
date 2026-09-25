@@ -366,6 +366,7 @@ export class ChatServiceImpl implements ChatService {
               agent,
               conversationId,
               conversationHistory,
+              queuedAfterCommand: store.peekQueue().length > 0,
               sessionUsage,
               sessionTurnCount,
               sessionLimits,
@@ -506,6 +507,12 @@ export class ChatServiceImpl implements ChatService {
               // sent into the model turn, not the shell escape syntax itself.
               messageForAgent = commandResult.messageForAgent;
             } else {
+              if (!commandResult.shouldContinue) {
+                chatActive = false;
+                store.registerModeSwitchHandler(null);
+                const mcpManager = yield* MCPServerManagerTag;
+                yield* mcpManager.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
+              }
               continue;
             }
           }

@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
 import type { RunId } from "./run-state";
@@ -42,6 +43,12 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /** Preserve an unattended caller's authority ceiling across the park. */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
+  readonly maxCostUSD?: number;
+  readonly maxDurationMs?: number;
+  readonly maxIterations?: number;
+  readonly withholdInteractiveTools?: boolean;
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -157,6 +164,15 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
+      ...(options.autoApprovePolicy !== undefined
+        ? { autoApprovePolicy: options.autoApprovePolicy }
+        : {}),
+      ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
+      ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
+      ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
+      ...(options.withholdInteractiveTools !== undefined
+        ? { withholdInteractiveTools: options.withholdInteractiveTools }
+        : {}),
       ...(options.autoApprovedTools !== undefined
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),

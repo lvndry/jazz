@@ -46,6 +46,13 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
+    it("should parse /detach with a host without treating it as model text", () => {
+      expect(parseSpecialCommand("/detach lysk")).toEqual({
+        type: "detach",
+        args: ["lysk"],
+      });
+    });
+
     it("should parse /compact command", () => {
       const result = parseSpecialCommand("/compact");
       expect(result.type).toBe("compact");

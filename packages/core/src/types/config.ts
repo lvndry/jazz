@@ -4,6 +4,7 @@
 
 import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
@@ -75,6 +76,8 @@ export interface AppConfig {
    * never be the thing that creates one.
    */
   readonly peers?: readonly PeerConfig[];
+  /** Operator-registered SSH destinations for detached conversations. */
+  readonly hosts?: readonly HostProfile[];
   /**
    * Webhook doors onto specific agents. Unlike a peer, a webhook runs a fixed prompt template
    * rather than answering an open-ended question — a narrower surface, authenticated the same

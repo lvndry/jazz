@@ -174,6 +174,42 @@ See [MCP configuration](./configure/mcp.md).
 
 ---
 
+## `jazz hosts`
+
+| Command                                               | Purpose                                     |
+| ----------------------------------------------------- | ------------------------------------------- |
+| `jazz hosts list`                                     | List registered SSH servers                 |
+| `jazz hosts add <name> <ssh-target> <workspace-path>` | Register a server and existing workspace    |
+| `jazz hosts remove <name>`                            | Remove the local host registration          |
+| `jazz hosts doctor <name>`                            | Check SSH, disk, platform, Jazz, and daemon |
+
+The SSH target is a configured SSH alias. The remote workspace must exist and be writable.
+See [Detach hosts](./security/detach-hosts.md) for the host checks and credential scope.
+
+## `jazz detach`
+
+| Command                           | Purpose                                                   |
+| --------------------------------- | --------------------------------------------------------- |
+| `jazz detach status <handoffId>`  | Read the remote state of a detached conversation          |
+| `jazz detach approve <handoffId>` | Approve the tool call on which a detached run has parked  |
+| `jazz detach reject <handoffId>`  | Reject that tool call and let the detached run continue   |
+| `jazz detach pull <handoffId>`    | Download remote file changes to a local staging directory |
+
+`unknown` means the host could not be reached; it does not mean the remote run stopped.
+For a parked tool approval, `status` shows the tool and its approval message before
+offering `approve` or `reject`. Other interactive input is reported as unsupported
+in this version.
+`pull` downloads and verifies the completed result, then lists changed paths and conflicts
+with local changes. It leaves the working tree untouched. Reconcile the staged result
+manually; there is no automatic apply command in this version.
+
+In interactive chat, `/detach <host>` asks for a continuation instruction, previews the
+files and state to transfer, and asks for confirmation. When entered while the agent is
+busy, it runs after the current turn. A failure before remote ownership leaves the local
+chat available. Once transfer begins, the local chat closes if the remote run acknowledges
+the handoff or ownership cannot be resolved safely. Register and check hosts with
+`jazz hosts` first.
+
 ## `jazz runs`
 
 Inspect runs still in flight, including your own parked ones, and, once a daemon started
@@ -442,6 +478,7 @@ Available inside an interactive session. Type `/help` for the current list.
 | `/peers`     | List configured peers and what each may learn or do                               |
 | `/new`       | Start a fresh conversation                                                        |
 | `/fork`      | Branch to a new conversation, keeping the full history; the original is preserved |
+| `/detach`    | Hand this conversation to a registered SSH host after reviewing its snapshot      |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.

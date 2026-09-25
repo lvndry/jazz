@@ -182,6 +182,38 @@ describe("handleSpecialCommand resume", () => {
   });
 });
 
+describe("handleSpecialCommand /detach", () => {
+  test("refuses a handoff while later messages are still queued", async () => {
+    const warnings: string[] = [];
+    const terminal = {
+      isInteractive: true,
+      warn: (message: string) => {
+        warnings.push(message);
+        return Effect.void;
+      },
+    } as unknown as TerminalService;
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationId: "test-session",
+      conversationHistory: [{ role: "user", content: "Keep working" }],
+      queuedAfterCommand: true,
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 1,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "detach", args: ["nightbox"] }, context).pipe(
+        Effect.provide(Layer.succeed(TerminalServiceTag, terminal)),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(warnings).toEqual([
+      "Messages are queued after /detach. Clear or send them before moving this conversation.",
+    ]);
+  });
+});
+
 describe("handleSpecialCommand shell escape", () => {
   test("executes the command and returns its bounded result as agent context", async () => {
     const output: string[] = [];
