@@ -12,7 +12,7 @@ Use this path if you have not run Jazz before.
    - build a [CI reviewer using OpenRouter or a self-hosted model](../guides/pr-review.md);
    - create a reusable [accountability persona named Goggins](../guides/goggins-accountability-agent.md);
    - combine a cheap text model with [specialist media companions](../guides/media-companions.md);
-   - run locally with [Ollama or llama.cpp](./local-models.md);
+   - run locally with [Ollama, llama.cpp, or vLLM](./local-models.md);
    - reach the agent through a [chat surface](../guides/deploy-a-chat-agent.md);
    - run work [headlessly](../surfaces/headless.md) or [on a schedule](../surfaces/scheduled.md);
    - connect [MCP servers](../configure/mcp.md) or a [web-search provider](../configure/web-search.md).

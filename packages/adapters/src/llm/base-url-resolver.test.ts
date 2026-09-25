@@ -8,7 +8,7 @@ import {
 } from "./models";
 
 describe("resolveLocalProviderBaseUrl", () => {
-  const ENV_VARS = ["LLAMACPP_BASE_URL", "OLLAMA_BASE_URL"] as const;
+  const ENV_VARS = ["LLAMACPP_BASE_URL", "OLLAMA_BASE_URL", "VLLM_BASE_URL"] as const;
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -31,6 +31,16 @@ describe("resolveLocalProviderBaseUrl", () => {
 
   it("returns the ollama default when nothing configured", () => {
     expect(resolveLocalProviderBaseUrl("ollama")).toBe("http://127.0.0.1:11434/api");
+  });
+
+  it("resolves vLLM's default, environment, and config URL", () => {
+    expect(resolveLocalProviderBaseUrl("vllm")).toBe("http://127.0.0.1:8000/v1");
+    process.env["VLLM_BASE_URL"] = "http://env-host:8000/v1";
+    expect(resolveLocalProviderBaseUrl("vllm")).toBe("http://env-host:8000/v1");
+    expect(resolveLocalProviderBaseUrl("vllm", { vllm: { base_url: "https://gpu.test/v1" } })).toBe(
+      "https://gpu.test/v1",
+    );
+    expect(normalizeLocalProviderBaseUrl("vllm", "gpu.test:8000")).toBe("http://gpu.test:8000/v1");
   });
 
   it("uses LLAMACPP_BASE_URL env var over default", () => {

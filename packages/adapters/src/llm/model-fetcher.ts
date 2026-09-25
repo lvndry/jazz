@@ -191,6 +191,28 @@ type OllamaShowResponse = {
 
 type LlamaCppModelEntry = { id: string; max_model_len?: number };
 type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
+type VllmModelEntry = { id: string; max_model_len?: number };
+
+/** Accept only usable model cards from vLLM's external `/v1/models` response. */
+function parseVllmModels(data: unknown): VllmModelEntry[] {
+  if (typeof data !== "object" || data === null || !("data" in data) || !Array.isArray(data.data)) {
+    return [];
+  }
+  const cards = data.data as readonly unknown[];
+  const models: VllmModelEntry[] = [];
+  for (const card of cards) {
+    if (typeof card !== "object" || card === null || !("id" in card)) continue;
+    if (typeof card.id !== "string" || card.id.trim().length === 0) continue;
+    const length = "max_model_len" in card ? card.max_model_len : undefined;
+    models.push({
+      id: card.id,
+      ...(typeof length === "number" && Number.isSafeInteger(length) && length > 0
+        ? { max_model_len: length }
+        : {}),
+    });
+  }
+  return models;
+}
 type LlamaCppPropsResponse = {
   default_generation_settings?: { n_ctx?: number };
   chat_template_caps?: Record<string, boolean>;
@@ -233,7 +255,7 @@ async function fetchLlamaCppProps(
  * one run to the next. So rather than trusting the id stored on the agent, read the
  * live one from `/v1/models` (its first, and normally only, entry) and the real
  * context window from `/props` (`n_ctx`, the `-c` the server was started with),
- * falling back to `max_model_len` from the `/v1/models` response (vLLM).
+ * falling back to `max_model_len` from `/v1/models` when `/props` is absent.
  * Returns an empty object when the server is unreachable or answers nothing usable —
  * callers fall back to the stored values.
  */
@@ -261,6 +283,33 @@ export async function fetchLlamaCppServerModel(
     return {
       ...(typeof modelId === "string" && modelId.length > 0 ? { modelId } : {}),
       ...(typeof contextWindow === "number" ? { contextWindow } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/** Read vLLM's live model card, preferring the configured ID when the server lists several. */
+export async function fetchVllmServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const response = await fetch(`${baseUrl}/models`, { method: "GET", headers });
+    if (!response.ok) return {};
+    const models = parseVllmModels(await response.json());
+    const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
+    const contextWindow = model?.max_model_len;
+    return {
+      ...(typeof model?.id === "string" && model.id.length > 0 ? { modelId: model.id } : {}),
+      ...(typeof contextWindow === "number" &&
+      Number.isSafeInteger(contextWindow) &&
+      contextWindow > 0
+        ? { contextWindow }
+        : {}),
     };
   } catch {
     return {};
@@ -585,6 +634,44 @@ async function transformLlamaCppModels(
   });
 }
 
+/** vLLM's model card reports the active max_model_len; it does not expose tool parser flags. */
+function transformVllmModels(
+  data: unknown,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+): ModelInfo[] {
+  const models = parseVllmModels(data);
+  if (models.length === 0) {
+    throw new Error("No models loaded. Start `vllm serve <model>` first.");
+  }
+  return models.map((model) => {
+    const contextWindow = model.max_model_len;
+    const entry: RawModelEntry = {
+      id: model.id,
+      displayName: model.id,
+      fallback: {
+        contextWindow:
+          typeof contextWindow === "number" &&
+          Number.isSafeInteger(contextWindow) &&
+          contextWindow > 0
+            ? contextWindow
+            : DEFAULT_CONTEXT_WINDOW,
+        // vLLM supports tool calls, but `/models` does not expose whether this
+        // deployment enabled automatic tool choice. Do not silently drop Jazz tools.
+        supportsTools: true,
+      },
+    };
+    const base = resolveToModelInfo(entry, modelsDevMap);
+    return {
+      ...base,
+      ...(typeof contextWindow === "number" &&
+      Number.isSafeInteger(contextWindow) &&
+      contextWindow > 0
+        ? { contextWindow }
+        : {}),
+    };
+  });
+}
+
 class LocalServerUnauthorizedError extends Error {}
 
 export function createModelFetcher(): ModelFetcherService {
@@ -645,6 +732,10 @@ export function createModelFetcher(): ModelFetcherService {
             return transformLlamaCppModels(data, baseUrl, modelsDevMap, apiKey);
           }
 
+          if (providerName === "vllm") {
+            return transformVllmModels(data, modelsDevMap);
+          }
+
           const extractor = LIST_EXTRACTORS[providerName];
           if (!extractor) {
             throw new Error(`No list extractor found for provider: ${providerName}`);
@@ -700,7 +791,7 @@ export function listModelsForProvider(
   }
 
   const baseUrl =
-    provider === "ollama" || provider === "llamacpp"
+    provider === "ollama" || provider === "llamacpp" || provider === "vllm"
       ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
       : source.defaultBaseUrl;
   if (baseUrl === undefined) {

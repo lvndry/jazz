@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   createModelFetcher,
   fetchLlamaCppServerModel,
+  fetchVllmServerModel,
   fetchModelsDevModels,
   resolveOllamaToolSupport,
   type OllamaModel,
@@ -114,6 +115,136 @@ describe("ModelFetcher", () => {
     expect(result.length).toBe(1);
     expect(result[0]!.id).toBe("m1");
     expect(result[0]!.supportsTools).toBe(true);
+  });
+
+  it("lists vLLM models with their served context windows without probing llama.cpp /props", async () => {
+    const requestedUrls: string[] = [];
+    global.fetch = mock((url: string) => {
+      requestedUrls.push(url);
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "served-a", max_model_len: 32768 },
+              { id: "served-b", max_model_len: 65536 },
+            ],
+          }),
+      });
+    }) as unknown as typeof fetch;
+
+    const models = await Effect.runPromise(
+      fetcher.fetchModels("vllm", "http://localhost:8000/v1", "/models"),
+    );
+
+    expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
+      ["served-a", 32768],
+      ["served-b", 65536],
+    ]);
+    expect(models.every((model) => model.supportsTools)).toBe(true);
+    expect(requestedUrls).toEqual(["http://localhost:8000/v1/models"]);
+  });
+
+  it("uses vLLM's served context limit over catalog metadata while retaining catalog tool support", async () => {
+    modelsDevMetadata = {
+      contextWindow: 200000,
+      supportsTools: false,
+      isReasoningModel: false,
+      ingestImage: false,
+      ingestPdf: false,
+      ingestAudio: false,
+      ingestVideo: false,
+      generatesImage: false,
+      generatesAudio: false,
+      generatesVideo: false,
+      supportsTemperature: true,
+    };
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ id: "served", max_model_len: 8192 }] }),
+      }),
+    ) as unknown as typeof fetch;
+
+    const models = await Effect.runPromise(
+      fetcher.fetchModels("vllm", "http://localhost:8000/v1", "/models"),
+    );
+    expect(models[0]?.contextWindow).toBe(8192);
+    expect(models[0]?.supportsTools).toBe(false);
+  });
+
+  it("prefers a selected vLLM model among several, then falls back to the first live ID", async () => {
+    const authorizations: Array<string | null> = [];
+    global.fetch = mock((_url: string, init?: RequestInit) => {
+      authorizations.push(new Headers(init?.headers).get("Authorization"));
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "other", max_model_len: 2048 },
+              { id: "configured", max_model_len: 16384 },
+            ],
+          }),
+      });
+    }) as unknown as typeof fetch;
+
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "configured", "secret")).toEqual({
+      modelId: "configured",
+      contextWindow: 16384,
+    });
+    expect(authorizations).toEqual(["Bearer secret"]);
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "removed")).toEqual({
+      modelId: "other",
+      contextWindow: 2048,
+    });
+  });
+
+  it("reports an empty vLLM model list instead of selecting a stale ID", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) }),
+    ) as unknown as typeof fetch;
+
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "stale")).toEqual({});
+    await expect(
+      Effect.runPromise(fetcher.fetchModels("vllm", "http://localhost:8000/v1", "/models")),
+    ).rejects.toThrow("No models loaded");
+  });
+
+  it("ignores malformed vLLM model cards before choosing the live ID and window", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "", max_model_len: 999999 },
+              { id: 42, max_model_len: 999999 },
+              { id: "served", max_model_len: -1 },
+              { id: "next", max_model_len: 8192 },
+            ],
+          }),
+      }),
+    ) as unknown as typeof fetch;
+
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "absent")).toEqual({
+      modelId: "served",
+    });
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "next")).toEqual({
+      modelId: "next",
+      contextWindow: 8192,
+    });
+  });
+
+  it("flags an authenticated vLLM server when model listing is unauthorized", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({ ok: false, status: 401, statusText: "Unauthorized" }),
+    ) as unknown as typeof fetch;
+
+    expect(await fetchVllmServerModel("http://localhost:8000/v1", "served")).toEqual({});
+    await expect(
+      Effect.runPromise(fetcher.fetchModels("vllm", "http://localhost:8000/v1", "/models")),
+    ).rejects.toThrow("needs an API key");
   });
 
   it("sets supportsTemperature=true for an OpenRouter model whose supported_parameters include temperature", async () => {
@@ -850,27 +981,24 @@ describe("fetchLlamaCppServerModel", () => {
     });
   });
 
-  it("falls back to max_model_len from /v1/models when /props is unavailable (vLLM)", async () => {
+  it("falls back to max_model_len from /v1/models when /props is unavailable", async () => {
     global.fetch = mock((url: string) => {
       if (url.endsWith("/v1/models"))
         return Promise.resolve({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              data: [{ id: "qwen3.8-27b", max_model_len: 65536 }],
-            }),
+          json: () => Promise.resolve({ data: [{ id: "model", max_model_len: 65536 }] }),
         });
       if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 
     expect(await fetchLlamaCppServerModel("http://localhost:8090/v1")).toEqual({
-      modelId: "qwen3.8-27b",
+      modelId: "model",
       contextWindow: 65536,
     });
   });
 
-  it("prefers /props n_ctx over max_model_len when both are available", async () => {
+  it("uses /props n_ctx instead of a model-card length", async () => {
     global.fetch = mock((url: string) => {
       if (url.endsWith("/v1/models"))
         return Promise.resolve({
@@ -894,7 +1022,7 @@ describe("fetchLlamaCppServerModel", () => {
     });
   });
 
-  it("returns empty when vLLM requires auth and no API key is provided", async () => {
+  it("returns empty when llama.cpp requires auth and no API key is provided", async () => {
     global.fetch = mock((url: string) => {
       if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 401 });
       if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 401 });
@@ -904,7 +1032,7 @@ describe("fetchLlamaCppServerModel", () => {
     expect(await fetchLlamaCppServerModel("http://localhost:8090/v1")).toEqual({});
   });
 
-  it("passes API key as Bearer token to authenticated vLLM", async () => {
+  it("passes API key as Bearer token to authenticated llama.cpp", async () => {
     global.fetch = mock((url: string, init?: RequestInit) => {
       const authHeader = (init?.headers as Record<string, string>)?.["Authorization"];
       if (authHeader !== "Bearer test-key") return Promise.resolve({ ok: false, status: 401 });
@@ -913,10 +1041,14 @@ describe("fetchLlamaCppServerModel", () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              data: [{ id: "qwen3.8-27b", max_model_len: 65536 }],
+              data: [{ id: "qwen3.8-27b" }],
             }),
         });
-      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      if (url.endsWith("/props"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ default_generation_settings: { n_ctx: 65536 } }),
+        });
       return Promise.reject("Unknown URL");
     }) as unknown as typeof fetch;
 

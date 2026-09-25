@@ -3,6 +3,7 @@
  * non-streaming) across all configured LLM providers.
  */
 import { Context, Effect } from "effect";
+import type { LocalServerProvider } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
 import type { LLMConfig } from "@/core/types/config";
@@ -26,6 +27,12 @@ export interface OllamaShowExtras {
  * or silent, so a bare llama.cpp agent falls back to the values stored on its config.
  */
 export interface LlamaCppServerModel {
+  readonly modelId?: string;
+  readonly contextWindow?: number;
+}
+
+/** A currently served vLLM model ID and its context limit, when available. */
+export interface VllmServerModel {
   readonly modelId?: string;
   readonly contextWindow?: number;
 }
@@ -85,11 +92,22 @@ export interface LLMService {
   ) => Effect.Effect<LlamaCppServerModel, unknown>;
 
   /**
-   * Resolves the base URL a local provider (Ollama, llama.cpp) is reachable at, from config,
+   * Reads vLLM's `/v1/models` list and returns the preferred ID if still served, otherwise
+   * the first entry, together with its `max_model_len`. A run follows the current server
+   * when the agent's saved ID is no longer available.
+   */
+  readonly fetchVllmServerModel: (
+    baseUrl: string,
+    preferredModelId: string,
+    apiKey?: string,
+  ) => Effect.Effect<VllmServerModel, unknown>;
+
+  /**
+   * Resolves the base URL a local provider is reachable at, from config,
    * then the environment, then the provider's own default.
    */
   readonly resolveLocalProviderBaseUrl: (
-    provider: "llamacpp" | "ollama",
+    provider: LocalServerProvider,
     llmConfig?: LLMConfig,
   ) => string;
 }

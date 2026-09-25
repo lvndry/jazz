@@ -29,6 +29,23 @@ describe("resolveEffectiveContextWindow", () => {
     expect(effective.source).toBe("server");
   });
 
+  it("uses vLLM's matched served-model context window", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "vllm",
+      serverContextWindow: 65536,
+    });
+    expect(effective).toMatchObject({ tokens: 65536, source: "server" });
+  });
+
+  it("caps vLLM accounting at its served limit even when numCtx is higher", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "vllm",
+      pinnedContextWindow: 131072,
+      serverContextWindow: 32768,
+    });
+    expect(effective).toMatchObject({ tokens: 32768, source: "pinned" });
+  });
+
   it("prefers the pinned window over the one the server currently reports", () => {
     const effective = resolveEffectiveContextWindow({
       provider: "ollama",

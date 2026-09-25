@@ -24,6 +24,7 @@ export type ModelSource =
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/api";
 export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
 export const DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1";
+export const DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8000/v1";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   anthropic: { type: "models-dev" },
@@ -62,6 +63,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/models",
     defaultBaseUrl: DEFAULT_LLAMACPP_BASE_URL,
   },
+  vllm: { type: "dynamic", endpointPath: "/models", defaultBaseUrl: DEFAULT_VLLM_BASE_URL },
   orcarouter: {
     type: "dynamic",
     endpointPath: "/v1/models",
@@ -98,11 +100,16 @@ function toOllamaApiRoot(url: string): string {
  * For Ollama the result is canonicalized to the `/api` root so every consumer agrees on the base.
  */
 export function resolveLocalProviderBaseUrl(
-  provider: "llamacpp" | "ollama",
+  provider: "llamacpp" | "ollama" | "vllm",
   llmConfig?: LLMConfig,
 ): string {
   const fromConfig = llmConfig?.[provider]?.base_url;
-  const envVar = provider === "llamacpp" ? "LLAMACPP_BASE_URL" : "OLLAMA_BASE_URL";
+  const envVar =
+    provider === "llamacpp"
+      ? "LLAMACPP_BASE_URL"
+      : provider === "vllm"
+        ? "VLLM_BASE_URL"
+        : "OLLAMA_BASE_URL";
   const fromEnv = process.env[envVar];
   const source = PROVIDER_MODELS[provider];
   const fallback = source.type === "dynamic" ? source.defaultBaseUrl : undefined;
@@ -124,7 +131,7 @@ export function resolveLocalProviderBaseUrl(
  * `/v1` for llama.cpp). Derived from `PROVIDER_MODELS` so the default host and the
  * path a bare `host:port` should get stay defined in exactly one place.
  */
-function defaultLocalProviderPath(provider: "llamacpp" | "ollama"): string {
+function defaultLocalProviderPath(provider: "llamacpp" | "ollama" | "vllm"): string {
   const source = PROVIDER_MODELS[provider];
   const defaultBaseUrl = source.type === "dynamic" ? source.defaultBaseUrl : undefined;
   if (!defaultBaseUrl) return "";
@@ -145,7 +152,7 @@ function defaultLocalProviderPath(provider: "llamacpp" | "ollama"): string {
  * spells out a path keeps it, so custom reverse-proxy setups still work.
  */
 export function normalizeLocalProviderBaseUrl(
-  provider: "llamacpp" | "ollama",
+  provider: "llamacpp" | "ollama" | "vllm",
   input: string,
 ): string {
   const trimmed = input.trim();

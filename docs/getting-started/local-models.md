@@ -1,10 +1,10 @@
 ---
-description: "Run Jazz with self-hosted Ollama or llama.cpp, understand what offline mode disables, and enforce a real air gap at the network boundary."
+description: "Run Jazz with self-hosted Ollama, llama.cpp, or vLLM; understand offline mode and network isolation."
 ---
 
 # Run Jazz with local and air-gapped models
 
-Jazz can run against a self-hosted inference server such as [Ollama](https://ollama.ai/) or [llama.cpp](https://github.com/ggml-org/llama.cpp). Local providers need no API key. `JAZZ_OFFLINE` disables Jazz's public catalog, library, and update requests; it is a convenience switch, **not a network sandbox**. Use host or container egress controls for an enforced air gap.
+Jazz can run against a self-hosted inference server such as [Ollama](https://ollama.ai/), [llama.cpp](https://github.com/ggml-org/llama.cpp), or [vLLM](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/). Local providers need no API key unless the server requires one. `JAZZ_OFFLINE` disables Jazz's public catalog, library, and update requests; it is a convenience switch, **not a network sandbox**. Use host or container egress controls for an enforced air gap.
 
 ## Quick setup (Ollama)
 
@@ -33,7 +33,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
-   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama or llama.cpp, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable.
+   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama, llama.cpp, or vLLM, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable.
 
 3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 
@@ -42,9 +42,11 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    jazz chat
    ```
 
-llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://127.0.0.1:8080/v1`), or the first-use server-URL prompt in `jazz agent create`; start `llama-server` with `--jinja` for tool calling. The same `llamacpp` provider works with vLLM's OpenAI-compatible API, commonly at `http://127.0.0.1:8000/v1`.
+llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://127.0.0.1:8080/v1`), or the first-use server-URL prompt in `jazz agent create`; start `llama-server` with `--jinja` for tool calling.
 
-A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). Pinning `numCtx` on the agent still overrides the server-reported window.
+For vLLM, choose the `vllm` provider. It defaults to `http://127.0.0.1:8000/v1`, accepts `VLLM_BASE_URL`, and reads the IDs available at `/v1/models`. Jazz selects a sole ID automatically, or asks you to choose among several. On each run it keeps the saved ID if still served, and otherwise uses the first live ID and its context window. Use a chat-capable model and configure tool calling on the server if the agent uses tools; the model list does not reveal whether the server's tool parser is enabled. See [vLLM setup](../configure/providers.md#vllm).
+
+A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). vLLM uses the same refresh pattern and reports its served context through `/v1/models` when available. Pinning `numCtx` on an agent limits Jazz's context accounting; it does not reconfigure the vLLM server.
 
 ## What `JAZZ_OFFLINE` does, and does not do
 
@@ -58,7 +60,7 @@ It does **not** block inference, `web_fetch`, `http_request`, remote MCP, OTLP e
 
 ## Model catalog options
 
-Ollama and llama.cpp agents work with no catalog at all: model lists come from the local server, context windows and tool support are detected from Ollama's `/api/show` (or llama.cpp's `/props`).
+Ollama, llama.cpp, and vLLM agents work with no catalog at all: model lists come from the local server. Ollama's `/api/show` and llama.cpp's `/props` provide additional capability and context metadata; vLLM's `/v1/models` provides model IDs and context information when the server reports it. For an uncatalogued vLLM model, Jazz allows tool configuration, but that does not confirm the server is set up to execute tool calls.
 
 If you want catalog metadata (e.g. pricing display for cloud models) inside the airgap, either:
 
@@ -77,7 +79,8 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 | --------------------------- | --------------------------------------------------------------------------------------- |
 | `JAZZ_OFFLINE`              | `1`/`true`: skip update checks, the models.dev fetch, and the library fetch entirely    |
 | `OLLAMA_BASE_URL`           | Ollama server URL (default `http://127.0.0.1:11434/api`; `/api` appended automatically) |
-| `LLAMACPP_BASE_URL`         | llama.cpp/vLLM server URL (default `http://127.0.0.1:8080/v1`)                          |
+| `LLAMACPP_BASE_URL`         | llama.cpp server URL (default `http://127.0.0.1:8080/v1`)                               |
+| `VLLM_BASE_URL`             | vLLM server URL (default `http://127.0.0.1:8000/v1`)                                    |
 | `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                              |
 | `JAZZ_LIBRARY_URL`          | Base URL of the persona and workflow library (default the public Jazz site)             |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                         |

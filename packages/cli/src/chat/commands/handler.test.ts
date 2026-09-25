@@ -494,6 +494,51 @@ describe("handleSpecialCommand /compact", () => {
       spy.mockRestore();
     }
   });
+
+  test("accounts against the currently served vLLM model's window during manual compaction", async () => {
+    const vllmAgent: Agent = {
+      ...testAgent,
+      config: { ...testAgent.config, llmProvider: "vllm", llmModel: "org/selected" },
+    };
+    let receivedContextWindow: number | undefined;
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (_messages, _agent, _conversationId, contextWindowTokens) => {
+        receivedContextWindow = contextWindowTokens;
+        return Effect.succeed(undefined) as unknown as ReturnType<
+          typeof AgentRunner.compactHistory
+        >;
+      },
+    );
+    const mockLLMService: Partial<LLMService> = {
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: () => Effect.succeed({ modelId: "org/live", contextWindow: 32768 }),
+    };
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, {
+        info: () => Effect.void,
+        success: () => Effect.void,
+        warn: () => Effect.void,
+        error: () => Effect.void,
+        log: () => Effect.succeed(undefined),
+      } as unknown as TerminalService),
+      Layer.succeed(LLMServiceTag, mockLLMService as LLMService),
+      Layer.succeed(AgentConfigServiceTag, {
+        appConfig: Effect.succeed({}),
+      } as unknown as AgentConfigService),
+      mockPresentationLayer(),
+    );
+
+    try {
+      await Effect.runPromise(
+        handleSpecialCommand({ type: "compact", args: [] }, { ...context, agent: vllmAgent }).pipe(
+          Effect.provide(layers),
+        ) as Effect.Effect<CommandResult, unknown, never>,
+      );
+      expect(receivedContextWindow).toBe(32768);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("handleSpecialCommand /tools", () => {

@@ -40,6 +40,7 @@ import type {
   SchedulerMode,
   StorageConfig,
   TelemetryConfig,
+  VllmProviderConfig,
   WebSearchConfig,
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
@@ -137,7 +138,7 @@ const toggleReasoningSchema = z.strictObject({
 
 const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
-  transport: z.literal("openai.responses.reasoning-effort"),
+  transport: z.enum(["openai.responses.reasoning-effort", "vllm.chat.reasoning-effort"]),
   efforts: capabilityReasoningEfforts,
   canDisable: flag,
 });
@@ -258,6 +259,12 @@ const llmShape = {
   openrouter: apiKeyOnly,
   orcarouter: apiKeyOnly,
   togetherai: apiKeyOnly,
+  vllm: z
+    .strictObject({
+      api_key: text.exactOptional(),
+      base_url: text.exactOptional(),
+    } satisfies SchemaShape<VllmProviderConfig>)
+    .exactOptional(),
   xai: apiKeyOnly,
   zhipuai: apiKeyOnly,
 } satisfies SchemaShape<LLMConfig> & Record<(typeof AVAILABLE_PROVIDERS)[number], unknown>;

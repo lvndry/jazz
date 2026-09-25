@@ -564,10 +564,15 @@ export async function promptForAgentInfo(
       // STEP 2: Model Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "model": {
-        if (state.llmProvider === "llamacpp") {
+        if (
+          state.llmProvider === "llamacpp" ||
+          (state.llmProvider === "vllm" && state.providerInfo!.supportedModels.length === 1)
+        ) {
           const liveModel = state.providerInfo!.supportedModels[0];
           if (!liveModel) {
-            throw new Error("llama.cpp did not report a model currently served by the server.");
+            throw new Error(
+              `${formatProviderDisplayName(state.llmProvider)} did not report a served model.`,
+            );
           }
 
           state.llmModel = liveModel.id;
@@ -578,11 +583,21 @@ export async function promptForAgentInfo(
           }
           await Effect.runPromise(
             terminal.info(
-              `llama.cpp will use the model currently served by the server (${liveModel.id}).`,
+              state.llmProvider === "llamacpp"
+                ? `llama.cpp will use the model currently served by the server (${liveModel.id}).`
+                : `vLLM serves one model (${liveModel.id}); this agent will use that model.`,
             ),
           );
           state.step = state.isReasoningModel ? "reasoning" : "persona";
           break;
+        }
+
+        if (state.llmProvider === "vllm") {
+          await Effect.runPromise(
+            terminal.info(
+              "Jazz uses this vLLM model while it is served. If the server stops listing it, Jazz uses the first live model instead.",
+            ),
+          );
         }
 
         const result = await Effect.runPromise(
@@ -640,7 +655,11 @@ export async function promptForAgentInfo(
         );
 
         if (result === undefined) {
-          state.step = state.llmProvider === "llamacpp" ? "provider" : "model";
+          state.step =
+            state.llmProvider === "llamacpp" ||
+            (state.llmProvider === "vllm" && state.providerInfo?.supportedModels.length === 1)
+              ? "provider"
+              : "model";
           break;
         }
 

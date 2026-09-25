@@ -7,7 +7,8 @@ import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
  * A cloud provider honours the window its catalog advertises, so the advertised
  * number is the real one. A local server does not: Ollama loads a model with
  * `num_ctx` (per request) or `OLLAMA_CONTEXT_LENGTH` (server default), both far
- * below what the weights support, and llama-server is fixed at its `-c` value.
+ * below what the weights support. llama-server is fixed at its `-c` value; vLLM
+ * reports its served limit through `max_model_len`.
  * Accounting against the advertised maximum makes Jazz compact too late and lets
  * the server silently drop the middle of the conversation instead — the run keeps
  * going, from a context it no longer has.
@@ -36,11 +37,14 @@ export interface EffectiveContextWindowInput {
   readonly provider: string;
   /**
    * The model's advertised maximum — omitted when nothing knows it. models.dev
-   * carries no `ollama` or `llamacpp` provider at all, so for local models this is
+   * carries no `ollama`, `llamacpp`, or `vllm` provider at all, so for local models this is
    * usually absent, and an absent maximum must never be treated as a ceiling.
    */
   readonly modelMaxTokens?: number;
-  /** `config.numCtx`, sent as `options.num_ctx`; overrides the server default per request. */
+  /**
+   * `config.numCtx`: an Ollama request override, or a Jazz accounting ceiling for vLLM.
+   * A vLLM request does not send this as a server setting.
+   */
   readonly pinnedContextWindow?: number;
   /** Window the local server reported for the loaded model, when it is known. */
   readonly serverContextWindow?: number;
@@ -111,6 +115,14 @@ function resolveRuntimeContextWindow(
 
   const pinned = positiveTokenCount(input.pinnedContextWindow);
   if (pinned !== undefined) {
+    if (input.provider === "vllm") {
+      const server = positiveTokenCount(input.serverContextWindow);
+      return {
+        tokens: capToModelMax(server !== undefined ? Math.min(pinned, server) : pinned),
+        source: "pinned",
+        ...advertised,
+      };
+    }
     return { tokens: capToModelMax(pinned), source: "pinned", ...advertised };
   }
 

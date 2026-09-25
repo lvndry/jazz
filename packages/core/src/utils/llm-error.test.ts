@@ -81,6 +81,13 @@ describe("localServerUnreachableMessage", () => {
     expect(message).toContain("llama-server");
   });
 
+  it("gives a vLLM start hint at its own default port", () => {
+    const message = localServerUnreachableMessage("vllm");
+    expect(message).toContain("vllm serve <model> --port 8000");
+    expect(message).toContain("127.0.0.1:8000");
+    expect(message).toContain("llm.vllm.base_url");
+  });
+
   it("returns undefined for a cloud provider", () => {
     expect(localServerUnreachableMessage("openai")).toBeUndefined();
   });

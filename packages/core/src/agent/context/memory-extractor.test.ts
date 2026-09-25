@@ -76,6 +76,7 @@ const mockLLMService: LLMService = {
   supportsNativeWebSearch: () => Effect.succeed(false),
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
+  fetchVllmServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 

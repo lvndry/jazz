@@ -327,14 +327,16 @@ served at 131072 or less. Accounting against the advertised number means Jazz co
 after the server has started dropping the middle of the conversation, and the agent keeps
 answering from a context it no longer has.
 
-So for `ollama` and `llamacpp` the threshold is taken from the agent's pinned `numCtx` when
-it has one (that value overrides the server default for the request, so it _is_ the runtime
-window), and from the window the local server reported otherwise: llama-server's `/props`
-gives its `-c` value directly. An unpinned Ollama agent gets a warning at run start rather
-than a silent assumption, because Ollama exposes a loaded model's window on `/api/ps` but
-has no endpoint for the server default before anything is loaded.
+For `ollama`, a pinned `numCtx` is sent as the request's `num_ctx` and sets the runtime
+window. For `llamacpp`, the pin is an accounting override; otherwise Jazz uses the loaded
+server's `/props` value. For `vllm`, Jazz refreshes the served ID and uses `max_model_len` from its `/v1/models`
+card when available. A vLLM `numCtx` pin limits Jazz's context accounting to the smaller
+of the pin and the served limit; it does not change the vLLM server's context setting.
+An unpinned Ollama agent gets a warning at run start rather than a silent assumption,
+because Ollama exposes a loaded model's window on `/api/ps` but has no endpoint for the
+server default before anything is loaded.
 
-The catalog is no help here at all: models.dev carries no `ollama` or `llamacpp` provider,
+The catalog is no help here at all: models.dev carries no `ollama`, `llamacpp`, or `vllm` provider,
 so a local model resolves to the 128k unknown-model placeholder rather than to a real
 maximum. That placeholder is never treated as a ceiling: a pinned window above it is
 honoured, because the user pinned it and configured the server to serve it. Only a

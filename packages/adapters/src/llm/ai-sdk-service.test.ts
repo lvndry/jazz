@@ -178,6 +178,7 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("anthropic");
       expect(providerNames).toContain("ollama");
       expect(providerNames).toContain("llamacpp");
+      expect(providerNames).toContain("vllm");
 
       // Check configured status
       const openaiProvider = result.find((p) => p.name === "openai");
@@ -247,10 +248,11 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(2); // Ollama and llamacpp (local providers)
+        expect(configuredProviders.length).toBe(3); // Local-server providers need no API key.
         const configuredNames = configuredProviders.map((p) => p.name);
         expect(configuredNames).toContain("ollama");
         expect(configuredNames).toContain("llamacpp");
+        expect(configuredNames).toContain("vllm");
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -300,8 +302,8 @@ describe("AI SDK Service - Unit Tests", () => {
       const missingProviders: ProviderName[] = [];
 
       for (const provider of AVAILABLE_PROVIDERS) {
-        // Ollama and llamacpp are handled specially (always added as local providers)
-        if (provider === "ollama" || provider === "llamacpp") {
+        // Local servers are always added without requiring an API key.
+        if (provider === "ollama" || provider === "llamacpp" || provider === "vllm") {
           // Check for local-provider handling - look for providers.push with the provider name
           const providerQuoted = `"${provider}"`;
           if (!functionSection.includes(providerQuoted)) {
@@ -1153,6 +1155,50 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     });
 
     expect(requestBody?.["chat_template_kwargs"]).toEqual({ enable_thinking: true });
+  });
+});
+
+describe("buildProviderOptions - vLLM reasoning", () => {
+  const options: ChatCompletionOptions = {
+    model: "Qwen/Qwen3-8B",
+    messages: [{ role: "user", content: "hi" }],
+  };
+
+  it("maps portable effort to vLLM's request-level reasoning_effort", () => {
+    expect(buildProviderOptions("vllm", { ...options, reasoning: "high" })).toEqual({
+      vllm: { reasoningEffort: "high" },
+    });
+    expect(buildProviderOptions("vllm", { ...options, reasoning: "disable" })).toEqual({
+      vllm: { reasoningEffort: "none" },
+    });
+    expect(buildProviderOptions("vllm", options)).toBeUndefined();
+  });
+
+  it("forwards reasoning_effort through the OpenAI-compatible SDK transport", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "vllm",
+      baseURL: "http://vllm.test/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+
+    const providerOptions = buildProviderOptions("vllm", { ...options, reasoning: "medium" });
+    if (!providerOptions) throw new Error("expected vLLM provider options");
+    await generateText({
+      model: provider(options.model),
+      prompt: "hi",
+      providerOptions,
+    });
+    expect(requestBody?.["reasoning_effort"]).toBe("medium");
   });
 });
 

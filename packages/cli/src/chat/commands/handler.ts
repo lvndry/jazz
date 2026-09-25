@@ -4,7 +4,11 @@ import { FileSystem } from "@effect/platform";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
-import { AgentRunner, resolveLlamaCppServerModel } from "@jazz/core/agent/agent-runner";
+import {
+  AgentRunner,
+  resolveLlamaCppServerModel,
+  resolveVllmServerModel,
+} from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { resolveContextThresholds } from "@jazz/core/agent/context/context-thresholds";
@@ -1027,16 +1031,22 @@ function handleCompactCommand(
     // The same window a run compacts against, so the recent messages kept verbatim are
     // the same share of it.
     const provider = agent.config.llmProvider;
+    const localConfig =
+      provider === "llamacpp" || provider === "vllm"
+        ? (yield* (yield* AgentConfigServiceTag).appConfig).llm
+        : undefined;
+    const servedVllm =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, localConfig)
+        : undefined;
     const advertisedContextWindow = yield* getModelContextWindowEffect(
-      agent.config.llmModel,
+      servedVllm?.modelId ?? agent.config.llmModel,
       provider,
     );
-    const llamacppConfig =
-      provider === "llamacpp" ? (yield* (yield* AgentConfigServiceTag).appConfig).llm : undefined;
     const servedContextWindow =
       provider === "llamacpp"
-        ? (yield* resolveLlamaCppServerModel(llamacppConfig)).contextWindow
-        : undefined;
+        ? (yield* resolveLlamaCppServerModel(localConfig)).contextWindow
+        : servedVllm?.contextWindow;
     const contextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
@@ -2952,7 +2962,7 @@ function handleContextCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService> {
+): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
     const configService = yield* AgentConfigServiceTag;
@@ -2961,11 +2971,18 @@ function handleContextCommand(
 
     // Get model information
     const provider = agent.config.llmProvider;
-    const modelId = agent.config.llmModel;
+    const servedVllm =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const modelId = servedVllm?.modelId ?? agent.config.llmModel;
     const advertisedContextWindow = yield* getModelContextWindowEffect(modelId, provider);
     const effectiveContextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
+      ...(servedVllm?.contextWindow !== undefined && {
+        serverContextWindow: servedVllm.contextWindow,
+      }),
       ...(typeof agent.config.numCtx === "number" && {
         pinnedContextWindow: agent.config.numCtx,
       }),

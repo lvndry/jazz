@@ -1,6 +1,6 @@
 /**
  * Metadata and helpers for providers that serve models from the user's own
- * machine (Ollama, llama.cpp), used for unreachable-server diagnostics and
+ * machine (Ollama, llama.cpp, vLLM), used for unreachable-server diagnostics and
  * zero-cost detection.
  */
 import type { ProviderName } from "@/core/constants/models";
@@ -10,6 +10,7 @@ import { isOllamaCloudModel } from "@/core/constants/ollama";
 export const LOCAL_MODEL_PROVIDERS = [
   "llamacpp",
   "ollama",
+  "vllm",
 ] as const satisfies readonly ProviderName[];
 
 export type LocalServerProvider = (typeof LOCAL_MODEL_PROVIDERS)[number];
@@ -28,6 +29,12 @@ export const LOCAL_SERVER_PROVIDERS = {
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
   },
+  vllm: {
+    name: "vLLM",
+    defaultUrl: "http://127.0.0.1:8000",
+    envVar: "VLLM_BASE_URL",
+    startHint: "vllm serve <model> --port 8000",
+  },
 } as const satisfies Record<LocalServerProvider, unknown>;
 
 /**
@@ -44,7 +51,7 @@ export function isLocalServerProvider(provider: string): provider is LocalServer
 
 /**
  * The address a user types and reads for a local server: its base URL without the REST path
- * (`/v1` for llama.cpp, `/api` for Ollama). Stored URLs carry that path because the clients need
+ * (`/v1` for llama.cpp and vLLM, `/api` for Ollama). Stored URLs carry that path because the clients need
  * it; showing it back invites users to type it, and a bare `host:port` is what the prompts accept.
  */
 export function localServerAddress(baseUrl: string): string {

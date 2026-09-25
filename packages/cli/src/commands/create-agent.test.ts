@@ -37,6 +37,89 @@ function terminal(options: {
 }
 
 describe("promptForAgentInfo", () => {
+  it("selects a sole vLLM model without asking the user to pick it", async () => {
+    const searched: string[] = [];
+    const provider: LLMProvider = {
+      name: "vllm",
+      defaultModel: "org/only",
+      supportedModels: [{ id: "org/only", supportsTools: true, isReasoningModel: false }],
+      authenticate: () => Effect.void,
+    };
+    const result = await promptForAgentInfo(
+      ["default"],
+      {},
+      {
+        listProviders: () =>
+          Effect.succeed([{ name: "vllm", displayName: "vLLM", configured: true }]),
+        getProvider: () => Effect.succeed(provider),
+      } as unknown as LLMService,
+      {
+        appConfig: Effect.succeed({}),
+        set: () => Effect.void,
+      } as unknown as AgentConfigService,
+      new Map(),
+      terminal({
+        search: ((message) => {
+          searched.push(message);
+          return Effect.succeed("vllm");
+        }) as TerminalService["search"],
+        ask: (message) => Effect.succeed(message.includes("Name") ? "vllm-agent" : ""),
+        select: (() => Effect.succeed("default")) as TerminalService["select"],
+      }),
+      new Set(),
+    );
+
+    expect(result).toMatchObject({ llmProvider: "vllm", llmModel: "org/only" });
+    expect(searched).toHaveLength(1);
+  });
+
+  it("lets the user choose a vLLM model instead of using the server's first model", async () => {
+    const searched: string[] = [];
+    const saved: Array<{ key: string; value: unknown }> = [];
+    const provider: LLMProvider = {
+      name: "vllm",
+      defaultModel: "org/first",
+      supportedModels: [
+        { id: "org/first", supportsTools: false, isReasoningModel: false },
+        { id: "org/second", supportsTools: false, isReasoningModel: false },
+      ],
+      authenticate: () => Effect.void,
+    };
+    const llmService = {
+      listProviders: () =>
+        Effect.succeed([{ name: "vllm", displayName: "vLLM", configured: true }]),
+      getProvider: () => Effect.succeed(provider),
+    } as unknown as LLMService;
+    const configService = {
+      appConfig: Effect.succeed({}),
+      set: (key: string, value: unknown) => {
+        saved.push({ key, value });
+        return Effect.void;
+      },
+    } as unknown as AgentConfigService;
+
+    const result = await promptForAgentInfo(
+      ["default"],
+      {},
+      llmService,
+      configService,
+      new Map(),
+      terminal({
+        search: ((message) => {
+          searched.push(message);
+          return Effect.succeed(message.includes("Which LLM provider") ? "vllm" : "org/second");
+        }) as TerminalService["search"],
+        ask: (message) => Effect.succeed(message.includes("Name") ? "vllm-agent" : ""),
+        select: (() => Effect.succeed("default")) as TerminalService["select"],
+      }),
+      new Set(),
+    );
+
+    expect(result).toMatchObject({ llmProvider: "vllm", llmModel: "org/second" });
+    expect(searched).toHaveLength(2);
+    expect(saved).toEqual([{ key: "llm.vllm.base_url", value: "http://127.0.0.1:8000/v1" }]);
+  });
+
   it("creates a llama.cpp agent around the live server model without a model picker", async () => {
     const searched: string[] = [];
     const asked: string[] = [];
