@@ -550,6 +550,7 @@ describe("AgentRunner", () => {
             return { status: "abstained", reason: "test" } as const;
           }),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {
@@ -587,6 +588,7 @@ describe("AgentRunner", () => {
       const session = {
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {
@@ -620,6 +622,7 @@ describe("AgentRunner", () => {
       const session = {
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {

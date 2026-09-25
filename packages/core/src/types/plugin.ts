@@ -198,6 +198,7 @@ export interface PluginManifest {
   readonly personas: readonly PluginPersonaDeclaration[];
   readonly skills: readonly PluginSkillDeclaration[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly workspace?: boolean;
   readonly claimsNotifications: boolean;
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
@@ -215,6 +216,7 @@ export interface PluginConsentDisclosure {
   readonly personas: readonly string[];
   readonly skills: readonly string[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly workspace?: boolean;
   readonly claimsNotifications: boolean;
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
@@ -384,6 +386,25 @@ export interface PluginLifecycleRegistration {
   readonly handler: (event: LifecycleEvent, context: LifecycleHandlerContext) => Promise<void>;
 }
 
+export interface WorkspaceFileActivity {
+  readonly path: string;
+  readonly kind: "read" | "write";
+}
+
+export interface WorkspaceContextInput {
+  readonly cwd: string;
+  readonly files: readonly WorkspaceFileActivity[];
+}
+
+export interface WorkspaceContextOutput {
+  readonly content: string;
+}
+
+export type WorkspaceContextHandler = (
+  input: WorkspaceContextInput,
+  context: { readonly signal: AbortSignal },
+) => Promise<WorkspaceContextOutput | undefined>;
+
 export interface PluginHostApi {
   readonly apiVersion: typeof PLUGIN_API_VERSION;
   readonly hooks: {
@@ -407,6 +428,9 @@ export interface PluginHostApi {
   readonly lifecycle: {
     /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
     register(registration: PluginLifecycleRegistration): void;
+  };
+  readonly workspace: {
+    register(handler: WorkspaceContextHandler): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

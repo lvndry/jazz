@@ -5,6 +5,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
+import type { WorkspaceContextInput } from "@/core/types/plugin";
 import type { ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
@@ -384,6 +385,8 @@ export interface AgentRunContext {
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
   readonly initialProviderAdvisory?: string;
+  /** Provider-only ambient workspace context, refreshed before every model request. */
+  readonly workspaceContext?: (input: WorkspaceContextInput) => Effect.Effect<string | undefined>;
   /**
    * Decision-advised clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
    * leaving the deterministic clearer in charge.

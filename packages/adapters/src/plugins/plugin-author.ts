@@ -411,6 +411,7 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   const tools = new Set<string>();
   const commands = new Set<string>();
   const lifecycleEvents = new Set<string>();
+  let registeredWorkspace = false;
   const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
   const declaredCommands = new Set(manifest.commands.map((command) => command.name));
   const declaredLifecycle = new Set<string>(manifest.lifecycleHooks);
@@ -466,6 +467,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         lifecycleEvents.add(registration.event);
       },
     },
+    workspace: {
+      register: () => {
+        if (registeredWorkspace) fail("workspace context was registered more than once");
+        registeredWorkspace = true;
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
@@ -475,6 +482,9 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   assertSameMembers("tool", [...declaredTools], tools);
   assertSameMembers("command", [...declaredCommands], commands);
   assertSameMembers("lifecycle event", [...declaredLifecycle], lifecycleEvents);
+  if (registeredWorkspace !== (manifest.workspace === true)) {
+    fail("workspace registration does not match manifest declaration");
+  }
   return {
     manifest,
     registeredHooks: [...hooks].sort(),

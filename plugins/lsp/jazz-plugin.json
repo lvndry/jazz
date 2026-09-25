@@ -6,6 +6,7 @@
   "hostApi": 1,
   "entry": "src/index.ts",
   "hooks": [],
+  "workspace": true,
   "decisionProviders": [],
   "tools": [
     {
@@ -19,9 +20,7 @@
             "description": "Source file path, relative to the agent working directory"
           }
         },
-        "required": [
-          "file"
-        ],
+        "required": ["file"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -38,9 +37,7 @@
             "description": "Source file path, relative to the agent working directory"
           }
         },
-        "required": [
-          "file"
-        ],
+        "required": ["file"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -60,10 +57,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "file",
-          "query"
-        ],
+        "required": ["file", "query"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -88,11 +82,7 @@
             "description": "1-based UTF-16 character"
           }
         },
-        "required": [
-          "file",
-          "line",
-          "character"
-        ],
+        "required": ["file", "line", "character"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -120,11 +110,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "file",
-          "line",
-          "character"
-        ],
+        "required": ["file", "line", "character"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -149,11 +135,7 @@
             "description": "1-based UTF-16 character"
           }
         },
-        "required": [
-          "file",
-          "line",
-          "character"
-        ],
+        "required": ["file", "line", "character"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -182,13 +164,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "file",
-          "startLine",
-          "startCharacter",
-          "endLine",
-          "endCharacter"
-        ],
+        "required": ["file", "startLine", "startCharacter", "endLine", "endCharacter"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -216,12 +192,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "file",
-          "line",
-          "character",
-          "newName"
-        ],
+        "required": ["file", "line", "character", "newName"],
         "additionalProperties": false
       },
       "riskLevel": "high-risk",
@@ -257,14 +228,7 @@
             "description": "Zero-based index from code_actions, required when titles repeat"
           }
         },
-        "required": [
-          "file",
-          "startLine",
-          "startCharacter",
-          "endLine",
-          "endCharacter",
-          "title"
-        ],
+        "required": ["file", "startLine", "startCharacter", "endLine", "endCharacter", "title"],
         "additionalProperties": false
       },
       "riskLevel": "high-risk",
@@ -287,9 +251,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "file"
-        ],
+        "required": ["file"],
         "additionalProperties": false
       },
       "riskLevel": "high-risk",

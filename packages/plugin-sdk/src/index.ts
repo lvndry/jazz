@@ -290,6 +290,28 @@ export interface PluginLifecycleRegistration {
   readonly handler: (event: LifecycleEvent, context: LifecycleHandlerContext) => Promise<void>;
 }
 
+/** Files the host observed through successful built-in filesystem tools. */
+export interface WorkspaceFileActivity {
+  readonly path: string;
+  readonly kind: "read" | "write";
+}
+
+/** A run-scoped workspace observation, requested before each model call. */
+export interface WorkspaceContextInput {
+  readonly cwd: string;
+  readonly files: readonly WorkspaceFileActivity[];
+}
+
+/** Bounded advisory text; the host labels it as untrusted and never persists it. */
+export interface WorkspaceContextOutput {
+  readonly content: string;
+}
+
+export type WorkspaceContextHandler = (
+  input: WorkspaceContextInput,
+  context: { readonly signal: AbortSignal },
+) => Promise<WorkspaceContextOutput | undefined>;
+
 export interface PluginHostApi {
   readonly apiVersion: JazzPluginApiVersion;
   readonly hooks: {
@@ -312,6 +334,10 @@ export interface PluginHostApi {
   readonly lifecycle: {
     /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
     register(registration: PluginLifecycleRegistration): void;
+  };
+  readonly workspace: {
+    /** Register ambient workspace analysis declared by this plugin's manifest. */
+    register(handler: WorkspaceContextHandler): void;
   };
   readonly secrets: {
     /** Only names declared in the current plugin manifest are resolvable. */
@@ -349,6 +375,7 @@ export interface JazzPluginSourceManifest {
   readonly personas?: readonly PluginPersonaDeclaration[];
   readonly skills?: readonly PluginSkillDeclaration[];
   readonly lifecycleHooks?: readonly LifecycleEventId[];
+  readonly workspace?: boolean;
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

@@ -35,6 +35,8 @@ import {
   type PluginToolPreparation,
   type JsonValue,
   type SkillRouteOutcome,
+  type WorkspaceContextHandler,
+  type WorkspaceContextInput,
 } from "@/core/types/plugin";
 import {
   validateDecisionRequest,
@@ -54,6 +56,10 @@ const PLUGIN_ARGUMENT_PREVIEW_CHARS = 500;
 const MAX_PLUGIN_APPROVAL_MESSAGE_CHARS = 4_000;
 const MAX_PLUGIN_APPROVAL_DIFF_CHARS = 1_000_000;
 const MAX_PLUGIN_PREPARED_JSON_CHARS = 8_000_000;
+const DEFAULT_PLUGIN_WORKSPACE_TIMEOUT_MS = 10_000;
+const MAX_PLUGIN_WORKSPACE_CONTENT_CHARS = 4_000;
+const MAX_PLUGIN_WORKSPACE_TOTAL_CHARS = 8_000;
+const MAX_PLUGIN_WORKSPACE_FILES = 16;
 
 /**
  * Write bytes to the process's controlling terminal so a terminal escape (for example an OSC
@@ -174,12 +180,15 @@ export function createPluginSession(
       const tools = new Map<string, RegisteredTool>();
       const commands = new Map<string, RegisteredCommand>();
       const lifecycle = new Map<LifecycleEventId, RegisteredLifecycle[]>();
+      const workspace = new Map<string, WorkspaceContextHandler>();
+      const disabledWorkspace = new Set<string>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
       let closed = false;
       const timeoutMs = options.hookTimeoutMs ?? DEFAULT_PLUGIN_HOOK_TIMEOUT_MS;
       const toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_PLUGIN_TOOL_TIMEOUT_MS;
+      const workspaceTimeoutMs = options.workspaceTimeoutMs ?? DEFAULT_PLUGIN_WORKSPACE_TIMEOUT_MS;
 
       const registerPlugin = (plugin: LoadedPlugin): void => {
         const manifest = validatePluginManifest(plugin.manifest);
@@ -275,6 +284,15 @@ export function createPluginSession(
               const existing = lifecycle.get(registration.event) ?? [];
               existing.push({ pluginId: manifest.id, handler: registration.handler });
               lifecycle.set(registration.event, existing);
+            },
+          },
+          workspace: {
+            register: (handler) => {
+              if (manifest.workspace !== true)
+                throw new Error(`plugin did not declare workspace context: ${manifest.id}`);
+              if (workspace.has(manifest.id))
+                throw new Error(`plugin ${manifest.id} already registered workspace context`);
+              workspace.set(manifest.id, handler);
             },
           },
           secrets: {
@@ -438,6 +456,44 @@ export function createPluginSession(
               return abstainedCompact("plugin handler failed");
             }
           }),
+        runWorkspace: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed || workspace.size === 0) return undefined;
+            const files = rawInput.files.slice(0, MAX_PLUGIN_WORKSPACE_FILES);
+            const input: WorkspaceContextInput = { cwd: rawInput.cwd, files };
+            const responses = await Promise.all(
+              [...workspace].map(async ([pluginId, handler]) => {
+                if (disabledWorkspace.has(pluginId)) return undefined;
+                try {
+                  const output = await deadline(
+                    (signal) => handler(input, { signal }),
+                    workspaceTimeoutMs,
+                  );
+                  if (output === undefined) return undefined;
+                  if (
+                    typeof output !== "object" ||
+                    output === null ||
+                    typeof output.content !== "string"
+                  )
+                    throw new Error("plugin returned invalid workspace context");
+                  const content = output.content.trim();
+                  if (!content) return undefined;
+                  return `[${pluginNameById.get(pluginId) ?? pluginId}]\n${content.slice(0, MAX_PLUGIN_WORKSPACE_CONTENT_CHARS)}`;
+                } catch (error) {
+                  disabledWorkspace.add(pluginId);
+                  options.reportFailure?.(
+                    pluginId,
+                    error instanceof Error ? error.message : String(error),
+                  );
+                  return undefined;
+                }
+              }),
+            );
+            const content = responses
+              .filter((item): item is string => item !== undefined)
+              .join("\n");
+            return content ? content.slice(0, MAX_PLUGIN_WORKSPACE_TOTAL_CHARS) : undefined;
+          }),
         describeHook: (id) => {
           const registration = hooks.get(id);
           if (!registration) return undefined;
@@ -592,6 +648,8 @@ export function createPluginSession(
             tools.clear();
             commands.clear();
             lifecycle.clear();
+            workspace.clear();
+            disabledWorkspace.clear();
             providers.clear();
             disabledProviders.clear();
           }),

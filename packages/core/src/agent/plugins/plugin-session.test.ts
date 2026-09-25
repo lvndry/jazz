@@ -36,6 +36,67 @@ const manifest = {
   claimsNotifications: false,
 };
 
+it("runs declared workspace context with bounded output and disables a failing handler", async () => {
+  const failures: string[] = [];
+  const inputs: string[] = [];
+  let calls = 0;
+  const plugin: LoadedPlugin = {
+    manifest: { ...manifest, hooks: [], decisionProviders: [], workspace: true },
+    module: {
+      apiVersion: 1,
+      register(api) {
+        api.workspace.register(async (input) => {
+          calls++;
+          inputs.push(JSON.stringify(input));
+          if (calls === 2) throw new Error("server failed");
+          return { content: "diagnostic: " + "x".repeat(10_000) };
+        });
+      },
+    },
+  };
+  const session = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [plugin],
+      resolveSecret: async () => undefined,
+      reportFailure: (_pluginId, message) => failures.push(message),
+    }),
+  );
+  const input = {
+    cwd: "/tmp/project",
+    files: [{ path: "/tmp/project/a.ts", kind: "read" as const }],
+  };
+  const first = await Effect.runPromise(session.runWorkspace(input));
+  expect(first).toContain("diagnostic:");
+  expect(first!.length).toBeLessThan(4_100);
+  expect(inputs).toEqual([JSON.stringify(input)]);
+  expect(await Effect.runPromise(session.runWorkspace(input))).toBeUndefined();
+  expect(await Effect.runPromise(session.runWorkspace(input))).toBeUndefined();
+  expect(calls).toBe(2);
+  expect(failures).toEqual(["server failed"]);
+  await Effect.runPromise(session.close());
+});
+
+it("rejects workspace registration when the manifest has not declared it", async () => {
+  await expect(
+    Effect.runPromise(
+      createPluginSession({
+        agentId: "a",
+        plugins: [
+          {
+            manifest,
+            module: {
+              apiVersion: 1,
+              register: (api) => api.workspace.register(async () => undefined),
+            },
+          },
+        ],
+        resolveSecret: async () => undefined,
+      }),
+    ),
+  ).rejects.toThrow("failed to open plugin session");
+});
+
 it("keeps registrations per run and enforces declared secrets", async () => {
   let apiSeen: PluginHostApi | undefined;
   const plugin: LoadedPlugin = {

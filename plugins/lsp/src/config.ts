@@ -1,7 +1,8 @@
 /**
  * Operator-owned server configuration. Each entry selects a language by file
  * extension and an argv to spawn; the model only supplies a source-file path.
- * Configuration is re-read on each tool call so a changed command takes effect.
+ * Configuration is re-read for workspace context and tool calls so a changed
+ * command takes effect on the next request.
  */
 
 import { readFile, realpath, stat } from "node:fs/promises";
@@ -21,6 +22,11 @@ export interface SelectedServer {
   readonly config: ServerConfig;
   readonly root: string;
   readonly path: string;
+}
+
+export interface WorkspaceServer {
+  readonly config: ServerConfig;
+  readonly root: string;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -96,4 +102,34 @@ export async function selectServer(file: string, cwd: string): Promise<SelectedS
     root = parent;
   }
   return { config, root, path };
+}
+
+/** Select configured servers whose root markers identify the current workspace. */
+export async function workspaceServers(cwd: string): Promise<readonly WorkspaceServer[]> {
+  const configs = await loadServers();
+  return (
+    await Promise.all(
+      configs.map(async (config): Promise<WorkspaceServer | undefined> => {
+        let root = await realpath(cwd);
+        while (true) {
+          if (
+            (
+              await Promise.all(
+                config.rootMarkers.map((marker) =>
+                  stat(join(root, marker)).then(
+                    () => true,
+                    () => false,
+                  ),
+                ),
+              )
+            ).some(Boolean)
+          )
+            return { config, root };
+          const parent = dirname(root);
+          if (parent === root) return undefined;
+          root = parent;
+        }
+      }),
+    )
+  ).filter((server): server is WorkspaceServer => server !== undefined);
 }

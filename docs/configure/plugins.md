@@ -8,6 +8,8 @@ Jazz plugins are optional, pre-bundled JavaScript modules that extend the harnes
 contribute any mix of capabilities:
 
 - **tools** — model-callable functions that join the agent's tool set;
+- **workspace context** — bounded, current context supplied before a model request as the agent
+  reads or changes files;
 - **commands** — user-invoked `/name` slash commands;
 - **personas** — selectable agent personalities;
 - **skills** — loadable instruction documents;
@@ -20,6 +22,15 @@ contribute any mix of capabilities:
 Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
 Advisory hooks cannot authorize a tool, change approval policy, or act on the model's behalf; the
 policy hook shapes approval only.
+
+A plugin that declares `workspace: true` may register `api.workspace.register`. Jazz calls it before
+each model request, including the first request with no observed files, so it can activate a
+workspace service. Later calls include recent canonical paths from successful built-in file reads
+and writes. The returned text is bounded, labeled as untrusted workspace data, and sent only with
+that model request; it is not saved in conversation history. Failures or timeouts leave the run
+unchanged. The [LSP plugin](./lsp-plugin.md) uses this path to supply diagnostics without asking
+the model to call a tool. A workspace handler cannot authorize or execute a file edit through this
+path.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its

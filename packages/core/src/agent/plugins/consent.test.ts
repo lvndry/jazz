@@ -39,4 +39,7 @@ it("canonicalizes order but invalidates consent when disclosure changes", () => 
   expect(
     computePluginConsentDigest({ ...manifest, policyHooks: ["classify.command-risk"] }),
   ).not.toBe(computePluginConsentDigest(manifest));
+  expect(computePluginConsentDigest({ ...manifest, workspace: true })).not.toBe(
+    computePluginConsentDigest(manifest),
+  );
 });

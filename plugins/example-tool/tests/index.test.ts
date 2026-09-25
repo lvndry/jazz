@@ -43,6 +43,7 @@ function fakeHost(): {
         lifecycle.set(registration.event, registration);
       },
     },
+    workspace: { register: () => {} },
     secrets: { get: async () => undefined },
   };
   return { api, tools, commands, lifecycle };

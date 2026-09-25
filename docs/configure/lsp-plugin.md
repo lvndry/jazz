@@ -4,10 +4,13 @@ description: "Configure the optional generic LSP plugin for semantic code naviga
 
 # Language Server Protocol plugin
 
-`plugins/lsp` is an optional TypeScript plugin. It uses configured local language servers for
-diagnostics, document and workspace symbols, definitions, references, hover, code actions, symbol
-rename, and document formatting. It works with any server that speaks LSP 3.17 over stdio and
-implements the requested method. There is no language server bundled with Jazz.
+`plugins/lsp` is an optional TypeScript plugin. When enabled for an agent, it starts the configured
+language server for the active project at the beginning of a run. As Jazz reads and changes source
+files, the plugin keeps those documents current and adds relevant diagnostics to the agent's next
+model request. The agent does not need to call an LSP tool to receive that context. Targeted tools
+remain available for document and workspace symbols, definitions, references, hover, code actions,
+symbol rename, and document formatting. The plugin works with servers that speak LSP 3.17 over stdio
+and implement the requested methods. There is no language server bundled with Jazz.
 
 Pack the plugin from this repository with `bun run plugin:pack plugins/lsp`, then install the
 generated `plugins/lsp/release/catalog-entry.json` through the normal
@@ -37,17 +40,23 @@ diff renderer into a self-contained artifact. Configure server commands in `~/.j
 }
 ```
 
-Install `typescript-language-server` and `typescript` separately if you use this example. To
-configure another language, add an entry with its executable, argument vector, extensions,
+Install `typescript-language-server` and a compatible `typescript` version separately if you use
+this example. TypeScript 6 worked with the language server in our live test; the TypeScript 7
+package we tried did not include the `tsserver.js` that server expected. To configure another
+language, add an entry with its executable, argument vector, extensions,
 language ID, and project-root markers. The first entry matching a file extension wins. The
-plugin walks upward from the source file to the nearest marker and starts one server for that
-root. If no marker exists, it uses the agent's current directory. `JAZZ_LSP_CONFIG` can point to
-another JSON file. A missing or invalid config produces a tool error.
+plugin walks upward from the current directory to identify configured project roots and starts
+their servers before the first model request. It also starts a matching server when Jazz later
+touches a supported file outside those roots. If no marker exists, it uses the agent's current
+directory. `JAZZ_LSP_CONFIG` can point to another JSON file. A missing or invalid config is
+reported to the agent.
 
-The plugin reads the source file from disk and sends `didOpen` to the server. When the disk file
-changes, it closes and reopens that document before asking the next question. Servers start only
-when used and exit after two idle minutes. A failed server can be started again by the next call.
-The model cannot choose the executable or its arguments.
+The plugin reads source files from disk and sends `didOpen` and `didChange` as Jazz works with them.
+It checks tracked files again before each model request, including after external edits. It keeps
+diagnostics bounded and relevant to those files; it does not pour whole-workspace diagnostics into
+every turn. A failed server start is retried after a short delay rather than on every model request;
+an unavailable server does not stop the coding run. The model cannot choose the
+executable or its arguments.
 
 The tools use **1-based** line and UTF-16 character coordinates. `code_actions` lists available
 actions for a range. `apply_code_action` selects one by its exact title, with a zero-based `index`
@@ -63,8 +72,9 @@ servers' unsolicited `workspace/applyEdit` requests are refused.
 Semantic query tools are declared `read-only`. Rename, code action application, and formatting are
 declared `high-risk` and use Jazz's approval gate. The configured server command is part of the
 operator's plugin setup and trust decision, not a model-authored shell command. The operator must
-trust that executable, just as with any plugin that runs local code. The server
-receives source contents from files the agent asks about. Its stdout is untrusted protocol data;
+trust that executable, just as with any plugin that runs local code. The server receives source
+contents from files Jazz reads or changes during the agent's run, as well as files the agent
+explicitly queries through an LSP tool. Its stdout is untrusted protocol data;
 code action commands are never executed. The plugin performs no network egress itself, but a
 configured server may have its own network behavior. Review the server before enabling the
 plugin on a remote or unattended surface.

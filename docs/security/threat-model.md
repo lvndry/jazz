@@ -49,12 +49,17 @@ applying edits based on the same old contents, including when approval was parke
 do not honor Jazz's lock; the digest check detects changes already present at execution, but it
 cannot make an uncooperative external write atomic with Jazz's write.
 
-The optional LSP plugin starts an operator-configured local language server. Its semantic queries
-are read-only tools; its mutating tools declare high risk and show the server's actual text diff through the existing
-approval gate and carry a prepared edit into parked approvals. At execution they recheck complete
-file snapshots while holding Jazz's per-file edit locks. Server-initiated edits and executable code
-action commands are denied. Multi-file renames are not one atomic transaction, and a configured
-server runs with the user's OS authority.
+The optional LSP plugin starts an operator-configured local language server when an enabled agent
+begins work in a matching project. The workspace handler receives the canonical paths of files
+Jazz reads or changes and sends their contents to that local server. Its bounded diagnostic summary
+is labeled as untrusted data and sent only with the next model request; the host does not treat it
+as an instruction or a permission grant. A compromised or malicious server can still put misleading text
+in diagnostics and influence the model's reasoning. Semantic queries are read-only tools; mutating
+tools declare high risk, show the server's actual text diff through the existing approval gate, and
+carry a prepared edit into parked approvals. At execution they recheck complete file snapshots
+while holding Jazz's per-file edit locks. Server-initiated edits and executable code action commands
+are denied. Multi-file renames are not one atomic transaction, and a configured server runs with the
+user's OS authority.
 
 ### Disclosure and egress
 

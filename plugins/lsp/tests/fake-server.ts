@@ -3,6 +3,7 @@
  * requests, diagnostics, workspace edits, and denied server-initiated writes.
  */
 
+import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let buffer = Buffer.alloc(0);
@@ -35,6 +36,7 @@ process.stdin.on("data", (chunk: Buffer) => {
         method: "textDocument/publishDiagnostics",
         params: {
           uri,
+          version: (message.params?.["textDocument"] as { version: number }).version,
           diagnostics: [
             {
               message: "fake warning",
@@ -45,7 +47,46 @@ process.stdin.on("data", (chunk: Buffer) => {
         },
       });
     }
+    if (message.method === "textDocument/didChange") {
+      const change = (
+        message.params?.["contentChanges"] as {
+          text: string;
+          range?: unknown;
+        }[]
+      )[0];
+      const text = change?.text ?? "";
+      const missingIncrementalRange = process.argv[4] === "2" && change?.range === undefined;
+      const version = (message.params?.["textDocument"] as { version: number }).version;
+      send({
+        jsonrpc: "2.0",
+        method: "textDocument/publishDiagnostics",
+        params: {
+          uri,
+          version,
+          diagnostics: [
+            {
+              message: missingIncrementalRange
+                ? "missing incremental range"
+                : `changed warning: ${text.trim()}`,
+              severity: 2,
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
+            },
+          ],
+        },
+      });
+      send({
+        jsonrpc: "2.0",
+        method: "textDocument/publishDiagnostics",
+        params: {
+          uri,
+          version: version - 1,
+          diagnostics: [{ message: "stale warning" }],
+        },
+      });
+    }
     if (message.id === undefined || !message.method) continue;
+    if (message.method === "initialize" && process.argv[3])
+      writeFileSync(process.argv[3], "started");
     const edit = {
       changes: {
         [uri]: [
@@ -60,6 +101,7 @@ process.stdin.on("data", (chunk: Buffer) => {
       message.method === "initialize"
         ? {
             capabilities: {
+              textDocumentSync: Number(process.argv[4] ?? 1),
               renameProvider: true,
               codeActionProvider: { resolveProvider: true },
               documentFormattingProvider: true,

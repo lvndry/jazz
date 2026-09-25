@@ -311,9 +311,12 @@ export async function runCli(): Promise<void> {
       assertAllowedAgent(abAgent);
     }
     assertAllowedAgent(EVAL_CONFIG.judgeAgentId);
-    const tasks = await loadTasks();
+    const taskId = parseFlag("--task");
+    const tasks = (await loadTasks()).filter((task) => taskId === undefined || task.id === taskId);
     if (tasks.length === 0) {
-      console.error(`No tasks found under ${TASKS_DIR}`);
+      console.error(
+        taskId ? `No eval task found with id ${taskId}` : `No tasks found under ${TASKS_DIR}`,
+      );
       process.exitCode = 1;
       return;
     }
