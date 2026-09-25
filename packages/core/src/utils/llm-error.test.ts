@@ -88,6 +88,13 @@ describe("localServerUnreachableMessage", () => {
     expect(message).toContain("llm.vllm.base_url");
   });
 
+  it("gives an SGLang start hint at its own default port", () => {
+    const message = localServerUnreachableMessage("sglang");
+    expect(message).toContain("sglang.launch_server");
+    expect(message).toContain("127.0.0.1:30000");
+    expect(message).toContain("llm.sglang.base_url");
+  });
+
   it("returns undefined for a cloud provider", () => {
     expect(localServerUnreachableMessage("openai")).toBeUndefined();
   });

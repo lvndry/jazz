@@ -41,6 +41,7 @@ export const AVAILABLE_PROVIDERS = [
   "moonshotai",
   "ollama",
   "orcarouter",
+  "sglang",
   "togetherai",
   "vllm",
   "zhipuai",

@@ -83,7 +83,7 @@ summarization.
 ## When the figure is unknown
 
 A cost is known when the provider priced the call, or when the model genuinely costs nothing,
-which means a self-hosted Ollama, llama.cpp, or vLLM model. Anything else is unknown, and Jazz says so:
+which means a self-hosted Ollama, llama.cpp, vLLM, or SGLang model. Anything else is unknown, and Jazz says so:
 
 ```json
 { "ok": true, "costUSD": 0, "costKnown": false }

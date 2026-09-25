@@ -11,6 +11,7 @@ import {
   LLMServiceTag,
   type LLMService,
   type LlamaCppServerModel,
+  type SglangServerModel,
   type VllmServerModel,
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -228,9 +229,13 @@ export function selectSummarizerModel(parentAgent: Agent): {
 function resolveLocalSummarizerModel(
   provider: ProviderName,
   preferredModelId: string,
-): Effect.Effect<LlamaCppServerModel | VllmServerModel, never, LLMService | AgentConfigService> {
+): Effect.Effect<
+  LlamaCppServerModel | VllmServerModel | SglangServerModel,
+  never,
+  LLMService | AgentConfigService
+> {
   return Effect.gen(function* () {
-    if (provider !== "llamacpp" && provider !== "vllm") return {};
+    if (provider !== "llamacpp" && provider !== "vllm" && provider !== "sglang") return {};
     const configService = yield* AgentConfigServiceTag;
     const llmService = yield* LLMServiceTag;
     const appConfig = yield* configService.appConfig;
@@ -240,9 +245,14 @@ function resolveLocalSummarizerModel(
         .fetchLlamaCppServerModel(baseUrl, appConfig.llm?.llamacpp?.api_key)
         .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
     }
+    if (provider === "vllm") {
+      return yield* llmService
+        .fetchVllmServerModel(baseUrl, preferredModelId, appConfig.llm?.vllm?.api_key)
+        .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+    }
     return yield* llmService
-      .fetchVllmServerModel(baseUrl, preferredModelId, appConfig.llm?.vllm?.api_key)
-      .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+      .fetchSglangServerModel(baseUrl, preferredModelId, appConfig.llm?.sglang?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
   });
 }
 

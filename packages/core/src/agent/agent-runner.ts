@@ -22,6 +22,7 @@ import {
   type LLMService,
   type LlamaCppServerModel,
   type OllamaShowExtras,
+  type SglangServerModel,
   type VllmServerModel,
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -244,6 +245,20 @@ export function resolveVllmServerModel(
   });
 }
 
+/** Refresh SGLang's served ID and context at each run; keep saved values if lookup fails. */
+export function resolveSglangServerModel(
+  preferredModelId: string,
+  llmConfig?: LLMConfig,
+): Effect.Effect<SglangServerModel, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("sglang", llmConfig);
+    return yield* llmService
+      .fetchSglangServerModel(baseUrl, preferredModelId, llmConfig?.sglang?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
+  });
+}
+
 /**
  * The agent's tracked working directory, or the process cwd when no filesystem context exists.
  *
@@ -342,9 +357,19 @@ function initializeAgentRun(
       provider === "vllm"
         ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
         : undefined;
-    const model = servedLlamaCppModel?.modelId ?? servedVllmModel?.modelId ?? agent.config.llmModel;
+    const servedSglangModel =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const model =
+      servedLlamaCppModel?.modelId ??
+      servedVllmModel?.modelId ??
+      servedSglangModel?.modelId ??
+      agent.config.llmModel;
     const serverContextWindow =
-      servedLlamaCppModel?.contextWindow ?? servedVllmModel?.contextWindow;
+      servedLlamaCppModel?.contextWindow ??
+      servedVllmModel?.contextWindow ??
+      servedSglangModel?.contextWindow;
 
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is

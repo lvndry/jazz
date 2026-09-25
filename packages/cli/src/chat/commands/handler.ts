@@ -7,6 +7,7 @@ import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/
 import {
   AgentRunner,
   resolveLlamaCppServerModel,
+  resolveSglangServerModel,
   resolveVllmServerModel,
 } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
@@ -1035,21 +1036,25 @@ function handleCompactCommand(
     // the same share of it.
     const provider = agent.config.llmProvider;
     const localConfig =
-      provider === "llamacpp" || provider === "vllm"
+      provider === "llamacpp" || provider === "vllm" || provider === "sglang"
         ? (yield* (yield* AgentConfigServiceTag).appConfig).llm
         : undefined;
     const servedVllm =
       provider === "vllm"
         ? yield* resolveVllmServerModel(agent.config.llmModel, localConfig)
         : undefined;
+    const servedSglang =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, localConfig)
+        : undefined;
     const advertisedContextWindow = yield* getModelContextWindowEffect(
-      servedVllm?.modelId ?? agent.config.llmModel,
+      servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel,
       provider,
     );
     const servedContextWindow =
       provider === "llamacpp"
         ? (yield* resolveLlamaCppServerModel(localConfig)).contextWindow
-        : servedVllm?.contextWindow;
+        : (servedVllm?.contextWindow ?? servedSglang?.contextWindow);
     const contextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
@@ -2978,14 +2983,17 @@ function handleContextCommand(
       provider === "vllm"
         ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
         : undefined;
-    const modelId = servedVllm?.modelId ?? agent.config.llmModel;
+    const servedSglang =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const modelId = servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel;
     const advertisedContextWindow = yield* getModelContextWindowEffect(modelId, provider);
+    const serverContextWindow = servedVllm?.contextWindow ?? servedSglang?.contextWindow;
     const effectiveContextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
-      ...(servedVllm?.contextWindow !== undefined && {
-        serverContextWindow: servedVllm.contextWindow,
-      }),
+      ...(serverContextWindow !== undefined && { serverContextWindow }),
       ...(typeof agent.config.numCtx === "number" && {
         pinnedContextWindow: agent.config.numCtx,
       }),

@@ -642,7 +642,7 @@ async function promptForAgentUpdates(
       const providerDisplayName =
         providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
-      if (llmProvider === "vllm") {
+      if (llmProvider === "vllm" || llmProvider === "sglang") {
         const urlResult = await ensureLocalProviderBaseUrl({
           configService,
           terminal,
@@ -672,7 +672,7 @@ async function promptForAgentUpdates(
       );
       if (
         providerResult._tag === "Left" &&
-        llmProvider === "vllm" &&
+        (llmProvider === "vllm" || llmProvider === "sglang") &&
         providerResult.left.reason === "unauthorized"
       ) {
         const keyResult = await ensureProviderApiKey({
@@ -692,19 +692,20 @@ async function promptForAgentUpdates(
         providerInfo = providerResult.right;
       }
 
-      const soleVllmModel =
-        llmProvider === "vllm" && providerInfo.supportedModels.length === 1
+      const soleLiveModel =
+        (llmProvider === "vllm" || llmProvider === "sglang") &&
+        providerInfo.supportedModels.length === 1
           ? providerInfo.supportedModels[0]?.id
           : undefined;
-      if (llmProvider === "vllm" && !soleVllmModel) {
+      if ((llmProvider === "vllm" || llmProvider === "sglang") && !soleLiveModel) {
         await Effect.runPromise(
           terminal.info(
-            "Jazz uses this vLLM model while it is served. If the server stops listing it, Jazz uses the first live model instead.",
+            `Jazz uses this ${formatProviderDisplayName(llmProvider)} model while it is served. If the server stops listing it, Jazz uses the first live model instead.`,
           ),
         );
       }
       const llmModel =
-        soleVllmModel ??
+        soleLiveModel ??
         (await Effect.runPromise(
           terminal.search<string>(`Select model for ${providerDisplayName}:`, {
             choices: buildModelChoices(llmProvider, providerInfo.supportedModels),

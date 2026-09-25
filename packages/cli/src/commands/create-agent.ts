@@ -566,7 +566,8 @@ export async function promptForAgentInfo(
       case "model": {
         if (
           state.llmProvider === "llamacpp" ||
-          (state.llmProvider === "vllm" && state.providerInfo!.supportedModels.length === 1)
+          ((state.llmProvider === "vllm" || state.llmProvider === "sglang") &&
+            state.providerInfo!.supportedModels.length === 1)
         ) {
           const liveModel = state.providerInfo!.supportedModels[0];
           if (!liveModel) {
@@ -585,17 +586,17 @@ export async function promptForAgentInfo(
             terminal.info(
               state.llmProvider === "llamacpp"
                 ? `llama.cpp will use the model currently served by the server (${liveModel.id}).`
-                : `vLLM serves one model (${liveModel.id}); this agent will use that model.`,
+                : `${formatProviderDisplayName(state.llmProvider)} serves one model (${liveModel.id}); this agent will use that model.`,
             ),
           );
           state.step = state.isReasoningModel ? "reasoning" : "persona";
           break;
         }
 
-        if (state.llmProvider === "vllm") {
+        if (state.llmProvider === "vllm" || state.llmProvider === "sglang") {
           await Effect.runPromise(
             terminal.info(
-              "Jazz uses this vLLM model while it is served. If the server stops listing it, Jazz uses the first live model instead.",
+              `Jazz uses this ${formatProviderDisplayName(state.llmProvider)} model while it is served. If the server stops listing it, Jazz uses the first live model instead.`,
             ),
           );
         }
@@ -657,7 +658,8 @@ export async function promptForAgentInfo(
         if (result === undefined) {
           state.step =
             state.llmProvider === "llamacpp" ||
-            (state.llmProvider === "vllm" && state.providerInfo?.supportedModels.length === 1)
+            ((state.llmProvider === "vllm" || state.llmProvider === "sglang") &&
+              state.providerInfo?.supportedModels.length === 1)
               ? "provider"
               : "model";
           break;

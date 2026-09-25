@@ -191,27 +191,38 @@ type OllamaShowResponse = {
 
 type LlamaCppModelEntry = { id: string; max_model_len?: number };
 type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
-type VllmModelEntry = { id: string; max_model_len?: number };
+type OpenAICompatibleModelCard = { id: string; parent?: string; max_model_len?: number };
 
-/** Accept only usable model cards from vLLM's external `/v1/models` response. */
-function parseVllmModels(data: unknown): VllmModelEntry[] {
+/** Accept only usable model cards from vLLM and SGLang's external `/v1/models` responses. */
+function parseOpenAICompatibleModels(data: unknown): OpenAICompatibleModelCard[] {
   if (typeof data !== "object" || data === null || !("data" in data) || !Array.isArray(data.data)) {
     return [];
   }
   const cards = data.data as readonly unknown[];
-  const models: VllmModelEntry[] = [];
+  const models: OpenAICompatibleModelCard[] = [];
   for (const card of cards) {
     if (typeof card !== "object" || card === null || !("id" in card)) continue;
     if (typeof card.id !== "string" || card.id.trim().length === 0) continue;
     const length = "max_model_len" in card ? card.max_model_len : undefined;
+    const parent = "parent" in card ? card.parent : undefined;
     models.push({
       id: card.id,
+      ...(typeof parent === "string" && parent.length > 0 ? { parent } : {}),
       ...(typeof length === "number" && Number.isSafeInteger(length) && length > 0
         ? { max_model_len: length }
         : {}),
     });
   }
   return models;
+}
+
+/** LoRA cards can omit their length; use the listed base model's served limit. */
+function resolveModelCardContextWindow(
+  model: OpenAICompatibleModelCard,
+  models: readonly OpenAICompatibleModelCard[],
+): number | undefined {
+  if (model.max_model_len !== undefined) return model.max_model_len;
+  return models.find((candidate) => candidate.id === model.parent)?.max_model_len;
 }
 type LlamaCppPropsResponse = {
   default_generation_settings?: { n_ctx?: number };
@@ -289,8 +300,8 @@ export async function fetchLlamaCppServerModel(
   }
 }
 
-/** Read vLLM's live model card, preferring the configured ID when the server lists several. */
-export async function fetchVllmServerModel(
+/** Read a live OpenAI-compatible local model card, preferring the configured ID. */
+async function fetchOpenAICompatibleServerModel(
   baseUrl: string,
   preferredModelId: string,
   apiKey?: string,
@@ -300,9 +311,9 @@ export async function fetchVllmServerModel(
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
     const response = await fetch(`${baseUrl}/models`, { method: "GET", headers });
     if (!response.ok) return {};
-    const models = parseVllmModels(await response.json());
+    const models = parseOpenAICompatibleModels(await response.json());
     const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
-    const contextWindow = model?.max_model_len;
+    const contextWindow = model ? resolveModelCardContextWindow(model, models) : undefined;
     return {
       ...(typeof model?.id === "string" && model.id.length > 0 ? { modelId: model.id } : {}),
       ...(typeof contextWindow === "number" &&
@@ -314,6 +325,24 @@ export async function fetchVllmServerModel(
   } catch {
     return {};
   }
+}
+
+/** Resolve vLLM's currently served model and context window. */
+export function fetchVllmServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
+}
+
+/** Resolve SGLang's currently served model and context window. */
+export function fetchSglangServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
 }
 
 /**
@@ -634,17 +663,22 @@ async function transformLlamaCppModels(
   });
 }
 
-/** vLLM's model card reports the active max_model_len; it does not expose tool parser flags. */
-function transformVllmModels(
+/** vLLM and SGLang report active max_model_len but do not expose tool parser flags. */
+function transformOpenAICompatibleModels(
   data: unknown,
   modelsDevMap: Map<string, ModelsDevMetadata> | null,
+  provider: "vllm" | "sglang",
 ): ModelInfo[] {
-  const models = parseVllmModels(data);
+  const models = parseOpenAICompatibleModels(data);
   if (models.length === 0) {
-    throw new Error("No models loaded. Start `vllm serve <model>` first.");
+    throw new Error(
+      provider === "vllm"
+        ? "No models loaded. Start `vllm serve <model>` first."
+        : "No models loaded. Start `python -m sglang.launch_server --model-path <model>` first.",
+    );
   }
   return models.map((model) => {
-    const contextWindow = model.max_model_len;
+    const contextWindow = resolveModelCardContextWindow(model, models);
     const entry: RawModelEntry = {
       id: model.id,
       displayName: model.id,
@@ -655,7 +689,7 @@ function transformVllmModels(
           contextWindow > 0
             ? contextWindow
             : DEFAULT_CONTEXT_WINDOW,
-        // vLLM supports tool calls, but `/models` does not expose whether this
+        // These servers support tool calls, but `/models` does not expose whether this
         // deployment enabled automatic tool choice. Do not silently drop Jazz tools.
         supportsTools: true,
       },
@@ -732,8 +766,8 @@ export function createModelFetcher(): ModelFetcherService {
             return transformLlamaCppModels(data, baseUrl, modelsDevMap, apiKey);
           }
 
-          if (providerName === "vllm") {
-            return transformVllmModels(data, modelsDevMap);
+          if (providerName === "vllm" || providerName === "sglang") {
+            return transformOpenAICompatibleModels(data, modelsDevMap, providerName);
           }
 
           const extractor = LIST_EXTRACTORS[providerName];
@@ -790,10 +824,9 @@ export function listModelsForProvider(
     });
   }
 
-  const baseUrl =
-    provider === "ollama" || provider === "llamacpp" || provider === "vllm"
-      ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
-      : source.defaultBaseUrl;
+  const baseUrl = isLocalServerProvider(provider)
+    ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
+    : source.defaultBaseUrl;
   if (baseUrl === undefined) {
     return Effect.succeed([]);
   }

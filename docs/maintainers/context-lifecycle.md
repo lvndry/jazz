@@ -329,14 +329,14 @@ answering from a context it no longer has.
 
 For `ollama`, a pinned `numCtx` is sent as the request's `num_ctx` and sets the runtime
 window. For `llamacpp`, the pin is an accounting override; otherwise Jazz uses the loaded
-server's `/props` value. For `vllm`, Jazz refreshes the served ID and uses `max_model_len` from its `/v1/models`
-card when available. A vLLM `numCtx` pin limits Jazz's context accounting to the smaller
-of the pin and the served limit; it does not change the vLLM server's context setting.
+server's `/props` value. For `vllm` and `sglang`, Jazz refreshes the served ID and uses `max_model_len` from their `/v1/models`
+card when available. A vLLM or SGLang `numCtx` pin limits Jazz's context accounting to the smaller
+of the pin and the served limit; it does not change the server context setting.
 An unpinned Ollama agent gets a warning at run start rather than a silent assumption,
 because Ollama exposes a loaded model's window on `/api/ps` but has no endpoint for the
 server default before anything is loaded.
 
-The catalog is no help here at all: models.dev carries no `ollama`, `llamacpp`, or `vllm` provider,
+The catalog is no help here at all: models.dev carries no `ollama`, `llamacpp`, `vllm`, or `sglang` provider,
 so a local model resolves to the 128k unknown-model placeholder rather than to a real
 maximum. That placeholder is never treated as a ceiling: a pinned window above it is
 honoured, because the user pinned it and configured the server to serve it. Only a

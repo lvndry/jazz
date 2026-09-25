@@ -260,7 +260,7 @@ answers.
 ### Vercel AI SDK as the provider port
 
 **Decision.** One adapter (`ai-sdk-service.ts`) behind the `LLMService` interface, giving 18
-providers including self-hosted Ollama, llama.cpp, and vLLM.
+providers including self-hosted Ollama, llama.cpp, vLLM, and SGLang.
 
 **Alternatives rejected.** Hand-written clients per provider: every new provider becomes a
 project, and streaming plus tool-calling plus reasoning quirks get reimplemented each time.
@@ -284,7 +284,7 @@ is worse than none. Requiring the network: breaks airgapped installs, which are 
 deployment.
 
 **Cost accepted.** A brand-new model may be missing from the catalog; Jazz falls back to
-provider-reported metadata and a 128k default. Ollama, llama.cpp, and vLLM need no catalog to list models. Ollama and llama.cpp report additional capabilities; vLLM's model list can report context length but cannot verify whether tool parsing is enabled on the server.
+provider-reported metadata and a 128k default. Ollama, llama.cpp, vLLM, and SGLang need no catalog to list models. Ollama and llama.cpp report additional capabilities; vLLM and SGLang model lists can report context length but cannot verify whether tool parsing is enabled on the server.
 
 📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../getting-started/local-models.md)
 

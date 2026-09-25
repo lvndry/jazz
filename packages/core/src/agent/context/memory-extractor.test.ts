@@ -77,6 +77,7 @@ const mockLLMService: LLMService = {
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
   fetchVllmServerModel: () => Effect.succeed({}),
+  fetchSglangServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 

@@ -18,7 +18,7 @@ export async function GET({ site }: APIContext): Promise<Response> {
     "",
     "> Jazz is an open-source AI agent harness that runs a general-purpose AI agent on your own machine —",
     "> terminal, scripts, cron, CI, Telegram, Discord. Self-hosted and fully local-capable:",
-    "> 18 LLM providers, including offline models via Ollama and llama.cpp.",
+    "> 21 LLM providers, including offline models via Ollama and llama.cpp.",
     "> MIT licensed. Install with a single curl command; ships as a self-contained binary for macOS and Linux.",
     "",
     `Install: curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash`,

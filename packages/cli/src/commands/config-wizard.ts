@@ -167,8 +167,8 @@ function configureLLMProviders() {
           yield* terminal.info("No changes made.");
         }
 
-        // Ollama uses a key for :cloud models; llama.cpp and vLLM can require server keys.
-        if (provider === "llamacpp" || provider === "vllm") {
+        // Ollama uses a key for :cloud models; the OpenAI-compatible local servers can require keys.
+        if (provider === "llamacpp" || provider === "vllm" || provider === "sglang") {
           const serverKey = yield* terminal.password(
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
           );
