@@ -48,6 +48,13 @@ import {
   validateSkillRouteInput,
 } from "./validation";
 
+// Bound approval text shown in the terminal and prepared data retained by a parked run.
+const DEFAULT_PLUGIN_TOOL_TIMEOUT_MS = 30_000;
+const PLUGIN_ARGUMENT_PREVIEW_CHARS = 500;
+const MAX_PLUGIN_APPROVAL_MESSAGE_CHARS = 4_000;
+const MAX_PLUGIN_APPROVAL_DIFF_CHARS = 1_000_000;
+const MAX_PLUGIN_PREPARED_JSON_CHARS = 8_000_000;
+
 /**
  * Write bytes to the process's controlling terminal so a terminal escape (for example an OSC
  * notification) reaches the user even when a fullscreen TUI owns stdout. Falls back to stdout when
@@ -172,7 +179,7 @@ export function createPluginSession(
       let reservedCostUSD = 0;
       let closed = false;
       const timeoutMs = options.hookTimeoutMs ?? DEFAULT_PLUGIN_HOOK_TIMEOUT_MS;
-      const toolTimeoutMs = options.toolTimeoutMs ?? 30_000;
+      const toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_PLUGIN_TOOL_TIMEOUT_MS;
 
       const registerPlugin = (plugin: LoadedPlugin): void => {
         const manifest = validatePluginManifest(plugin.manifest);
@@ -466,7 +473,7 @@ export function createPluginSession(
             if (!registered) return toolError(`no plugin handler for tool ${name}`);
             if (!registered.prepare) {
               return {
-                message: `Plugin: ${registered.pluginId}\nTool: ${name}\nArguments: ${JSON.stringify(args).slice(0, 500)}`,
+                message: `Plugin: ${registered.pluginId}\nTool: ${name}\nArguments: ${JSON.stringify(args).slice(0, PLUGIN_ARGUMENT_PREVIEW_CHARS)}`,
                 prepared: null,
               };
             }
@@ -479,12 +486,12 @@ export function createPluginSession(
               if (
                 typeof result.message !== "string" ||
                 result.message.length === 0 ||
-                result.message.length > 4_000 ||
+                result.message.length > MAX_PLUGIN_APPROVAL_MESSAGE_CHARS ||
                 (result.previewDiff !== undefined &&
                   (typeof result.previewDiff !== "string" ||
-                    result.previewDiff.length > 1_000_000)) ||
+                    result.previewDiff.length > MAX_PLUGIN_APPROVAL_DIFF_CHARS)) ||
                 serialized === undefined ||
-                serialized.length > 8_000_000
+                serialized.length > MAX_PLUGIN_PREPARED_JSON_CHARS
               )
                 return toolError(`tool ${name} returned an invalid approval proposal`);
               return { ...result, prepared: JSON.parse(serialized) as JsonValue };
