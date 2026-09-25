@@ -462,6 +462,10 @@ stay in the list until your next message. Companions started by `analyze_media` 
 `generate_media` are listed too, but take no messages: each makes a single model call with
 no tool calls to pause between.
 
+With `output.streaming.enabled: false`, completed model responses and tool calls still appear
+in the sub-agent's detail log. A message queued during the final tool batch stays marked
+undelivered when the child reaches its iteration or run budget before another model call.
+
 ### Shell escapes
 
 In the interactive terminal, type `! <command>` when the agent asks you to run a command

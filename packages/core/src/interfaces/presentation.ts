@@ -92,10 +92,12 @@ export interface PresentationService {
    */
   readonly presentWarning: (agentName: string, message: string) => Effect.Effect<void, never>;
 
-  /**
-   * Present an agent response to the user
-   */
-  readonly presentAgentResponse: (agentName: string, content: string) => Effect.Effect<void, never>;
+  /** Present an agent response, optionally inside its delegated run's detail log. */
+  readonly presentAgentResponse: (
+    agentName: string,
+    content: string,
+    options?: { readonly ephemeralRegionId: string },
+  ) => Effect.Effect<void, never>;
 
   /**
    * Render markdown content to formatted text
@@ -163,6 +165,9 @@ export interface PresentationService {
    * fallbacks in batch mode and return false to keep that behavior unchanged.
    */
   readonly emitsToolEventsViaRenderer?: () => boolean;
+
+  /** Whether batch-mode delegated runs have a detail log for responses and tool events. */
+  readonly capturesEphemeralRunDetails?: () => boolean;
 
   /**
    * Write output directly (for non-streaming mode).

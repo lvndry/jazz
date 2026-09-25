@@ -925,11 +925,6 @@ function handleToolPhase(
         ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
         : {}),
     };
-
-    const queuedMessage = options.checkQueuedMessage?.();
-    if (queuedMessage) {
-      state.currentMessages.push({ role: "user", content: queuedMessage });
-    }
   }).pipe(
     Effect.as("continue" as const),
     Effect.catchIf(
@@ -996,6 +991,14 @@ function runIteration(
   } = deps;
 
   return Effect.gen(function* () {
+    // Only take guidance when an iteration will actually make another model call.
+    // Taking it after the last tool batch would clear the UI queue even though
+    // the iteration or run budget can stop the child before it reads the message.
+    const queuedMessage = options.checkQueuedMessage?.();
+    if (queuedMessage) {
+      state.currentMessages.push({ role: "user", content: queuedMessage });
+    }
+
     if (!options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
@@ -1335,10 +1338,11 @@ function runIteration(
         : {}),
     };
 
-    // Internal runs (compaction, other sub-agents) return content to the
-    // parent. Presenting them as a finished turn makes the live conversation
-    // look done and fires the "task complete" notification mid-work.
-    if (!options.internal) {
+    // A delegated run with its own region may present content there. It must
+    // still skip the completion observer and notification for the main turn.
+    if (options.internal && options.ephemeralRegionId !== undefined) {
+      yield* strategy.presentResponse(agent.name, visibleContent, completion);
+    } else if (!options.internal) {
       yield* strategy.presentResponse(agent.name, visibleContent, completion);
       yield* observer.onCompletion(agent.name);
       yield* strategy.onComplete(agent.name, completion);

@@ -1136,8 +1136,16 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
-  presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
+  presentAgentResponse(
+    agentName: string,
+    content: string,
+    options?: { readonly ephemeralRegionId: string },
+  ): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (options !== undefined) {
+        store.appendEphemeral(options.ephemeralRegionId, content, "response");
+        return;
+      }
       const header = CHALK_THEME.primaryBold(`${getGlyphs().active} ${agentName}:`);
       const rendered = this.formatMarkdownText(content);
       store.printOutput({
@@ -1205,6 +1213,10 @@ export class InkPresentationService implements PresentationService {
         config.streamTarget ?? { kind: "scrollback" },
       );
     });
+  }
+
+  capturesEphemeralRunDetails(): boolean {
+    return true;
   }
 
   writeOutput(message: string): Effect.Effect<void, never> {

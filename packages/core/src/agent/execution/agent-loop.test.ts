@@ -343,6 +343,88 @@ describe("executeAgentLoop", () => {
     ToolExecutor.executeToolCalls = originalExecute;
   });
 
+  it("only takes queued guidance when another model iteration will run", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    let queued: string | undefined;
+    const seenByModel: string[] = [];
+    ToolExecutor.executeToolCalls = mock(() => {
+      queued = "Change the search scope";
+      return Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]);
+    });
+
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages, iteration) => {
+        if (iteration === 0) {
+          return Effect.succeed({
+            completion: {
+              id: "c1",
+              model: "gpt-4",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        seenByModel.push(
+          ...messages
+            .filter((message) => message.role === "user")
+            .map((message) => String(message.content)),
+        );
+        return Effect.succeed({
+          completion: { id: "c2", model: "gpt-4", content: "Done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    try {
+      const checkQueuedMessage = () => {
+        const message = queued;
+        queued = undefined;
+        return message;
+      };
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ checkQueuedMessage }),
+          makeRunContext({ maxIterations: 1 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(queued).toBe("Change the search scope");
+
+      queued = undefined;
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ checkQueuedMessage }),
+          makeRunContext({ maxIterations: 2 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(queued).toBeUndefined();
+      expect(seenByModel).toContain("Change the search scope");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
   it("warns against the agent's max context tokens before compacting", async () => {
     const warningCalls: string[] = [];
     const trackingPresentationService = {

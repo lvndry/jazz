@@ -1619,6 +1619,26 @@ describe("InkPresentationService approval rejection", () => {
 });
 
 describe("InkPresentationService sub-agent collapse line", () => {
+  test("routes a batch response to the sub-agent log", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(
+      service.openEphemeralRegion("subagent", "Researcher", {
+        agentRun: { task: "Find the answer", acceptsMessages: true },
+      }),
+    );
+    const outputBefore = store.getOutputSnapshot().entries.length;
+
+    await Effect.runPromise(
+      service.presentAgentResponse("Researcher", "The answer is 42.", {
+        ephemeralRegionId: regionId,
+      }),
+    );
+
+    const run = store.getSubagentsSnapshot().runs.find((candidate) => candidate.id === regionId);
+    expect(run?.entries).toEqual([{ kind: "response", text: "The answer is 42." }]);
+    expect(store.getOutputSnapshot().entries.length).toBe(outputBefore);
+  });
+
   const printed: OutputEntry[] = [];
   let originalPrintOutput: (typeof store)["printOutput"];
 

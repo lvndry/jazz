@@ -201,8 +201,8 @@ export interface AgentRunnerOptions {
    */
   readonly onAutoApproveTool?: (toolName: string) => void;
   /**
-   * Optional callback polled between tool-call batches (before the next LLM
-   * call) to inject a queued user message into the running conversation.
+   * Optional callback polled at the start of an iteration, before its LLM call,
+   * to inject a queued user message into the running conversation.
    * When it returns a non-empty string, that string is appended as a user
    * message so the agent can incorporate mid-run guidance immediately.
    * `spawn_subagent` sets it on the child to deliver messages the user addressed to
@@ -214,7 +214,7 @@ export interface AgentRunnerOptions {
    * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a
    * human-readable summary of the outcome. The default CLI wiring appends it to the
    * same queue `checkQueuedMessage` drains, so it surfaces at the next tool-phase
-   * boundary if this run is still going, or at the start of the next turn otherwise —
+   * iteration if this run is still going, or at the start of the next turn otherwise —
    * whichever comes first. Not called for internal (sub-agent) runs.
    */
   readonly onDetachedToolComplete?: (summary: string) => void;
