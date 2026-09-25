@@ -118,23 +118,23 @@ tool that writes to disk. See
 
 ### File Management
 
-| Tool             | Risk        | Approval pair        | What it does                                                                                                                                  |
-| ---------------- | ----------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cd`             | `read-only` | none                 | Change the working directory for this session. Persists across subsequent tool calls.                                                         |
-| `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.                                                   |
-| `edit_file`      | `high-risk` | `execute_edit_file`  | Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. IMPORTANT: Use rep…                                  |
-| `find`           | `read-only` | none                 | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep).                     |
-| `grep`           | `read-only` | none                 | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…                                   |
-| `ls`             | `read-only` | none                 | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…                                  |
-| `mkdir`          | `high-risk` | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                                                 |
-| `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                                                   |
-| `pdf_page_count` | `read-only` | none                 | Get total page count of a PDF without reading content.                                                                                        |
-| `pwd`            | `read-only` | none                 | Print the current working directory.                                                                                                          |
-| `read_file`      | `read-only` | none                 | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end; sinceByte reads only what was appended. |
-| `read_pdf`       | `read-only` | none                 | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                                           |
-| `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                                              |
-| `stat`           | `read-only` | none                 | Check file/directory existence and get metadata (type, size, times).                                                                          |
-| `write_file`     | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content.                                                                 |
+| Tool             | Risk        | Approval pair        | What it does                                                                                                              |
+| ---------------- | ----------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `cd`             | `read-only` | none                 | Change the working directory for this session. Persists across subsequent tool calls.                                     |
+| `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.                               |
+| `edit_file`      | `high-risk` | `execute_edit_file`  | Edit an existing file against the snapshot returned by `read_file`; reject stale state before approval or execution.      |
+| `find`           | `read-only` | none                 | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep). |
+| `grep`           | `read-only` | none                 | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…               |
+| `ls`             | `read-only` | none                 | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…              |
+| `mkdir`          | `high-risk` | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                             |
+| `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                               |
+| `pdf_page_count` | `read-only` | none                 | Get total page count of a PDF without reading content.                                                                    |
+| `pwd`            | `read-only` | none                 | Print the current working directory.                                                                                      |
+| `read_file`      | `read-only` | none                 | Read a UTF-8 text file with numbered lines and a full-file edit snapshot; sinceByte follows appended content.             |
+| `read_pdf`       | `read-only` | none                 | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                       |
+| `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                          |
+| `stat`           | `read-only` | none                 | Check file/directory existence and get metadata (type, size, times).                                                      |
+| `write_file`     | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content.                                             |
 
 ### Shell Commands
 
@@ -351,6 +351,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 
 ## Notes
 
+- **Editing a file another agent may change**: An ordinary text `read_file` returns a `snapshot` computed from the canonical target path and the complete file contents, even when only a line range was returned. Pass it unchanged to `edit_file`. The approval proposal checks it before showing a diff, and the hidden execution half checks it again under a per-file lock shared by Jazz agents and processes. A mismatch returns `StaleFileError` without writing or asking for approval; read the file again, inspect the current lines, and retry with the new snapshot. `sinceByte` follow-reads and media attachments do not produce edit snapshots. The lock serializes Jazz `edit_file` calls; other programs need not honor it, so external concurrent writes remain outside that lock.
 - **Following a file that is still being written**: `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file. `sinceByte` cannot be combined with `startLine`/`endLine`: except at `0`, which means "from the start of the file" and so narrows to the line range instead of being refused; models that fill every optional number in a schema with `0` send exactly that shape, and rejecting it cost a round trip to learn nothing.
 - **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
 - **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).

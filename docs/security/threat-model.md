@@ -42,6 +42,13 @@ remain `high-risk`. The denylist is only defense in depth and is bypassable by o
 Interactive runs ask a person. Unattended runs auto-approve only what their policy admits and decline
 the rest. `--park` is an explicit alternative that persists one waiting run for later approval.
 
+For `edit_file`, the read result carries a digest of the canonical target and full contents. The
+proposal rejects a stale digest before presenting a diff, and execution checks it again while
+holding a per-file lock before writing. This prevents two Jazz `edit_file` executions from both
+applying edits based on the same old contents, including when approval was parked. Other programs
+do not honor Jazz's lock; the digest check detects changes already present at execution, but it
+cannot make an uncooperative external write atomic with Jazz's write.
+
 ### Disclosure and egress
 
 Risk, disclosure, and egress are separate metadata. A read-only web request can transmit private
