@@ -9,7 +9,7 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import type { ToolExecutionResult } from "@/core/types";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type {
   JsonValue,
   PluginToolInfo,
@@ -22,7 +22,7 @@ import { defineTool, type ToolValidator } from "./base-tool";
 export type PluginToolInvoker = (
   name: string,
   args: Record<string, unknown>,
-  context: import("@/core/types").ToolExecutionContext,
+  context: ToolExecutionContext,
 ) => Effect.Effect<PluginToolResult>;
 
 export interface PluginToolApprovalInvoker {
@@ -30,13 +30,13 @@ export interface PluginToolApprovalInvoker {
   readonly prepare: (
     name: string,
     args: Record<string, unknown>,
-    context: import("@/core/types").ToolExecutionContext,
+    context: ToolExecutionContext,
   ) => Effect.Effect<PluginToolPreparation | PluginToolResult>;
   readonly execute: (
     name: string,
     args: Record<string, unknown>,
     prepared: unknown,
-    context: import("@/core/types").ToolExecutionContext,
+    context: ToolExecutionContext,
   ) => Effect.Effect<PluginToolResult>;
 }
 
@@ -167,7 +167,7 @@ export function adaptPluginToolToJazz(
   const jsonSchema = info.parameters as Readonly<Record<string, unknown>>;
   const run = (
     args: Record<string, unknown>,
-    context: import("@/core/types").ToolExecutionContext,
+    context: ToolExecutionContext,
   ): Effect.Effect<ToolExecutionResult> =>
     invoke.run(info.name, args, context).pipe(Effect.map(toExecutionResult));
 
