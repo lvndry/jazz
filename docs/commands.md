@@ -428,20 +428,20 @@ Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhoo
 
 Available inside an interactive session. Type `/help` for the current list.
 
-| Command      | Purpose                                                                           |
-| ------------ | --------------------------------------------------------------------------------- |
-| `/help`      | List commands                                                                     |
-| `/tools`     | Show available tools                                                              |
-| `/skills`    | Browse skills                                                                     |
-| `/workflows` | Browse workflows                                                                  |
-| `/mode`      | Change approval mode (also Shift+Tab)                                             |
-| `/cost`      | Tokens and USD for this session, including sub-agents                             |
-| `/context`   | Context window usage and the biggest consumers                                    |
-| `/compact`   | Force context compaction now                                                      |
-| `/switch`    | Switch agent                                                                      |
-| `/peers`     | List configured peers and what each may learn or do                               |
-| `/new`       | Start a fresh conversation                                                        |
-| `/fork`      | Branch to a new conversation, keeping the full history; the original is preserved |
+| Command      | Purpose                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `/help`      | List commands                                                                                  |
+| `/tools`     | Show available tools                                                                           |
+| `/skills`    | Search installed skills by name, source, or description; Enter opens details, Escape goes back |
+| `/workflows` | Browse workflows                                                                               |
+| `/mode`      | Change approval mode (also Shift+Tab)                                                          |
+| `/cost`      | Tokens and USD for this session, including sub-agents                                          |
+| `/context`   | Context window usage and the biggest consumers                                                 |
+| `/compact`   | Force context compaction now                                                                   |
+| `/switch`    | Switch agent                                                                                   |
+| `/peers`     | List configured peers and what each may learn or do                                            |
+| `/new`       | Start a fresh conversation                                                                     |
+| `/fork`      | Branch to a new conversation, keeping the full history; the original is preserved              |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.

@@ -15,6 +15,7 @@
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
+import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
@@ -78,11 +79,13 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
@@ -1072,6 +1075,11 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
+  const [skillField, skillFieldRef, setSkillField] = useSynchronizedState({ value: "", caret: 0 });
+  const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
+    null,
+  );
+  const [skillDetailOffset, skillDetailOffsetRef, setSkillDetailOffset] = useSynchronizedState(0);
   // The index reset for a replacement menu runs a frame after the menu lands;
   // a keypress in that gap must not read the old menu's selection into the new
   // one, so the index only counts for the menu it was moved on.
@@ -1150,7 +1158,10 @@ export function FullscreenBridge(): React.ReactNode {
 
   useEffect(() => {
     setMenuIndex(0);
-  }, [menu, setMenuIndex]);
+    setSkillField({ value: "", caret: 0 });
+    setSkillDetail(null);
+    setSkillDetailOffset(0);
+  }, [menu, setMenuIndex, setSkillField, setSkillDetail, setSkillDetailOffset]);
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
@@ -1425,6 +1436,12 @@ export function FullscreenBridge(): React.ReactNode {
     (raw: string): boolean => {
       const pasted = normalizePaste(raw);
       if (pasted.length === 0) return true;
+      if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
+        const flat = flattenPaste(pasted);
+        setSkillField((field) => insertTextAt(field.value, field.caret, flat));
+        setMenuIndex(0);
+        return true;
+      }
       if (menuRef.current !== null || approvalRef.current !== null) return true;
 
       if (searchQueryRef.current !== null) {
@@ -1495,7 +1512,14 @@ export function FullscreenBridge(): React.ReactNode {
       if (composerAvailable) insertAtCaret(pasted);
       return true;
     },
-    [insertAtCaret, updatePromptEditor, updatePromptFile, updatePromptQuestion],
+    [
+      insertAtCaret,
+      updatePromptEditor,
+      updatePromptFile,
+      updatePromptQuestion,
+      setSkillField,
+      setMenuIndex,
+    ],
   );
 
   // The approval card owns the keyboard while it is up. Enter accepts, Esc
@@ -1586,6 +1610,74 @@ export function FullscreenBridge(): React.ReactNode {
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
+        if (openMenu.kind === "skills") {
+          const detail = skillDetailRef.current;
+          if (detail !== null) {
+            if (name === "escape" || name === "return" || name === "enter") {
+              setSkillDetail(null);
+              setSkillDetailOffset(0);
+            } else if (
+              name === "up" ||
+              name === "k" ||
+              name === "down" ||
+              name === "j" ||
+              name === "pageup" ||
+              name === "pagedown"
+            ) {
+              const maxOffset = Math.max(
+                0,
+                skillDetailRows(detail, viewport.width).length - skillDetailBodyRows(viewport),
+              );
+              const step =
+                name === "pageup" || name === "pagedown" ? skillDetailBodyRows(viewport) : 1;
+              const direction = name === "up" || name === "k" || name === "pageup" ? -1 : 1;
+              setSkillDetailOffset(
+                Math.max(0, Math.min(maxOffset, skillDetailOffsetRef.current + direction * step)),
+              );
+            }
+            return true;
+          }
+          if (name === "escape") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          const field = skillFieldRef.current;
+          const matches = filterSkills(openMenu.skills, field.value);
+          const selected = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
+            const step = name === "pageup" || name === "pagedown" ? skillListRows(viewport) : 1;
+            const direction = name === "up" || name === "pageup" ? -1 : 1;
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(0, Math.min(Math.max(0, matches.length - 1), selected + direction * step)),
+            );
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const skill = matches[selected];
+            if (skill !== undefined) {
+              setSkillDetail(skill);
+              setSkillDetailOffset(0);
+            }
+            return true;
+          }
+          const nextField = applyTextFieldKey(field, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextField !== null) {
+            setSkillField(nextField);
+            if (nextField.value !== field.value) {
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(0);
+            }
+          }
+          return true;
+        }
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
         const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
@@ -2278,6 +2370,10 @@ export function FullscreenBridge(): React.ReactNode {
       setAgentCursor,
       inspectSubagent,
       sendToInspectedSubagent,
+      setSkillField,
+      setSkillDetail,
+      setSkillDetailOffset,
+      setMenuIndex,
     ],
   );
 
@@ -2520,7 +2616,17 @@ export function FullscreenBridge(): React.ReactNode {
   // its place. App's own `useKeyboard` call has to stay mounted for any of this
   // to receive a key at all — arrows, enter, or Ctrl+C.
   const overrideContent: React.ReactNode | undefined =
-    menu?.kind === "agents" ? (
+    menu?.kind === "skills" ? (
+      <SkillBrowser
+        skills={menu.skills}
+        query={skillField.value}
+        caret={skillField.caret}
+        selected={menuIndex}
+        detail={skillDetail}
+        detailOffset={skillDetailOffset}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agents" ? (
       <AgentPicker
         agents={menu.agents}
         selectedIndex={menuIndex}

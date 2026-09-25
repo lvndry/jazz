@@ -917,6 +917,50 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
+  it("filters skills, opens details, returns to the filtered list, then closes", async () => {
+    const completed: string[] = [];
+    const rendered = await testRender(<FullscreenBridge />, { width: 60, height: 14 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "skills",
+        skills: [
+          {
+            name: "calendar",
+            source: "builtin",
+            description: "Manage events",
+            path: "/skills/calendar",
+          },
+          { name: "research", source: "plugin", description: "Read papers in full", path: "" },
+        ],
+      },
+      (result) => completed.push(result.kind),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("calendar");
+    expect(rendered.captureCharFrame()).toContain("research");
+
+    for (const letter of "plugin") {
+      await rendered.mockInput.pressKey(letter);
+      await settleKeypress(rendered.flush);
+    }
+    expect(rendered.captureCharFrame()).toContain("research");
+    expect(rendered.captureCharFrame()).not.toContain("calendar");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("Read papers in full");
+    expect(completed).toEqual([]);
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    expect(rendered.captureCharFrame()).toContain("research");
+    expect(rendered.captureCharFrame()).not.toContain("calendar");
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(completed).toEqual(["exit"]);
+  });
+
   it("keeps a data-only menu fullscreen without falling back", async () => {
     let fallbackRequests = 0;
     const unregisterFallback = store.registerRendererFallbackHandler(() => {
