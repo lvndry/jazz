@@ -81,6 +81,7 @@ import {
   reasoningSelectionToCliValue,
 } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { store } from "@/cli/ui/store";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { CHAT_COMMANDS } from "./constants";
@@ -1947,16 +1948,28 @@ function handleResumeCommand(
 }
 
 /**
- * Handle /skills command - List and view skills
+ * Handle /skills. Interactive terminals browse a bounded catalog; headless
+ * callers retain the complete printable inventory.
  */
 function handleSkillsCommand(
   terminal: TerminalService,
 ): Effect.Effect<CommandResult, Error, SkillService> {
   return Effect.gen(function* () {
     const skillService = yield* SkillServiceTag;
-    const { builtin, global, agents, local } = yield* skillService.listSkillsBySource();
+    const { builtin, global, agents, local, plugin } = yield* skillService.listSkillsBySource();
 
-    const totalCount = builtin.length + global.length + agents.length + local.length;
+    const totalCount =
+      builtin.length + global.length + agents.length + local.length + plugin.length;
+
+    if (terminal.isInteractive) {
+      const skills = [...builtin, ...global, ...agents, ...local, ...plugin].sort(
+        (a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
+      );
+      yield* Effect.async<void>((resume) => {
+        store.setActiveMenu({ kind: "skills", skills }, () => resume(Effect.void));
+      });
+      return { shouldContinue: true };
+    }
 
     if (totalCount === 0) {
       yield* terminal.warn("No skills found.");
@@ -2007,6 +2020,16 @@ function handleSkillsCommand(
       sourcesCount++;
       const sorted = [...local].sort((a, b) => a.name.localeCompare(b.name));
       yield* terminal.log(fmt.section("Local", local.length, "skill"));
+      for (const s of sorted) {
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
+      }
+      yield* terminal.log(fmt.blank());
+    }
+
+    if (plugin.length > 0) {
+      sourcesCount++;
+      const sorted = [...plugin].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(fmt.section("Plugin", plugin.length, "skill"));
       for (const s of sorted) {
         yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
       }

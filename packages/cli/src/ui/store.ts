@@ -4,6 +4,7 @@
  * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
+import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { useSyncExternalStore } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
@@ -134,7 +135,13 @@ export interface ActiveAgentMenu {
   readonly browse?: boolean;
 }
 
-export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
+/** Skill catalog presented as a searchable, read-only terminal surface. */
+export interface ActiveSkillMenu {
+  readonly kind: "skills";
+  readonly skills: readonly SkillMetadata[];
+}
+
+export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu | ActiveSkillMenu;
 
 /** Discriminated surface a renderer paints in place of the chat transcript. */
 export type SurfaceIntent = ActiveMenu;

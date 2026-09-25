@@ -20,10 +20,16 @@ import {
 } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import {
+  SkillServiceTag,
+  type SkillService,
+  type SkillsBySource,
+} from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { store } from "@/cli/ui/store";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
 
@@ -89,6 +95,80 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe("handleSpecialCommand /skills", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+  };
+  const inventory: SkillsBySource = {
+    builtin: [
+      {
+        name: "calendar",
+        description: "Manage events",
+        source: "builtin" as const,
+        path: "/calendar",
+      },
+    ],
+    global: [],
+    agents: [],
+    local: [],
+    plugin: [{ name: "research", description: "Read papers", source: "plugin" as const, path: "" }],
+  };
+  const skillService: SkillService = {
+    listSkills: () => Effect.succeed([...inventory.builtin, ...inventory.plugin]),
+    listSkillsBySource: () => Effect.succeed(inventory),
+    loadSkill: () => Effect.die("unused"),
+    loadSkillSection: () => Effect.die("unused"),
+  };
+
+  test("publishes one interactive catalog including plugin skills", async () => {
+    const layer = Layer.merge(
+      Layer.succeed(TerminalServiceTag, { isInteractive: true } as TerminalService),
+      Layer.succeed(SkillServiceTag, skillService),
+    );
+    const pending = Effect.runPromise(
+      handleSpecialCommand({ type: "skills", args: [] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.getActiveMenuSnapshot()).toEqual({
+      kind: "skills",
+      skills: [...inventory.builtin, ...inventory.plugin],
+    });
+    store.completePrompt({ kind: "exit" });
+    expect(await pending).toEqual({ shouldContinue: true });
+  });
+
+  test("prints the complete inventory for a non-interactive terminal", async () => {
+    const lines: string[] = [];
+    const layer = Layer.merge(
+      Layer.succeed(TerminalServiceTag, {
+        isInteractive: false,
+        log: (message: string) =>
+          Effect.sync(() => {
+            lines.push(message);
+            return undefined;
+          }),
+      } as unknown as TerminalService),
+      Layer.succeed(SkillServiceTag, skillService),
+    );
+    await Effect.runPromise(
+      handleSpecialCommand({ type: "skills", args: [] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+    expect(lines.join("\n")).toContain("calendar");
+    expect(lines.join("\n")).toContain("research");
+    expect(store.getActiveMenuSnapshot()).toBeNull();
+  });
 });
 
 describe("handleSpecialCommand resume", () => {
