@@ -8,6 +8,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
+  EphemeralRegionOptions,
   PresentationService,
 } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
@@ -882,6 +883,86 @@ describe("spawn_subagent presentation", () => {
       expect(calls.collapses[0]?.outcome.status).toBe("failed");
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent steering", () => {
+  function captureChildOptions(): {
+    readonly captured: { options?: Omit<AgentRunnerOptions, "internal"> };
+    readonly restore: () => void;
+  } {
+    const captured: { options?: Omit<AgentRunnerOptions, "internal"> } = {};
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured.options = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    return { captured, restore: () => spy.mockRestore() };
+  }
+
+  it("delivers messages addressed to the child's region, framed as guidance", async () => {
+    const { presentation } = createPresentationHarness();
+    const waiting = ["try the corner cells first"];
+    const takenFrom: string[] = [];
+    const steerable = {
+      ...presentation,
+      takeEphemeralRegionMessage: (regionId: string) => {
+        takenFrom.push(regionId);
+        return Effect.succeed(waiting.shift());
+      },
+    } as PresentationService;
+    const { captured, restore } = captureChildOptions();
+    try {
+      await runSpawn(steerable);
+      const check = captured.options?.checkQueuedMessage;
+      expect(check).toBeDefined();
+      const delivered = check?.();
+      expect(delivered).toContain("try the corner cells first");
+      expect(delivered).toContain("continue the task");
+      expect(check?.()).toBeUndefined();
+      expect(takenFrom).toEqual(["eph-test", "eph-test"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("gives the child no queue on a surface that cannot address it", async () => {
+    const { presentation } = createPresentationHarness();
+    const { captured, restore } = captureChildOptions();
+    try {
+      await runSpawn(presentation);
+      expect(captured.options?.checkQueuedMessage).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("marks the panel as a delegated run with its full brief, not only the preview", async () => {
+    const opened: Array<EphemeralRegionOptions | undefined> = [];
+    const { presentation } = createPresentationHarness();
+    const recording = {
+      ...presentation,
+      openEphemeralRegion: (
+        _kind: EphemeralRegionKind,
+        _label: string,
+        options?: EphemeralRegionOptions,
+      ) => {
+        opened.push(options);
+        return Effect.succeed("eph-test");
+      },
+      takeEphemeralRegionMessage: () => Effect.succeed(undefined),
+    } as PresentationService;
+    const task = `Solve the board. ${"Constraint. ".repeat(20)}`;
+    const { restore } = captureChildOptions();
+    try {
+      await runSpawnArgs(recording, { task, persona: "default" });
+      expect(opened).toEqual([{ agentRun: { task, acceptsMessages: true } }]);
+    } finally {
+      restore();
     }
   });
 });

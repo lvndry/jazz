@@ -446,6 +446,26 @@ Available inside an interactive session. Type `/help` for the current list.
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.
 
+### Watching and steering sub-agents
+
+When the agent delegates with `spawn_subagent`, the turn's sub-agents are listed under the
+composer with what each one is doing right now. With the composer empty, press Down to
+move into the list, Up and Down to pick one, and Enter to open it: the transcript is
+replaced by that sub-agent's brief, reasoning, tool calls, and answer, and keeps updating
+while it works. Esc returns to the main conversation.
+
+While a sub-agent is open, Enter sends your draft to it instead of to the main chat. The
+sub-agent reads it between tool calls, the same point where the main agent picks up
+queued messages, and treats it as guidance on its current task. If it finishes before
+reaching another tool call, Jazz says the message was not delivered. Finished sub-agents
+stay in the list until your next message. Companions started by `analyze_media` and
+`generate_media` are listed too, but take no messages: each makes a single model call with
+no tool calls to pause between.
+
+With `output.streaming.enabled: false`, completed model responses and tool calls still appear
+in the sub-agent's detail log. A message queued during the final tool batch stays marked
+undelivered when the child reaches its iteration or run budget before another model call.
+
 ### Shell escapes
 
 In the interactive terminal, type `! <command>` when the agent asks you to run a command

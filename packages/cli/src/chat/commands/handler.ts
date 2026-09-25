@@ -517,6 +517,9 @@ const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: str
   ["Esc", "Clear the current draft"],
   ["Up (agent busy)", "Recall queued messages for editing"],
   ["Ctrl+X (agent busy)", "Clear the message queue"],
+  ["Down (sub-agents listed)", "Pick a sub-agent under the input; Enter opens its log"],
+  ["Enter (sub-agent open)", "Send the draft to that sub-agent instead of the main chat"],
+  ["Esc (sub-agent open)", "Return to the main conversation"],
 ];
 
 /**

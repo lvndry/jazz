@@ -1,7 +1,7 @@
 /**
  * Vertical allocation and scroll-window arithmetic for the fullscreen shell.
  *
- * `allocateRegions` gives the transcript, live-work band, and composer a
+ * `allocateRegions` gives the transcript, live-work band, composer, and sub-agent list a
  * bounded share of the current viewport; the scroll helpers keep transcript
  * navigation within the rows that allocation leaves visible.
  */
@@ -69,10 +69,11 @@ export interface RegionHeights {
   readonly transcript: number;
   readonly live: number;
   readonly input: number;
+  readonly subagents: number;
 }
 
 /**
- * Divide the rows between the three regions that compete for them.
+ * Divide the rows between the regions that compete for them.
  *
  * Every region below the header is `flexShrink: 0`, so this arithmetic is the
  * only thing standing between a cramped terminal and a footer pushed off the
@@ -80,7 +81,8 @@ export interface RegionHeights {
  * wants more rows than exist, so the list is windowed around its selection.
  *
  * The order of service is the design: the composer is under the user's hands,
- * so it is served first, but never down to the last transcript row; the live
+ * so it is served first, but never down to the last transcript row; the
+ * sub-agent list comes next because it is the only way into a sub-agent; the live
  * band yields last because it is the only region whose content is transient.
  */
 export function allocateRegions(args: {
@@ -88,21 +90,26 @@ export function allocateRegions(args: {
   readonly live: LiveModel;
   readonly input: InputModel;
   readonly inputFocused: boolean;
+  readonly subagentRows?: number;
 }): RegionHeights {
   const available = Math.max(
     0,
     args.viewport.height - TRANSCRIPT_CHROME_ABOVE - TRANSCRIPT_CHROME_BELOW,
   );
-  if (available <= 0) return { transcript: 0, live: 0, input: 0 };
+  if (available <= 0) return { transcript: 0, live: 0, input: 0, subagents: 0 };
 
   const inputBudget = Math.max(1, available - 1);
   const input = Math.min(
     inputRows(args.input, args.viewport, args.inputFocused, undefined, inputBudget).length,
     inputBudget,
   );
-  const live = reservedHeight(args.live, Math.max(0, available - input - 1));
-  const transcript = Math.max(0, available - input - live);
-  return { transcript, live, input };
+  const subagents = Math.min(
+    Math.max(0, Math.trunc(args.subagentRows ?? 0)),
+    Math.max(0, available - input - 1),
+  );
+  const live = reservedHeight(args.live, Math.max(0, available - input - subagents - 1));
+  const transcript = Math.max(0, available - input - subagents - live);
+  return { transcript, live, input, subagents };
 }
 
 export function transcriptVisibleCount(args: {
@@ -110,6 +117,7 @@ export function transcriptVisibleCount(args: {
   readonly live: LiveModel;
   readonly input: InputModel;
   readonly inputFocused: boolean;
+  readonly subagentRows?: number;
 }): number {
   return allocateRegions(args).transcript;
 }

@@ -1,3 +1,9 @@
+/**
+ * Non-streaming agent execution. It makes complete model calls, shares the
+ * agent loop with streaming mode, and sends tool events and final responses to
+ * a delegated run's region when the presentation surface can inspect one.
+ */
+
 import { Cause, Duration, Effect, Ref } from "effect";
 import {
   makeUserVisibleLlmRetrySchedule,
@@ -50,21 +56,26 @@ export function executeWithoutStreaming(
     const reasoning = agent.config.reasoning;
     const reasoningLabel = describeReasoningSelection(reasoning);
     const shouldShowReasoning = displayConfig.showReasoning && reasoningIsEnabled(reasoning);
+    const captureRun =
+      options.ephemeralRegionId !== undefined &&
+      presentationService.capturesEphemeralRunDetails?.() === true;
 
-    // Some presentation services (the headless one-shot `--events` emitter) only
-    // surface tool lifecycle events through a streaming renderer. On this batch
-    // path the tool executor would otherwise fall back to the plain `format*`
-    // methods and never emit those events, so route tool events through a
-    // renderer when the service asks for it. Visual services return false here
-    // and keep their batch `format*` rendering unchanged.
+    // The one-shot event emitter and the fullscreen sub-agent inspector both
+    // need tool lifecycle events in batch mode. Other visual runs keep their
+    // plain `format*` rendering.
     const toolEventRenderer: StreamingRenderer | null =
-      presentationService.emitsToolEventsViaRenderer?.() === true
+      captureRun || presentationService.emitsToolEventsViaRenderer?.() === true
         ? yield* presentationService.createStreamingRenderer({
             displayConfig,
-            streamingConfig: { enabled: true },
+            streamingConfig: { enabled: true, ...(captureRun ? { textBufferMs: 0 } : {}) },
             showMetrics,
             agentName: agent.name,
             reasoning: reasoningLabel,
+            ...(captureRun && options.ephemeralRegionId !== undefined
+              ? {
+                  streamTarget: { kind: "ephemeral" as const, regionId: options.ephemeralRegionId },
+                }
+              : {}),
           })
         : null;
 
@@ -131,17 +142,28 @@ export function executeWithoutStreaming(
 
       presentResponse(_agentName, content, completion) {
         return Effect.gen(function* () {
-          // Format content only when markdown mode is enabled
-          let formattedContent = content;
-          if (formattedContent && displayConfig.mode === "rendered") {
-            formattedContent = yield* presentationService.renderMarkdown(formattedContent);
-          }
+          if (options.internal) {
+            if (
+              captureRun &&
+              options.ephemeralRegionId !== undefined &&
+              content.trim().length > 0
+            ) {
+              yield* presentationService.presentAgentResponse(agent.name, content, {
+                ephemeralRegionId: options.ephemeralRegionId,
+              });
+            }
+          } else {
+            // Format content only when markdown mode is enabled
+            let formattedContent = content;
+            if (formattedContent && displayConfig.mode === "rendered") {
+              formattedContent = yield* presentationService.renderMarkdown(formattedContent);
+            }
 
-          // Display final response
-          if (formattedContent && formattedContent.trim().length > 0) {
-            yield* presentationService.writeBlankLine();
-            yield* presentationService.presentAgentResponse(agent.name, formattedContent);
-            yield* presentationService.writeBlankLine();
+            if (formattedContent && formattedContent.trim().length > 0) {
+              yield* presentationService.writeBlankLine();
+              yield* presentationService.presentAgentResponse(agent.name, formattedContent);
+              yield* presentationService.writeBlankLine();
+            }
           }
 
           // Show metrics if enabled

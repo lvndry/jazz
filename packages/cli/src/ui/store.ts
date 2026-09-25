@@ -1,7 +1,7 @@
 /**
  * Global UI state store (`UIStore`) that every "island" component reads via
  * `useSyncExternalStore`, sliced by concern (output, session, prompt,
- * ephemeral) so a change in one slice doesn't re-render unrelated islands.
+ * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
 import { useSyncExternalStore } from "react";
@@ -13,6 +13,18 @@ import {
   type ScrollbackState,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
+import {
+  appendToSubagentRun,
+  finishSubagentRun,
+  finishSubagentTool,
+  openSubagentRun,
+  startSubagentTool,
+  steerSubagentRun,
+  takeSubagentMessages,
+  type SubagentChannel,
+  type SubagentRun,
+  type SubagentStatus,
+} from "./subagent-runs";
 import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 
 type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
@@ -26,6 +38,7 @@ function isQueuedCommand(entry: string): boolean {
   return (trimmed.startsWith("/") || trimmed.startsWith("!")) && !trimmed.includes("\n");
 }
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
+const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
 const EMPTY_RUN_STATS: RunStats = {};
 
@@ -64,6 +77,8 @@ export interface CollapseEphemeralSummary {
   readonly fullText?: string;
   readonly durationMs: number;
   readonly tokens?: number;
+  /** How a sub-agent region ended. Absent means it completed. */
+  readonly status?: Exclude<SubagentStatus, "running">;
 }
 
 export type ConnectorStatus = "live" | "renew" | "offline";
@@ -186,6 +201,11 @@ export interface EphemeralSnapshot {
   readonly expandableReasoning: ExpandableReasoning | null;
 }
 
+export interface SubagentsSnapshot {
+  /** This turn's sub-agents in spawn order, finished ones included. */
+  readonly runs: readonly SubagentRun[];
+}
+
 const INITIAL_OUTPUT: OutputSnapshot = {
   entries: EMPTY_OUTPUT_ENTRIES,
   pending: null,
@@ -216,6 +236,10 @@ const INITIAL_PROMPT: PromptSnapshot = {
 const INITIAL_EPHEMERAL: EphemeralSnapshot = {
   regions: EMPTY_REGIONS,
   expandableReasoning: null,
+};
+
+const INITIAL_SUBAGENTS: SubagentsSnapshot = {
+  runs: EMPTY_SUBAGENT_RUNS,
 };
 
 class StoreSlice<T> {
@@ -271,6 +295,7 @@ export class UIStore {
   private readonly session = new StoreSlice<SessionSnapshot>(INITIAL_SESSION);
   private readonly prompt = new StoreSlice<PromptSnapshot>(INITIAL_PROMPT);
   private readonly ephemeral = new StoreSlice<EphemeralSnapshot>(INITIAL_EPHEMERAL);
+  private readonly subagents = new StoreSlice<SubagentsSnapshot>(INITIAL_SUBAGENTS);
 
   private scrollback: ScrollbackState = initialScrollbackState();
   private pinnedReasoningIds = new Set<EphemeralRegionId>();
@@ -287,6 +312,7 @@ export class UIStore {
   private inputHistory: string[] = [];
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
+  private subagentRuns: Map<EphemeralRegionId, SubagentRun> = new Map();
   // A run may synchronously spawn nested runs. Interrupting only the top-most
   // callback leaves the parent waiting for (and potentially respawning) a child.
   // Keep the stack for scoped cleanup, but dispatch an interrupt to every active
@@ -307,6 +333,9 @@ export class UIStore {
 
   subscribeEphemeral = (listener: () => void): (() => void) => this.ephemeral.subscribe(listener);
   getEphemeralSnapshot = (): EphemeralSnapshot => this.ephemeral.getSnapshot();
+
+  subscribeSubagents = (listener: () => void): (() => void) => this.subagents.subscribe(listener);
+  getSubagentsSnapshot = (): SubagentsSnapshot => this.subagents.getSnapshot();
 
   private publishScrollback(next: ScrollbackState): void {
     if (Object.is(next, this.scrollback)) return;
@@ -524,6 +553,9 @@ export class UIStore {
   };
 
   setChatBusy = (busy: boolean): void => {
+    // A new turn starts the list over. Finished sub-agents stay readable between
+    // turns, but the list is "this run's sub-agents", not the session's.
+    if (busy && !this.session.getSnapshot().chatBusy) this.pruneFinishedSubagentRuns();
     patchSlice(this.session, { chatBusy: busy });
   };
 
@@ -579,24 +611,48 @@ export class UIStore {
     patchSlice(this.ephemeral, { expandableReasoning: value });
   }
 
-  openEphemeral = (kind: EphemeralKind, label: string, maxLines: number): EphemeralRegionId => {
+  /**
+   * `agentRun` marks a region that tracks a delegated agent, which is what gets it a
+   * row in the sub-agent list; internal steps such as compaction leave it out.
+   */
+  openEphemeral = (
+    kind: EphemeralKind,
+    label: string,
+    maxLines: number,
+    agentRun?: { readonly task: string; readonly acceptsMessages: boolean },
+  ): EphemeralRegionId => {
     const id = `eph-${++this.ephemeralIdCounter}-${Date.now()}`;
+    const startedAt = Date.now();
     this.ephemeralRegions.set(id, {
       id,
       kind,
       label,
-      startedAt: Date.now(),
+      startedAt,
       tail: [],
       maxLines,
     });
     this.publishEphemeralRegions();
+    if (agentRun !== undefined) {
+      this.subagentRuns.set(id, openSubagentRun(id, label, startedAt, agentRun));
+      this.publishSubagentRuns();
+    }
     return id;
   };
 
-  appendEphemeral = (id: EphemeralRegionId, text: string): void => {
+  appendEphemeral = (
+    id: EphemeralRegionId,
+    text: string,
+    channel: SubagentChannel = "response",
+  ): void => {
     if (text.length === 0) return;
     const region = this.ephemeralRegions.get(id);
     if (!region) return;
+
+    const run = this.subagentRuns.get(id);
+    if (run !== undefined) {
+      this.subagentRuns.set(id, appendToSubagentRun(run, text, channel));
+      this.publishSubagentRuns();
+    }
 
     const incoming = text.split("\n");
     const merged = [...region.tail];
@@ -622,6 +678,7 @@ export class UIStore {
 
     this.ephemeralRegions.delete(id);
     this.publishEphemeralRegions();
+    this.finishSubagentRunWith(id, summary.status ?? "completed");
 
     const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
     const pinned = this.pinnedReasoningIds.delete(id);
@@ -690,6 +747,7 @@ export class UIStore {
 
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
+    for (const id of this.ephemeralRegions.keys()) this.finishSubagentRunWith(id, "interrupted");
     for (const region of this.ephemeralRegions.values()) {
       if (region.kind !== "reasoning") continue;
       const fullText = region.tail.join("\n").trim();
@@ -721,6 +779,90 @@ export class UIStore {
     }
     this.ephemeralRegions.clear();
     this.publishEphemeralRegions();
+  };
+
+  private publishSubagentRuns(): void {
+    const runs =
+      this.subagentRuns.size === 0 ? EMPTY_SUBAGENT_RUNS : Array.from(this.subagentRuns.values());
+    patchSlice(this.subagents, { runs });
+  }
+
+  private pruneFinishedSubagentRuns(): void {
+    let pruned = false;
+    for (const [id, run] of this.subagentRuns) {
+      if (run.status === "running") continue;
+      this.subagentRuns.delete(id);
+      pruned = true;
+    }
+    if (pruned) this.publishSubagentRuns();
+  }
+
+  /**
+   * A message still pending when the sub-agent ends never reached it: the loop only
+   * reads them between tool batches, and there will be no next batch. Saying so is
+   * the difference between "it ignored me" and "it never heard me".
+   */
+  private finishSubagentRunWith(
+    id: EphemeralRegionId,
+    status: Exclude<SubagentStatus, "running">,
+  ): void {
+    const run = this.subagentRuns.get(id);
+    if (run === undefined || run.status !== "running") return;
+    const undelivered = run.pendingMessages.length;
+    this.subagentRuns.set(id, finishSubagentRun(run, status, Date.now()));
+    this.publishSubagentRuns();
+    if (undelivered > 0) {
+      this.printOutput({
+        type: "warn",
+        message:
+          undelivered === 1
+            ? `Your message to ${run.label} was not delivered: it finished before its next step.`
+            : `${String(undelivered)} messages to ${run.label} were not delivered: it finished before its next step.`,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  recordSubagentToolStart = (
+    id: EphemeralRegionId,
+    tool: { readonly toolCallId: string; readonly name: string; readonly args: string },
+  ): void => {
+    const run = this.subagentRuns.get(id);
+    if (run === undefined) return;
+    this.subagentRuns.set(id, startSubagentTool(run, tool));
+    this.publishSubagentRuns();
+  };
+
+  recordSubagentToolEnd = (
+    id: EphemeralRegionId,
+    toolCallId: string,
+    outcome: { readonly failed: boolean; readonly summary: string; readonly durationMs: number },
+  ): void => {
+    const run = this.subagentRuns.get(id);
+    if (run === undefined) return;
+    this.subagentRuns.set(id, finishSubagentTool(run, toolCallId, outcome));
+    this.publishSubagentRuns();
+  };
+
+  /** Queue a message for a running sub-agent. False when it has finished or cannot take one. */
+  sendSubagentMessage = (id: EphemeralRegionId, message: string): boolean => {
+    const run = this.subagentRuns.get(id);
+    if (run === undefined) return false;
+    const next = steerSubagentRun(run, message);
+    if (next === null) return false;
+    this.subagentRuns.set(id, next);
+    this.publishSubagentRuns();
+    return true;
+  };
+
+  takeSubagentMessage = (id: EphemeralRegionId): string | undefined => {
+    const run = this.subagentRuns.get(id);
+    if (run === undefined) return undefined;
+    const taken = takeSubagentMessages(run);
+    if (taken.message === undefined) return undefined;
+    this.subagentRuns.set(id, taken.run);
+    this.publishSubagentRuns();
+    return taken.message;
   };
 
   pinOpenReasoning = (): boolean => {
@@ -909,6 +1051,14 @@ export function useSessionSlice(): SessionSnapshot {
 
 export function usePromptSlice(): PromptSnapshot {
   return useSyncExternalStore(store.subscribePrompt, store.getPromptSlice, store.getPromptSlice);
+}
+
+export function useSubagentsSlice(): SubagentsSnapshot {
+  return useSyncExternalStore(
+    store.subscribeSubagents,
+    store.getSubagentsSnapshot,
+    store.getSubagentsSnapshot,
+  );
 }
 
 export function useEphemeralSlice(): EphemeralSnapshot {
