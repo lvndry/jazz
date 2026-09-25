@@ -12,11 +12,13 @@
  *   live zone   0–12 rows, grows upward, present only while work is in flight
  *   gap         1 row, so the live band never sits on the composer
  *   input       1–N rows, anchored to the bottom
+ *   subagents   0–N rows, present only while the turn has delegated work
  *   footer      1 row, anchored to the bottom
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
 import type { TodoSnapshotItem } from "../activity-state";
+import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
@@ -216,6 +218,28 @@ export interface LiveModel {
   readonly reservedRows: number;
 }
 
+// ─── Sub-agents ──────────────────────────────────────────────────────────────
+
+export interface SubagentListItem {
+  readonly id: string;
+  readonly label: string;
+  readonly status: SubagentStatus;
+  /** Newest line of output, so a row says what the agent is doing, not just that it is. */
+  readonly activity: string;
+  readonly elapsedMs: number;
+}
+
+/**
+ * This turn's sub-agents, listed under the composer. `selected` is set only while
+ * the list has the keyboard; `inspecting` names the one whose log fills the
+ * transcript.
+ */
+export interface SubagentListModel {
+  readonly items: readonly SubagentListItem[];
+  readonly selected?: number;
+  readonly inspecting?: string;
+}
+
 // ─── Input, footer ───────────────────────────────────────────────────────────
 
 export type Mode = "chat" | "plan" | "auto" | "safe" | "yolo";
@@ -335,6 +359,7 @@ export interface ViewModel {
   readonly runActive?: boolean;
   readonly input: InputModel;
   readonly footer: FooterModel;
+  readonly subagents?: SubagentListModel;
   readonly overlay?: Overlay;
   readonly focus: Focus;
   /** Set while the reader is scrolled away from the live edge. */

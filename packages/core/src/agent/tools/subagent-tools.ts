@@ -31,6 +31,15 @@ const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
 
+/**
+ * The child was told it is a one-shot run with nobody to ask, so a bare user turn
+ * mid-task reads like a new task. Framing it as guidance on the current one keeps
+ * the child working instead of starting over or stopping to answer it.
+ */
+function frameSteeringMessage(message: string): string {
+  return `[MESSAGE FROM THE USER WHILE YOU WORK]\nTake this into account and continue the task:\n\n${message}`;
+}
+
 // ─── Sub-Agent Tool ──────────────────────────────────────────────────
 
 const spawnSubagentSchema = z.object({
@@ -283,7 +292,12 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const startedAt = Date.now();
 
-          const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel);
+          const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel, {
+            agentRun: {
+              task: args.task,
+              acceptsMessages: presentation.takeEphemeralRegionMessage !== undefined,
+            },
+          });
           yield* presentation.appendEphemeralRegion(regionId, `Task: ${taskPreview}`);
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
@@ -310,6 +324,7 @@ You are a sub-agent performing a delegated task for a parent agent. This is a ON
 Rules:
 - Complete the task and produce a answer
 - Do NOT ask follow-up questions or wait for user input
+- The user may send you guidance while you work; when a message arrives, fold it into the task and keep going
 - Do NOT continue searching indefinitely — gather enough information, then synthesise and respond
 - If the task is ambiguous, state your assumptions briefly and proceed
 - If you cannot complete the task fully, return what you found and explain why
@@ -340,6 +355,17 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             }),
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
+            ...(presentation.takeEphemeralRegionMessage
+              ? {
+                  checkQueuedMessage: () => {
+                    const steering = Effect.runSync(
+                      presentation.takeEphemeralRegionMessage?.(regionId) ??
+                        Effect.succeed(undefined),
+                    );
+                    return steering === undefined ? undefined : frameSteeringMessage(steering);
+                  },
+                }
+              : {}),
             // Cap the child at the parent's own effective tools.
             ...(context.effectiveToolNames
               ? { toolAllowlist: [...context.effectiveToolNames] }

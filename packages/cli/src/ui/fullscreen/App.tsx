@@ -53,6 +53,7 @@ import { Question } from "./overlays/Question";
 import { Search } from "./overlays/Search";
 import { TextPrompt } from "./overlays/TextPrompt";
 import { computePeerNotice } from "./peer-notice";
+import { SubagentList, subagentListRows } from "./SubagentList";
 import { clipTerminalCells } from "./terminal-cells";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
@@ -596,14 +597,16 @@ function AppView({
   }
 
   const inputFocused = focus === "input" && !overlayOpen;
-  // One allocation, shared by all three regions. Computing the transcript's
-  // share here and letting the other two size themselves independently is how
+  // One allocation, shared by every region. Computing the transcript's
+  // share here and letting the others size themselves independently is how
   // the rows stopped adding up to more than the terminal has.
+  const subagentRows = subagentListRows(view.subagents, viewport).length;
   const regions = allocateRegions({
     viewport,
     live: view.live,
     input: inputModel,
     inputFocused,
+    subagentRows,
   });
   const visibleCount = regions.transcript;
   visibleCountRef.current = visibleCount;
@@ -673,6 +676,13 @@ function AppView({
         focused={inputFocused}
         maxRows={regions.input}
       />
+      {regions.subagents > 0 ? (
+        <SubagentList
+          model={view.subagents}
+          viewport={viewport}
+          maxRows={regions.subagents}
+        />
+      ) : null}
       <Footer
         model={footer}
         viewport={viewport}

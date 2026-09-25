@@ -78,7 +78,7 @@ export function formatElapsed(ms: number): string {
  * width. The left side loses characters before the metadata does — an elapsed
  * time you cannot read is worse than an operation name you can infer.
  */
-function alignRow(
+export function alignRow(
   key: string,
   left: readonly LiveSegment[],
   right: readonly LiveSegment[],

@@ -2786,3 +2786,125 @@ describe("fullscreen bridge", () => {
     });
   });
 });
+
+describe("fullscreen bridge sub-agents", () => {
+  beforeEach(() => {
+    resetStoreSlices();
+    store.setChatBusy(true);
+    store.setChatBusy(false);
+  });
+
+  async function mountBusyChat(): Promise<Awaited<ReturnType<typeof testRender>>> {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    store.setChatBusy(true);
+    store.setPrompt(null);
+    await rendered.flush();
+    return rendered;
+  }
+
+  it("lists the turn's sub-agents under the composer", async () => {
+    const rendered = await mountBusyChat();
+    const haiku = store.openEphemeral("subagent", "Sudoku race: Haiku", 12, {
+      task: "Solve it fast",
+      acceptsMessages: true,
+    });
+    store.openEphemeral("subagent", "Sudoku race: Opus", 12, {
+      task: "Solve it well",
+      acceptsMessages: true,
+    });
+    store.appendEphemeral(haiku, "checking row 3", "response");
+    await settleKeypress(rendered.flush);
+
+    const text = rendered.captureCharFrame();
+    expect(text).toContain("2 subagents running");
+    expect(text).toContain("down to manage");
+    expect(text).toContain("Sudoku race: Haiku");
+    expect(text).toContain("checking row 3");
+    expect(text).toContain("Sudoku race: Opus");
+    rendered.renderer.destroy();
+  });
+
+  it("opens a sub-agent with down and enter, steers it, and goes back with esc", async () => {
+    const rendered = await mountBusyChat();
+    store.printOutput({ type: "log", message: "MAIN CONVERSATION", timestamp: new Date() });
+    const solver = store.openEphemeral("subagent", "Solver", 12, {
+      task: "Solve the board in board.txt",
+      acceptsMessages: true,
+    });
+    store.recordSubagentToolStart(solver, {
+      toolCallId: "call-1",
+      name: "read_file",
+      args: "board.txt",
+    });
+    store.appendEphemeral(solver, "Box six is the last one left", "response");
+    store.flushOutputBatchNow();
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("MAIN CONVERSATION");
+
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("enter to open");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    const opened = rendered.captureCharFrame();
+    expect(opened).not.toContain("MAIN CONVERSATION");
+    expect(opened).toContain("Solve the board in board.txt");
+    expect(opened).toContain("read_file");
+    expect(opened).toContain("Box six is the last one left");
+    expect(opened).toContain("Message Solver");
+    expect(opened).toContain("esc back to main");
+
+    for (const character of "try 7") {
+      await rendered.mockInput.pressKey(character);
+    }
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(store.takeSubagentMessage(solver)).toBe("try 7");
+    expect(store.getMessageQueueSnapshot()).toEqual([]);
+    expect(rendered.captureCharFrame()).toContain("try 7");
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    expect(rendered.captureCharFrame()).toContain("MAIN CONVERSATION");
+    rendered.renderer.destroy();
+  });
+
+  it("keeps the draft and says why when the open sub-agent has already finished", async () => {
+    const rendered = await mountBusyChat();
+    const solver = store.openEphemeral("subagent", "Solver", 12, {
+      task: "Solve it",
+      acceptsMessages: true,
+    });
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+
+    store.collapseEphemeral(solver, { durationMs: 10 });
+    await settleKeypress(rendered.flush);
+    for (const character of "late") {
+      await rendered.mockInput.pressKey(character);
+    }
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+
+    const text = rendered.captureCharFrame();
+    expect(text).toContain("Solver has finished; message not sent");
+    expect(text).toContain("late");
+    rendered.renderer.destroy();
+  });
+
+  it("leaves down alone when there is nothing delegated", async () => {
+    const rendered = await mountBusyChat();
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).not.toContain("enter to open");
+    rendered.renderer.destroy();
+  });
+});

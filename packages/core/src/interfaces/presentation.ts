@@ -210,6 +210,7 @@ export interface PresentationService {
   readonly openEphemeralRegion: (
     kind: EphemeralRegionKind,
     label: string,
+    options?: EphemeralRegionOptions,
   ) => Effect.Effect<string, never>;
 
   /**
@@ -226,6 +227,16 @@ export interface PresentationService {
     label: string,
     outcome: EphemeralRegionCollapse,
   ) => Effect.Effect<void, never>;
+
+  /**
+   * Take the messages the user addressed to a sub-agent's region since the last call,
+   * joined into one string, or `undefined` when none are waiting. Polled by the
+   * sub-agent's loop between tool batches, the way the top-level run drains its queue.
+   * Absent on surfaces with no way to address a sub-agent.
+   */
+  readonly takeEphemeralRegionMessage?: (
+    regionId: string,
+  ) => Effect.Effect<string | undefined, never>;
 
   /**
    * Request user approval for a tool action.
@@ -318,6 +329,19 @@ export type StreamTarget =
  * the TUI can pick label styling and panel size.
  */
 export type EphemeralRegionKind = "reasoning" | "subagent";
+
+export interface EphemeralRegionOptions {
+  /**
+   * Set when the region tracks a delegated agent run rather than an internal step like
+   * compaction. Surfaces that can list and open delegated runs show only these.
+   */
+  readonly agentRun?: {
+    /** The full brief the run was given, which the region's label only names. */
+    readonly task: string;
+    /** True when the run polls `takeEphemeralRegionMessage`, so a message can reach it. */
+    readonly acceptsMessages: boolean;
+  };
+}
 
 /**
  * How a live region ended. Ink formats the collapse line; core only reports

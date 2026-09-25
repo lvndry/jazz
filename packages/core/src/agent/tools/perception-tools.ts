@@ -329,7 +329,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
       const label = companionAgent.name;
       const startedAt = Date.now();
-      const regionId = yield* presentation.openEphemeralRegion("subagent", label);
+      // A companion makes one tool-less completion, so there is no step boundary at
+      // which a message could reach it.
+      const regionId = yield* presentation.openEphemeralRegion("subagent", label, {
+        agentRun: { task: job.summary, acceptsMessages: false },
+      });
       yield* presentation.appendEphemeralRegion(
         regionId,
         `Task: ${job.summary.length > 80 ? `...${job.summary.slice(-77)}` : job.summary}`,

@@ -205,7 +205,8 @@ export interface AgentRunnerOptions {
    * call) to inject a queued user message into the running conversation.
    * When it returns a non-empty string, that string is appended as a user
    * message so the agent can incorporate mid-run guidance immediately.
-   * Not called for internal (sub-agent) runs.
+   * `spawn_subagent` sets it on the child to deliver messages the user addressed to
+   * that sub-agent; other internal runs (compaction, extraction) leave it unset.
    */
   readonly checkQueuedMessage?: () => string | undefined;
   /**

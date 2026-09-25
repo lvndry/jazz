@@ -38,9 +38,11 @@ import {
   useOutputSlice,
   usePromptSlice,
   useSessionSlice,
+  useSubagentsSlice,
   type EphemeralRegion,
   type PendingApproval,
 } from "../store";
+import type { SubagentRun } from "../subagent-runs";
 import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
@@ -81,6 +83,7 @@ import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import {
@@ -94,8 +97,12 @@ import {
   type LiveTool,
   type Overlay,
   type StepLine,
+  type SubagentListModel,
   type ViewModel,
 } from "./types";
+
+/** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
+const SUBAGENT_NOTICE_MS = 2500;
 
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
@@ -995,6 +1002,15 @@ export function FullscreenBridge(): React.ReactNode {
   busyRef.current = busy;
   const isYolo = session.isYolo;
   const regions = ephemeral.regions;
+  const subagentRuns = useSubagentsSlice().runs;
+  const subagentRunsRef = useRef(subagentRuns);
+  subagentRunsRef.current = subagentRuns;
+  // Null while the composer has the keyboard; otherwise the highlighted row.
+  const [agentCursor, agentCursorRef, setAgentCursor] = useSynchronizedState<number | null>(null);
+  // The sub-agent whose log is standing in for the conversation, if any.
+  const [inspectedId, inspectedIdRef, setInspectedId] = useSynchronizedState<string | null>(null);
+  const [subagentNotice, setSubagentNotice] = useState<string | undefined>(undefined);
+  const subagentNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prompt = promptSlice.prompt;
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
@@ -1135,6 +1151,20 @@ export function FullscreenBridge(): React.ReactNode {
   useEffect(() => {
     setMenuIndex(0);
   }, [menu, setMenuIndex]);
+
+  // A new turn prunes the finished runs, and with them whatever was open or highlighted.
+  useEffect(() => {
+    if (subagentRuns.length === 0) setAgentCursor(null);
+    if (inspectedId !== null && !subagentRuns.some((run) => run.id === inspectedId)) {
+      setInspectedId(null);
+    }
+  }, [subagentRuns, inspectedId, setAgentCursor, setInspectedId]);
+
+  useEffect(() => {
+    return () => {
+      if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!busy) disarmQuit();
@@ -1342,6 +1372,48 @@ export function FullscreenBridge(): React.ReactNode {
     },
     [promptRef, commitComposer],
   );
+
+  const flashSubagentNotice = useCallback((notice: string): void => {
+    if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+    setSubagentNotice(notice);
+    subagentNoticeTimer.current = setTimeout(() => {
+      setSubagentNotice(undefined);
+      subagentNoticeTimer.current = undefined;
+    }, SUBAGENT_NOTICE_MS);
+  }, []);
+
+  /** Switching what the transcript shows lands at its live edge, as a submit does. */
+  const inspectSubagent = useCallback(
+    (id: string | null): void => {
+      setInspectedId(id);
+      setSubmitCount((count) => count + 1);
+    },
+    [setInspectedId],
+  );
+
+  /**
+   * Enter while a sub-agent is open addresses it, not the main conversation. The
+   * draft is kept when the sub-agent has already finished, so nothing typed is lost.
+   */
+  const sendToInspectedSubagent = useCallback((): void => {
+    const text = composerRef.current.text;
+    if (text.trim().length === 0) return;
+    const run = subagentRunsRef.current.find(
+      (candidate) => candidate.id === inspectedIdRef.current,
+    );
+    if (run === undefined) return;
+    if (!store.sendSubagentMessage(run.id, text)) {
+      flashSubagentNotice(
+        run.acceptsMessages
+          ? `${run.label} has finished; message not sent`
+          : `${run.label} can't take messages`,
+      );
+      return;
+    }
+    historyIndex.current = null;
+    commitComposer(EMPTY_COMPOSER);
+    setSubmitCount((count) => count + 1);
+  }, [commitComposer, flashSubagentNotice, inspectedIdRef]);
 
   /**
    * Inserts pasted text into whichever field currently owns typing.
@@ -1882,6 +1954,44 @@ export function FullscreenBridge(): React.ReactNode {
         return false;
       }
 
+      // The sub-agent list has the keyboard: arrows move, Enter opens, Esc (or up
+      // past the first row) hands it back. Any other key returns to the composer
+      // and is handled there, so typing never needs a key to leave the list first.
+      const runsNow = subagentRunsRef.current;
+      const cursor = agentCursorRef.current;
+      if (cursor !== null) {
+        const lastRow = runsNow.length - 1;
+        if (lastRow < 0) {
+          setAgentCursor(null);
+        } else {
+          if (name === "up") {
+            setAgentCursor(cursor <= 0 ? null : cursor - 1);
+            return true;
+          }
+          if (name === "down") {
+            setAgentCursor(Math.min(lastRow, cursor + 1));
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const chosen = runsNow[Math.min(cursor, lastRow)];
+            setAgentCursor(null);
+            if (chosen !== undefined) inspectSubagent(chosen.id);
+            return true;
+          }
+          setAgentCursor(null);
+          if (name === "escape") return true;
+        }
+      }
+      if (name === "escape" && inspectedIdRef.current !== null) {
+        inspectSubagent(null);
+        return true;
+      }
+      if (name === "down" && runsNow.length > 0 && composerRef.current.text.length === 0) {
+        const firstRunning = runsNow.findIndex((run) => run.status === "running");
+        setAgentCursor(firstRunning < 0 ? 0 : firstRunning);
+        return true;
+      }
+
       if (name === "tab" && shift) {
         store.toggleMode();
         return true;
@@ -1926,7 +2036,17 @@ export function FullscreenBridge(): React.ReactNode {
         }
       }
 
-      const slashQuery = slashCommandQuery(composerRef.current.text);
+      if (
+        inspectedIdRef.current !== null &&
+        (name === "return" || name === "enter") &&
+        !isComposerNewline({ name, shift, option, meta })
+      ) {
+        sendToInspectedSubagent();
+        return true;
+      }
+
+      const slashQuery =
+        inspectedIdRef.current === null ? slashCommandQuery(composerRef.current.text) : null;
       const slashCommands = slashQuery === null ? [] : filterCommandsByPrefix(slashQuery);
       if (slashCommands.length > 0) {
         const selected = wrapCommandIndex(commandIndexRef.current, slashCommands.length);
@@ -2153,6 +2273,11 @@ export function FullscreenBridge(): React.ReactNode {
       updatePromptQuestion,
       updatePromptFile,
       disarmQuit,
+      agentCursorRef,
+      inspectedIdRef,
+      setAgentCursor,
+      inspectSubagent,
+      sendToInspectedSubagent,
     ],
   );
 
@@ -2191,12 +2316,30 @@ export function FullscreenBridge(): React.ReactNode {
     [approval, prompt, commitComposer],
   );
 
+  const inspectedRun: SubagentRun | undefined =
+    inspectedId === null ? undefined : subagentRuns.find((run) => run.id === inspectedId);
+
   const previousBlocks = useRef<readonly Block[]>([]);
   const blocks = useMemo(() => {
-    const next = transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current);
+    const next =
+      inspectedRun === undefined
+        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
+        : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
-  }, [outputs, streaming, regions]);
+    // elapsedMs ticks the open sub-agent's heading clock.
+  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
+
+  const subagentList = useMemo<SubagentListModel | undefined>(() => {
+    if (subagentRuns.length === 0) return undefined;
+    const now = Date.now();
+    return {
+      items: subagentRuns.map((run) => subagentListItem(run, now)),
+      ...(agentCursor === null ? {} : { selected: agentCursor }),
+      ...(inspectedId === null ? {} : { inspecting: inspectedId }),
+    };
+    // elapsedMs ticks the per-row clocks.
+  }, [subagentRuns, agentCursor, inspectedId, elapsedMs]);
 
   const header = useMemo<HeaderModel>(
     () => ({
@@ -2245,8 +2388,12 @@ export function FullscreenBridge(): React.ReactNode {
     approvalExpanded,
   ]);
 
+  const inspectedRunning = inspectedRun?.status === "running";
+  const inspectedSteerable = inspectedRunning && inspectedRun?.acceptsMessages === true;
   const input = useMemo<InputModel>(() => {
-    const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
+    const inspecting = inspectedRun !== undefined;
+    const commandItems =
+      commandQuery === null || inspecting ? [] : filterCommandsByPrefix(commandQuery);
     const mentionItems = mention === null ? [] : mentionEntries;
     const menu = mergeSuggestions(commandItems, mentionItems);
     const commands: InputModel["commands"] =
@@ -2261,9 +2408,18 @@ export function FullscreenBridge(): React.ReactNode {
       value: draft,
       caret: draftCaret,
       anchor: draftAnchor,
-      placeholder: busy ? "Type to queue for next turn" : "Ask anything",
+      placeholder:
+        inspectedRun !== undefined
+          ? inspectedSteerable
+            ? `Message ${inspectedRun.label}`
+            : inspectedRunning
+              ? `${inspectedRun.label} can't take messages · esc to go back`
+              : `${inspectedRun.label} finished · esc to go back`
+          : busy
+            ? "Type to queue for next turn"
+            : "Ask anything",
       queued: queue,
-      queueing: busy || queue.length > 0,
+      queueing: !inspecting && (busy || queue.length > 0),
       disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
       ...(commands === undefined ? {} : { commands }),
     };
@@ -2279,13 +2435,25 @@ export function FullscreenBridge(): React.ReactNode {
     commandIndex,
     mention,
     mentionEntries,
+    inspectedRun,
+    inspectedRunning,
+    inspectedSteerable,
   ]);
 
   const footer = useMemo<FooterModel>(
     () => ({
       mode: isYolo ? "yolo" : "safe",
       hints:
-        prompt !== null && hiddenPromptKeys(prompt) !== undefined ? prompt.message.split(", ") : [],
+        prompt !== null && hiddenPromptKeys(prompt) !== undefined
+          ? prompt.message.split(", ")
+          : agentCursor !== null
+            ? ["up down to choose", "enter to open", "esc to close"]
+            : inspectedRun !== undefined
+              ? inspectedSteerable
+                ? ["enter to send", "pgup to scroll", "esc back to main"]
+                : ["pgup to scroll", "esc back to main"]
+              : [],
+      ...(subagentNotice === undefined ? {} : { notice: subagentNotice }),
       ...(stats.promptTokens === undefined && stats.completionTokens === undefined
         ? {}
         : {
@@ -2295,7 +2463,18 @@ export function FullscreenBridge(): React.ReactNode {
       ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
     }),
-    [isYolo, prompt, stats.promptTokens, stats.completionTokens, stats.costUSD, elapsedMs],
+    [
+      isYolo,
+      prompt,
+      stats.promptTokens,
+      stats.completionTokens,
+      stats.costUSD,
+      elapsedMs,
+      agentCursor,
+      inspectedRun,
+      inspectedSteerable,
+      subagentNotice,
+    ],
   );
 
   const live = useMemo<LiveModel>(() => {
@@ -2326,10 +2505,11 @@ export function FullscreenBridge(): React.ReactNode {
       live,
       input,
       footer,
+      ...(subagentList === undefined ? {} : { subagents: subagentList }),
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
     }),
-    [header, blocks, runActive, live, input, footer, overlay],
+    [header, blocks, runActive, live, input, footer, subagentList, overlay],
   );
 
   // A menu the app is waiting on gets the real screen. The wizard publishes it
