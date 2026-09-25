@@ -126,6 +126,30 @@ describe("Header", () => {
     expect(separators.length).toBeLessThanOrEqual(3);
   });
 
+  it("shows local host:port after the model and drops the host first on narrow screens", async () => {
+    const local = header({ model: "qwen3", localHost: "gpu.example:8000" });
+    const wide = await render(
+      <Header
+        model={local}
+        viewport={{ width: 100, height: 24 }}
+      />,
+      100,
+    );
+    expect(wide.row).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
+    expect(wide.row).toContain("apps 4 of 4");
+
+    const narrow = await render(
+      <Header
+        model={local}
+        viewport={{ width: 48, height: 24 }}
+      />,
+      48,
+    );
+    expect(narrow.row).toContain("qwen3");
+    expect(narrow.row).not.toContain("gpu.example:8000");
+    expect(terminalCellWidth(narrow.row)).toBe(48);
+  });
+
   it("counts healthy connectors and names only the one needing action", async () => {
     const healthy = await render(
       <Header

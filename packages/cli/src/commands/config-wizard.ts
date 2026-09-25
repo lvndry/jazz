@@ -44,7 +44,7 @@ export function configWizardCommand() {
 
     while (stayInMenu) {
       const menuOptions: WizardMenuOption[] = [
-        { label: "LLM Providers (API Keys)", value: "llm-providers" },
+        { label: "LLM Providers", value: "llm-providers" },
         { label: "Web Search Providers", value: "web-search" },
         { label: "Output & Display", value: "output-display" },
         { label: "Scheduler", value: "scheduler" },

@@ -18,6 +18,7 @@ import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/
 import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { AgentDetails, agentDetailsRows } from "./AgentDetails";
 import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
@@ -659,6 +660,35 @@ describe("agent picker", () => {
         if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
         else process.env["JAZZ_UI_GLYPHS"] = previous;
       }
+    }
+  });
+});
+
+describe("agent details", () => {
+  it("wraps long fields and fills narrow and wide viewports", async () => {
+    const fields = [
+      { section: "Model", label: "Provider", value: "vllm" },
+      {
+        section: "Model",
+        label: "Host URL",
+        value: "https://gpu.example:8000/v1/really/long/path/to/models",
+      },
+    ];
+    expect(agentDetailsRows(fields, 32).length).toBeGreaterThan(fields.length + 1);
+    for (const viewport of [NARROW, WIDE]) {
+      const drawn = await draw(
+        <AgentDetails
+          kind="agent-details"
+          name="Research"
+          fields={fields}
+          offset={0}
+          viewport={viewport}
+        />,
+        viewport,
+      );
+      expectFillsViewport(drawn, viewport);
+      expectNothingOverflows(drawn, viewport);
+      expect(drawn.text).toContain("Host URL");
     }
   });
 });

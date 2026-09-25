@@ -79,10 +79,12 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { hostForModel } from "../local-model-hosts";
 import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
@@ -1157,7 +1159,7 @@ export function FullscreenBridge(): React.ReactNode {
   }, [approval, setApprovalArmedState]);
 
   useEffect(() => {
-    setMenuIndex(0);
+    setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
     setSkillField({ value: "", caret: 0 });
     setSkillDetail(null);
     setSkillDetailOffset(0);
@@ -1678,9 +1680,37 @@ export function FullscreenBridge(): React.ReactNode {
           }
           return true;
         }
+        if (openMenu.kind === "agent-details") {
+          const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          const maxOffset = Math.max(
+            0,
+            agentDetailsRows(openMenu.fields, viewport.width).length -
+              agentDetailsBodyHeight(viewport),
+          );
+          if (name === "up" || name === "k" || name === "down" || name === "j") {
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(
+                0,
+                Math.min(maxOffset, menuSelection + (name === "up" || name === "k" ? -1 : 1)),
+              ),
+            );
+            return true;
+          }
+          if (name === "escape" || name === "q" || name === "return" || name === "enter") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          return true;
+        }
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
-        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+        const menuSelection =
+          menuIndexForRef.current === openMenu
+            ? menuIndexRef.current
+            : openMenu.kind === "agents"
+              ? (openMenu.initialIndex ?? 0)
+              : 0;
         if (name === "up" || name === "k") {
           menuIndexForRef.current = openMenu;
           setMenuIndex(Math.max(0, menuSelection - 1));
@@ -1693,12 +1723,8 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (name === "return" || name === "enter") {
           if (openMenu.kind === "agents") {
-            if (openMenu.browse === true) {
-              store.completePrompt({ kind: "exit" });
-            } else {
-              const choice = openMenu.agents[menuSelection];
-              if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
-            }
+            const choice = openMenu.agents[menuSelection];
+            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
           } else {
             const choice = openMenu.options[menuSelection];
             if (choice !== undefined) {
@@ -2437,17 +2463,26 @@ export function FullscreenBridge(): React.ReactNode {
     // elapsedMs ticks the per-row clocks.
   }, [subagentRuns, agentCursor, inspectedId, elapsedMs]);
 
-  const header = useMemo<HeaderModel>(
-    () => ({
+  const header = useMemo<HeaderModel>(() => {
+    const localHost = hostForModel(stats.provider, stats.model, stats.localModelHosts);
+    return {
       version: packageJson.version,
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
+      ...(localHost === undefined ? {} : { localHost }),
       connectors: [...connectors].map(([name, status]) => ({ name, status })),
       contextUsed: stats.tokensInContext ?? 0,
       contextMax: stats.maxContextTokens ?? 0,
-    }),
-    [workingDirectory, stats.model, stats.tokensInContext, stats.maxContextTokens, connectors],
-  );
+    };
+  }, [
+    workingDirectory,
+    stats.model,
+    stats.provider,
+    stats.localModelHosts,
+    stats.tokensInContext,
+    stats.maxContextTokens,
+    connectors,
+  ]);
 
   const overlay = useMemo<Overlay | undefined>(() => {
     // An approval outranks search: it is a decision the agent is blocked on, and
@@ -2624,6 +2659,12 @@ export function FullscreenBridge(): React.ReactNode {
         selected={menuIndex}
         detail={skillDetail}
         detailOffset={skillDetailOffset}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agent-details" ? (
+      <AgentDetails
+        {...menu}
+        offset={menuIndex}
         viewport={viewport}
       />
     ) : menu?.kind === "agents" ? (

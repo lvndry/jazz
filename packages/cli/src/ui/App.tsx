@@ -13,6 +13,7 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./fullscreen/screens/AgentDetails";
 import { windowStart } from "./fullscreen/screens/AgentPicker";
 import { skillDetailBodyRows, skillListRows } from "./fullscreen/screens/SkillBrowser";
 import { clipTerminalCells } from "./fullscreen/terminal-cells";
@@ -171,6 +172,7 @@ const OutputIsland = React.memo(OutputIslandComponent);
 
 function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
   if (menu.kind === "skills") return <InkSkillBrowserView menu={menu} />;
+  if (menu.kind === "agent-details") return <InkAgentDetailsView menu={menu} />;
   const options =
     menu.kind === "agents"
       ? menu.agents.map((agent) => ({
@@ -179,17 +181,15 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
         }))
       : menu.options;
   const title = menu.title;
-  const browse = menu.kind === "agents" && menu.browse === true;
 
   return (
     <WizardHome
       options={options}
+      {...(menu.kind === "agents" && menu.initialIndex !== undefined
+        ? { initialIndex: menu.initialIndex }
+        : {})}
       {...(title === undefined ? {} : { title })}
       onSelect={(value) => {
-        if (browse) {
-          store.completePrompt({ kind: "exit" });
-          return;
-        }
         store.completePrompt({ kind: "select", value });
       }}
       onExit={() => store.completePrompt({ kind: "exit" })}
@@ -308,6 +308,56 @@ function InkSkillBrowserView({
           : "type search · up down move · enter details · esc close"}
       </Text>
       {cols < 60 ? <Text dimColor>enter details · esc close</Text> : null}
+    </Box>
+  );
+}
+
+/** Ink fallback for the same inspector shown in the fullscreen terminal. */
+function InkAgentDetailsView({
+  menu,
+}: {
+  readonly menu: Extract<ActiveMenu, { readonly kind: "agent-details" }>;
+}): React.ReactElement {
+  const { cols, rows: terminalRows } = useTerminalDimensions();
+  const [offset, setOffset] = useState(0);
+  const viewport = { width: cols, height: terminalRows };
+  const rows = agentDetailsRows(menu.fields, cols);
+  const bodyHeight = agentDetailsBodyHeight(viewport);
+  const maxOffset = Math.max(0, rows.length - bodyHeight);
+  const start = Math.min(offset, maxOffset);
+
+  useInput((input, key) => {
+    if (key.escape || key.return || input === "q") {
+      store.completePrompt({ kind: "exit" });
+    } else if (key.upArrow || input === "k") {
+      setOffset((value) => Math.max(0, value - 1));
+    } else if (key.downArrow || input === "j") {
+      setOffset((value) => Math.min(maxOffset, value + 1));
+    }
+  });
+
+  return (
+    <Box
+      flexDirection="column"
+      paddingX={2}
+    >
+      <Text
+        bold
+        color={THEME.primary}
+      >
+        Agent: {menu.name}
+      </Text>
+      <Text> </Text>
+      {rows.slice(start, start + bodyHeight).map((row, index) => (
+        <Text
+          key={start + index}
+          {...(row.section ? { color: THEME.primary } : {})}
+          bold={row.section}
+        >
+          {row.text || " "}
+        </Text>
+      ))}
+      <Text dimColor>up down scroll esc back</Text>
     </Box>
   );
 }

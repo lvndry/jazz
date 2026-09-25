@@ -22,7 +22,7 @@ import {
   type FileSystemContextService,
 } from "@jazz/core/interfaces/fs";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
-import { type LLMService } from "@jazz/core/interfaces/llm";
+import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { type PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -57,6 +57,7 @@ import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
+import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
 import {
   handleSpecialCommand,
@@ -167,7 +168,14 @@ export class ChatServiceImpl implements ChatService {
         );
       }).pipe(Effect.catchAll(() => Effect.void));
 
-      store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
+      const configService = yield* AgentConfigServiceTag;
+      const appConfig = yield* configService.appConfig;
+      const llmService = yield* LLMServiceTag;
+      store.resetRunStats({
+        provider: agent.config.llmProvider,
+        model: agent.config.llmModel,
+        localModelHosts: resolveLocalModelHosts(llmService, appConfig.llm),
+      });
 
       const ephemeral = options?.ephemeral === true;
 
@@ -213,8 +221,6 @@ export class ChatServiceImpl implements ChatService {
       let startedAt = sessionStartedAt.toISOString();
 
       // Load persistent auto-approved commands from config
-      const configService = yield* AgentConfigServiceTag;
-      const appConfig = yield* configService.appConfig;
       if (appConfig.autoApprovedCommands?.length) {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
@@ -435,6 +441,10 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
+              store.updateRunStats({
+                provider: agent.config.llmProvider,
+                model: agent.config.llmModel,
+              });
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
               updateWorkingDirectoryInStore(
