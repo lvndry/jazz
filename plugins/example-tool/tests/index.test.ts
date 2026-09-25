@@ -43,6 +43,7 @@ function fakeHost(): {
         lifecycle.set(registration.event, registration);
       },
     },
+    workspace: { register: () => {} },
     secrets: { get: async () => undefined },
   };
   return { api, tools, commands, lifecycle };
@@ -64,7 +65,7 @@ describe("example-tool plugin", () => {
     const host = register();
     const result = await host.tools
       .get("reverse_text")!
-      .handler({ text: "hello" }, { signal: new AbortController().signal });
+      .handler({ text: "hello" }, { signal: new AbortController().signal, cwd: process.cwd() });
     expect(result).toEqual({ content: "olleh" });
   });
 
@@ -72,7 +73,7 @@ describe("example-tool plugin", () => {
     const host = register();
     const result = await host.tools
       .get("reverse_text")!
-      .handler({}, { signal: new AbortController().signal });
+      .handler({}, { signal: new AbortController().signal, cwd: process.cwd() });
     expect(result).toEqual({ content: "" });
   });
 

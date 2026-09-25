@@ -47,7 +47,11 @@ import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
+import {
+  DEFAULT_PLUGIN_HOOK_TIMEOUT_MS,
+  type SkillRouteOutcome,
+  type WorkspaceContextInput,
+} from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -836,6 +840,12 @@ function initializeAgentRun(
       messages,
       ...(memoryOpportunities !== undefined ? { memoryOpportunities } : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
+            workspaceContext: (input: WorkspaceContextInput) =>
+              pluginSession.value.runWorkspace(input),
+          }
+        : {}),
       ...(Option.isSome(pluginSession)
         ? {
             reduceToolResults: buildAdvisedReducer({

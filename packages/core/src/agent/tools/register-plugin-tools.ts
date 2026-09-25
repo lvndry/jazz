@@ -10,6 +10,7 @@
  */
 
 import { Effect, Option } from "effect";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { PluginToolInfo } from "@/core/types/plugin";
@@ -41,9 +42,32 @@ export function registerPluginToolsForAgent(
       const registerTool = registry.registerForCategory(pluginToolCategory(pluginId));
       const names: string[] = [];
       for (const info of tools) {
-        const jazzTools = adaptPluginToolToJazz(info, (name, args) =>
-          runtime.runAgentTool(agentId, name, args),
-        );
+        const cwd = (context: { readonly conversationId?: string }) =>
+          Effect.gen(function* () {
+            const fsContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+            return Option.isSome(fsContext)
+              ? yield* fsContext.value.getCwd({
+                  agentId,
+                  ...(context.conversationId ? { conversationId: context.conversationId } : {}),
+                })
+              : process.cwd();
+          });
+        const jazzTools = adaptPluginToolToJazz(info, {
+          run: (name, args, context) =>
+            cwd(context).pipe(
+              Effect.flatMap((path) => runtime.runAgentTool(agentId, name, args, path)),
+            ),
+          prepare: (name, args, context) =>
+            cwd(context).pipe(
+              Effect.flatMap((path) => runtime.prepareAgentTool(agentId, name, args, path)),
+            ),
+          execute: (name, args, prepared, context) =>
+            cwd(context).pipe(
+              Effect.flatMap((path) =>
+                runtime.executePreparedAgentTool(agentId, name, args, prepared, path),
+              ),
+            ),
+        });
         for (const tool of jazzTools) {
           yield* registerTool(tool);
           names.push(tool.name);

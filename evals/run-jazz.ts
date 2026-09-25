@@ -72,6 +72,8 @@ export interface RunJazzOptions {
   conversationId?: string;
   /** Isolate jazz state — agents, conversations, working state — under this directory. */
   jazzHome?: string;
+  /** Per-rollout environment, for isolated local services such as an eval language server. */
+  environment?: Readonly<Record<string, string>>;
   /** Cap iterations, e.g. to stop a run partway without killing the process. */
   maxIterations?: number;
   /** Skip streaming NDJSON when a task only needs the final envelope and tool calls. */
@@ -125,6 +127,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
             JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
           }),
       ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
+      ...options.environment,
     },
     stdout: "pipe",
     stderr: "pipe",

@@ -17,6 +17,28 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
+Use `--task <id>` to run a single task while developing a focused harness change.
+
+### Ambient LSP coding comparison
+
+The `tooluse-ambient-lsp-receipt` task compares the same weak model and prompt with LSP disabled
+(`eval-sut`) and enabled (`eval-sut-lsp`). It creates a private `JAZZ_HOME` per rollout, installs
+the current source plugin as a self-contained bundle through Jazz's digest/consent registry only for the variant, and points
+it at a deterministic local language server. The task asks for a normal TypeScript fix without
+mentioning LSP. Its check requires an exact edit, unchanged supporting code, ordinary `read_file`
+and `edit_file` calls, and no model-authored LSP tool call. The variant additionally checks that
+the server published a diagnostic for the file Jazz read; a dormant plugin cannot pass.
+
+```bash
+cp evals/agents/eval-sut*.json ~/.jazz/agents/
+bun run evals --agent eval-sut --ab eval-sut-lsp \
+  --task tooluse-ambient-lsp-receipt --samples 5 --stamp ambient-lsp
+```
+
+Compare pass@1 and Pass^k along with per-run token usage, cost, and elapsed time in the captured
+events. A single fixture proves the ambient path works, but it is not enough by itself to claim
+a general coding-quality gain. Add diverse coding tasks before making that claim.
+
 For a local vLLM, SGLang, or llama.cpp evaluation, point an eval agent at the running server and
 set its `llmProvider` to `vllm`, `sglang`, or `llamacpp`. The eval cost guardrail accepts these
 user-run providers; the server must still be available throughout the run.

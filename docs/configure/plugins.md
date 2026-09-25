@@ -8,6 +8,8 @@ Jazz plugins are optional, pre-bundled JavaScript modules that extend the harnes
 contribute any mix of capabilities:
 
 - **tools** — model-callable functions that join the agent's tool set;
+- **workspace context** — bounded, current context supplied before a model request as the agent
+  reads or changes files;
 - **commands** — user-invoked `/name` slash commands;
 - **personas** — selectable agent personalities;
 - **skills** — loadable instruction documents;
@@ -20,6 +22,15 @@ contribute any mix of capabilities:
 Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
 Advisory hooks cannot authorize a tool, change approval policy, or act on the model's behalf; the
 policy hook shapes approval only.
+
+A plugin that declares `workspace: true` may register `api.workspace.register`. Jazz calls it before
+each model request, including the first request with no observed files, so it can activate a
+workspace service. Later calls include recent canonical paths from successful built-in file reads
+and writes. The returned text is bounded, labeled as untrusted workspace data, and sent only with
+that model request; it is not saved in conversation history. Failures or timeouts leave the run
+unchanged. The [LSP plugin](./lsp-plugin.md) uses this path to supply diagnostics without asking
+the model to call a tool. A workspace handler cannot authorize or execute a file edit through this
+path.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
@@ -135,6 +146,9 @@ command safer.
 
 ## Tools
 
+For a complete optional tool plugin, see the [generic LSP plugin](./lsp-plugin.md), which
+connects configured language servers to semantic code navigation and approved refactors.
+
 A plugin may contribute model-callable tools. Each tool is declared in the manifest — name,
 description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-risk` /
 `high-risk`), and whether calling it sends model-authored content off the machine (`egress`) — and
@@ -148,6 +162,13 @@ arguments against that schema before the handler runs**. A `read-only` tool runs
 else becomes an approval-gated tool, so a person confirms it under the active approval policy exactly
 like a built-in. A handler that throws, times out, or is unavailable returns an error result to the
 model rather than crashing the run.
+
+Tool handlers receive the agent's current working directory and an abort signal. A mutating tool
+may register both `prepare` and `executePrepared`: `prepare` returns an approval message, optional
+diff, and JSON-serializable prepared data. Jazz persists that data with the approval, including
+parked runs. Only the hidden execution tool receives it, after approval. The plugin must revalidate
+any files or remote state that could have changed while approval was pending. Without those
+callbacks, Jazz shows a bounded argument preview and runs the ordinary handler after approval.
 
 ```jsonc
 // jazz-plugin.json

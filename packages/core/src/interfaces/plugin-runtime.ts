@@ -13,7 +13,9 @@ import type {
   PluginRuntimeError,
   PluginSkillInfo,
   PluginToolInfo,
+  PluginToolPreparation,
   PluginToolResult,
+  WorkspaceContextInput,
   PolicyHookContracts,
   PolicyHookId,
   SkillRouteInput,
@@ -30,6 +32,8 @@ export interface PluginSession {
     input: PolicyHookContracts[K]["input"],
   ) => Effect.Effect<PolicyHookContracts[K]["output"]>;
   readonly runCompactTools: (input: CompactToolsInput) => Effect.Effect<CompactToolsOutcome>;
+  /** Bounded ambient context from workspace plugins; empty when none can answer. */
+  readonly runWorkspace: (input: WorkspaceContextInput) => Effect.Effect<string | undefined>;
   /** The plugin registered for a hook, so callers can credit it in the UI. Undefined if none. */
   readonly describeHook: (
     id: AdvisoryHookId,
@@ -40,6 +44,18 @@ export interface PluginSession {
   readonly runTool: (
     name: string,
     args: Record<string, unknown>,
+    cwd: string,
+  ) => Effect.Effect<PluginToolResult>;
+  readonly prepareTool: (
+    name: string,
+    args: Record<string, unknown>,
+    cwd: string,
+  ) => Effect.Effect<PluginToolPreparation | PluginToolResult>;
+  readonly executePreparedTool: (
+    name: string,
+    args: Record<string, unknown>,
+    prepared: unknown,
+    cwd: string,
   ) => Effect.Effect<PluginToolResult>;
   /** Slash commands contributed by the plugins in this session, with their declarations. */
   readonly listCommands: () => readonly PluginCommandInfo[];
@@ -61,6 +77,8 @@ export interface PluginSessionOptions {
    */
   readonly metrics?: AgentRunMetrics;
   readonly hookTimeoutMs?: number;
+  readonly toolTimeoutMs?: number;
+  readonly workspaceTimeoutMs?: number;
   readonly maxCostUSD?: number;
   readonly currentRunCostUSD?: () => number | undefined;
   /**
@@ -88,6 +106,20 @@ export interface PluginRuntimeService {
     agentId: string,
     name: string,
     args: Record<string, unknown>,
+    cwd: string,
+  ) => Effect.Effect<PluginToolResult>;
+  readonly prepareAgentTool: (
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+    cwd: string,
+  ) => Effect.Effect<PluginToolPreparation | PluginToolResult>;
+  readonly executePreparedAgentTool: (
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+    prepared: unknown,
+    cwd: string,
   ) => Effect.Effect<PluginToolResult>;
   /** The slash commands an agent's enabled plugins contribute, for registration at chat startup. */
   readonly listAgentCommands: (agentId: string) => Effect.Effect<readonly PluginCommandInfo[]>;

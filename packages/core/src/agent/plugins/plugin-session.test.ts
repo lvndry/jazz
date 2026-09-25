@@ -36,6 +36,67 @@ const manifest = {
   claimsNotifications: false,
 };
 
+it("runs declared workspace context with bounded output and disables a failing handler", async () => {
+  const failures: string[] = [];
+  const inputs: string[] = [];
+  let calls = 0;
+  const plugin: LoadedPlugin = {
+    manifest: { ...manifest, hooks: [], decisionProviders: [], workspace: true },
+    module: {
+      apiVersion: 1,
+      register(api) {
+        api.workspace.register(async (input) => {
+          calls++;
+          inputs.push(JSON.stringify(input));
+          if (calls === 2) throw new Error("server failed");
+          return { content: "diagnostic: " + "x".repeat(10_000) };
+        });
+      },
+    },
+  };
+  const session = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [plugin],
+      resolveSecret: async () => undefined,
+      reportFailure: (_pluginId, message) => failures.push(message),
+    }),
+  );
+  const input = {
+    cwd: "/tmp/project",
+    files: [{ path: "/tmp/project/a.ts", kind: "read" as const }],
+  };
+  const first = await Effect.runPromise(session.runWorkspace(input));
+  expect(first).toContain("diagnostic:");
+  expect(first!.length).toBeLessThan(4_100);
+  expect(inputs).toEqual([JSON.stringify(input)]);
+  expect(await Effect.runPromise(session.runWorkspace(input))).toBeUndefined();
+  expect(await Effect.runPromise(session.runWorkspace(input))).toBeUndefined();
+  expect(calls).toBe(2);
+  expect(failures).toEqual(["server failed"]);
+  await Effect.runPromise(session.close());
+});
+
+it("rejects workspace registration when the manifest has not declared it", async () => {
+  await expect(
+    Effect.runPromise(
+      createPluginSession({
+        agentId: "a",
+        plugins: [
+          {
+            manifest,
+            module: {
+              apiVersion: 1,
+              register: (api) => api.workspace.register(async () => undefined),
+            },
+          },
+        ],
+        resolveSecret: async () => undefined,
+      }),
+    ),
+  ).rejects.toThrow("failed to open plugin session");
+});
+
 it("keeps registrations per run and enforces declared secrets", async () => {
   let apiSeen: PluginHostApi | undefined;
   const plugin: LoadedPlugin = {
@@ -322,10 +383,21 @@ const toolManifest = {
   ],
 };
 
-const makeToolSession = (module: LoadedPlugin["module"]) =>
+const makeToolSession = (
+  module: LoadedPlugin["module"],
+  riskLevel: "read-only" | "high-risk" = "read-only",
+) =>
   createPluginSession({
     agentId: "a",
-    plugins: [{ manifest: toolManifest, module }],
+    plugins: [
+      {
+        manifest: {
+          ...toolManifest,
+          tools: toolManifest.tools.map((tool) => ({ ...tool, riskLevel })),
+        },
+        module,
+      },
+    ],
     metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
     resolveSecret: async () => "secret",
   });
@@ -344,7 +416,9 @@ it("lists a declared tool and runs its handler", async () => {
   );
   expect(session.listTools().map((tool) => tool.name)).toEqual(["reverse_text"]);
   expect(session.listTools()[0]?.pluginId).toBe("com.example.router");
-  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  const result = await Effect.runPromise(
+    session.runTool("reverse_text", { text: "abc" }, process.cwd()),
+  );
   expect(result).toEqual({ content: "cba" });
 });
 
@@ -374,7 +448,9 @@ it("returns an error result when the handler throws, so the host falls back", as
       },
     }),
   );
-  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  const result = await Effect.runPromise(
+    session.runTool("reverse_text", { text: "abc" }, process.cwd()),
+  );
   expect(result.isError).toBe(true);
 });
 
@@ -390,8 +466,29 @@ it("returns an error result for an unknown tool name", async () => {
       },
     }),
   );
-  const result = await Effect.runPromise(session.runTool("does_not_exist", {}));
+  const result = await Effect.runPromise(session.runTool("does_not_exist", {}, process.cwd()));
   expect(result.isError).toBe(true);
+});
+
+it("rejects a non-serializable prepared approval before showing it", async () => {
+  const session = await Effect.runPromise(
+    makeToolSession(
+      {
+        apiVersion: 1,
+        register(api) {
+          api.tools.register({
+            name: "reverse_text",
+            handler: async () => ({ content: "unused" }),
+            prepare: async () => ({ message: "Review", prepared: { value: BigInt(1) } as never }),
+            executePrepared: async () => ({ content: "unused" }),
+          });
+        },
+      },
+      "high-risk",
+    ),
+  );
+  const result = await Effect.runPromise(session.prepareTool("reverse_text", {}, process.cwd()));
+  expect("isError" in result && result.isError).toBe(true);
 });
 
 const lifecycleManifest = {

@@ -35,6 +35,14 @@ describe("parsePluginManifest", () => {
     expect(parsed.secrets[0]?.name).toBe("API_KEY");
   });
 
+  test("accepts optional workspace capability and rejects malformed declarations", () => {
+    expect(parsePluginManifest(manifest()).workspace).toBe(false);
+    expect(parsePluginManifest(manifest({ workspace: true })).workspace).toBe(true);
+    expect(() => parsePluginManifest(manifest({ workspace: "true" }))).toThrow(
+      "workspace must be boolean",
+    );
+  });
+
   test("accepts lower-camel secret names while keeping environment names uppercase", () => {
     const parsed = parsePluginManifest(
       manifest({
