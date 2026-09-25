@@ -1,7 +1,8 @@
 /**
  * The `read` tool: returns file contents numbered for coding-model consumption,
  * with an optional line range (negative values count from the end of the file)
- * and a hard character cap to avoid flooding the context window.
+ * and a hard character cap to avoid flooding the context window. Ordinary text reads
+ * also return a snapshot of the canonical path and complete contents for edit_file.
  *
  * `sinceByte` is the incremental mode for a file still being written: read only what was
  * appended, hand back the `nextByte` and `inode` to distinguish an append from a rotation.
@@ -15,6 +16,7 @@ import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { attachMediaFile } from "./attach-media";
+import { fileSnapshot } from "./file-snapshot";
 import { resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 const DEFAULT_MAX_CHARS = 131_072;
@@ -291,7 +293,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
       "Images, PDFs, audio, and video are attached to the conversation when the active model supports that modality. " +
       "Use this to inspect or edit text and code. Do not use this for directories (ls), to discover filenames (find), for unsupported binary formats, or via execute_command with cat/sed/nl. " +
       "For large files, pass startLine and endLine. A negative startLine reads from the end (startLine: -20 is the last 20 lines). " +
-      "Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
+      "Pass the returned snapshot unchanged to edit_file; it binds the edit to the file state you read. Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
       "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped. " +
       "To follow a file that is still being written, pass sinceByte (from the previous read's nextByte) and sinceInode: you get only what was appended, plus a reset field saying the file was rotated or truncated when the offset stopped meaning anything.",
     tags: ["filesystem", "read"],
@@ -342,7 +344,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
             };
           }
 
-          const raw = stripUtf8Bom(yield* fs.readFileString(filePathResult));
+          const canonicalPath = yield* fs.realPath(filePathResult);
+          const fileContent = yield* fs.readFileString(canonicalPath);
+          const raw = stripUtf8Bom(fileContent);
           const allLines = raw === "" ? [] : raw.split(/\r?\n/);
           const totalLines = allLines.length;
           const hasRange = args.startLine !== undefined || args.endLine !== undefined;
@@ -367,6 +371,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
             success: true,
             result: {
               path: filePathResult,
+              snapshot: fileSnapshot(canonicalPath, fileContent),
               content: formatNumberedContent(trimmed.lines, range.startLine),
               truncated: trimmed.truncated,
               totalLines,

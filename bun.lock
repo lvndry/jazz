@@ -256,6 +256,16 @@
         "@jazz/plugin-sdk": "workspace:*",
       },
     },
+    "plugins/lsp": {
+      "name": "@jazz-plugin/lsp",
+      "version": "0.1.0",
+      "dependencies": {
+        "diff": "^9.0.0",
+      },
+      "devDependencies": {
+        "@jazz/plugin-sdk": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@a2a-js/sdk": ["@a2a-js/sdk@1.2.0", "", { "dependencies": { "jose": "^6.2.3" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-zxjvBrxhPV4J/RN8QTbsYaUIu9Y9RvmR06IP5o42UdJX42A9I0m1StGVvqrcCQ3bdu3SzWHPm5CeC2FNHARvkw=="],
@@ -555,6 +565,8 @@
     "@jazz-plugin/example-tool": ["@jazz-plugin/example-tool@workspace:plugins/example-tool"],
 
     "@jazz-plugin/jev": ["@jazz-plugin/jev@workspace:plugins/jev"],
+
+    "@jazz-plugin/lsp": ["@jazz-plugin/lsp@workspace:plugins/lsp"],
 
     "@jazz/adapters": ["@jazz/adapters@workspace:packages/adapters"],
 

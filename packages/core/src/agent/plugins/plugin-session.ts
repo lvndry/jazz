@@ -32,7 +32,11 @@ import {
   type PluginToolDeclaration,
   type PluginToolRegistration,
   type PluginToolResult,
+  type PluginToolPreparation,
+  type JsonValue,
   type SkillRouteOutcome,
+  type WorkspaceContextHandler,
+  type WorkspaceContextInput,
 } from "@/core/types/plugin";
 import {
   validateDecisionRequest,
@@ -45,6 +49,17 @@ import {
   validateSkillRouteDistribution,
   validateSkillRouteInput,
 } from "./validation";
+
+// Bound approval text shown in the terminal and prepared data retained by a parked run.
+const DEFAULT_PLUGIN_TOOL_TIMEOUT_MS = 30_000;
+const PLUGIN_ARGUMENT_PREVIEW_CHARS = 500;
+const MAX_PLUGIN_APPROVAL_MESSAGE_CHARS = 4_000;
+const MAX_PLUGIN_APPROVAL_DIFF_CHARS = 1_000_000;
+const MAX_PLUGIN_PREPARED_JSON_CHARS = 8_000_000;
+const DEFAULT_PLUGIN_WORKSPACE_TIMEOUT_MS = 10_000;
+const MAX_PLUGIN_WORKSPACE_CONTENT_CHARS = 4_000;
+const MAX_PLUGIN_WORKSPACE_TOTAL_CHARS = 8_000;
+const MAX_PLUGIN_WORKSPACE_FILES = 16;
 
 /**
  * Write bytes to the process's controlling terminal so a terminal escape (for example an OSC
@@ -96,6 +111,8 @@ type RegisteredTool = {
   readonly pluginId: string;
   readonly declaration: PluginToolDeclaration;
   readonly handler: PluginToolRegistration["handler"];
+  readonly prepare?: PluginToolRegistration["prepare"];
+  readonly executePrepared?: PluginToolRegistration["executePrepared"];
 };
 
 type RegisteredCommand = {
@@ -163,11 +180,15 @@ export function createPluginSession(
       const tools = new Map<string, RegisteredTool>();
       const commands = new Map<string, RegisteredCommand>();
       const lifecycle = new Map<LifecycleEventId, RegisteredLifecycle[]>();
+      const workspace = new Map<string, WorkspaceContextHandler>();
+      const disabledWorkspace = new Set<string>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
       let closed = false;
       const timeoutMs = options.hookTimeoutMs ?? DEFAULT_PLUGIN_HOOK_TIMEOUT_MS;
+      const toolTimeoutMs = options.toolTimeoutMs ?? DEFAULT_PLUGIN_TOOL_TIMEOUT_MS;
+      const workspaceTimeoutMs = options.workspaceTimeoutMs ?? DEFAULT_PLUGIN_WORKSPACE_TIMEOUT_MS;
 
       const registerPlugin = (plugin: LoadedPlugin): void => {
         const manifest = validatePluginManifest(plugin.manifest);
@@ -220,10 +241,23 @@ export function createPluginSession(
                 throw new Error(`plugin did not declare tool ${registration.name}`);
               if (tools.has(registration.name))
                 throw new Error(`tool ${registration.name} already has a handler in this run`);
+              if (
+                (registration.prepare === undefined) !==
+                (registration.executePrepared === undefined)
+              )
+                throw new Error(
+                  `tool ${registration.name} must register both prepare and executePrepared`,
+                );
+              if (registration.prepare !== undefined && declaration.riskLevel === "read-only")
+                throw new Error(`read-only tool ${registration.name} cannot prepare a mutation`);
               tools.set(registration.name, {
                 pluginId: manifest.id,
                 declaration,
                 handler: registration.handler,
+                ...(registration.prepare && { prepare: registration.prepare }),
+                ...(registration.executePrepared && {
+                  executePrepared: registration.executePrepared,
+                }),
               });
             },
           },
@@ -250,6 +284,15 @@ export function createPluginSession(
               const existing = lifecycle.get(registration.event) ?? [];
               existing.push({ pluginId: manifest.id, handler: registration.handler });
               lifecycle.set(registration.event, existing);
+            },
+          },
+          workspace: {
+            register: (handler) => {
+              if (manifest.workspace !== true)
+                throw new Error(`plugin did not declare workspace context: ${manifest.id}`);
+              if (workspace.has(manifest.id))
+                throw new Error(`plugin ${manifest.id} already registered workspace context`);
+              workspace.set(manifest.id, handler);
             },
           },
           secrets: {
@@ -413,6 +456,44 @@ export function createPluginSession(
               return abstainedCompact("plugin handler failed");
             }
           }),
+        runWorkspace: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed || workspace.size === 0) return undefined;
+            const files = rawInput.files.slice(0, MAX_PLUGIN_WORKSPACE_FILES);
+            const input: WorkspaceContextInput = { cwd: rawInput.cwd, files };
+            const responses = await Promise.all(
+              [...workspace].map(async ([pluginId, handler]) => {
+                if (disabledWorkspace.has(pluginId)) return undefined;
+                try {
+                  const output = await deadline(
+                    (signal) => handler(input, { signal }),
+                    workspaceTimeoutMs,
+                  );
+                  if (output === undefined) return undefined;
+                  if (
+                    typeof output !== "object" ||
+                    output === null ||
+                    typeof output.content !== "string"
+                  )
+                    throw new Error("plugin returned invalid workspace context");
+                  const content = output.content.trim();
+                  if (!content) return undefined;
+                  return `[${pluginNameById.get(pluginId) ?? pluginId}]\n${content.slice(0, MAX_PLUGIN_WORKSPACE_CONTENT_CHARS)}`;
+                } catch (error) {
+                  disabledWorkspace.add(pluginId);
+                  options.reportFailure?.(
+                    pluginId,
+                    error instanceof Error ? error.message : String(error),
+                  );
+                  return undefined;
+                }
+              }),
+            );
+            const content = responses
+              .filter((item): item is string => item !== undefined)
+              .join("\n");
+            return content ? content.slice(0, MAX_PLUGIN_WORKSPACE_TOTAL_CHARS) : undefined;
+          }),
         describeHook: (id) => {
           const registration = hooks.get(id);
           if (!registration) return undefined;
@@ -423,19 +504,87 @@ export function createPluginSession(
         },
         listTools: () =>
           [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
-        runTool: (name, args) =>
+        runTool: (name, args, cwd) =>
           Effect.promise(async () => {
             if (closed) return toolError("plugin session closed");
             const registered = tools.get(name);
             if (!registered) return toolError(`no plugin handler for tool ${name}`);
             try {
-              return await deadline((signal) => registered.handler(args, { signal }), timeoutMs);
+              return await deadline(
+                (signal) => registered.handler(args, { signal, cwd }),
+                toolTimeoutMs,
+              );
             } catch (error) {
               options.reportFailure?.(
                 registered.pluginId,
                 error instanceof Error ? error.message : String(error),
               );
               return toolError(`tool ${name} failed`);
+            }
+          }),
+        prepareTool: (name, args, cwd) =>
+          Effect.promise(async (): Promise<PluginToolPreparation | PluginToolResult> => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            if (!registered.prepare) {
+              return {
+                message: `Plugin: ${registered.pluginId}\nTool: ${name}\nArguments: ${JSON.stringify(args).slice(0, PLUGIN_ARGUMENT_PREVIEW_CHARS)}`,
+                prepared: null,
+              };
+            }
+            try {
+              const result = await deadline(
+                (signal) => registered.prepare!(args, { signal, cwd }),
+                toolTimeoutMs,
+              );
+              const serialized = JSON.stringify(result.prepared);
+              if (
+                typeof result.message !== "string" ||
+                result.message.length === 0 ||
+                result.message.length > MAX_PLUGIN_APPROVAL_MESSAGE_CHARS ||
+                (result.previewDiff !== undefined &&
+                  (typeof result.previewDiff !== "string" ||
+                    result.previewDiff.length > MAX_PLUGIN_APPROVAL_DIFF_CHARS)) ||
+                serialized === undefined ||
+                serialized.length > MAX_PLUGIN_PREPARED_JSON_CHARS
+              )
+                return toolError(`tool ${name} returned an invalid approval proposal`);
+              return { ...result, prepared: JSON.parse(serialized) as JsonValue };
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(
+                `tool ${name} preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }),
+        executePreparedTool: (name, args, prepared, cwd) =>
+          Effect.promise(async () => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            try {
+              return registered.executePrepared
+                ? await deadline(
+                    (signal) =>
+                      registered.executePrepared!(args, prepared as JsonValue, { signal, cwd }),
+                    toolTimeoutMs,
+                  )
+                : await deadline(
+                    (signal) => registered.handler(args, { signal, cwd }),
+                    toolTimeoutMs,
+                  );
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(
+                `tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
             }
           }),
         emitLifecycle: (event: LifecycleEvent) =>
@@ -499,6 +648,8 @@ export function createPluginSession(
             tools.clear();
             commands.clear();
             lifecycle.clear();
+            workspace.clear();
+            disabledWorkspace.clear();
             providers.clear();
             disabledProviders.clear();
           }),

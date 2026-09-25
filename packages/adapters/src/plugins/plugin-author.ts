@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
+import { isBuiltin } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +33,11 @@ import { PluginSecretStore } from "./secret-store";
 const NATIVE_OR_ASSET_INPUT =
   /\.(?:node|wasm|css|html|sqlite|db|png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
 const BUILTIN_IMPORT = /^(?:node:|bun:)/;
+
+/** Bun may emit a bare Node builtin such as `url` while bundling a dependency. */
+function isRuntimeBuiltin(path: string): boolean {
+  return BUILTIN_IMPORT.test(path) || isBuiltin(path);
+}
 
 interface SourceManifest {
   readonly schemaVersion?: 1;
@@ -179,14 +185,14 @@ function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
   for (const [inputPath, input] of Object.entries(result.metafile.inputs)) {
     if (NATIVE_OR_ASSET_INPUT.test(inputPath)) fail(`unsupported input: ${inputPath}`);
     for (const imported of input.imports) {
-      if (imported.external === true && !BUILTIN_IMPORT.test(imported.path)) {
+      if (imported.external === true && !isRuntimeBuiltin(imported.path)) {
         fail(`runtime import is not self-contained: ${imported.path}`);
       }
     }
   }
   for (const output of Object.values(result.metafile.outputs)) {
     for (const imported of output.imports) {
-      if (!BUILTIN_IMPORT.test(imported.path)) {
+      if (!isRuntimeBuiltin(imported.path)) {
         fail(`emitted runtime import is not self-contained: ${imported.path}`);
       }
     }
@@ -405,6 +411,7 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   const tools = new Set<string>();
   const commands = new Set<string>();
   const lifecycleEvents = new Set<string>();
+  let registeredWorkspace = false;
   const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
   const declaredCommands = new Set(manifest.commands.map((command) => command.name));
   const declaredLifecycle = new Set<string>(manifest.lifecycleHooks);
@@ -460,6 +467,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         lifecycleEvents.add(registration.event);
       },
     },
+    workspace: {
+      register: () => {
+        if (registeredWorkspace) fail("workspace context was registered more than once");
+        registeredWorkspace = true;
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
@@ -469,6 +482,9 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   assertSameMembers("tool", [...declaredTools], tools);
   assertSameMembers("command", [...declaredCommands], commands);
   assertSameMembers("lifecycle event", [...declaredLifecycle], lifecycleEvents);
+  if (registeredWorkspace !== (manifest.workspace === true)) {
+    fail("workspace registration does not match manifest declaration");
+  }
   return {
     manifest,
     registeredHooks: [...hooks].sort(),

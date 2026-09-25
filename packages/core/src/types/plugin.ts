@@ -198,6 +198,7 @@ export interface PluginManifest {
   readonly personas: readonly PluginPersonaDeclaration[];
   readonly skills: readonly PluginSkillDeclaration[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly workspace?: boolean;
   readonly claimsNotifications: boolean;
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
@@ -215,6 +216,7 @@ export interface PluginConsentDisclosure {
   readonly personas: readonly string[];
   readonly skills: readonly string[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly workspace?: boolean;
   readonly claimsNotifications: boolean;
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
@@ -231,6 +233,19 @@ export interface PluginToolResult {
   readonly isError?: boolean;
 }
 
+/** Agent working directory and cooperative cancellation supplied by the host. */
+export interface PluginToolContext {
+  readonly signal: AbortSignal;
+  readonly cwd: string;
+}
+
+/** Serialized approval plan; persisted when a run parks. */
+export interface PluginToolPreparation {
+  readonly message: string;
+  readonly previewDiff?: string;
+  readonly prepared: JsonValue;
+}
+
 /**
  * The runtime half of a plugin tool: the handler the host invokes when the model calls the tool.
  * `name` must match a {@link PluginToolDeclaration} in the manifest, or registration is rejected.
@@ -239,7 +254,16 @@ export interface PluginToolRegistration {
   readonly name: string;
   readonly handler: (
     args: Record<string, unknown>,
-    context: { readonly signal: AbortSignal },
+    context: PluginToolContext,
+  ) => Promise<PluginToolResult>;
+  readonly prepare?: (
+    args: Record<string, unknown>,
+    context: PluginToolContext,
+  ) => Promise<PluginToolPreparation>;
+  readonly executePrepared?: (
+    args: Record<string, unknown>,
+    prepared: JsonValue,
+    context: PluginToolContext,
   ) => Promise<PluginToolResult>;
 }
 
@@ -362,6 +386,25 @@ export interface PluginLifecycleRegistration {
   readonly handler: (event: LifecycleEvent, context: LifecycleHandlerContext) => Promise<void>;
 }
 
+export interface WorkspaceFileActivity {
+  readonly path: string;
+  readonly kind: "read" | "write";
+}
+
+export interface WorkspaceContextInput {
+  readonly cwd: string;
+  readonly files: readonly WorkspaceFileActivity[];
+}
+
+export interface WorkspaceContextOutput {
+  readonly content: string;
+}
+
+export type WorkspaceContextHandler = (
+  input: WorkspaceContextInput,
+  context: { readonly signal: AbortSignal },
+) => Promise<WorkspaceContextOutput | undefined>;
+
 export interface PluginHostApi {
   readonly apiVersion: typeof PLUGIN_API_VERSION;
   readonly hooks: {
@@ -385,6 +428,9 @@ export interface PluginHostApi {
   readonly lifecycle: {
     /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
     register(registration: PluginLifecycleRegistration): void;
+  };
+  readonly workspace: {
+    register(handler: WorkspaceContextHandler): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

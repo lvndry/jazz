@@ -37,6 +37,7 @@ export const PLUGIN_MANIFEST_METADATA_FIELDS = [
   "personas",
   "skills",
   "lifecycleHooks",
+  "workspace",
   "claimsNotifications",
   "network",
   "dataSent",
@@ -295,6 +296,9 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   }
   const root = record(decoded, "plugin manifest");
   exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "artifact", "sha256"], "plugin manifest");
+  if (root["workspace"] !== undefined && typeof root["workspace"] !== "boolean") {
+    throw new Error("workspace must be boolean");
+  }
   if (root["schemaVersion"] !== PLUGIN_MANIFEST_SCHEMA_VERSION) {
     throw new Error(`Unsupported plugin manifest schemaVersion: ${String(root["schemaVersion"])}`);
   }
@@ -360,6 +364,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     personas: parsePersonas(root["personas"]),
     skills: parseSkills(root["skills"]),
     lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
+    workspace: root["workspace"] === true,
     claimsNotifications: root["claimsNotifications"] === true,
     network: { destinations: [...destinations].sort() },
     dataSent: [

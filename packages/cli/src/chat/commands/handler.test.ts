@@ -793,6 +793,8 @@ describe("handleSpecialCommand /runPluginCommand", () => {
         openSession: () => Effect.die("unused"),
         listAgentTools: () => Effect.succeed([]),
         runAgentTool: () => Effect.succeed({ content: "" }),
+        prepareAgentTool: () => Effect.succeed({ message: "Review plugin call", prepared: null }),
+        executePreparedAgentTool: () => Effect.succeed({ content: "done" }),
         listAgentCommands: () => Effect.succeed([]),
         runAgentCommand,
         listAllPersonas: () => Effect.succeed([]),

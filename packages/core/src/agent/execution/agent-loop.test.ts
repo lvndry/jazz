@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
@@ -250,13 +250,16 @@ const runRecursive: RecursiveRunner = () =>
 
 describe("executeAgentLoop", () => {
   it("should return content from a simple completion", async () => {
+    const requests: ChatMessage[][] = [];
     const strategy: CompletionStrategy = {
       shouldShowReasoning: false,
-      getCompletion: () =>
-        Effect.succeed({
+      getCompletion: (messages) => {
+        requests.push([...messages]);
+        return Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "Hello world" },
           interrupted: false,
-        }),
+        });
+      },
       presentResponse: () => Effect.void,
       onComplete: () => Effect.void,
       getRenderer: () => null,
@@ -275,6 +278,79 @@ describe("executeAgentLoop", () => {
 
     expect(result.content).toBe("Hello world");
     expect(result.conversationId).toBe("conv-123");
+    expect(requests).toEqual([[{ role: "user", content: "hello" }]]);
+  });
+
+  it("requests ephemeral workspace context before the first model call and after a file read", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-workspace-context-"));
+    const source = join(directory, "main.ts");
+    writeFileSync(source, "const value = 1;\n");
+    const workspaceInputs: unknown[] = [];
+    const requests: ChatMessage[][] = [];
+    let iteration = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        requests.push([...messages]);
+        iteration++;
+        return Effect.succeed({
+          completion:
+            iteration === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [
+                    {
+                      id: "call_1",
+                      type: "function" as const,
+                      function: { name: "read_file", arguments: JSON.stringify({ path: source }) },
+                    },
+                  ],
+                }
+              : { id: "c2", model: "gpt-4", content: "done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "read_file", result: { path: source }, success: true },
+      ]),
+    );
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 3 }),
+          makeRunContext({
+            workspaceContext: (input) => {
+              workspaceInputs.push(input);
+              return Effect.succeed({ content: "diagnostic" }.content);
+            },
+          }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(workspaceInputs).toEqual([
+        { cwd: process.cwd(), files: [] },
+        { cwd: process.cwd(), files: [{ path: realpathSync(source), kind: "read" }] },
+      ]);
+      expect(requests).toHaveLength(2);
+      expect(requests[0]?.at(-1)?.content).toContain("diagnostic");
+      expect(requests[1]?.at(-1)?.content).toContain("diagnostic");
+      expect(result.messages?.some((message) => message.content.includes("diagnostic"))).toBe(
+        false,
+      );
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
   });
 
   it("should handle tool calls and continue", async () => {
