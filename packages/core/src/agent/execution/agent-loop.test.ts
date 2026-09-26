@@ -107,6 +107,7 @@ const mockLLMService: LLMService = {
   listProviders: () => Effect.succeed([]),
   getProvider: () => Effect.fail(new Error("not implemented")),
   supportsNativeWebSearch: () => Effect.succeed(false),
+  resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
 } as unknown as LLMService;
 
 const mockSkillService = {

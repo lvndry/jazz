@@ -50,7 +50,11 @@ import Spinner from "ink-spinner";
 import React from "react";
 import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
-import { formatReasoningSelection, promptForReasoningSelection } from "@/cli/helpers/reasoning";
+import {
+  describeReasoningAdjustment,
+  formatReasoningSelection,
+  promptForReasoningSelection,
+} from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -103,6 +107,14 @@ export function editAgentCommand(
     let agent = yield* getAgentByIdentifier(agentIdentifier);
 
     while (true) {
+      const reasoningControl = yield* (yield* LLMServiceTag).resolveReasoningControl(
+        agent.config.llmProvider,
+        agent.config.llmModel,
+      );
+      const reasoningAdjustment = describeReasoningAdjustment(
+        agent.config.reasoning,
+        reasoningControl,
+      );
       const formatDate = (date: Date): string =>
         date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
@@ -117,7 +129,12 @@ export function editAgentCommand(
           `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
         ),
         fmt.keyValueCompact("Persona", agent.config.persona || "default"),
-        fmt.keyValueCompact("Reasoning", formatReasoningSelection(agent.config.reasoning)),
+        fmt.keyValueCompact(
+          "Reasoning",
+          reasoningAdjustment
+            ? `${formatReasoningSelection(agent.config.reasoning)} (${reasoningAdjustment})`
+            : formatReasoningSelection(agent.config.reasoning),
+        ),
         fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
         fmt.keyValueCompact(
           "Updated",
@@ -738,7 +755,13 @@ async function promptForAgentUpdates(
       const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
 
       if (isReasoningModel) {
-        const reasoning = await promptForReasoning(terminal, currentAgent);
+        const reasoning = await promptForReasoning(
+          terminal,
+          currentAgent,
+          llmService,
+          llmProvider,
+          llmModel,
+        );
         if (reasoning === null) {
           return null;
         }
@@ -793,7 +816,13 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoning = await promptForReasoning(terminal, currentAgent);
+      const reasoning = await promptForReasoning(
+        terminal,
+        currentAgent,
+        llmService,
+        providerToUse,
+        llmModel,
+      );
       if (reasoning === null) {
         return null;
       }
@@ -959,7 +988,13 @@ async function promptForAgentUpdates(
   }
 
   if (fieldToUpdate === "reasoning") {
-    const reasoning = await promptForReasoning(terminal, currentAgent);
+    const reasoning = await promptForReasoning(
+      terminal,
+      currentAgent,
+      llmService,
+      currentAgent.config.llmProvider,
+      currentAgent.config.llmModel,
+    );
     if (reasoning === null) {
       return null;
     }
@@ -1056,6 +1091,13 @@ function promptForMaxContextTokens(
 async function promptForReasoning(
   terminal: TerminalService,
   currentAgent: Agent,
+  llmService: LLMService,
+  provider: ProviderName,
+  model: string,
 ): Promise<ReasoningSelection | null> {
-  return (await promptForReasoningSelection(terminal, currentAgent.config.reasoning)) ?? null;
+  const control = await Effect.runPromise(llmService.resolveReasoningControl(provider, model));
+  return (
+    (await promptForReasoningSelection(terminal, currentAgent.config.reasoning, { control })) ??
+    null
+  );
 }

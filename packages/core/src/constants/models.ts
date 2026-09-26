@@ -25,6 +25,7 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000;
  */
 export const AVAILABLE_PROVIDERS = [
   "openai",
+  "chatgpt",
   "anthropic",
   "gemini",
   "openrouter",
@@ -39,6 +40,7 @@ export const AVAILABLE_PROVIDERS = [
   "minimax",
   "mistral",
   "moonshotai",
+  "nvidia",
   "ollama",
   "orcarouter",
   "sglang",

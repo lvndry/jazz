@@ -3,8 +3,6 @@
  * redirect listener and stores the resulting tokens/client info in the OS keyring.
  */
 
-import { spawn } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { toError } from "@jazz/core/utils/storage";
 import { auth, discoverOAuthServerInfo } from "@modelcontextprotocol/client";
 import type {
@@ -15,6 +13,7 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 import { Effect } from "effect";
+import { openBrowser, startLoopbackListener } from "@/adapters/oauth/loopback";
 import {
   detectKeyringBackend,
   keyringDelete,
@@ -247,138 +246,6 @@ export function createStoredTokenProvider(
   };
 }
 
-/** Open a URL in the user's default browser, best-effort. */
-function openBrowser(url: string): void {
-  const command =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  try {
-    const child = spawn(command, [url], { stdio: "ignore", detached: true });
-    child.on("error", () => {
-      // Falling back to the printed URL is the whole recovery path.
-    });
-    child.unref();
-  } catch {
-    // Same: the caller has already printed the URL.
-  }
-}
-
-const SUCCESS_PAGE = `<!doctype html><meta charset="utf-8"><title>Jazz</title>
-<body style="font-family:system-ui;padding:3rem;text-align:center">
-<h1>Authorized</h1><p>You can close this tab and return to your terminal.</p></body>`;
-
-interface CallbackListener {
-  readonly redirectUrl: string;
-  readonly waitForCode: () => Promise<string>;
-  readonly close: () => void;
-}
-
-/**
- * Bind a loopback listener on an ephemeral port and resolve the first
- * `?code=` it receives.
- *
- * The port has to exist before the provider is built, because it is part of
- * the redirect URI that gets registered with the authorization server.
- */
-function startCallbackListener(expectedState: string): Promise<CallbackListener> {
-  return new Promise((resolve, reject) => {
-    let onCode: ((code: string) => void) | undefined;
-    let onFailure: ((error: Error) => void) | undefined;
-    let received: string | undefined;
-    let failure: Error | undefined;
-
-    const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-      const url = new URL(request.url ?? "/", "http://127.0.0.1");
-      const code = url.searchParams.get("code");
-      const error = url.searchParams.get("error");
-      const state = url.searchParams.get("state");
-
-      if (error !== null) {
-        const authError = new Error(
-          `Authorization failed: ${url.searchParams.get("error_description") ?? error}`,
-        );
-        failure = authError;
-        onFailure?.(authError);
-        response.writeHead(400, { "content-type": "text/plain" });
-        response.end("Authorization failed. Return to your terminal.");
-        return;
-      }
-
-      if (code === null) {
-        response.writeHead(404, { "content-type": "text/plain" });
-        response.end("Not found");
-        return;
-      }
-
-      // The state check is what stops a stray request on the loopback port
-      // from injecting a code into this flow.
-      if (state !== expectedState) {
-        const stateError = new Error("Authorization failed: state parameter did not match");
-        failure = stateError;
-        onFailure?.(stateError);
-        response.writeHead(400, { "content-type": "text/plain" });
-        response.end("State mismatch. Return to your terminal.");
-        return;
-      }
-
-      received = code;
-      onCode?.(code);
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end(SUCCESS_PAGE);
-    });
-
-    // Try the published ports in order; a busy one is normal when another
-    // authorization is already in flight.
-    let portIndex = 0;
-    server.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "EADDRINUSE" && portIndex < CALLBACK_PORTS.length - 1) {
-        portIndex += 1;
-        server.listen(CALLBACK_PORTS[portIndex], "127.0.0.1");
-        return;
-      }
-      reject(
-        error.code === "EADDRINUSE"
-          ? new Error(
-              `All OAuth callback ports are in use (${CALLBACK_PORTS.join(", ")}). Finish or cancel the other authorization and try again.`,
-            )
-          : error,
-      );
-    });
-
-    server.listen(CALLBACK_PORTS[portIndex], "127.0.0.1", () => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        server.close();
-        reject(new Error("Could not bind a loopback port for the OAuth callback"));
-        return;
-      }
-
-      resolve({
-        // Must be one of the redirect URIs in the Client ID Metadata Document:
-        // the authorization server validates the request against that list, so
-        // an ephemeral port would be rejected outright.
-        redirectUrl: `http://127.0.0.1:${address.port}/callback`,
-        waitForCode: () =>
-          new Promise<string>((resolveCode, rejectCode) => {
-            if (received !== undefined) return resolveCode(received);
-            if (failure !== undefined) return rejectCode(failure);
-            const timer = setTimeout(() => {
-              rejectCode(new Error("Timed out waiting for the browser to complete authorization"));
-            }, CALLBACK_TIMEOUT_MS);
-            onCode = (code) => {
-              clearTimeout(timer);
-              resolveCode(code);
-            };
-            onFailure = (error) => {
-              clearTimeout(timer);
-              rejectCode(error);
-            };
-          }),
-        close: () => server.close(),
-      });
-    });
-  });
-}
-
 /**
  * Run the full OAuth 2.1 authorization-code flow with PKCE for one server.
  *
@@ -398,17 +265,23 @@ export function authorizeServer(
     try: async () => {
       const storage = createStorage(serverName, serverUrl);
       const state = crypto.randomUUID();
-      const listener = await startCallbackListener(state);
+      const listener = await startLoopbackListener({
+        ports: CALLBACK_PORTS,
+        expectedState: state,
+        timeoutMs: CALLBACK_TIMEOUT_MS,
+      });
+      // Must be one of the redirect URIs in the Client ID Metadata Document: the
+      // authorization server validates the request against that list, so an
+      // ephemeral port would be rejected outright.
+      const redirectUrl = `http://127.0.0.1:${listener.port}/callback`;
       let codeVerifierValue: string | undefined;
 
       try {
         const provider: OAuthClientProvider = {
-          get redirectUrl() {
-            return listener.redirectUrl;
-          },
+          redirectUrl,
           clientMetadataUrl: CLIENT_METADATA_URL,
           get clientMetadata() {
-            return clientMetadata(listener.redirectUrl);
+            return clientMetadata(redirectUrl);
           },
           state: () => state,
           clientInformation: () => storage.loadClient(),

@@ -4,27 +4,23 @@
  * tool calls, attachments, and reasoning.
  */
 
-import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
+import { createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { cerebras, createCerebras } from "@ai-sdk/cerebras";
-import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
-import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
+import { createCerebras } from "@ai-sdk/cerebras";
+import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createFireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
 import {
   createGoogleGenerativeAI,
   google,
   type GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
-import { createMistral, mistral } from "@ai-sdk/mistral";
-import {
-  createMoonshotAI,
-  moonshotai,
-  type MoonshotAILanguageModelOptions,
-} from "@ai-sdk/moonshotai";
+import { createGroq, groq } from "@ai-sdk/groq";
+import { createMistral } from "@ai-sdk/mistral";
+import { createMoonshotAI, type MoonshotAILanguageModelOptions } from "@ai-sdk/moonshotai";
 import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
-import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
+import { createTogetherAI } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
 import {
@@ -66,16 +62,21 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { JsonValue } from "@jazz/core/types/message";
-import type {
-  ReasoningControlSurface,
-  ReasoningSelection,
+import {
+  clampReasoningSelection,
+  type ReasoningControlSurface,
+  type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { safeParseJson } from "@jazz/core/utils/json";
 import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import {
+  configuredProviderApiKey,
+  formatProviderDisplayName,
+  isChatGPTSignedIn,
+} from "@jazz/core/utils/provider-model";
 import { toError } from "@jazz/core/utils/storage";
 import { sanitize } from "@jazz/core/utils/string";
 import {
@@ -85,7 +86,7 @@ import {
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
 import {
-  gateway,
+  createGateway,
   generateText,
   Output,
   stepCountIs,
@@ -104,13 +105,22 @@ import {
 import { Chunk, Duration, Effect, Layer, Option, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
-import { minimax } from "vercel-minimax-ai-provider";
-import { createZhipu, zhipu } from "zhipu-ai-provider";
+import { createMinimax } from "vercel-minimax-ai-provider";
+import { createZhipu } from "zhipu-ai-provider";
 import { z } from "zod";
-import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
+import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
+import {
+  CHATGPT_CODEX_BASE_URL,
+  CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
+  createChatGPTFetch,
+} from "./chatgpt";
 import { saveModelGeneratedFiles } from "./generated-files";
-import { resolveModelCapabilities } from "./model-capabilities/resolver";
+import { llmFetch } from "./llm-fetch";
+import {
+  resolveModelCapabilities,
+  type ResolvedModelCapabilities,
+} from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -265,7 +275,14 @@ function buildToolConfig(
   };
 }
 
-const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
+/**
+ * Providers whose reasoning must be sent back between tool calls within a turn. Anthropic
+ * requires its signed thinking blocks. OpenAI and ChatGPT continue from the previous reasoning
+ * item: by reference when the item is stored, or from its encrypted content when `store` is off,
+ * which is always the case for ChatGPT. Ollama and llama.cpp emit reasoning but cannot accept it
+ * back.
+ */
+const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic", "openai", "chatgpt"]);
 
 /**
  * File parts for a message's attachments, plus text notes for any that could not be sent.
@@ -597,7 +614,7 @@ interface XaiProviderWithTools {
  * Get provider-native web search tool if supported by the provider
  * Returns the tool instance or null if not supported
  */
-function getProviderNativeWebSearchTool(
+export function getProviderNativeWebSearchTool(
   providerName: ProviderName,
   logger?: LoggerService,
 ): ToolSet[string] | null {
@@ -605,7 +622,9 @@ function getProviderNativeWebSearchTool(
 
   try {
     switch (normalizedProvider) {
-      case "openai": {
+      // The ChatGPT backend serves the same hosted web search as the OpenAI API.
+      case "openai":
+      case "chatgpt": {
         const openaiWithTools = openai as typeof openai & {
           tools?: {
             webSearch?: (config?: {
@@ -741,6 +760,10 @@ function getConfiguredProviders(
       providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
       addedProviders.add("anthropic");
     }
+    if (isChatGPTSignedIn(llmConfig)) {
+      providers.push({ name: "chatgpt", apiKey: "" });
+      addedProviders.add("chatgpt");
+    }
     if (llmConfig.cerebras?.api_key) {
       providers.push({ name: "cerebras", apiKey: llmConfig.cerebras.api_key });
       addedProviders.add("cerebras");
@@ -773,6 +796,10 @@ function getConfiguredProviders(
       providers.push({ name: "moonshotai", apiKey: llmConfig.moonshotai.api_key });
       addedProviders.add("moonshotai");
     }
+    if (llmConfig.nvidia?.api_key) {
+      providers.push({ name: "nvidia", apiKey: llmConfig.nvidia.api_key });
+      addedProviders.add("nvidia");
+    }
     if (llmConfig.openai?.api_key) {
       providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
       addedProviders.add("openai");
@@ -800,9 +827,9 @@ function getConfiguredProviders(
   }
 
   // Fallback: check environment variables for providers not yet configured
-  for (const [providerName, envVar] of Object.entries(PROVIDER_ENV_VARS)) {
+  for (const providerName of Object.keys(PROVIDER_ENV_VARS)) {
     if (!addedProviders.has(providerName)) {
-      const envKey = process.env[envVar];
+      const envKey = llmProviderApiKeyFromEnv(providerName);
       if (envKey) {
         providers.push({ name: providerName as ProviderName, apiKey: envKey });
         addedProviders.add(providerName);
@@ -846,8 +873,7 @@ function structuredOutputText(result: { readonly output: unknown }): string | un
  * reachable for both or for neither.
  */
 function resolveProviderApiKey(provider: ProviderName, llmConfig?: LLMConfig): string | undefined {
-  const envVar = PROVIDER_ENV_VARS[provider];
-  return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+  return configuredProviderApiKey(llmConfig, provider) ?? llmProviderApiKeyFromEnv(provider);
 }
 
 function selectModel(
@@ -868,70 +894,77 @@ function selectModel(
   switch (providerName) {
     case "openai": {
       const apiKey = resolveApiKey("openai");
-      model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
+      model = createOpenAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
+      break;
+    }
+    case "chatgpt": {
+      // The fetch replaces this placeholder with the signed-in account's OAuth token.
+      model = createOpenAI({
+        apiKey: "chatgpt-oauth",
+        baseURL: CHATGPT_CODEX_BASE_URL,
+        fetch: createChatGPTFetch({ baseFetch: llmFetch }),
+      }).responses(modelId);
       break;
     }
     case "anthropic": {
       const apiKey = resolveApiKey("anthropic");
       const workspaceId =
         llmConfig?.anthropic?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"];
-      model =
-        apiKey || workspaceId
-          ? createAnthropic({
-              ...(apiKey ? { apiKey } : {}),
-              ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
-            })(modelId)
-          : anthropic(modelId);
+      model = createAnthropic({
+        ...(apiKey ? { apiKey } : {}),
+        ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
+        fetch: llmFetch,
+      })(modelId);
       break;
     }
     case "gemini": {
       const apiKey = resolveApiKey("gemini");
-      model = apiKey ? createGoogleGenerativeAI({ apiKey })(modelId) : google(modelId);
+      model = createGoogleGenerativeAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "mistral": {
       const apiKey = resolveApiKey("mistral");
-      model = apiKey ? createMistral({ apiKey })(modelId) : mistral(modelId);
+      model = createMistral({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "xai": {
       const apiKey = resolveApiKey("xai");
-      model = apiKey ? createXai({ apiKey })(modelId) : xai(modelId);
+      model = createXai({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "deepseek": {
       const apiKey = resolveApiKey("deepseek");
-      model = apiKey
-        ? createDeepSeek({ apiKey })(modelId)
-        : (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      model = createDeepSeek({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "moonshotai": {
       const apiKey = resolveApiKey("moonshotai");
-      model = apiKey ? createMoonshotAI({ apiKey })(modelId) : moonshotai(modelId);
+      model = createMoonshotAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
-    case "minimax":
-      model = minimax(modelId);
+    case "minimax": {
+      const apiKey = resolveApiKey("minimax");
+      model = createMinimax({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
+    }
     case "alibaba": {
       const apiKey = resolveApiKey("alibaba");
-      model = apiKey ? createAlibaba({ apiKey })(modelId) : alibaba(modelId);
+      model = createAlibaba({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "cerebras": {
       const apiKey = resolveApiKey("cerebras");
-      model = apiKey ? createCerebras({ apiKey })(modelId) : cerebras(modelId);
+      model = createCerebras({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "fireworks": {
       const apiKey = resolveApiKey("fireworks");
-      model = apiKey ? createFireworks({ apiKey })(modelId) : fireworks(modelId);
+      model = createFireworks({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "togetherai": {
       const apiKey = resolveApiKey("togetherai");
-      model = apiKey ? createTogetherAI({ apiKey })(modelId) : togetherai(modelId);
+      model = createTogetherAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "ollama": {
@@ -943,12 +976,8 @@ function selectModel(
         ? makeOllamaAuthorizedFetch(apiKey, keepAlive)
         : keepAlive
           ? makeOllamaKeepAliveFetch(keepAlive)
-          : undefined;
-      const ollamaInstance = createOllama({
-        baseURL,
-        headers,
-        ...(fetchImpl ? { fetch: fetchImpl } : {}),
-      });
+          : llmFetch;
+      const ollamaInstance = createOllama({ baseURL, headers, fetch: fetchImpl });
       model = ollamaInstance(modelId);
       break;
     }
@@ -964,6 +993,7 @@ function selectModel(
         includeUsage: true,
         ...(providerName === "vllm" ? { supportsStructuredOutputs: true } : {}),
         ...(headers ? { headers } : {}),
+        fetch: llmFetch,
       });
       model = localServer(modelId);
       break;
@@ -979,6 +1009,7 @@ function selectModel(
         ...(apiKey ? { apiKey } : {}),
         compatibility: "strict",
         headers,
+        fetch: llmFetch,
       };
 
       const openrouter = (
@@ -996,21 +1027,36 @@ function selectModel(
         baseURL: "https://api.orcarouter.ai/v1",
         includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        fetch: llmFetch,
       });
       model = orcarouter(modelId);
       break;
     }
+    case "nvidia": {
+      const apiKey = resolveApiKey("nvidia");
+      const nvidia = createOpenAICompatible({
+        name: "nvidia",
+        baseURL: "https://integrate.api.nvidia.com/v1",
+        includeUsage: true,
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        fetch: llmFetch,
+      });
+      model = nvidia(modelId);
+      break;
+    }
     case "ai_gateway": {
-      model = gateway(modelId);
+      const apiKey = resolveApiKey("ai_gateway");
+      model = createGateway({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "groq": {
-      model = groq(modelId);
+      const apiKey = resolveApiKey("groq");
+      model = createGroq({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "zhipuai": {
       const apiKey = resolveApiKey("zhipuai");
-      model = apiKey ? createZhipu({ apiKey })(modelId) : zhipu(modelId);
+      model = createZhipu({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     default:
@@ -1027,7 +1073,7 @@ export function makeOllamaAuthorizedFetch(
   apiKey: string,
   keepAlive?: string,
 ): typeof globalThis.fetch {
-  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
+  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : llmFetch;
   // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
@@ -1054,14 +1100,14 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
             (parsedBody as Record<string, unknown>)["keep_alive"] === undefined
           ) {
             (parsedBody as Record<string, unknown>)["keep_alive"] = keepAlive;
-            return fetch(input, { ...init, body: JSON.stringify(parsedBody) });
+            return llmFetch(input, { ...init, body: JSON.stringify(parsedBody) });
           }
         } catch {
           // Non-JSON body — forward unchanged.
         }
       }
     }
-    return fetch(input, init);
+    return llmFetch(input, init);
   }) as typeof globalThis.fetch;
 }
 
@@ -1082,14 +1128,15 @@ export function buildProviderCacheFingerprint(
       const cfg = llmConfig[providerName];
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
     }
+    case "chatgpt":
+      return llmConfig.chatgpt?.account_id ?? "";
     case "anthropic": {
       const cfg = llmConfig.anthropic;
       const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
       return `${cfg?.api_key ?? ""}|${workspaceId}`;
     }
     default: {
-      const apiKey = llmConfig[providerName]?.api_key;
-      return apiKey ?? "";
+      return configuredProviderApiKey(llmConfig, providerName) ?? "";
     }
   }
 }
@@ -1124,8 +1171,12 @@ function reasoningBudget(
   return Math.min(Math.max(requested, minimum), maximum ?? Number.POSITIVE_INFINITY);
 }
 
-/** Serialize only a capability-resolved control. */
+/**
+ * Serialize only a capability-resolved control. `selection` must already be
+ * clamped to the control, so every listed effort is sent verbatim.
+ */
 function buildResolvedReasoningOptions(
+  providerName: ProviderName,
   selection: ReasoningSelection | undefined,
   control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
 ): ProviderOptions | undefined {
@@ -1135,7 +1186,7 @@ function buildResolvedReasoningOptions(
 
   switch (control.transport) {
     case "openai.responses.reasoning-effort": {
-      if (selection === "disable" || !control.efforts.includes(selection)) return undefined;
+      if (selection === "disable") return undefined;
       return {
         openai: {
           promptCacheKey: "conversation",
@@ -1173,22 +1224,18 @@ function buildResolvedReasoningOptions(
     }
     case "ollama.chat.think":
       return { ollama: { think: selection !== "disable" } };
-    case "llamacpp.chat.enable-thinking":
+    case "openai-compatible.chat.template-enable-thinking":
       return {
-        llamacpp: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
+        [providerName]: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
       };
-    case "vllm.chat.reasoning-effort":
+    case "openai-compatible.chat.reasoning-effort":
       return {
-        vllm: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
+        [providerName]: { reasoningEffort: selection === "disable" ? "none" : selection },
       };
-    case "sglang.chat.reasoning-effort":
-      return {
-        sglang: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
-      };
-    case "llamacpp.chat.thinking-budget": {
+    case "openai-compatible.chat.template-thinking-budget": {
       if (selection === "disable") return undefined;
       return {
-        llamacpp: {
+        [providerName]: {
           chat_template_kwargs: {
             thinking_budget: reasoningBudget(
               selection,
@@ -1205,16 +1252,21 @@ function buildResolvedReasoningOptions(
 /**
  * Convert a model-neutral selection into provider options.
  *
- * An exact resolved profile is authoritative: unsupported or unavailable
- * efforts are serialized as disabled rather than falling through to a generic
- * provider serializer. Unknown profiles preserve the established serializer.
+ * An exact resolved profile is authoritative: the selection is first clamped
+ * to the efforts it lists, and a model reported as unsupported is serialized
+ * as disabled rather than falling through to a generic provider serializer.
+ * Unknown profiles preserve the established serializer.
  */
 export function buildProviderOptions(
   providerName: ProviderName,
   options: ChatCompletionOptions,
   control?: ReasoningControlSurface | { readonly kind: "unknown" },
 ): ProviderOptions | undefined {
-  const resolved = buildResolvedReasoningOptions(options.reasoning, control);
+  const resolved = buildResolvedReasoningOptions(
+    providerName,
+    clampReasoningSelection(options.reasoning, control),
+    control,
+  );
   if (resolved !== undefined) return resolved;
   if (control && control.kind !== "unknown") {
     return buildProviderOptions(providerName, { ...options, reasoning: "disable" });
@@ -1240,6 +1292,25 @@ export function buildProviderOptions(
         };
       }
       return { openai: openaiOptions };
+    }
+    case "chatgpt": {
+      // The Codex backend stores nothing server-side, so reasoning carries across turns only
+      // as encrypted content.
+      const chatgptOptions: OpenAIResponsesProviderOptions = {
+        promptCacheKey: "conversation",
+        store: false,
+      };
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          openai: {
+            ...chatgptOptions,
+            reasoningEffort,
+            reasoningSummary: "auto",
+            include: ["reasoning.encrypted_content"],
+          } satisfies OpenAIResponsesProviderOptions,
+        };
+      }
+      return { openai: chatgptOptions };
     }
     case "anthropic": {
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -1473,6 +1544,7 @@ class AISDKService implements LLMService {
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
+  private readonly reportedReasoningClamps = new Set<string>();
 
   constructor(
     config: AISDKConfig,
@@ -1517,13 +1589,90 @@ class AISDKService implements LLMService {
     }
 
     return listModelsForProvider(providerName, {
-      apiKey: this.config.llmConfig?.[providerName]?.api_key,
+      apiKey: configuredProviderApiKey(this.config.llmConfig, providerName),
       llmConfig: this.config.llmConfig,
     }).pipe(
       Effect.tap((models) =>
         Effect.sync(() => {
           this.modelInfoCache.set(providerName, models);
         }),
+      ),
+    );
+  }
+
+  private resolveCapabilities(
+    providerName: ProviderName,
+    modelId: ModelName,
+    modelInfo: ModelInfo | undefined,
+  ): ResolvedModelCapabilities {
+    const operator = this.config.llmConfig?.capabilityOverrides?.[providerName]?.[modelId];
+    return resolveModelCapabilities({
+      provider: providerName,
+      modelId,
+      catalog: {
+        ...(modelInfo?.isReasoningModel !== undefined && {
+          supportsReasoning: modelInfo.isReasoningModel,
+        }),
+        ...(modelInfo?.supportsTools !== undefined && {
+          supportsTools: modelInfo.supportsTools,
+        }),
+      },
+      ...(operator !== undefined && { operator }),
+    });
+  }
+
+  /**
+   * A listed model as an operator's `capabilityOverrides` entry corrects it, so the agent
+   * wizard's tool and reasoning steps agree with what a request will do. Only fields the
+   * operator set change; built-in profiles stay out of listings, where they would mark every
+   * model of a provider as reasoning.
+   */
+  private withOperatorOverrides(providerName: ProviderName, model: ModelInfo): ModelInfo {
+    if (this.config.llmConfig?.capabilityOverrides?.[providerName]?.[model.id] === undefined) {
+      return model;
+    }
+    const resolved = this.resolveCapabilities(providerName, model.id, model);
+    return {
+      ...model,
+      ...(resolved.source.tools === "operator" && resolved.supportsTools !== undefined
+        ? { supportsTools: resolved.supportsTools }
+        : {}),
+      ...(resolved.source.reasoning === "operator"
+        ? { isReasoningModel: resolved.reasoning.kind !== "unsupported" }
+        : {}),
+    };
+  }
+
+  readonly resolveReasoningControl = (
+    providerName: ProviderName,
+    modelId: string,
+  ): Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never> =>
+    Effect.promise(async () => {
+      await this.refreshRuntimeConfigIfChanged();
+      const modelInfo = await this.resolveModelInfo(providerName, modelId);
+      return this.resolveCapabilities(providerName, modelId, modelInfo).reasoning;
+    });
+
+  /** Log once per provider, model, and requested level when the model cannot honor it as asked. */
+  private reportReasoningClamp(
+    providerName: ProviderName,
+    modelId: ModelName,
+    requested: ReasoningSelection | undefined,
+    control: ReasoningControlSurface | { readonly kind: "unknown" },
+  ): void {
+    const effective = clampReasoningSelection(requested, control);
+    if (effective === requested) {
+      return;
+    }
+    const key = `${providerName}/${modelId}:${requested}`;
+    if (this.reportedReasoningClamps.has(key)) {
+      return;
+    }
+    this.reportedReasoningClamps.add(key);
+    Effect.runFork(
+      this.logger.warn(
+        `Reasoning "${requested}" is not supported by ${providerName}/${modelId}; using "${effective}"`,
+        { provider: providerName, requested, effective },
       ),
     );
   }
@@ -1558,11 +1707,20 @@ class AISDKService implements LLMService {
       Effect.map((models) => {
         const provider: LLMProvider = {
           name: providerName,
-          supportedModels: models.map((model) => model),
+          supportedModels: models.map((model) => this.withOperatorOverrides(providerName, model)),
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
-            const providerConfig = this.config.llmConfig?.[providerName];
-            const apiKey = providerConfig?.api_key;
+            if (providerName === "chatgpt") {
+              return isChatGPTSignedIn(this.config.llmConfig)
+                ? Effect.succeed(void 0)
+                : Effect.fail(
+                    new LLMAuthenticationError({
+                      provider: providerName,
+                      message: CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
+                    }),
+                  );
+            }
+            const apiKey = configuredProviderApiKey(this.config.llmConfig, providerName);
 
             if (!apiKey) {
               // User-run local servers need a key only when configured to require one.
@@ -1702,7 +1860,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
-      try: async () => {
+      try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
         const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
           this.config.llmConfig,
@@ -1718,22 +1876,11 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
         // STEP 6: Tools selection
         // Check if the selected model supports tools
         // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
@@ -1753,6 +1900,12 @@ class AISDKService implements LLMService {
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
+        this.reportReasoningClamp(
+          providerName,
+          options.model,
+          options.reasoning,
+          resolvedCapabilities.reasoning,
+        );
         const providerOptions = buildProviderOptions(
           providerName,
           options,
@@ -1791,6 +1944,7 @@ class AISDKService implements LLMService {
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
+          abortSignal: signal,
           stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
         });
         Effect.runFork(
@@ -2016,22 +2170,17 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
+        this.reportReasoningClamp(
+          providerName,
+          options.model,
+          options.reasoning,
+          resolvedCapabilities.reasoning,
+        );
         const providerOptions = buildProviderOptions(
           providerName,
           options,
@@ -2138,6 +2287,16 @@ class AISDKService implements LLMService {
                     ...(providerOptions ? { providerOptions } : {}),
                     abortSignal: abortController.signal,
                     stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                    // The stream carries the error to the processor, which reports and retries
+                    // it; without this the SDK also dumps the raw error object to stderr.
+                    onError: ({ error }) => {
+                      Effect.runFork(
+                        this.logger.debug(
+                          "Provider stream error",
+                          safeLLMErrorMetadata(error, providerName, "stream"),
+                        ),
+                      );
+                    },
                   });
                   const result = streamTextResult;
 

@@ -53,30 +53,30 @@ The prompt comes from the positional argument, or from piped stdin when the argu
 absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
 treated as untrusted text.
 
-| Flag                           | Default      | Purpose                                                                                                                                              |
-| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                     |
-| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                             |
-| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory               |
-| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                      |
-| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                        |
-| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                     |
-| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                    |
-| `--reasoning <effort>`         | agent config | `low` \| `medium` \| `high` \| `disable`                                                                                                             |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                          |
-| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                             |
-| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                  |
-| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing |
-| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                          |
-| `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                          |
-| `--no-stream`                  | off          | Disable streaming                                                                                                                                    |
-| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                    |
-| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                              |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                       |
-| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                           |
-| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                        |
-| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                        |
-| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                         |
+| Flag                           | Default      | Purpose                                                                                                                                                                |
+| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                                       |
+| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                                               |
+| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                                 |
+| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                                        |
+| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                          |
+| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
+| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
+| `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                                            |
+| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
+| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
+| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
+| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                                            |
+| `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                                            |
+| `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
+| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
+| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
+| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                                         |
+| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
+| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
+| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
+| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                           |
 
 `--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
 interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)

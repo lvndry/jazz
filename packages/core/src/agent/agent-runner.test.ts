@@ -249,6 +249,7 @@ const mockLlmService = {
     });
   }),
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+  resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
 } as unknown as LLMService;
 
 describe("resolveVllmServerModel", () => {

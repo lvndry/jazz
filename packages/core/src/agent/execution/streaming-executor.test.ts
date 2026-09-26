@@ -218,6 +218,7 @@ describe("executeWithStreaming", () => {
       listProviders: () => Effect.succeed([]),
       getProvider: () => Effect.fail(new Error("")),
       supportsNativeWebSearch: () => Effect.succeed(false),
+      resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
     } as unknown as LLMService;
 
     // Create Layers
@@ -565,6 +566,7 @@ describe("executeWithStreaming", () => {
       listProviders: () => Effect.succeed([]),
       getProvider: () => Effect.fail(new Error("")),
       supportsNativeWebSearch: () => Effect.succeed(false),
+      resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
     } as unknown as LLMService;
 
     const TestLayer = Layer.mergeAll(

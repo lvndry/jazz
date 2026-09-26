@@ -510,6 +510,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         }),
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+      resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
     } as unknown as LLMService;
 
     const agent: Agent = {
@@ -637,6 +638,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         }),
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+      resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
     } as unknown as LLMService;
 
     const agent: Agent = {
@@ -746,6 +748,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         }),
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+      resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
     } as unknown as LLMService;
 
     const agent: Agent = {
@@ -848,6 +851,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         }),
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+      resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
     } as unknown as LLMService;
 
     const testLayer = Layer.mergeAll(

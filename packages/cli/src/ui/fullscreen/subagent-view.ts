@@ -4,7 +4,7 @@
  * every other frame is.
  */
 
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
+import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
 import { getGlyphs } from "../glyphs";
 import { subagentElapsedMs, type SubagentRun, type SubagentStatus } from "../subagent-runs";
 import { formatElapsed } from "./LiveZone";
@@ -65,7 +65,7 @@ export function subagentBlocks(run: SubagentRun, now: number): Block[] {
         });
         return;
       case "response": {
-        const markdown = stripAnsiCodes(entry.text);
+        const markdown = stripAnsiCodes(terminalHyperlinksToMarkdown(entry.text));
         if (markdown.trim().length === 0) return;
         blocks.push({
           id,

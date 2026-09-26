@@ -1,5 +1,5 @@
 ---
-description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, SGLang, Groq, and other supported APIs."
+description: "Configure Jazz model providers including OpenAI, a ChatGPT subscription, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, SGLang, Groq, and other supported APIs."
 ---
 
 # Configure model providers
@@ -20,6 +20,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `alibaba`    | `ALIBABA_API_KEY`                                                 |
 | `anthropic`  | `ANTHROPIC_API_KEY`                                               |
 | `cerebras`   | `CEREBRAS_API_KEY`                                                |
+| `chatgpt`    | None: sign in with a ChatGPT plan (see below)                     |
 | `deepseek`   | `DEEPSEEK_API_KEY`                                                |
 | `fireworks`  | `FIREWORKS_API_KEY`                                               |
 | `gemini`     | `GOOGLE_GENERATIVE_AI_API_KEY`, or `GEMINI_API_KEY`               |
@@ -28,9 +29,11 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `minimax`    | `MINIMAX_API_KEY`                                                 |
 | `mistral`    | `MISTRAL_API_KEY`                                                 |
 | `moonshotai` | `MOONSHOT_API_KEY`                                                |
+| `nvidia`     | `NVIDIA_API_KEY`, or `NIM_API_KEY`                                |
 | `ollama`     | `OLLAMA_API_KEY` for Ollama Cloud or protected servers            |
 | `openai`     | `OPENAI_API_KEY`                                                  |
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
+| `orcarouter` | `ORCAROUTER_API_KEY`                                              |
 | `sglang`     | `SGLANG_API_KEY` when the server requires bearer authentication   |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
@@ -49,6 +52,21 @@ The configuration wizard writes secrets to macOS Keychain or libsecret when avai
 
 For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llmApiKeys` exists.
 
+## ChatGPT subscription
+
+The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. OpenAI supports this for third-party agents. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
+
+Run `jazz config`, choose **LLM providers**, then **ChatGPT**, and pick how to sign in:
+
+- **Open a browser on this machine** opens OpenAI's sign-in page and receives the result on `localhost:1455`. Finish or cancel any Codex CLI sign-in first, because it uses the same port.
+- **Enter a code on another device** shows a code to enter at `auth.openai.com/codex/device` from any phone or laptop. Use this over SSH and on servers without a browser.
+
+Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in when you are not signed in yet.
+
+The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider. There is no environment variable for this provider, so CI and containers should use `openai` with an API key.
+
+To switch accounts or sign out, choose **ChatGPT** in `jazz config` again.
+
 ## OpenRouter for model portability
 
 OpenRouter is useful when the workflow should stay stable while the underlying hosted model changes. `openrouter/free` routes to an available free model; it is useful for experiments but not a reliability guarantee. `openrouter/auto` is also a router rather than a fixed model, so exact capabilities and pricing depend on the selected upstream model.
@@ -61,6 +79,36 @@ jazz agent create
 ```
 
 The [CI reviewer](../guides/pr-review.md) shows the same workflow running through OpenRouter or a self-hosted model.
+
+## NVIDIA NIM
+
+The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists the models your key can call from NIM's `/v1/models`, leaving out embedding, reranking, guardrail and document-parsing models, and fills in context windows and tool support from the models.dev catalog. A model the catalog lists only under another host keeps that entry's context window and tool support but shows no price, since the price belongs to that host. A model the catalog does not list at all gets a 128,000-token window and no tools; if it does call tools, set `"supportsTools": true` for it under [`llm.capabilityOverrides`](#model-capability-overrides), and `jazz agent create` will offer tool selection for it.
+
+```bash
+export NVIDIA_API_KEY="nvapi-..."
+jazz agent create
+```
+
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder: NIM accepts `low`, `high`, `max` and `none` for it and rejects `medium`, so Jazz runs a `medium` agent at `low`:
+
+```json
+{
+  "llm": {
+    "capabilityOverrides": {
+      "nvidia": {
+        "deepseek-ai/deepseek-v4.1-flash": {
+          "reasoning": {
+            "kind": "effort",
+            "transport": "openai-compatible.chat.reasoning-effort",
+            "efforts": ["low", "high", "max"],
+            "canDisableReasoning": true
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ## Ollama
 
@@ -136,10 +184,10 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
         "Qwen3-32B-Instruct": {
           "reasoning": {
             "kind": "budget",
-            "transport": "llamacpp.chat.thinking-budget",
+            "transport": "openai-compatible.chat.template-thinking-budget",
             "minimumBudgetTokens": 256,
             "maximumBudgetTokens": 32768,
-            "canDisable": true
+            "canDisableReasoning": true
           },
           "supportsTools": true
         }
@@ -149,7 +197,17 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 }
 ```
 
-Keys are exact server-facing model IDs. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+
+Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
+
+| Transport                                         | Kind     | Request field                                                 |
+| ------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `openai-compatible.chat.reasoning-effort`         | `effort` | top-level `reasoning_effort`, `"none"` to disable             |
+| `openai-compatible.chat.template-enable-thinking` | `toggle` | `chat_template_kwargs.enable_thinking`                        |
+| `openai-compatible.chat.template-thinking-budget` | `budget` | `chat_template_kwargs.thinking_budget`, omitted when disabled |
+
+When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisableReasoning": false` becomes the lowest level, or keeps reasoning on for a toggle. The `/reasoning` picker and `jazz agent create`/`edit` offer only the levels the model's profile accepts; with no profile they offer every level. A typed `/reasoning <level>` or `jazz run --reasoning <level>` the model does not accept prints the level it runs at, and `jazz agent edit` shows it next to the saved level.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 
@@ -157,7 +215,7 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-A hosted provider answers well inside two minutes. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+Most hosted providers answer well inside two minutes, but NVIDIA NIM can queue a request for over three minutes before its first token. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000

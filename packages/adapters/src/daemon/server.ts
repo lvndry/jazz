@@ -80,6 +80,7 @@ import {
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
+import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
@@ -1553,7 +1554,8 @@ function listModels(provider: ProviderName, role?: CompanionRole) {
     // Same precedence the LLM service itself uses: global config before environment. A
     // key in the OS keyring is not consulted, because listing models is not worth
     // unlocking a keyring for — providers that need a key and have none simply list none.
-    const apiKey = llmConfig?.[provider]?.api_key ?? llmProviderApiKeyFromEnv(provider);
+    const apiKey =
+      configuredProviderApiKey(llmConfig, provider) ?? llmProviderApiKeyFromEnv(provider);
 
     const models = yield* listModelsForProvider(provider, { apiKey, llmConfig });
     return json({
