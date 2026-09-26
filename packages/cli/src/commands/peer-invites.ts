@@ -25,6 +25,7 @@ import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { CLIError } from "@jazz/core/types/errors";
 import { isPeerTier, PEER_TIERS, type PeerTier } from "@jazz/core/types/peer";
 import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { generate as generateQrCode } from "qrcode-terminal";
 import { describeTier } from "./peers";
@@ -456,7 +457,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       Effect.catchAll((error) =>
         Effect.succeed({
           status: 0,
-          body: { ok: false, error: error instanceof Error ? error.message : String(error) },
+          body: { ok: false, error: toError(error).message },
         }),
       ),
     );

@@ -8,27 +8,21 @@
  * implements the same lifecycle and version rules for foreground runs and tests.
  */
 
-import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
-import { hostname } from "node:os";
 import * as path from "node:path";
-import { parseGoalRecord, type GoalId, type GoalRecord } from "@jazz/core/agent/goal/goal-record";
-import { isTerminalGoal, transitionGoal } from "@jazz/core/agent/goal/goal-state";
+import {
+  GOAL_ID_PATTERN,
+  parseGoalRecord,
+  type GoalId,
+  type GoalRecord,
+} from "@jazz/core/agent/goal/goal-record";
+import { isGoalClaimed, isTerminalGoal, transitionGoal } from "@jazz/core/agent/goal/goal-state";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
 import { getGoalsDirectory } from "@jazz/core/utils/paths";
 import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
-
-const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-const LOCK_STALE_MS = 30_000;
-const LOCK_RETRY_DELAY_MS = 25;
-const LOCK_MAX_WAIT_MS = 5_000;
-
-interface GoalLockPayload {
-  readonly pid: number;
-  readonly host: string;
-  readonly token: string;
-}
+import { writeJsonFileDurably } from "./durable-file";
+import { withFileLock } from "./file-lock";
 
 function isGoalId(value: string): boolean {
   return GOAL_ID_PATTERN.test(value);
@@ -38,10 +32,6 @@ function assertGoalId(value: string): void {
   if (!isGoalId(value)) {
     throw new Error(`"${value}" is not a usable goal id.`);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseStoredGoalRecord(raw: string, expectedGoalId: string): GoalRecord {
@@ -209,8 +199,9 @@ function selectRecords(
 
 type GoalStoreState = GoalRecord["state"]["kind"];
 
-function isGoalClaimed(state: GoalRecord["state"]): boolean {
-  return state.kind === "active" || state.kind === "awaiting-input" || state.kind === "stopping";
+/** Whether writing `next` must check its conversation has no other claimed goal. */
+function claimsConversation(next: Omit<GoalRecord, "version">): boolean {
+  return next.sourceConversationId !== undefined && isGoalClaimed(next.state);
 }
 
 function assertNoActiveConversationConflict(
@@ -218,7 +209,7 @@ function assertNoActiveConversationConflict(
   next: Omit<GoalRecord, "version">,
   records: Iterable<GoalRecord>,
 ): void {
-  if (next.sourceConversationId === undefined || !isGoalClaimed(next.state)) {
+  if (!claimsConversation(next)) {
     return;
   }
   for (const record of records) {
@@ -292,106 +283,6 @@ export class InMemoryGoalStore implements GoalStore {
   }
 }
 
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-async function readLockPayload(lockDirectory: string): Promise<GoalLockPayload | undefined> {
-  try {
-    const parsed: unknown = JSON.parse(
-      await nodeFs.readFile(path.join(lockDirectory, "owner.json"), "utf8"),
-    );
-    if (
-      !isRecord(parsed) ||
-      !Number.isSafeInteger(parsed["pid"]) ||
-      typeof parsed["host"] !== "string" ||
-      typeof parsed["token"] !== "string"
-    ) {
-      return undefined;
-    }
-    return parsed as unknown as GoalLockPayload;
-  } catch {
-    return undefined;
-  }
-}
-
-async function goalLockIsStale(lockDirectory: string): Promise<boolean> {
-  const stats = await nodeFs.stat(lockDirectory).catch(() => undefined);
-  if (stats === undefined) {
-    return true;
-  }
-  if (Date.now() - stats.mtimeMs <= LOCK_STALE_MS) {
-    return false;
-  }
-  const payload = await readLockPayload(lockDirectory);
-  if (payload === undefined) {
-    return true;
-  }
-  if (payload.host !== hostname()) {
-    return false;
-  }
-  return !processIsAlive(payload.pid);
-}
-
-async function removeStaleGoalLock(lockDirectory: string): Promise<void> {
-  const quarantineDirectory = `${lockDirectory}.stale-${randomUUID()}`;
-  try {
-    await nodeFs.rename(lockDirectory, quarantineDirectory);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return;
-    }
-    throw error;
-  }
-  await nodeFs.rm(quarantineDirectory, { recursive: true, force: true }).catch(() => undefined);
-}
-
-async function acquireGoalLock(lockDirectory: string): Promise<() => Promise<void>> {
-  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
-  const token = randomUUID();
-  const payload: GoalLockPayload = { pid: process.pid, host: hostname(), token };
-  for (;;) {
-    try {
-      await nodeFs.mkdir(lockDirectory, { mode: 0o700 });
-      try {
-        await nodeFs.writeFile(path.join(lockDirectory, "owner.json"), JSON.stringify(payload), {
-          encoding: "utf8",
-          flag: "wx",
-          mode: 0o600,
-        });
-      } catch (error) {
-        await nodeFs.rm(lockDirectory, { recursive: true, force: true });
-        throw error;
-      }
-      return async () => {
-        const owner = await readLockPayload(lockDirectory);
-        if (owner?.token === token) {
-          await nodeFs.rm(lockDirectory, { recursive: true, force: true });
-        }
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-      if (await goalLockIsStale(lockDirectory)) {
-        await removeStaleGoalLock(lockDirectory);
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for the goal lock at "${lockDirectory}".`, {
-          cause: error,
-        });
-      }
-      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
-    }
-  }
-}
-
 /**
  * File-backed goal storage. Updates are locked per goal, version-checked, and atomically
  * replaced with mode 0600 under a mode 0700 directory. Reads fail loudly on corruption so
@@ -435,80 +326,56 @@ export class FileGoalStore implements GoalStore {
     }
   }
 
-  private async writeFile(record: GoalRecord): Promise<void> {
-    const destination = this.pathFor(record.goalId);
+  private async ensureDirectory(): Promise<void> {
     await nodeFs.mkdir(this.directory, { recursive: true, mode: 0o700 });
     await nodeFs.chmod(this.directory, 0o700);
-    const temporary = path.join(
-      this.directory,
-      `.${record.goalId}-${process.pid}-${randomUUID()}.tmp`,
-    );
-    try {
-      const handle = await nodeFs.open(temporary, "wx", 0o600);
-      try {
-        await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await nodeFs.rename(temporary, destination);
-      await nodeFs.chmod(destination, 0o600);
-    } finally {
-      await nodeFs.rm(temporary, { force: true }).catch(() => undefined);
-    }
   }
 
   private async withGoalLock<A>(goalId: GoalId, operation: () => Promise<A>): Promise<A> {
-    await nodeFs.mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await nodeFs.chmod(this.directory, 0o700);
-    const release = await acquireGoalLock(this.lockPathFor(goalId));
-    try {
-      return await operation();
-    } finally {
-      await release();
-    }
+    await this.ensureDirectory();
+    return withFileLock(this.lockPathFor(goalId), operation);
   }
 
-  private async withActivationLock<A>(operation: () => Promise<A>): Promise<A> {
-    const release = await acquireGoalLock(path.join(this.directory, ".active-goals.lock"));
-    try {
-      return await operation();
-    } finally {
-      await release();
-    }
-  }
-
-  private async assertNoActiveConversationConflict(
-    goalId: string,
-    next: Omit<GoalRecord, "version">,
-  ): Promise<void> {
-    if (next.sourceConversationId === undefined || !isGoalClaimed(next.state)) {
+  /**
+   * Write a record, holding the activation lock while it claims a conversation so two goals
+   * cannot both become its active goal.
+   */
+  private async writeClaimChecked(goalId: GoalId, record: GoalRecord): Promise<void> {
+    if (!claimsConversation(record)) {
+      await writeJsonFileDurably(this.pathFor(goalId), record);
       return;
     }
-    const entries = await nodeFs.readdir(this.directory).catch((error: unknown) => {
+    await withFileLock(path.join(this.directory, ".active-goals.lock"), async () => {
+      assertNoActiveConversationConflict(goalId, record, await this.readAllListed());
+      await writeJsonFileDurably(this.pathFor(goalId), record);
+    });
+  }
+
+  private async readAllListed(): Promise<GoalRecord[]> {
+    let entries: readonly string[];
+    try {
+      entries = await nodeFs.readdir(this.directory);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return [];
       }
       throw error;
-    });
+    }
+    const records: GoalRecord[] = [];
     for (const entry of entries) {
       if (!entry.endsWith(".json")) {
         continue;
       }
-      const candidateId = entry.slice(0, -5);
-      if (candidateId === goalId || !isGoalId(candidateId)) {
+      const goalId = entry.slice(0, -".json".length);
+      if (!isGoalId(goalId)) {
         continue;
       }
-      const record = await this.readListedFile(candidateId);
-      if (
-        record !== undefined &&
-        record.ownerInstanceId === next.ownerInstanceId &&
-        record.sourceConversationId === next.sourceConversationId &&
-        isGoalClaimed(record.state)
-      ) {
-        throw new Error(`Conversation already has active goal "${record.goalId}".`);
+      const record = await this.readListedFile(goalId);
+      if (record !== undefined) {
+        records.push(record);
       }
     }
+    return records;
   }
 
   create(input: Omit<GoalRecord, "version">): Effect.Effect<GoalRecord, Error> {
@@ -521,14 +388,7 @@ export class FileGoalStore implements GoalStore {
           }
           const record: GoalRecord = { ...structuredClone(input), version: 1 };
           assertRecordValid(record);
-          if (isGoalClaimed(record.state)) {
-            await this.withActivationLock(async () => {
-              await this.assertNoActiveConversationConflict(record.goalId, record);
-              await this.writeFile(record);
-            });
-          } else {
-            await this.writeFile(record);
-          }
+          await this.writeClaimChecked(record.goalId, record);
           return structuredClone(record);
         });
       },
@@ -548,32 +408,8 @@ export class FileGoalStore implements GoalStore {
 
   list(filter?: Parameters<GoalStore["list"]>[0]): Effect.Effect<readonly GoalRecord[], never> {
     return Effect.tryPromise({
-      try: async () => {
-        let entries: readonly string[];
-        try {
-          entries = await nodeFs.readdir(this.directory);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return [];
-          }
-          throw error;
-        }
-        const records: GoalRecord[] = [];
-        for (const entry of entries) {
-          if (!entry.endsWith(".json")) {
-            continue;
-          }
-          const goalId = entry.slice(0, -".json".length);
-          if (!isGoalId(goalId)) {
-            continue;
-          }
-          const record = await this.readListedFile(goalId);
-          if (record !== undefined) {
-            records.push(record);
-          }
-        }
-        return selectRecords(records, filter).map((record) => structuredClone(record));
-      },
+      try: async () =>
+        selectRecords(await this.readAllListed(), filter).map((record) => structuredClone(record)),
       catch: toError,
     }).pipe(Effect.catchAll((error) => Effect.die(error)));
   }
@@ -592,14 +428,7 @@ export class FileGoalStore implements GoalStore {
             throw new Error(`No goal with id "${goalId}".`);
           }
           const updated = nextRecord(current, expectedVersion, next, new Date());
-          if (isGoalClaimed(next.state)) {
-            await this.withActivationLock(async () => {
-              await this.assertNoActiveConversationConflict(goalId, next);
-              await this.writeFile(updated);
-            });
-          } else {
-            await this.writeFile(updated);
-          }
+          await this.writeClaimChecked(goalId, updated);
           return structuredClone(updated);
         });
       },

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -105,13 +106,13 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
           if (args.force) {
             return {
               success: true,
-              result: `Removal attempted with force; error ignored: ${error instanceof Error ? error.message : String(error)}`,
+              result: `Removal attempted with force; error ignored: ${toError(error).message}`,
             };
           }
           return {
             success: false,
             result: null,
-            error: `rm failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `rm failed: ${toError(error).message}`,
           };
         }
       }),

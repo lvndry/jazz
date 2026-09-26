@@ -40,6 +40,7 @@ import {
 } from "@/core/memory/source-trust";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
+import { toError } from "@/core/utils/storage";
 import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -167,7 +168,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -438,7 +439,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

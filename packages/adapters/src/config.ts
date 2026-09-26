@@ -33,6 +33,7 @@ import {
   type ConfigFile,
   validateEffectiveConfig,
 } from "@jazz/core/utils/config-schema";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
   getGlobalUserDataDirectory,
@@ -370,7 +371,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 }
 
 function mergedEntry(existing: unknown, patch: unknown): ConfigDocument {
-  return { ...(isPlainObject(existing) ? existing : {}), ...(isPlainObject(patch) ? patch : {}) };
+  return { ...(isRecord(existing) ? existing : {}), ...(isRecord(patch) ? patch : {}) };
 }
 
 /**
@@ -381,7 +382,7 @@ function mergedEntry(existing: unknown, patch: unknown): ConfigDocument {
  * the schema check reached here, reject it outright.
  */
 function patchMcpServerEntry(target: ConfigDocument, name: string, patch: unknown): void {
-  const servers = isPlainObject(target["mcpServers"]) ? target["mcpServers"] : {};
+  const servers = isRecord(target["mcpServers"]) ? target["mcpServers"] : {};
   target["mcpServers"] = { ...servers, [name]: structuredClone(mergedEntry(servers[name], patch)) };
 }
 
@@ -399,15 +400,11 @@ function writeToDocument(document: ConfigDocument, key: string, value: unknown):
   deepSet(document, key, structuredClone(value));
 }
 
-function isPlainObject(value: unknown): value is ConfigDocument {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 /** Parse a config file's text into a document, or `undefined` when it is not a JSON object. */
 function parseConfigDocument(content: string): ConfigDocument | undefined {
   const parsed = safeParseJson<unknown>(content);
   if (Option.isNone(parsed)) return undefined;
-  return isPlainObject(parsed.value) ? parsed.value : undefined;
+  return isRecord(parsed.value) ? parsed.value : undefined;
 }
 
 /**
@@ -700,7 +697,7 @@ function mergeInto(base: Readonly<ConfigDocument>, layer: object): ConfigDocumen
   for (const [key, value] of Object.entries(layer)) {
     if (value === undefined) continue;
     const existing = out[key];
-    out[key] = isPlainObject(value) && isPlainObject(existing) ? mergeInto(existing, value) : value;
+    out[key] = isRecord(value) && isRecord(existing) ? mergeInto(existing, value) : value;
   }
   return out;
 }

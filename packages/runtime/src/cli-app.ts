@@ -20,6 +20,7 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
 
@@ -1186,7 +1187,7 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
   return Promise.resolve()
     .then(action)
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(toError(error).message);
       process.exitCode = 1;
     });
 }

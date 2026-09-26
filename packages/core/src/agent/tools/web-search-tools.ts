@@ -13,6 +13,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchProviderName } from "@/core/types/config";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";
@@ -190,7 +191,7 @@ export function createWebSearchTool(): ReturnType<
           Effect.map((result) => ({ success: true as const, result })),
           Effect.catchAll((error) =>
             Effect.gen(function* () {
-              const message = error instanceof Error ? error.message : String(error);
+              const message = toError(error).message;
               yield* logger.error("Web search failed", {
                 provider: selectedProvider,
                 errorType: "provider_error",
@@ -284,8 +285,7 @@ function executeExaSearch(
           };
           return exa.search(args.query, baseOptions as Parameters<typeof exa.search>[1]);
         },
-        catch: (error) =>
-          new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
+        catch: (error) => new Error(`Exa search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );
@@ -352,10 +352,7 @@ function executeParallelSearch(
               ...(args.fromDate ? { source_policy: { after_date: args.fromDate } } : {}),
             },
           }),
-        catch: (error) =>
-          new Error(
-            `Parallel search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (error) => new Error(`Parallel search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );
@@ -449,10 +446,7 @@ function executeTavilySearch(
 
           return (await res.json()) as TavilySearchResponse;
         },
-        catch: (error) =>
-          new Error(
-            `Tavily search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (error) => new Error(`Tavily search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );
@@ -532,10 +526,7 @@ function executeBraveSearch(
             };
           };
         },
-        catch: (error) =>
-          new Error(
-            `Brave search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (error) => new Error(`Brave search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );
@@ -589,10 +580,7 @@ function executePerplexitySearch(
             ...(args.fromDate ? { search_after_date_filter: toPerplexityDate(args.fromDate) } : {}),
             ...(args.toDate ? { search_before_date_filter: toPerplexityDate(args.toDate) } : {}),
           }),
-        catch: (error) =>
-          new Error(
-            `Perplexity search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (error) => new Error(`Perplexity search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );
@@ -650,10 +638,7 @@ function executeLinkupSearch(
             ...(args.fromDate ? { fromDate: new Date(args.fromDate) } : {}),
             ...(args.toDate ? { toDate: new Date(args.toDate) } : {}),
           }),
-        catch: (error) =>
-          new Error(
-            `Linkup search failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (error) => new Error(`Linkup search failed: ${toError(error).message}`),
       }),
       SEARCH_RETRY_POLICY,
     );

@@ -6,6 +6,7 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
 import { getGlobalWorkflowsDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { Effect } from "effect";
 
@@ -74,10 +75,7 @@ export function createWorkflowCommand() {
 
     const answers = yield* Effect.tryPromise({
       try: () => promptForWorkflowInfo(terminal, agents),
-      catch: (error) =>
-        new Error(
-          `Workflow creation failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Workflow creation failed: ${toError(error).message}`),
     });
 
     if (answers === null) {
@@ -92,10 +90,7 @@ export function createWorkflowCommand() {
 
     yield* Effect.tryPromise({
       try: () => fs.mkdir(workflowDir, { recursive: true }),
-      catch: (error) =>
-        new Error(
-          `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Failed to create directory: ${toError(error).message}`),
     });
 
     const frontmatter = buildFrontmatter(answers);
@@ -104,10 +99,7 @@ export function createWorkflowCommand() {
 
     yield* Effect.tryPromise({
       try: () => fs.writeFile(filePath, content, "utf-8"),
-      catch: (error) =>
-        new Error(
-          `Failed to write workflow: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Failed to write workflow: ${toError(error).message}`),
     });
 
     const workflowService = yield* WorkflowServiceTag;

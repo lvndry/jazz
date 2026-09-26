@@ -1,17 +1,18 @@
 /**
- * @fileoverview Goal actions shared by the chat `/goal` command and the `jazz goal` CLI:
- * propose a plan, activate an accepted one, apply a control, and describe a goal. The
- * surfaces differ only in how they ask the user; the planning, the records written, and the
- * control decisions are the same.
+ * @fileoverview Goal actions shared by every surface that exposes goals: the chat `/goal`
+ * command, the `jazz goal` CLI, and the daemon's `/goals` routes. Propose a plan, activate an
+ * accepted one, apply a control, and look goals up. The surfaces differ only in how they ask
+ * the user and report the result; the planning, the records written, and the control
+ * decisions are the same.
  */
 
-import { randomUUID } from "node:crypto";
-import { settleStoppingGoal } from "@jazz/adapters/daemon/goal-worker";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import {
   decideAccept,
+  decideCancel,
   decideControl,
   latestRunView,
+  type ControlDecision,
   type GoalControl,
 } from "@jazz/core/agent/goal/goal-controls";
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
@@ -20,9 +21,17 @@ import {
   goalPlanningPrompt,
   parseGoalDraft,
 } from "@jazz/core/agent/goal/goal-planning";
-import type { GoalBudget, GoalPlan, GoalRecord } from "@jazz/core/agent/goal/goal-record";
-import { DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
-import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
+import {
+  newProposedGoal,
+  NO_GOAL_USAGE,
+  type GoalBudget,
+  type GoalPlan,
+  type GoalRecord,
+} from "@jazz/core/agent/goal/goal-record";
+import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
+import { addSpend, DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
+import { agentRunSpend, priceOneOffCall, type CallSpend } from "@jazz/core/agent/run/run-spend";
+import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
@@ -30,6 +39,7 @@ import type { Agent } from "@jazz/core/types";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
+import { settleStoppingGoal } from "@/adapters/daemon/goal-worker";
 
 /**
  * The read-only feasibility pass before a proposal: a few tool rounds, then report. Every
@@ -45,8 +55,10 @@ const DISCOVERY_REQUEST_CHARS = 4_000;
 const PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const DISCOVERY_TOOLS = new Set(["read_file", "ls", "grep", "glob", "find"]);
 
+/** What drafting a plan spent; `costUSD` is absent when any part of it had unknown pricing. */
 export interface PlanningSpend {
   readonly totalTokens: number;
+  readonly costUSD?: number;
   readonly startedAt: number;
 }
 
@@ -58,6 +70,34 @@ export type GoalProposal =
       readonly spend: PlanningSpend;
     }
   | { readonly kind: "failed"; readonly reason: string };
+
+/** A goal this installation owns, or undefined for a missing or foreign one. */
+export function getOwnedGoal(goalId: string) {
+  return Effect.flatMap(GoalStoreTag, (store) =>
+    Effect.map(store.get(goalId), (goal) =>
+      goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId() ? undefined : goal,
+    ),
+  );
+}
+
+/** Goals this installation owns, narrowed by `filter`. */
+export function listOwnedGoals(
+  filter: Omit<Parameters<GoalStore["list"]>[0], "ownerInstanceId"> = {},
+) {
+  return Effect.flatMap(GoalStoreTag, (store) =>
+    store.list({ ...filter, ownerInstanceId: getGoalOwnerInstanceId() }),
+  );
+}
+
+function planningSpend(parts: readonly CallSpend[], startedAt: number): PlanningSpend {
+  const totalTokens = parts.reduce((sum, part) => sum + part.totalTokens, 0);
+  const costKnown = parts.every((part) => part.costKnown);
+  return {
+    totalTokens,
+    ...(costKnown ? { costUSD: parts.reduce((sum, part) => sum + (part.costUSD ?? 0), 0) } : {}),
+    startedAt,
+  };
+}
 
 /**
  * Draft a plan for a request, or the questions that must be answered first. With `inspect`,
@@ -85,7 +125,7 @@ export function proposeGoal(options: {
     let discoveryNotes = options.inspect
       ? "No bounded local project discovery tools were available."
       : "The user declined local project inspection; feasibility is uncertain and no project files were read.";
-    let discoveryTokens = 0;
+    const spent: CallSpend[] = [];
     if (readOnlyToolNames.length > 0) {
       const discovery = yield* AgentRunner.run({
         agent: options.agent,
@@ -107,12 +147,11 @@ export function proposeGoal(options: {
       }).pipe(Effect.either);
       if (discovery._tag === "Right") {
         discoveryNotes = discovery.right.content;
-        discoveryTokens =
-          (discovery.right.usage?.promptTokens ?? 0) +
-          (discovery.right.usage?.completionTokens ?? 0);
+        spent.push(agentRunSpend(options.agent, discovery.right));
       } else {
         discoveryNotes =
           "Bounded local discovery could not complete; feasibility remains uncertain.";
+        spent.push({ totalTokens: 0, costKnown: false });
       }
     }
     const completion = yield* llm
@@ -142,10 +181,8 @@ export function proposeGoal(options: {
       };
       return failed;
     }
-    const spend: PlanningSpend = {
-      totalTokens: discoveryTokens + (completion.right.usage?.totalTokens ?? 0),
-      startedAt,
-    };
+    spent.push(yield* priceOneOffCall(options.agent, completion.right.usage));
+    const spend = planningSpend(spent, startedAt);
     const draft = parseGoalDraft(completion.right.content);
     if (draft === undefined) {
       const invalid: GoalProposal = {
@@ -163,8 +200,10 @@ export function proposeGoal(options: {
 }
 
 /**
- * Create the goal for an accepted plan and activate it. `sourceConversationId` scopes the
- * one-active-goal-per-conversation rule; a goal started outside a conversation has none.
+ * Create the goal for an accepted plan and activate it, charged with what drafting it spent.
+ * `sourceConversationId` scopes the one-active-goal-per-conversation rule; a goal started
+ * outside a conversation has none. The rule is checked before the goal is created so a
+ * refusal leaves no orphaned proposal behind.
  */
 export function activateGoal(options: {
   readonly agent: Agent;
@@ -173,15 +212,15 @@ export function activateGoal(options: {
   readonly spend: PlanningSpend;
   readonly sourceConversationId?: string;
   readonly budget?: Partial<GoalBudget>;
+  /** The authority the user grants with the acceptance. */
   readonly approvalPolicy?: ApprovalPolicyLevel;
 }) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
     if (options.sourceConversationId !== undefined) {
-      const existing = yield* store.list({
-        ownerInstanceId: getGoalOwnerInstanceId(),
+      const existing = yield* listOwnedGoals({
         sourceConversationId: options.sourceConversationId,
-        states: ["active", "awaiting-input", "stopping"],
+        states: CLAIMED_GOAL_STATES,
       });
       if (existing[0] !== undefined) {
         return {
@@ -190,29 +229,20 @@ export function activateGoal(options: {
         } as const;
       }
     }
-    const now = new Date().toISOString();
-    const proposed = yield* store.create({
-      goalId: randomUUID(),
-      ownerInstanceId: getGoalOwnerInstanceId(),
-      agentId: options.agent.id,
-      ...(options.sourceConversationId !== undefined
-        ? { sourceConversationId: options.sourceConversationId }
-        : {}),
-      conversationId: generateConversationId("goal"),
-      request: options.request,
-      plan: options.plan,
-      state: { kind: "proposed" },
-      budget: { ...DEFAULT_GOAL_BUDGET, ...options.budget },
-      usage: {
-        cycles: 0,
-        totalTokens: options.spend.totalTokens,
-        costKnown: true,
-        costUSD: 0,
-        activeDurationMs: Math.max(0, Date.now() - options.spend.startedAt),
-      },
-      createdAt: now,
-      updatedAt: now,
-    });
+    const proposed = yield* store.create(
+      newProposedGoal({
+        agentId: options.agent.id,
+        sourceConversationId: options.sourceConversationId,
+        request: options.request,
+        plan: options.plan,
+        budget: { ...DEFAULT_GOAL_BUDGET, ...options.budget },
+        usage: addSpend(NO_GOAL_USAGE, {
+          totalTokens: options.spend.totalTokens,
+          ...(options.spend.costUSD !== undefined ? { costUSD: options.spend.costUSD } : {}),
+          activeDurationMs: Math.max(0, Date.now() - options.spend.startedAt),
+        }),
+      }),
+    );
     const acceptance = decideAccept(proposed, proposed.plan.revision, options.approvalPolicy);
     if (acceptance.kind === "refused") {
       return { kind: "refused", reason: acceptance.reason } as const;
@@ -222,140 +252,90 @@ export function activateGoal(options: {
   });
 }
 
+/** Goals the agent proposed in a conversation that still wait for the user's answer. */
+export function proposedGoals(sourceConversationId: string) {
+  return listOwnedGoals({ sourceConversationId, states: ["proposed"] });
+}
+
 /**
- * Accept or decline a goal the agent proposed. Accepting activates it for the daemon under
- * the approval policy the user grants with it; declining cancels it so it never runs. Only a
- * goal still in `proposed` can be decided.
+ * A control, or the user's answer to a proposal: `accept` activates it for the daemon and
+ * `decline` cancels it so it never runs.
  */
-export function decideProposedGoal(
+export type GoalAction = GoalControl | "accept" | "decline";
+
+export type GoalActionOutcome =
+  | { readonly kind: "applied"; readonly goal: GoalRecord; readonly note?: string }
+  | {
+      readonly kind: "refused";
+      /** `missing`: no such goal here. `changed`: it moved past the caller's version. */
+      readonly cause: "missing" | "changed" | "refused";
+      readonly reason: string;
+    };
+
+function refused(cause: "missing" | "changed" | "refused", reason: string): GoalActionOutcome {
+  return { kind: "refused", cause, reason };
+}
+
+/**
+ * Apply an action to a goal this installation owns. `expectedVersion` refuses the action when
+ * the goal changed since the caller read it; `planRevision` is the plan revision an `accept`
+ * approves, the current one by default, and `approvalPolicy` the authority it grants. A stop that lands on an already-parked cycle is
+ * settled before returning, so the goal returned is the one the user will see next.
+ */
+export function controlGoal(
   goalId: string,
-  accept: boolean,
-  approvalPolicy?: ApprovalPolicyLevel,
+  action: GoalAction,
+  options: {
+    readonly expectedVersion?: number;
+    readonly planRevision?: number;
+    readonly approvalPolicy?: ApprovalPolicyLevel;
+    readonly guidance?: string;
+  } = {},
 ) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
-    const goal = yield* store.get(goalId);
-    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
-      return { kind: "refused", reason: `No goal with id "${goalId}".` } as const;
-    }
-    if (goal.state.kind !== "proposed") {
-      return {
-        kind: "refused",
-        reason: `Goal ${goalId} is ${goal.state.kind}, not awaiting acceptance.`,
-      } as const;
-    }
-    const decision = accept
-      ? decideAccept(goal, goal.plan.revision, approvalPolicy)
-      : decideControl(goal, "cancel", undefined);
-    if (decision.kind === "refused") {
-      return { kind: "refused", reason: decision.reason } as const;
-    }
-    const saved = yield* store
-      .compareAndSet(goal.goalId, goal.version, decision.next)
-      .pipe(Effect.either);
-    if (saved._tag === "Left") {
-      return {
-        kind: "refused",
-        reason: `Could not update goal ${goalId}: ${saved.left.message}`,
-      } as const;
-    }
-    return { kind: "decided", goal: saved.right } as const;
-  });
-}
-
-/** Goals the agent proposed in a conversation that still wait for the user's answer. */
-export function proposedGoals(sourceConversationId: string) {
-  return Effect.flatMap(GoalStoreTag, (store) =>
-    store.list({
-      ownerInstanceId: getGoalOwnerInstanceId(),
-      sourceConversationId,
-      states: ["proposed"],
-    }),
-  );
-}
-
-/** Pause, resume, or cancel a goal this installation owns. */
-export function applyGoalControl(control: GoalControl, goalId: string, guidance?: string) {
-  return Effect.gen(function* () {
-    const store = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
-    const goal = yield* store.get(goalId);
-    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
-      return { kind: "refused", reason: `No goal with id "${goalId}".` } as const;
+    const goal = yield* getOwnedGoal(goalId);
+    if (goal === undefined) {
+      return refused("missing", `No goal with id "${goalId}".`);
     }
-    const run = goal.latestRunId === undefined ? undefined : yield* runs.get(goal.latestRunId);
-    const decision = decideControl(
-      goal,
-      control,
-      run === undefined ? undefined : latestRunView(run),
-      guidance,
-    );
+    if (options.expectedVersion !== undefined && goal.version !== options.expectedVersion) {
+      return refused("changed", `Goal ${goalId} changed; refresh and retry.`);
+    }
+    let decision: ControlDecision;
+    if (action === "accept" || action === "decline") {
+      if (goal.state.kind !== "proposed") {
+        return refused("refused", `Goal ${goalId} is ${goal.state.kind}, not awaiting acceptance.`);
+      }
+      decision =
+        action === "accept"
+          ? decideAccept(goal, options.planRevision ?? goal.plan.revision, options.approvalPolicy)
+          : decideCancel(goal);
+    } else {
+      const run = goal.latestRunId === undefined ? undefined : yield* runs.get(goal.latestRunId);
+      decision = decideControl(
+        goal,
+        action,
+        run === undefined ? undefined : latestRunView(run),
+        options.guidance,
+      );
+    }
     if (decision.kind === "refused") {
-      return { kind: "refused", reason: decision.reason } as const;
+      return refused("refused", decision.reason);
     }
     const saved = yield* store
       .compareAndSet(goal.goalId, goal.version, decision.next)
       .pipe(Effect.either);
     if (saved._tag === "Left") {
-      return {
-        kind: "refused",
-        reason: `Could not update goal ${goal.goalId}: ${saved.left.message}`,
-      } as const;
+      return refused("refused", `Could not update goal ${goal.goalId}: ${saved.left.message}`);
     }
     yield* settleStoppingGoal(saved.right.goalId);
     const settled = (yield* store.get(saved.right.goalId)) ?? saved.right;
-    return {
+    const applied: GoalActionOutcome = {
       kind: "applied",
       goal: settled,
       ...(decision.note !== undefined ? { note: decision.note } : {}),
-    } as const;
+    };
+    return applied;
   });
-}
-
-function formatTokens(tokens: number): string {
-  return tokens >= 1_000_000
-    ? `${(tokens / 1_000_000).toFixed(1)}M`
-    : tokens >= 1_000
-      ? `${Math.round(tokens / 1_000)}k`
-      : String(tokens);
-}
-
-/** One goal as a listing shows it: state, step progress, spend against budget, and what is next. */
-export function describeGoal(goal: GoalRecord): string[] {
-  const done = goal.plan.steps.filter((step) => step.state === "completed").length;
-  const state =
-    goal.state.kind === "review-required"
-      ? goal.state.question !== undefined
-        ? `waiting for your answer: ${goal.state.question} (resume the goal with your answer as the note)`
-        : `review-required: ${goal.state.reason}`
-      : goal.state.kind === "budget-limited"
-        ? `budget-limited (${goal.state.limit})`
-        : goal.state.kind === "awaiting-input"
-          ? `awaiting ${goal.state.reason}${goal.cycle !== undefined ? ` on run ${goal.cycle.runId}` : ""}`
-          : goal.state.kind;
-  const authority =
-    goal.approvedPlanRevision === undefined
-      ? ""
-      : ` · runs unasked: ${goal.approvalPolicy ?? "read-only and low-risk tools"}`;
-  return [
-    `${goal.goalId}  ${goal.plan.objective}`,
-    `  ${state}${authority}`,
-    `  steps ${done}/${goal.plan.steps.length} · cycles ${goal.usage.cycles}/${goal.budget.maxCycles} · tokens ${formatTokens(goal.usage.totalTokens)}/${formatTokens(goal.budget.maxTokens)} · ${Math.round(goal.usage.activeDurationMs / 60_000)}/${Math.round(goal.budget.maxDurationMs / 60_000)} min`,
-    ...(goal.lastProgress !== undefined
-      ? [`  last: ${goal.lastProgress.split("\n").join(" · ")}`]
-      : []),
-  ];
-}
-
-export function describePlan(plan: GoalPlan): string {
-  return [
-    `Objective: ${plan.objective}`,
-    `Feasibility: ${plan.feasibility.assessment} — ${plan.feasibility.rationale}`,
-    "Success criteria:",
-    ...plan.successCriteria.map((criterion) => `  • ${criterion}`),
-    "Steps:",
-    ...plan.steps.map((step, index) => `  ${index + 1}. ${step.objective}`),
-    ...(plan.constraints.length > 0 ? [`Constraints: ${plan.constraints.join("; ")}`] : []),
-    ...(plan.assumptions.length > 0 ? [`Assumptions: ${plan.assumptions.join("; ")}`] : []),
-  ].join("\n");
 }

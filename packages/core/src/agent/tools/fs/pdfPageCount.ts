@@ -104,7 +104,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
             return {
               success: false,
               result: null,
-              error: `Failed to extract PDF info: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+              error: `Failed to extract PDF info: ${toError(parseError).message}`,
             };
           } finally {
             yield* Effect.tryPromise({
@@ -116,7 +116,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
           return {
             success: false,
             result: null,
-            error: `pdfPageCount failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `pdfPageCount failed: ${toError(error).message}`,
           };
         }
       }),

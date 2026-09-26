@@ -18,6 +18,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { NetworkError, ValidationError } from "@jazz/core/types/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect, Option } from "effect";
 
 /** Where the library is published. Overridable with JAZZ_LIBRARY_URL, for staging and tests. */
@@ -319,9 +320,7 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
           catch: (error) =>
             new NetworkError({
               url: sourceUrl,
-              reason: `Could not download ${kind} "${entry.name}": ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              reason: `Could not download ${kind} "${entry.name}": ${toError(error).message}`,
               suggestion: "Check your connection and try again.",
             }),
         });

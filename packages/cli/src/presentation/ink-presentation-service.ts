@@ -32,6 +32,8 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+import { toError } from "@jazz/core/utils/storage";
+import { formatCompactCount } from "@jazz/core/utils/string";
 import {
   expandableFileMutationPayload,
   expandableToolResultPayload,
@@ -91,18 +93,13 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
   if (outcome.status === "completed") {
     const seconds = (outcome.durationMs / 1000).toFixed(1);
     const parts = [`${label} completed`, `${seconds}s`];
-    if (outcome.totalTokens !== undefined) parts.push(`${compactCount(outcome.totalTokens)} tok`);
+    if (outcome.totalTokens !== undefined)
+      parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
     if (outcome.costUSD !== undefined) parts.push(formatOutroCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
   return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
-}
-
-function compactCount(count: number): string {
-  if (count < 1000) return `${count}`;
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-  return `${Math.round(count / 1000)}k`;
 }
 
 function formatOutroCost(cost: number): string {
@@ -717,7 +714,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }).pipe(
       Effect.catchAllDefect((defect) =>
         Effect.sync(() => {
-          const message = defect instanceof Error ? defect.message : String(defect);
+          const message = toError(defect).message;
           store.printOutput({
             type: "warn",
             message: `Stream rendering error (${event.type}): ${message}`,
@@ -835,7 +832,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
           ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
           : "";
       parts.push(
-        `${compactCount(usage.promptTokens)} in${cachedShare} → ${compactCount(usage.completionTokens)} out`,
+        `${formatCompactCount(usage.promptTokens)} in${cachedShare} → ${formatCompactCount(usage.completionTokens)} out`,
       );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
@@ -846,7 +843,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         completionTokens: usage.completionTokens,
       });
     } else if (event.metrics?.totalTokens) {
-      parts.push(`${compactCount(event.metrics.totalTokens)} tok`);
+      parts.push(`${formatCompactCount(event.metrics.totalTokens)} tok`);
     }
 
     const tokensPerSecond = event.metrics?.tokensPerSecond;

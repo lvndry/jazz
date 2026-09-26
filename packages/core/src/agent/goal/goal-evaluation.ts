@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import type { ChatMessage } from "@/core/types/message";
+import { extractJsonObject } from "@/core/utils/json";
 import type { GoalEvidenceItem, GoalPlan } from "./goal-record";
 
 /**
@@ -143,42 +144,6 @@ export function goalEvaluationRepairMessages(
   ];
 }
 
-/**
- * The disposition object in a cycle's final answer: the whole answer, a fenced block, or the
- * last JSON object after the model's prose. Models routinely explain before they emit the
- * JSON they were asked for; what counts is the object, which still has to validate.
- */
-export function extractDisposition(content: string): unknown {
-  const trimmed = content.trim();
-  const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].at(-1)?.[1];
-  for (const candidate of [trimmed, fenced?.trim()]) {
-    if (candidate === undefined) {
-      continue;
-    }
-    try {
-      return JSON.parse(candidate) as unknown;
-    } catch {
-      // Not the whole object; fall through to the next form.
-    }
-  }
-  const end = trimmed.lastIndexOf("}");
-  for (
-    let start = trimmed.lastIndexOf("{", end);
-    start >= 0;
-    start = trimmed.lastIndexOf("{", start - 1)
-  ) {
-    try {
-      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
-      if (typeof parsed === "object" && parsed !== null && "status" in parsed) {
-        return parsed;
-      }
-    } catch {
-      // An inner brace; keep widening toward the start of the answer.
-    }
-  }
-  throw new Error("no disposition object in the answer");
-}
-
 function stringLeaves(value: unknown, into: string[]): void {
   if (typeof value === "string") {
     into.push(value);
@@ -265,7 +230,7 @@ export function validateGoalEvaluation(
 ): GoalEvaluationResult {
   let parsed: unknown;
   try {
-    parsed = extractDisposition(content);
+    parsed = extractJsonObject(content, "status");
   } catch {
     return { kind: "invalid", reason: "The cycle did not return valid JSON." };
   }

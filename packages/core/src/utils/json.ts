@@ -35,3 +35,40 @@ export function parseJson<T>(text: string): Effect.Effect<T, Error> {
     },
   });
 }
+
+/**
+ * The JSON value in a model's answer: the whole answer, its last fenced block, or the last
+ * object carrying `requiredKey` after the model's prose. Models routinely explain before they
+ * emit the JSON they were asked for; what counts is the object, which the caller still has to
+ * validate. Throws when the answer holds none.
+ */
+export function extractJsonObject(content: string, requiredKey: string): unknown {
+  const trimmed = content.trim();
+  const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].at(-1)?.[1];
+  for (const candidate of [trimmed, fenced?.trim()]) {
+    if (candidate === undefined) {
+      continue;
+    }
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      // Not the whole value; fall through to the next form.
+    }
+  }
+  const end = trimmed.lastIndexOf("}");
+  for (
+    let start = trimmed.lastIndexOf("{", end);
+    start >= 0;
+    start = trimmed.lastIndexOf("{", start - 1)
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+      if (typeof parsed === "object" && parsed !== null && requiredKey in parsed) {
+        return parsed;
+      }
+    } catch {
+      // An inner brace; keep widening toward the start of the answer.
+    }
+  }
+  throw new Error(`no JSON object with "${requiredKey}" in the answer`);
+}

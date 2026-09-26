@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
 import { getJazzSchedulerInvocation } from "@/core/utils/runtime";
+import { toError } from "@/core/utils/storage";
 
 export interface SpawnJobWorkerResult {
   readonly spawned: boolean;
@@ -41,7 +42,7 @@ export function spawnJobWorker(agentId: string): Effect.Effect<SpawnJobWorkerRes
       } catch (error) {
         return {
           spawned: false,
-          reason: error instanceof Error ? error.message : String(error),
+          reason: toError(error).message,
         } satisfies SpawnJobWorkerResult;
       }
     });

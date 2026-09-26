@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { z } from "zod";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
+import { isRecord } from "@/core/utils/is-record";
+import { toError } from "@/core/utils/storage";
 import { registerAllTools } from "./register-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
@@ -14,10 +16,6 @@ interface JsonSchemaNode {
   readonly oneOf?: readonly JsonSchemaNode[];
   readonly anyOf?: readonly JsonSchemaNode[];
   readonly prefixItems?: readonly JsonSchemaNode[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function asSchema(value: unknown): JsonSchemaNode | undefined {
@@ -80,9 +78,7 @@ describe("tool JSON schemas advertised to the model", () => {
           try {
             json = z.toJSONSchema(tool.parameters);
           } catch (error) {
-            undescribed.push(
-              `${name}: z.toJSONSchema failed (${error instanceof Error ? error.message : String(error)})`,
-            );
+            undescribed.push(`${name}: z.toJSONSchema failed (${toError(error).message})`);
             continue;
           }
           collectUndescribed(asSchema(json), name, undescribed);

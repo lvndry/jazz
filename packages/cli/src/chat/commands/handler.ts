@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversationOrNull,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import {
@@ -69,6 +72,7 @@ import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { toError } from "@jazz/core/utils/storage";
+import { formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
@@ -858,9 +862,7 @@ function handleSwitchCommand(
               yield* terminal.info("Use '/agents' to see all available agents.");
               yield* terminal.log("");
             } else {
-              yield* terminal.error(
-                `Error loading agent: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              yield* terminal.error(`Error loading agent: ${toError(error).message}`);
               yield* terminal.log("");
             }
             return { success: false as const };
@@ -1930,9 +1932,7 @@ function handleResumeCommand(
 
     // The listing carries no transcript, so the chosen conversation is read now rather
     // than every conversation being read to draw the picker.
-    const conversation = yield* loadConversation(agent.id, selected.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(agent.id, selected.conversationId);
     if (!conversation) {
       yield* terminal.info("That conversation could no longer be read.");
       return { shouldContinue: true };
@@ -2063,9 +2063,7 @@ function handleInfoCommand(
   return Effect.gen(function* () {
     yield* terminal.log(fmt.heading("Session Info"));
 
-    const conversation = yield* loadConversation(agent.id, context.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(agent.id, context.conversationId);
     yield* terminal.log(fmt.keyValueCompact("Conversation", context.conversationId));
     yield* terminal.log(fmt.keyValueCompact("Title", conversation?.title ?? "(not saved yet)"));
     yield* terminal.log(fmt.blank());
@@ -2737,19 +2735,6 @@ function estimateMessageTokens(message: ChatMessage): number {
 }
 
 /**
- * Format token count for display (e.g., 18000 -> "18k", 150000 -> "150k")
- */
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${(tokens / 1_000_000).toFixed(1)}M`;
-  }
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return tokens.toString();
-}
-
-/**
  * Calculate context usage breakdown
  */
 interface ContextUsageBreakdown {
@@ -3071,32 +3056,32 @@ function handleContextCommand(
     const modelDisplay = `${provider}/${modelId}`;
     const modelMaxTokens = effectiveContextWindow.modelMaxTokens;
     const runtimeWindowNote = effectiveContextWindow.cappedByAgent
-      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatTokenCount(modelMaxTokens)}` : ""}`
+      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatCompactCount(modelMaxTokens)}` : ""}`
       : modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
-        ? ` · runtime window, model max ${formatTokenCount(modelMaxTokens)}`
+        ? ` · runtime window, model max ${formatCompactCount(modelMaxTokens)}`
         : "";
-    const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
+    const usageDisplay = `${formatCompactCount(adjustedUsage.totalUsed)}/${formatCompactCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
 
     yield* terminal.log(`   ${gridRows[0]}   ${modelDisplay} · ${usageDisplay}`);
     yield* terminal.log(`   ${gridRows[1]}`);
     yield* terminal.log(`   ${gridRows[2]}   Estimated usage by category`);
     yield* terminal.log(
-      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatTokenCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
+      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatCompactCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatTokenCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
+      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatCompactCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatTokenCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
+      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatCompactCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatTokenCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
+      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatCompactCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatTokenCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
+      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatCompactCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatTokenCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
+      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatCompactCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
     );
     yield* terminal.log(`   ${gridRows[9]}`);
     yield* terminal.log("");

@@ -23,9 +23,11 @@ import { settleCycle, type EndedRun } from "@jazz/core/agent/goal/goal-reconcile
 import {
   asInput,
   type GoalCycle,
+  type GoalLimit,
   type GoalRecord,
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
+import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
 import {
   addSpend,
   reachedLimit,
@@ -33,14 +35,14 @@ import {
   runSpend,
   type RunSpend,
   type CycleCaps,
-  type GoalLimit,
 } from "@jazz/core/agent/goal/goal-usage";
-import { isRunParkRequested, type RunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
+import { priceOneOffCall } from "@jazz/core/agent/run/run-spend";
+import { reparkedState } from "@jazz/core/agent/run/run-state";
 import { PROPOSE_GOAL_TOOL_NAME } from "@jazz/core/agent/tools/goal-tools";
 import type { AgentResponse } from "@jazz/core/agent/types";
-import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
@@ -48,12 +50,12 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
-import { Cause, Effect, Fiber, Option } from "effect";
+import { isProcessAlive } from "@jazz/core/utils/process";
+import { toError } from "@jazz/core/utils/storage";
+import { Cause, Effect, Fiber } from "effect";
 import {
-  loadConversation,
-  saveConversation,
+  loadConversationOrNull,
+  saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
 
 /**
@@ -79,12 +81,7 @@ function ownerIsRunning(owner: GoalCycle["owner"], runId: string): boolean {
   if (owner.pid === process.pid) {
     return cyclesInFlight.has(runId);
   }
-  try {
-    process.kill(owner.pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+  return isProcessAlive(owner.pid);
 }
 
 /** Mark a cycle run as executing in this process for the duration of `work`. */
@@ -154,16 +151,13 @@ function writeGoal(goal: GoalRecord, next: GoalRecordInput, purpose: string) {
 function saveGoalTranscript(goal: GoalRecord, messages: readonly ChatMessage[]) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const prior = yield* loadConversation(goal.agentId, goal.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
-    yield* saveConversation({
+    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
+    yield* saveRunTranscript({
       agentId: goal.agentId,
       conversationId: goal.conversationId,
-      title: prior?.title ?? goal.plan.objective.slice(0, 80),
-      startedAt: prior?.startedAt ?? new Date().toISOString(),
-      endedAt: new Date().toISOString(),
-      messages: [...messages],
+      prior,
+      fallbackTitle: goal.plan.objective,
+      messages,
     }).pipe(
       Effect.catchAll((error) =>
         logger.warn("Could not save the goal transcript", {
@@ -175,51 +169,21 @@ function saveGoalTranscript(goal: GoalRecord, messages: readonly ChatMessage[]) 
   });
 }
 
-/**
- * Check a completed cycle's disposition, with one schema-constrained repair pass when the
- * cycle's own answer does not validate. The repaired answer passes the same evidence check,
- * so repair can recover a misformatted disposition but never invent a completion.
- */
 const NO_REPAIR: RunSpend = { totalTokens: 0, costUSD: 0, activeDurationMs: 0 };
 
-/**
- * What the repair call spent, priced the way run metrics price a run: free on a local model,
- * from models.dev otherwise, and unknown (no `costUSD`) when neither applies.
- */
+/** What the repair call spent, so the goal is charged for it. */
 function repairSpend(
   agent: Agent,
-  usage:
-    | {
-        readonly promptTokens: number;
-        readonly completionTokens: number;
-        readonly totalTokens: number;
-        readonly cacheReadTokens?: number;
-      }
-    | undefined,
+  usage: Parameters<typeof priceOneOffCall>[1],
   durationMs: number,
 ) {
-  return Effect.gen(function* () {
-    const { llmProvider, llmModel } = agent.config;
-    if (usage === undefined) {
-      return { totalTokens: 0, activeDurationMs: durationMs } satisfies RunSpend;
-    }
-    if (isZeroCostLocalModel(llmProvider, llmModel)) {
-      return {
-        totalTokens: usage.totalTokens,
-        costUSD: 0,
-        activeDurationMs: durationMs,
-      } satisfies RunSpend;
-    }
-    const pricing = yield* Effect.tryPromise(() =>
-      getModelsDevMetadata(llmModel, llmProvider),
-    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    const cost = computeUsageCostUSD(usage, pricing);
-    return {
-      totalTokens: usage.totalTokens,
-      ...(cost !== null ? { costUSD: cost } : {}),
+  return priceOneOffCall(agent, usage).pipe(
+    Effect.map((price): RunSpend => ({
+      totalTokens: price.totalTokens,
+      ...(price.costUSD !== undefined ? { costUSD: price.costUSD } : {}),
       activeDurationMs: durationMs,
-    } satisfies RunSpend;
-  });
+    })),
+  );
 }
 
 /**
@@ -271,7 +235,7 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
     if (repaired._tag === "Left") {
       yield* logger.warn("Could not repair the goal cycle disposition", {
         goalId: goal.goalId,
-        error: repaired.left instanceof Error ? repaired.left.message : String(repaired.left),
+        error: toError(repaired.left).message,
       });
       return { evaluation: first, repair: yield* repairSpend(agent, undefined, repairMs) };
     }
@@ -425,22 +389,19 @@ function claimCycle(goal: GoalRecord) {
 
 function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps) {
   return Effect.gen(function* () {
-    const prior = yield* loadConversation(goal.agentId, goal.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
-    const outcome = yield* AgentRunner.run({
-      agent: withoutGoalProposals(agent),
-      runId,
-      userInput: goalCyclePrompt(goal, runId),
-      conversationId: goal.conversationId,
-      maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
-      ...caps,
-      ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
-      parkWhenUnattended: true,
-      conversationHistory: [...(prior?.messages ?? [])],
-    }).pipe(
-      Effect.map((response): RunOutcome => ({ kind: "finished", response })),
-      Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
+    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
+    const outcome = yield* runToOutcome(
+      AgentRunner.run({
+        agent: withoutGoalProposals(agent),
+        runId,
+        userInput: goalCyclePrompt(goal, runId),
+        conversationId: goal.conversationId,
+        maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
+        ...caps,
+        ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
+        parkWhenUnattended: true,
+        conversationHistory: [...(prior?.messages ?? [])],
+      }),
     );
     yield* settleRunOutcome(goal, runId, outcome);
   });
@@ -454,25 +415,7 @@ function withoutGoalProposals(agent: Agent): Agent {
     : { ...agent, config: { ...agent.config, deniedTools: [...denied, PROPOSE_GOAL_TOOL_NAME] } };
 }
 
-export type RunOutcome =
-  | { readonly kind: "finished"; readonly response: AgentResponse }
-  | { readonly kind: "parked"; readonly park: RunParkRequested }
-  | { readonly kind: "failed"; readonly error: string };
-
-/** A park, a failure, or a defect or interrupt, which must settle the cycle like a failure. */
-function classifyRunCause(cause: Cause.Cause<unknown>): RunOutcome {
-  const failure = Cause.failureOption(cause);
-  if (Option.isSome(failure)) {
-    const error = failure.value;
-    if (isRunParkRequested(error)) {
-      return { kind: "parked", park: error };
-    }
-    return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
-  }
-  return { kind: "failed", error: Cause.pretty(cause) };
-}
-
-function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome) {
+function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<AgentResponse>) {
   return Effect.gen(function* () {
     if (outcome.kind === "parked") {
       if (outcome.park.messages !== undefined) {
@@ -509,12 +452,7 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
     }
     const recovery = run.state.recovery;
     if (recovery !== undefined) {
-      yield* runs.transition(run.runId, {
-        kind: "input-required",
-        pending: recovery.pending,
-        snapshot: recovery.snapshot,
-        expiresAt: recovery.expiresAt,
-      });
+      yield* runs.transition(run.runId, reparkedState(recovery));
       yield* settleParkedCycle(goal.goalId, run.runId);
       return;
     }
@@ -537,7 +475,7 @@ export function runDueGoals() {
     const runs = yield* RunStoreTag;
     const logger = yield* LoggerServiceTag;
     const started: Fiber.RuntimeFiber<void, never>[] = [];
-    const candidates = yield* goals.list({ states: ["active", "awaiting-input", "stopping"] });
+    const candidates = yield* goals.list({ states: CLAIMED_GOAL_STATES });
     for (const goal of candidates) {
       yield* Effect.gen(function* () {
         const cycle = goal.cycle;
@@ -592,9 +530,7 @@ export function runDueGoals() {
           yield* settleParkedCycle(goal.goalId, cycle.runId);
           return;
         }
-        const prior = yield* loadConversation(goal.agentId, goal.conversationId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
-        );
+        const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
         yield* finishCycle(
           goal.goalId,
           cycle.runId,
@@ -660,10 +596,7 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* resumeRun({ ...options, goalLimits: caps.caps }).pipe(
-          Effect.map((response): RunOutcome => ({ kind: "finished", response })),
-          Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
-        );
+        const settled = yield* runToOutcome(resumeRun({ ...options, goalLimits: caps.caps }));
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),

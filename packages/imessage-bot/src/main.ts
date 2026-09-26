@@ -7,9 +7,10 @@
  * loaded to read anything else out of it.
  */
 
+import { toError } from "@jazz/core/utils/storage";
 import { startBridge } from "./bridge";
 
 void startBridge().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(toError(error).message);
   process.exit(1);
 });

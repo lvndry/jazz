@@ -36,6 +36,7 @@ import type { Agent } from "@jazz/core/types";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { record as recordLedger } from "./ledger";
 
@@ -167,7 +168,7 @@ export function servePeerRequest(request: ServePeerRequest) {
     }
 
     const error: unknown = response.left;
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = toError(error).message;
     yield* ledger("refused", { reason });
     return { kind: "refused", reason: "could not answer" } satisfies ServePeerOutcome;
   });

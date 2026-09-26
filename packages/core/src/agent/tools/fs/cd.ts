@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 
@@ -58,7 +59,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           return {
             success: false,
             result: null,
-            error: `cd failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `cd failed: ${toError(error).message}`,
           };
         }
       }),

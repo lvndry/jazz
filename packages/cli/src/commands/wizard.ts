@@ -1,5 +1,8 @@
 import os from "node:os";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversationOrNull,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
@@ -525,9 +528,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     // Read on demand: the picker above needs titles and dates, not transcripts, so the
     // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversation(selected.agent.id, selected.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
 
     yield* startChatWithAgent(selected.agent, {
       initialHistory: conversation?.messages ?? [],

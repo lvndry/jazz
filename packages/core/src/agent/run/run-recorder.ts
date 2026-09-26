@@ -12,6 +12,7 @@ import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import type { AgentResponse } from "../types";
 import { RunParkRequested, isRunParkRequested } from "./park-signal";
 import { DEFAULT_PARK_TTL_MS, createRunRecord, type RunRecord } from "./run-record";
@@ -62,7 +63,7 @@ function failureState(error: unknown): RunState {
   if (error instanceof GenerationInterruptedError) {
     return { kind: "canceled", at: "working" };
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = toError(error).message;
   return {
     kind: "failed",
     cause: message.toLowerCase().includes("timeout") ? "timeout" : "error",
@@ -175,7 +176,7 @@ export function withRunRecording<E, R>(
                   Effect.fail(
                     new Error(
                       `The run needed an approval nobody could answer, and could not be saved for later: ${
-                        failure instanceof Error ? failure.message : String(failure)
+                        toError(failure).message
                       }`,
                     ),
                   ),

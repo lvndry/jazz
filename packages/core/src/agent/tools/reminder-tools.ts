@@ -5,6 +5,7 @@ import type { ReminderRecord, ReminderService } from "@/core/interfaces/reminder
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type ReminderToolDeps = ReminderService | FileSystem.FileSystem;
@@ -69,7 +70,7 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -115,7 +116,7 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -159,7 +160,7 @@ export function createCancelReminderTool(): Tool<ReminderToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

@@ -9,6 +9,7 @@ import type {
   TelemetryEvent,
   TelemetryEventType,
 } from "@jazz/core/interfaces/telemetry";
+import { isRecord } from "@jazz/core/utils/is-record";
 
 /**
  * Targeted version of the OpenTelemetry GenAI semantic conventions.
@@ -301,8 +302,8 @@ function appendSafeRecord(
   attributes: OtlpKeyValue[],
 ): void {
   const value = data[field];
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
-  appendSafeScalars(value as Record<string, unknown>, fields, prefix, attributes);
+  if (!isRecord(value)) return;
+  appendSafeScalars(value, fields, prefix, attributes);
 }
 
 /** Content is serialized only when the operator explicitly opted in. */

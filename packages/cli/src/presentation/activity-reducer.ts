@@ -15,6 +15,7 @@
 
 import type { TerminalOutput } from "@jazz/core/interfaces/terminal";
 import type { StreamEvent } from "@jazz/core/types/streaming";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { Box, Text } from "ink";
 import React from "react";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
@@ -174,8 +175,8 @@ function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] |
 
   const todos: TodoSnapshotItem[] = [];
   for (const item of rawTodos) {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
-    const entry = item as Record<string, unknown>;
+    if (!isRecord(item)) continue;
+    const entry = item;
     const content = entry["content"];
     const status = entry["status"];
     if (typeof content !== "string" || typeof status !== "string") continue;

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
@@ -258,7 +259,7 @@ function prepareRequestBody(
       try {
         serialized = JSON.stringify(body.value);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toError(error).message;
         return { error: `Failed to serialize JSON body: ${message}` };
       }
       ensureHeader(headerMap, "Content-Type", "application/json");
@@ -340,7 +341,7 @@ function parseJsonBody(text: string): { data: unknown; error?: string } {
   try {
     return { data: JSON.parse(text) };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = toError(error).message;
     return { data: undefined, error: `Failed to parse JSON response: ${message}` };
   }
 }

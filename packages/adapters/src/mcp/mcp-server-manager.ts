@@ -320,7 +320,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           // missing binary will never appear mid-retry. Only genuinely
           // transient transport faults are worth the backoff.
           if (error instanceof InteractiveAuthRequiredError) return false;
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           if (/\b(401|403|ENOENT|EACCES)\b/.test(errorMessage)) return false;
           return (
             errorMessage.includes("ECONNREFUSED") ||
@@ -331,7 +331,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
         },
       }).pipe(
         Effect.mapError((error: unknown) => {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           const suggestion =
             error instanceof InteractiveAuthRequiredError
               ? `Run: jazz mcp auth ${config.name}`
@@ -373,7 +373,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
     }).pipe(
       Effect.mapError((error: unknown) => {
         if (error instanceof MCPConnectionError) return error;
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = toError(error).message;
         return new MCPConnectionError({
           serverName: config.name,
           reason: `Unexpected error during connection: ${errorMessage}`,
@@ -457,7 +457,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPToolDiscoveryError({
               serverName,
-              reason: `Failed to get tools from MCP server: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to get tools from MCP server: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -526,7 +526,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
             new MCPToolExecutionError({
               serverName,
               toolName,
-              reason: `MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `MCP tool execution failed: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the tool arguments are correct and the MCP server is functioning properly`,
             }),
@@ -609,7 +609,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPPromptError({
               serverName,
-              reason: `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to list prompts: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -645,7 +645,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPPromptError({
               serverName,
-              reason: `Failed to resolve prompt "${promptName}": ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to resolve prompt "${promptName}": ${toError(error).message}`,
               cause: error,
               suggestion: `Check the prompt name and that all required arguments were supplied`,
             }),
@@ -797,7 +797,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPResourceError({
               serverName,
-              reason: `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to list resources: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -832,7 +832,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPResourceError({
               serverName,
-              reason: `Failed to read resource "${uri}": ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to read resource "${uri}": ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the URI is one the server advertises`,
             }),

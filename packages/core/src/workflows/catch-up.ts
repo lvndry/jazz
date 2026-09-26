@@ -9,6 +9,7 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron";
+import { toError } from "@/core/utils/storage";
 import {
   addRunRecord,
   lastCompletedRunAt,
@@ -317,13 +318,13 @@ export function runCatchUpForWorkflows(
           updateLatestRunRecord(entry.workflowName, {
             completedAt: new Date().toISOString(),
             status: "failed",
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           }).pipe(Effect.catchAll(() => Effect.void)),
         ),
         Effect.catchAll((error) =>
           logger.warn("Catch-up run failed", {
             workflow: entry.workflowName,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           }),
         ),
       );

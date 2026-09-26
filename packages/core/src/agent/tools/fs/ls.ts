@@ -73,7 +73,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         if (args.path) {
           const pathResult = yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
             Effect.catchAll((error: unknown) => {
-              pathError = error instanceof Error ? error.message : String(error);
+              pathError = toError(error).message;
               return Effect.succeed(null);
             }),
           );
@@ -90,7 +90,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const statResult = yield* fs.stat(resolvedPath).pipe(
           Effect.catchAll((error: unknown) =>
             Effect.succeed({
-              _error: `Path not found: ${resolvedPath}. ${error instanceof Error ? error.message : String(error)}`,
+              _error: `Path not found: ${resolvedPath}. ${toError(error).message}`,
             }),
           ),
         );
@@ -166,7 +166,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           Effect.succeed({
             success: false,
             result: null,
-            error: `ls failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `ls failed: ${toError(error).message}`,
           }),
         ),
       ),

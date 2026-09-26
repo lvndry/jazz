@@ -15,6 +15,7 @@ import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { Effect } from "effect";
+import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 /** Terminal records are kept a week: long enough to answer "what did last night do?". */
 const TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -59,20 +60,12 @@ export function listRunsCommand(options: {
       ...(options.all === true ? { includeTerminal: true } : {}),
     });
 
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, runs })}\n`);
-      return;
-    }
-    if (runs.length === 0) {
-      process.stdout.write(options.all === true ? "No runs on record.\n" : "No runs in flight.\n");
-      return;
-    }
-    for (const record of runs) {
+    const rows = runs.map((record) => {
       const cost = record.costUSD !== undefined ? `  $${record.costUSD.toFixed(6)}` : "";
-      process.stdout.write(
-        `${record.runId}  ${record.agentId}  ${describeState(record)}${cost}  ${shortInput(record.input)}\n`,
-      );
-    }
+      return `${record.runId}  ${record.agentId}  ${describeState(record)}${cost}  ${shortInput(record.input)}`;
+    });
+    const empty = options.all === true ? "No runs on record." : "No runs in flight.";
+    emitEnvelope(options.json, { ok: true, runs }, rows.length === 0 ? empty : rows.join("\n"));
   }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }
 
@@ -82,35 +75,30 @@ export function showRunCommand(options: { readonly runId: string; readonly json:
     const record = yield* store.get(options.runId);
 
     if (record === undefined) {
-      const message = `No run with id "${options.runId}".`;
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-      } else {
-        process.stderr.write(`${message}\n`);
-      }
-      process.exitCode = 1;
+      failEnvelope(options.json, `No run with id "${options.runId}".`);
       return;
     }
 
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, run: record })}\n`);
-      return;
-    }
-
-    process.stdout.write(
-      `${record.runId}\n` +
-        `  agent    ${record.agentId}\n` +
-        `  state    ${describeState(record)}\n` +
-        `  started  ${record.createdAt}\n` +
-        `  updated  ${record.updatedAt}\n` +
-        `  prompt   ${shortInput(record.input)}\n`,
+    const waiting =
+      record.state.kind === "input-required" && record.state.pending.kind === "tool-approval"
+        ? [
+            `  waiting  ${record.state.pending.request.message}`,
+            `  expires  ${record.state.expiresAt}`,
+          ]
+        : [];
+    emitEnvelope(
+      options.json,
+      { ok: true, run: record },
+      [
+        record.runId,
+        `  agent    ${record.agentId}`,
+        `  state    ${describeState(record)}`,
+        `  started  ${record.createdAt}`,
+        `  updated  ${record.updatedAt}`,
+        `  prompt   ${shortInput(record.input)}`,
+        ...waiting,
+      ].join("\n"),
     );
-    if (record.state.kind === "input-required" && record.state.pending.kind === "tool-approval") {
-      process.stdout.write(
-        `  waiting  ${record.state.pending.request.message}\n` +
-          `  expires  ${record.state.expiresAt}\n`,
-      );
-    }
   }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }
 
@@ -157,15 +145,7 @@ export function answerRunCommand(options: {
                     ...(options.note !== undefined ? { userMessage: options.note } : {}),
                   },
           };
-  const fail = (message: string) =>
-    Effect.sync(() => {
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-      } else {
-        process.stderr.write(`${message}\n`);
-      }
-      process.exitCode = 1;
-    });
+  const fail = (message: string) => Effect.sync(() => failEnvelope(options.json, message));
   return Effect.gen(function* () {
     const result = yield* resumeGoalAwareRun({ runId: options.runId, outcome });
     if (result.kind === "blocked") {
@@ -181,13 +161,11 @@ export function answerRunCommand(options: {
     if (settled.kind === "failed") {
       return yield* fail(settled.error);
     }
-    if (options.json) {
-      process.stdout.write(
-        `${JSON.stringify({ ok: true, runId: options.runId, answer: settled.response.content })}\n`,
-      );
-    } else {
-      process.stdout.write(`${settled.response.content}\n`);
-    }
+    emitEnvelope(
+      options.json,
+      { ok: true, runId: options.runId, answer: settled.response.content },
+      settled.response.content,
+    );
   }).pipe(
     Effect.catchAll((error) => fail(getErrorMessage(error))),
     Effect.provide(makeFileRunStoreLayer()),
@@ -211,27 +189,19 @@ export function cancelRunCommand(options: { readonly runId: string; readonly jso
           : undefined;
 
     if (problem !== undefined) {
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, error: problem })}\n`);
-      } else {
-        process.stderr.write(`${problem}\n`);
-      }
-      process.exitCode = 1;
+      failEnvelope(options.json, problem);
       return;
     }
 
     yield* store.transition(options.runId, { kind: "canceled", at: "parked" });
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, runId: options.runId })}\n`);
-    } else {
-      process.stdout.write(`Cancelled run ${options.runId}.\n`);
-    }
+    emitEnvelope(
+      options.json,
+      { ok: true, runId: options.runId },
+      `Cancelled run ${options.runId}.`,
+    );
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.sync(() => {
-        process.stderr.write(`${getErrorMessage(error)}\n`);
-        process.exitCode = 1;
-      }),
+      Effect.sync(() => failEnvelope(options.json, getErrorMessage(error))),
     ),
     Effect.provide(makeFileRunStoreLayer()),
   );
