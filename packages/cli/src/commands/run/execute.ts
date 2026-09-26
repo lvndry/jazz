@@ -8,6 +8,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
 import {
@@ -28,7 +29,6 @@ import {
   formatOneShotError,
   formatOneShotParked,
   formatOneShotResult,
-  isRunCostKnown,
   type OneShotOutputOptions,
   type OneShotComposition,
 } from "./envelope";

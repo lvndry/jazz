@@ -12,6 +12,7 @@
  * stop. Spend is billed input/output tokens plus estimated USD.
  */
 
+import { formatCompactCount } from "@jazz/core/utils/string";
 import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
@@ -25,35 +26,6 @@ export interface FooterSegment {
 
 export function formatCost(costUsd: number): string {
   return `$${costUsd.toFixed(2)}`;
-}
-
-const COMPACT_SUFFIXES = ["k", "M", "B"] as const;
-
-/**
- * Compact count for the footer: 100, 1k, 10k, 1M, 1B.
- * One decimal only below 10 of the current unit (`1.5k`, `1.5M`).
- */
-export function formatCompactCount(value: number): string {
-  let scaled = value;
-  let unitIndex = -1;
-  while (Math.abs(scaled) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
-    scaled /= 1_000;
-    unitIndex += 1;
-  }
-  if (unitIndex < 0) return `${Math.round(value)}`;
-
-  const rounded = Math.abs(scaled) < 10 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
-  if (Math.abs(rounded) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
-    const promoted = rounded / 1_000;
-    unitIndex += 1;
-    const suffix = COMPACT_SUFFIXES[unitIndex];
-    const body = Number.isInteger(promoted) ? `${promoted}` : promoted.toFixed(1);
-    return `${body}${suffix}`;
-  }
-
-  const suffix = COMPACT_SUFFIXES[unitIndex];
-  const body = Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
-  return `${body}${suffix}`;
 }
 
 /** `20k/40k $0.26` — tokens when known, cost when known, both when both. */

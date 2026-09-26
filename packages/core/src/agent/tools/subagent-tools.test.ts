@@ -1,6 +1,7 @@
 import { file as bunFile } from "bun";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
 import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_ITERATIONS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { LoggerService } from "@/core/interfaces/logger";
@@ -15,19 +16,6 @@ import type { Agent } from "@/core/types";
 import { AgentRunner } from "../agent-runner";
 import type { AgentRunnerOptions } from "../types";
 import { createSubagentTools } from "./subagent-tools";
-
-const mockLogger = {
-  debug: () => Effect.void,
-  info: () => Effect.void,
-  warn: () => Effect.void,
-  error: () => Effect.void,
-  setLogGroup: () => Effect.void,
-  pushLogGroup: () => Effect.void,
-  popLogGroup: () => Effect.void,
-  clearLogGroup: () => Effect.void,
-  writeToFile: () => Effect.void,
-  logToolCall: () => Effect.void,
-} as unknown as LoggerService;
 
 interface PanelCalls {
   readonly opens: Array<{ kind: EphemeralRegionKind; label: string }>;
@@ -95,7 +83,7 @@ function runSpawnArgs(
 ): Promise<unknown> {
   const tool = getSpawnTool();
   const testLayer = Layer.mergeAll(
-    Layer.succeed(LoggerServiceTag, mockLogger),
+    Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, presentation),
   );
   return Effect.runPromise(
@@ -183,7 +171,7 @@ describe("summarize_context", () => {
       };
       const { presentation } = createPresentationHarness();
       const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, presentation),
       );
 
@@ -233,7 +221,7 @@ describe("summarize_context", () => {
       };
       const { presentation } = createPresentationHarness();
       const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, presentation),
       );
 
@@ -495,7 +483,7 @@ describe("spawn_subagent persona handling", () => {
       const { presentation } = createPresentationHarness();
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, presentation),
       );
       await Effect.runPromise(
@@ -542,7 +530,7 @@ describe("spawn_subagent reasoning effort", () => {
   ): Promise<unknown> {
     const tool = getSpawnTool();
     const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, presentation),
     );
     return Effect.runPromise(
@@ -570,7 +558,7 @@ describe("spawn_subagent reasoning effort", () => {
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, presentation),
       );
       await Effect.runPromise(
@@ -602,7 +590,7 @@ describe("spawn_subagent reasoning effort", () => {
       };
       const tool = getSpawnTool();
       const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(LoggerServiceTag, silentLogger),
         Layer.succeed(PresentationServiceTag, presentation),
       );
       await Effect.runPromise(
