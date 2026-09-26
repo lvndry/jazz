@@ -9,12 +9,7 @@ import * as path from "node:path";
 import { Context, Effect, Layer, Option, Ref } from "effect";
 import matter from "gray-matter";
 import { PluginRuntimeServiceTag } from "../interfaces/plugin-runtime.js";
-import {
-  isHomeOrAncestor,
-  loadCachedIndex,
-  mergeByName,
-  scanMarkdownIndex,
-} from "../utils/markdown-index.js";
+import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
 import {
   getAgentsSkillsDirectory,
   getBuiltinSkillsDirectory,
@@ -355,15 +350,10 @@ export class SkillsLive implements SkillService {
   }
 
   private scanLocalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
-    const cwd = process.cwd();
-    if (isHomeOrAncestor(cwd)) {
-      return Effect.succeed([]);
-    }
     return scanMarkdownIndex({
-      dir: cwd,
+      dir: path.join(process.cwd(), "skills"),
       fileName: "SKILL.md",
-      depth: 4,
-      dot: true,
+      depth: 3,
       parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "local"),
     });
   }
