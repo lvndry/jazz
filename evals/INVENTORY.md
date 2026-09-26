@@ -69,7 +69,10 @@ Three more hard scenarios run as real goals (`goal-mode.ts`): `goal-no-false-gre
 private home and start a daemon that runs its cycles, with the harness approving tool requests
 the way the one-shot scenarios' approval policy does (`_goal.ts`). They reuse the matching
 scenario's setup and state oracle. A goal that reports completion while that oracle fails is a
-false completion and counts as a critical violation.
+false completion and counts as a critical violation. Each sample's daemon output is kept in
+`evals/report/<runId>.daemon.log`, and every approval and answer the harness gives is listed in
+the check detail. When the daemon refuses the harness's answer to one run five times in a row,
+the goal is reported as `stuck-awaiting-input` instead of waiting out the deadline.
 
 Four long-horizon scenarios (`long-horizon.ts`) act on the goal while it runs, through hooks in
 `_goal.ts`:

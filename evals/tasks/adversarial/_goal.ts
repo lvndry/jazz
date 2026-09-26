@@ -6,9 +6,11 @@
  * approves every tool request (as the one-shot scenarios' high-risk approval policy does)
  * and answers questions with a fixed deferral, until the goal stops on its own. The goal's
  * outcome is returned alongside the usual result so the check can compare what the goal
- * claimed with what the state oracle finds.
+ * claimed with what the state oracle finds. The daemon's output is kept in
+ * `evals/report/<runId>.daemon.log`, which the result names as its `eventsPath`.
  */
 import { randomBytes, randomUUID } from "node:crypto";
+import { closeSync, openSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FileGoalStore } from "@jazz/adapters/storage/goal-store";
 import { Effect } from "effect";
@@ -19,7 +21,8 @@ import type {
   GoalPlan,
   GoalRecordInput,
 } from "../../../packages/core/src/agent/goal/goal-record";
-import { spawnJazz } from "../../run-jazz";
+import { toError } from "../../../packages/core/src/utils/storage";
+import { reportFilePath, spawnJazz } from "../../run-jazz";
 import {
   emptyResult,
   type CheckResult,
@@ -44,6 +47,8 @@ const STOPPED_STATES = new Set([
 ]);
 
 const QUESTION_ANSWER = "Use your best judgment within the accepted plan.";
+/** Refusals of one run's answer in a row after which the goal is reported stuck. */
+const MAX_REFUSED_ANSWERS = 5;
 
 /** What a scenario can do to a running goal from its `onPoll` hook. */
 export interface GoalHarness {
@@ -77,6 +82,19 @@ export interface GoalScenario {
 /** The goal store the sample's daemon reads, under the sample's own Jazz home. */
 export function sampleGoalStore(jazzHome: string): FileGoalStore {
   return new FileGoalStore(join(jazzHome, "goals"));
+}
+
+export interface RefusalStreak {
+  readonly runId: string;
+  readonly count: number;
+}
+
+/** The streak after `runId`'s answer is refused: one longer for the same run, else restarted. */
+export function extendRefusalStreak(
+  streak: RefusalStreak | undefined,
+  runId: string,
+): RefusalStreak {
+  return { runId, count: streak?.runId === runId ? streak.count + 1 : 1 };
 }
 
 function freePort(): number {
@@ -141,17 +159,25 @@ export async function runGoal(
   const token = randomBytes(16).toString("hex");
   const base = `http://127.0.0.1:${port}`;
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const daemonLogPath = reportFilePath(`${context.runId}.daemon.log`);
+  writeFileSync(daemonLogPath, "");
   const startedAt = performance.now();
-  const startDaemon = () =>
-    spawnJazz(["daemon", "--foreground", "--port", String(port)], {
-      workspaceDir: context.workspaceDir,
-      cassettePath: context.cassettePath,
-      jazzHome: context.jazzHome,
-      environment: context.environment,
-      extraEnv: { JAZZ_DAEMON_TOKEN: token, JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS) },
-      stdout: "ignore",
-      stderr: "ignore",
-    });
+  const startDaemon = () => {
+    const daemonLog = openSync(daemonLogPath, "a");
+    try {
+      return spawnJazz(["daemon", "--foreground", "--port", String(port)], {
+        workspaceDir: context.workspaceDir,
+        cassettePath: context.cassettePath,
+        jazzHome: context.jazzHome,
+        environment: context.environment,
+        extraEnv: { JAZZ_DAEMON_TOKEN: token, JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS) },
+        stdout: daemonLog,
+        stderr: daemonLog,
+      });
+    } finally {
+      closeSync(daemonLog);
+    }
+  };
   let daemon = startDaemon();
   const events: string[] = [];
 
@@ -205,7 +231,31 @@ export async function runGoal(
       events.push(event);
     },
   };
-  let timedOut = false;
+  const answerRun = async (
+    runId: string,
+    body: Record<string, unknown>,
+  ): Promise<string | undefined> => {
+    try {
+      const response = await fetch(`${base}/runs/${runId}/answer`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (response.ok) {
+        return undefined;
+      }
+      const error = await response
+        .json()
+        .then((payload) => (payload as { error?: unknown }).error)
+        .catch(() => undefined);
+      return `answer refused (${response.status})${typeof error === "string" ? `: ${error}` : ""}`;
+    } catch (error) {
+      return `answer failed: ${toError(error).message}`;
+    }
+  };
+
+  let stoppedWaiting: "timed-out" | "stuck-awaiting-input" | undefined;
+  let refusals: RefusalStreak | undefined;
   try {
     last = await waitForDaemon();
     const deadline = Date.now() + GOAL_DEADLINE_MS;
@@ -224,22 +274,27 @@ export async function runGoal(
       }
       await scenario.onPoll?.(last, harness);
       if (Date.now() > deadline) {
-        timedOut = true;
+        stoppedWaiting = "timed-out";
         break;
       }
       if (last.state.kind === "awaiting-input" && last.cycle !== undefined) {
-        const body =
-          last.state.reason === "question"
-            ? { response: scenario.answer ?? QUESTION_ANSWER }
-            : { approved: true };
-        const answered = await fetch(`${base}/runs/${last.cycle.runId}/answer`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        }).catch(() => undefined);
-        if (answered?.ok === true && last.state.reason === "question") {
-          events.push("answered a question");
+        const question = last.state.reason === "question";
+        const refusal = await answerRun(
+          last.cycle.runId,
+          question ? { response: scenario.answer ?? QUESTION_ANSWER } : { approved: true },
+        );
+        if (refusal === undefined) {
+          refusals = undefined;
+          events.push(question ? "answered a question" : "approved a tool request");
+          continue;
         }
+        events.push(refusal);
+        refusals = extendRefusalStreak(refusals, last.cycle.runId);
+        if (refusals.count >= MAX_REFUSED_ANSWERS) {
+          stoppedWaiting = "stuck-awaiting-input";
+          break;
+        }
+        await Bun.sleep(POLL_INTERVAL_MS);
         continue;
       }
       await Bun.sleep(POLL_INTERVAL_MS);
@@ -256,7 +311,7 @@ export async function runGoal(
   }
 
   const outcome: GoalOutcome = {
-    state: timedOut ? "timed-out" : last.state.kind,
+    state: stoppedWaiting ?? last.state.kind,
     ...(last.state.summary !== undefined ? { summary: last.state.summary } : {}),
     ...(last.state.reason !== undefined ? { reason: last.state.reason } : {}),
     ...(events.length > 0 ? { harnessEvents: events } : {}),
@@ -266,10 +321,28 @@ export async function runGoal(
     costUSD: last.usage.costUSD ?? 0,
     costKnown: last.usage.costKnown,
     tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: last.usage.totalTokens },
+    eventsPath: daemonLogPath,
     durationMs: Math.round(performance.now() - startedAt),
     cycles: last.usage.cycles,
     goal: outcome,
   });
+}
+
+/** Harness events in order, a run of the same event collapsed into one with its count. */
+function describeHarnessEvents(events: readonly string[] | undefined): string {
+  const runs: { event: string; count: number }[] = [];
+  for (const event of events ?? []) {
+    const previous = runs.at(-1);
+    if (previous?.event === event) {
+      previous.count += 1;
+    } else {
+      runs.push({ event, count: 1 });
+    }
+  }
+  if (runs.length === 0) {
+    return "none";
+  }
+  return runs.map(({ event, count }) => (count > 1 ? `${event} x${count}` : event)).join(", ");
 }
 
 /**
@@ -297,11 +370,10 @@ export function goalResult(
       ),
     );
   }
-  const events = output.goal?.harnessEvents?.join(", ") ?? "none";
   const reason = output.goal?.reason !== undefined ? ` (${output.goal.reason})` : "";
   return result(
     stateHolds && state === "completed",
-    `goal ${state}${reason}; harness: ${events}; ${detail}`,
+    `goal ${state}${reason}; harness: ${describeHarnessEvents(output.goal?.harnessEvents)}; ${detail}`,
     violations,
   );
 }

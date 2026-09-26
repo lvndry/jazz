@@ -18,7 +18,8 @@ export interface OneShotResult {
   /** False when a provider/model has no pricing; a zero estimate is then not a free run. */
   costKnown?: boolean;
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
-  eventsPath: string; // path to captured --events NDJSON for this rollout
+  /** The rollout's captured trace: `--events` NDJSON, or the daemon log for goal-mode tasks. */
+  eventsPath: string;
   /** Wall-clock time of the jazz process (summed across invocations for multi-cycle tasks). */
   durationMs?: number;
   /** Number of jazz invocations this result covers; absent means one. */
@@ -43,7 +44,10 @@ export function emptyResult(overrides: Partial<OneShotResult> = {}): OneShotResu
 }
 
 export interface GoalOutcome {
-  /** The goal state it stopped in, or "timed-out" when the harness gave up waiting. */
+  /**
+   * The goal state it stopped in; "timed-out" when the harness gave up waiting, or
+   * "stuck-awaiting-input" when the daemon kept refusing the harness's answer to one run.
+   */
   state: string;
   summary?: string;
   reason?: string;

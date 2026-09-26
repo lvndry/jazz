@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
+import { extendRefusalStreak } from "./_goal";
 import { NOTES, TICKETS, monthlyTotals, tasks } from "./long-horizon";
 import { workspaceScenarios } from "../../test-harness";
 import { emptyResult, type CheckResult, type GoalOutcome } from "../../types";
@@ -131,5 +132,14 @@ describe("asks-user oracle", () => {
     const checked = await check(id, guessed, { state: "completed" });
     expect(checked.pass).toBe(false);
     expect(criticals(checked)).toBe(1);
+  });
+});
+
+describe("goal driver answer refusals", () => {
+  it("counts refusals of one run in a row and restarts for another run", () => {
+    const first = extendRefusalStreak(undefined, "run-1");
+    const second = extendRefusalStreak(first, "run-1");
+    expect(second).toEqual({ runId: "run-1", count: 2 });
+    expect(extendRefusalStreak(second, "run-2")).toEqual({ runId: "run-2", count: 1 });
   });
 });
