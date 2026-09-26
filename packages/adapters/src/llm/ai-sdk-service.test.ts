@@ -18,6 +18,7 @@ import {
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { APICallError, generateText } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Duration, Effect, Exit, Layer, Stream } from "effect";
@@ -1085,6 +1086,7 @@ describe("AI SDK Service - Unit Tests", () => {
               error._tag === "LLMConfigurationError",
           ).toBe(true);
           expect(error.message).toBeDefined();
+          expect(isRetryableLLMError(error)).toBe(false);
         }
 
         // Critically: must NOT be a defect (UnknownException)

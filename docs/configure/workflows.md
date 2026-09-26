@@ -130,7 +130,7 @@ Discovered in this order; later overrides earlier on name collision:
 
 1. **Built-in**: shipped with the `jazz-ai` package
 2. **Global**: `~/.jazz/workflows/<name>/WORKFLOW.md`
-3. **Local**: `./workflows/<name>/WORKFLOW.md`, scanned up to depth 4 from the cwd
+3. **Local**: `./workflows/<name>/WORKFLOW.md` in the current directory
 
 ---
 
