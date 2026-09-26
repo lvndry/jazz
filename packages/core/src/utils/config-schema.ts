@@ -134,7 +134,7 @@ const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported
 
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
-  transport: z.enum(["ollama.chat.think", "llamacpp.chat.enable-thinking"]),
+  transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
   canDisable: flag,
 });
 
@@ -142,8 +142,7 @@ const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
   transport: z.enum([
     "openai.responses.reasoning-effort",
-    "vllm.chat.reasoning-effort",
-    "sglang.chat.reasoning-effort",
+    "openai-compatible.chat.reasoning-effort",
   ]),
   efforts: capabilityReasoningEfforts,
   canDisable: flag,
@@ -181,7 +180,7 @@ const adaptiveReasoningSchema = z.strictObject({
 const budgetReasoningSchema = z
   .strictObject({
     kind: z.literal("budget"),
-    transport: z.literal("llamacpp.chat.thinking-budget"),
+    transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     canDisable: flag,
@@ -260,6 +259,7 @@ const llmShape = {
   minimax: apiKeyOnly,
   mistral: apiKeyOnly,
   moonshotai: apiKeyOnly,
+  nvidia: apiKeyOnly,
   ollama: z
     .strictObject({
       api_key: text.exactOptional(),
@@ -449,8 +449,33 @@ function unwrap(schema: z.ZodType): z.ZodType {
   return current;
 }
 
-function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undefined {
+/**
+ * The option of a discriminated union that `value` selects, by its discriminator. Undefined
+ * when there is no value to read or no option claims it, so callers fall back to trying
+ * every option.
+ */
+function selectedOption(union: z.ZodDiscriminatedUnion, value: unknown): z.ZodType | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const discriminator = union.def.discriminator;
+  const selector = (value as Record<string, unknown>)[discriminator];
+  return (union.options as readonly z.ZodType[]).find((option) => {
+    const inner = unwrap(option);
+    if (!(inner instanceof z.ZodObject)) return false;
+    const field = inner.shape[discriminator] as z.ZodType | undefined;
+    return field instanceof z.ZodLiteral && field.values.has(selector as never);
+  });
+}
+
+function childSchema(
+  schema: z.ZodType,
+  segment: PropertyKey,
+  value?: unknown,
+): z.ZodType | undefined {
   const inner = unwrap(schema);
+  if (inner instanceof z.ZodDiscriminatedUnion) {
+    const selected = selectedOption(inner, value);
+    if (selected !== undefined) return childSchema(selected, segment, value);
+  }
   if (inner instanceof z.ZodUnion) {
     for (const option of inner.options as readonly z.ZodType[]) {
       const child = childSchema(option, segment);
@@ -472,17 +497,27 @@ function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undef
   return undefined;
 }
 
-function schemaFrom(root: z.ZodType, path: Path): z.ZodType | undefined {
+/**
+ * The schema at `path`. With the config `value` it walks alongside, a discriminated union
+ * resolves to the option the value's discriminator selects, so a `kind: "effort"` entry is
+ * described by the effort schema rather than whichever option happens to come first.
+ */
+function schemaFrom(root: z.ZodType, path: Path, value?: unknown): z.ZodType | undefined {
   let current: z.ZodType | undefined = root;
+  let currentValue = value;
   for (const segment of path) {
     if (current === undefined) return undefined;
-    current = childSchema(current, segment);
+    current = childSchema(current, segment, currentValue);
+    currentValue =
+      currentValue !== null && typeof currentValue === "object"
+        ? (currentValue as Record<PropertyKey, unknown>)[segment]
+        : undefined;
   }
   return current;
 }
 
-function schemaAt(path: Path): z.ZodType | undefined {
-  return schemaFrom(ConfigFileSchema, path);
+function schemaAt(path: Path, value?: unknown): z.ZodType | undefined {
+  return schemaFrom(ConfigFileSchema, path, value);
 }
 
 /** Render a path the way a person would type it: `webhooks[1].promptTemplate`. */
@@ -708,7 +743,7 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
-        expected: describeExpected(schemaAt(issue.path)),
+        expected: describeExpected(schemaAt(issue.path, working)),
         actual,
       });
       removals.push(removed);

@@ -34,7 +34,7 @@ describe("parseConfigFile", () => {
             "Qwen/Qwen3-8B": {
               reasoning: {
                 kind: "effort",
-                transport: "vllm.chat.reasoning-effort",
+                transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
                 canDisable: true,
               },
@@ -44,7 +44,7 @@ describe("parseConfigFile", () => {
             "Qwen/Qwen3-8B": {
               reasoning: {
                 kind: "effort",
-                transport: "sglang.chat.reasoning-effort",
+                transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
                 canDisable: true,
               },
@@ -234,7 +234,7 @@ describe("parseConfigFile", () => {
             "Qwen3-32B": {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 256,
                 maximumBudgetTokens: 32768,
                 canDisable: true,
@@ -248,6 +248,55 @@ describe("parseConfigFile", () => {
     expect(issues).toEqual([]);
     expect(config.llm?.capabilityOverrides?.anthropic?.["claude-private"]?.supportsTools).toBe(
       true,
+    );
+  });
+
+  it("describes an invalid transport by the control kind the entry declares", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "bogus",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues[0]).toMatchObject({
+      path: "llm.capabilityOverrides.vllm.model.reasoning.transport",
+      expected: "openai.responses.reasoning-effort or openai-compatible.chat.reasoning-effort",
+      actual: "bogus",
+    });
+  });
+
+  it("rejects the retired vendor-named transports", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "vllm.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toContain(
+      "llm.capabilityOverrides.vllm.model.reasoning.transport",
     );
   });
 
@@ -287,7 +336,7 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
                 maximumBudgetTokens: 1024,
                 canDisable: true,
@@ -305,7 +354,7 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
                 canDisable: true,
               },

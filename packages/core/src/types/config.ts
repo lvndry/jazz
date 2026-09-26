@@ -284,6 +284,7 @@ export interface LLMConfig {
   readonly minimax?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
   readonly moonshotai?: LLMProviderConfig;
+  readonly nvidia?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openai?: LLMProviderConfig;
   readonly openrouter?: LLMProviderConfig;

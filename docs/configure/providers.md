@@ -29,9 +29,11 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `minimax`    | `MINIMAX_API_KEY`                                                 |
 | `mistral`    | `MISTRAL_API_KEY`                                                 |
 | `moonshotai` | `MOONSHOT_API_KEY`                                                |
+| `nvidia`     | `NVIDIA_API_KEY`, or `NIM_API_KEY`                                |
 | `ollama`     | `OLLAMA_API_KEY` for Ollama Cloud or protected servers            |
 | `openai`     | `OPENAI_API_KEY`                                                  |
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
+| `orcarouter` | `ORCAROUTER_API_KEY`                                              |
 | `sglang`     | `SGLANG_API_KEY` when the server requires bearer authentication   |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
@@ -77,6 +79,36 @@ jazz agent create
 ```
 
 The [CI reviewer](../guides/pr-review.md) shows the same workflow running through OpenRouter or a self-hosted model.
+
+## NVIDIA NIM
+
+The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists NIM models from the models.dev catalog, so context windows and tool support come with the list. Tool calling varies by model: check the model's page on NVIDIA Build before pinning it to an agent that needs tools.
+
+```bash
+export NVIDIA_API_KEY="nvapi-..."
+jazz agent create
+```
+
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder; `"canDisable": false` keeps Jazz from sending `"none"`, which the model is not documented to accept, so `disable` runs at `low` instead:
+
+```json
+{
+  "llm": {
+    "capabilityOverrides": {
+      "nvidia": {
+        "deepseek-ai/deepseek-v4.1-flash": {
+          "reasoning": {
+            "kind": "effort",
+            "transport": "openai-compatible.chat.reasoning-effort",
+            "efforts": ["low", "high", "max"],
+            "canDisable": false
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ## Ollama
 
@@ -152,7 +184,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
         "Qwen3-32B-Instruct": {
           "reasoning": {
             "kind": "budget",
-            "transport": "llamacpp.chat.thinking-budget",
+            "transport": "openai-compatible.chat.template-thinking-budget",
             "minimumBudgetTokens": 256,
             "maximumBudgetTokens": 32768,
             "canDisable": true
@@ -166,6 +198,16 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 ```
 
 Keys are exact server-facing model IDs. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+
+Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
+
+| Transport                                         | Kind     | Request field                                                 |
+| ------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `openai-compatible.chat.reasoning-effort`         | `effort` | top-level `reasoning_effort`, `"none"` to disable             |
+| `openai-compatible.chat.template-enable-thinking` | `toggle` | `chat_template_kwargs.enable_thinking`                        |
+| `openai-compatible.chat.template-thinking-budget` | `budget` | `chat_template_kwargs.thinking_budget`, omitted when disabled |
+
+When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisable": false` becomes the lowest level. Jazz logs each adjustment once per model.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 

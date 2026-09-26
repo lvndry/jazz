@@ -40,6 +40,7 @@ export const AVAILABLE_PROVIDERS = [
   "minimax",
   "mistral",
   "moonshotai",
+  "nvidia",
   "ollama",
   "orcarouter",
   "sglang",

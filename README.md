@@ -22,7 +22,7 @@ a scheduled workflow, a GitHub Action that reviews your pull requests, or a Tele
 Discord bot on a server you own. Same agent, same tools, same memory. When a job needs your
 permission it asks you wherever you are, rather than stopping.
 
-22 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and
+23 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and
 OpenRouter, plus `ollama`, `llama.cpp`, `vllm`, and `sglang` for self-hosted models with no API key unless the server requires one. Everything else
 connects through [MCP](https://modelcontextprotocol.io/).
 

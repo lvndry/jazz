@@ -68,6 +68,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   minimax: { type: "models-dev" },
   mistral: { type: "models-dev" },
   moonshotai: { type: "models-dev" },
+  nvidia: { type: "models-dev" },
   ollama: { type: "dynamic", endpointPath: "/tags", defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL },
   llamacpp: {
     type: "dynamic",
