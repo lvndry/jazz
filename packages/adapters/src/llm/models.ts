@@ -7,6 +7,7 @@ import {
 import type { ProviderName } from "@jazz/core/constants/models";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import type { LLMConfig } from "@jazz/core/types/config";
+import { CHATGPT_CODEX_BASE_URL } from "./chatgpt/transport";
 
 /**
  * This type represents how models are fetched for each provider.
@@ -34,6 +35,11 @@ export const DEFAULT_SGLANG_BASE_URL = "http://127.0.0.1:30000/v1";
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   anthropic: { type: "models-dev" },
   openai: { type: "models-dev" },
+  chatgpt: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: CHATGPT_CODEX_BASE_URL,
+  },
   gemini: { type: "models-dev", catalogId: "google" },
   xai: { type: "models-dev" },
   openrouter: {

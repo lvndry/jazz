@@ -3,12 +3,14 @@
  * their official brand display names.
  */
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
+import type { LLMConfig } from "@/core/types/config";
 
 const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   ai_gateway: "Vercel AI Gateway",
   alibaba: "Alibaba",
   anthropic: "Anthropic",
   cerebras: "Cerebras",
+  chatgpt: "ChatGPT",
   deepseek: "DeepSeek",
   fireworks: "Fireworks",
   gemini: "Gemini",
@@ -81,4 +83,21 @@ export function formatProviderDisplayName(provider: string): string {
   const known = PROVIDER_DISPLAY_NAMES[provider];
   if (known) return known;
   return provider.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+/**
+ * The API key stored in config for a provider, if that provider authenticates with one.
+ * ChatGPT signs in with OAuth instead, so its config entry never carries a key.
+ */
+export function configuredProviderApiKey(
+  llmConfig: LLMConfig | undefined,
+  provider: ProviderName,
+): string | undefined {
+  const entry = llmConfig?.[provider];
+  return entry !== undefined && "api_key" in entry ? entry.api_key : undefined;
+}
+
+/** Whether a ChatGPT subscription sign-in is recorded in config. */
+export function isChatGPTSignedIn(llmConfig: LLMConfig | undefined): boolean {
+  return (llmConfig?.chatgpt?.account_id ?? "").length > 0;
 }

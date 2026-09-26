@@ -8,6 +8,7 @@ import { formatProviderDisplayName } from "@/core/utils/provider-model";
 
 export const PINNED_PROVIDERS_FOR_PICKER = [
   "openai",
+  "chatgpt",
   "anthropic",
   "gemini",
   "openrouter",

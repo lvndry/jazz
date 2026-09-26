@@ -316,6 +316,11 @@ describe("AI SDK Service - Unit Tests", () => {
           if (!functionSection.includes(providerQuoted)) {
             missingProviders.push(provider);
           }
+        } else if (provider === "chatgpt") {
+          // ChatGPT signs in with OAuth, so it has no api_key to check.
+          if (!functionSection.includes("isChatGPTSignedIn(llmConfig)")) {
+            missingProviders.push(provider);
+          }
         } else {
           // For other providers, check for: llmConfig.{provider}?.api_key
           // Simple string search for the pattern

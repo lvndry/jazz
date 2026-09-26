@@ -244,6 +244,16 @@ export interface AnthropicProviderConfig {
   readonly workspace_id?: string;
 }
 
+/**
+ * Non-secret record of a ChatGPT subscription sign-in. The OAuth tokens live in the
+ * keyring; this is what marks the provider as configured without a keyring read.
+ */
+export interface ChatGPTProviderConfig {
+  readonly account_id?: string;
+  /** ChatGPT plan reported by the sign-in token, e.g. "plus" or "pro". */
+  readonly plan?: string;
+}
+
 export interface LLMConfig {
   /**
    * How long a provider stream may stay silent before jazz abandons it as dead,
@@ -265,6 +275,7 @@ export interface LLMConfig {
   readonly alibaba?: LLMProviderConfig;
   readonly anthropic?: AnthropicProviderConfig;
   readonly cerebras?: LLMProviderConfig;
+  readonly chatgpt?: ChatGPTProviderConfig;
   readonly deepseek?: LLMProviderConfig;
   readonly fireworks?: LLMProviderConfig;
   readonly gemini?: LLMProviderConfig;

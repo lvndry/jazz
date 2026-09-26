@@ -114,6 +114,7 @@ export function isTransportValidForProvider(
 ): boolean {
   switch (provider) {
     case "openai":
+    case "chatgpt":
       return transport === "openai.responses.reasoning-effort";
     case "anthropic":
       return (
