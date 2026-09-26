@@ -282,11 +282,10 @@ export class WorkflowsLive implements WorkflowService {
   }
 
   private scanLocalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    const cwd = process.cwd();
     return scanMarkdownIndex({
-      dir: cwd,
+      dir: path.join(process.cwd(), "workflows"),
       fileName: WORKFLOW_DEFINITION_FILENAME,
-      depth: 4,
+      depth: 3,
       parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
     });
   }

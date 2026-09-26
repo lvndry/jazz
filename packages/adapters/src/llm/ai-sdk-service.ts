@@ -28,6 +28,7 @@ import {
   type LocalServerProvider,
 } from "@jazz/core/constants/local-providers";
 import {
+  AVAILABLE_PROVIDERS,
   OPENROUTER_GATEWAY_MODELS,
   ORCAROUTER_GATEWAY_MODELS,
   type ProviderName,
@@ -94,6 +95,7 @@ import {
   stepCountIs,
   streamText,
   jsonSchema,
+  NoSuchProviderError,
   tool,
   type LanguageModel,
   type FilePart,
@@ -1126,7 +1128,13 @@ function selectModel(
       break;
     }
     default:
-      throw new Error("Unsupported provider");
+      throw new NoSuchProviderError({
+        modelId,
+        modelType: "languageModel",
+        providerId: String(providerName),
+        availableProviders: [...AVAILABLE_PROVIDERS],
+        message: `This jazz build does not support the "${String(providerName)}" provider. Update jazz, or pick another provider with 'jazz config'.`,
+      });
   }
 
   // Store in cache
