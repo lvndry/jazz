@@ -251,6 +251,31 @@ describe("parseConfigFile", () => {
     );
   });
 
+  it("describes an invalid transport by the control kind the entry declares", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "bogus",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues[0]).toMatchObject({
+      path: "llm.capabilityOverrides.vllm.model.reasoning.transport",
+      expected: "openai.responses.reasoning-effort or openai-compatible.chat.reasoning-effort",
+      actual: "bogus",
+    });
+  });
+
   it("rejects the retired vendor-named transports", () => {
     const { config, issues } = parseConfigFile({
       llm: {
