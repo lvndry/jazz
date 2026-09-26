@@ -5,9 +5,10 @@
  * ordinary file work rather than a model-authored language-server tool call.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PluginRegistryServiceImpl, packPlugin } from "@jazz/adapters/plugins";
+import { readJsonLines } from "../../files";
 import { runJazzOnce } from "../../run-jazz";
 import type { EvalTask, TaskRunContext } from "../../types";
 
@@ -64,14 +65,9 @@ async function enableLsp(context: TaskRunContext): Promise<void> {
 }
 
 function sawReceiptDiagnostic(logPath: string): boolean {
-  if (!existsSync(logPath)) return false;
-  return readFileSync(logPath, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .some((line) => {
-      const record = JSON.parse(line) as { uri?: string; diagnosticCount?: number };
-      return record.uri?.endsWith("/receipt.ts") && record.diagnosticCount === 1;
-    });
+  return readJsonLines<{ uri?: string; diagnosticCount?: number }>(logPath).some(
+    (record) => record.uri?.endsWith("/receipt.ts") === true && record.diagnosticCount === 1,
+  );
 }
 
 export const tasks: EvalTask[] = [

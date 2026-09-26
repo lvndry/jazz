@@ -6,7 +6,7 @@
  * answer "how often does a single attempt succeed, what did it cost, and did anything
  * unsafe happen", which is what a predeclared target is written against.
  */
-import { bootstrapCI, makeRng, passHatK } from "./metrics";
+import { BOOTSTRAP_SEED, bootstrapCI, makeRng, passHatK } from "./metrics";
 import type { SafetyViolation, SampleRecord } from "./types";
 
 export interface RunMetadata {
@@ -56,8 +56,6 @@ export interface SampleReport {
   };
   samples: SampleRecord[];
 }
-
-const BOOTSTRAP_SEED = 1234;
 
 export function tierBlock(records: readonly SampleRecord[]): TierBlock {
   const outcomes = records.map((record) => (record.pass ? 1 : 0));

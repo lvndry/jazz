@@ -5,6 +5,15 @@ import type { OneShotResult } from "./types";
 
 export type Envelope = Omit<OneShotResult, "eventsPath">;
 
+/** The last non-empty line of stdout, where a headless `--json` command prints its envelope. */
+export function lastOutputLine(stdout: string): string | undefined {
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1);
+}
+
 /**
  * Parse the single-line `jazz run --json` envelope from captured stdout.
  * Takes the last non-empty line (the runner may print other lines earlier),
@@ -12,11 +21,7 @@ export type Envelope = Omit<OneShotResult, "eventsPath">;
  * failed run never masquerades as a passing sample.
  */
 export function parseEnvelope(stdout: string): Envelope {
-  const lines = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const last = lines[lines.length - 1];
+  const last = lastOutputLine(stdout);
   if (!last) {
     throw new Error("jazz run produced no output");
   }
@@ -55,8 +60,85 @@ export function parseEnvelope(stdout: string): Envelope {
 
 const REPO_ROOT = join(import.meta.dir, "..");
 /** Runtime entry point every eval spawn runs under `bun`. */
-export const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
+const MAIN_TS = join(REPO_ROOT, "packages", "runtime", "src", "main.ts");
 const REPORT_DIR = join(REPO_ROOT, "evals", "report");
+
+/** A path for `fileName` under the gitignored report directory, which it creates. */
+export function reportFilePath(fileName: string): string {
+  mkdirSync(REPORT_DIR, { recursive: true });
+  return join(REPORT_DIR, fileName);
+}
+
+/** Where a spawned stream goes: read by the caller, dropped, or written to an open file descriptor. */
+type OutputMode = "pipe" | "ignore" | number;
+
+export interface SpawnJazzOptions<Stdout extends OutputMode, Stderr extends OutputMode> {
+  /** The process's cwd; the caller's own when absent. */
+  workspaceDir?: string | undefined;
+  /** Serve web I/O from this cassette; the process reaches the network itself when absent. */
+  cassettePath?: string | undefined;
+  cassetteMode?: "record" | "replay" | undefined;
+  jazzHome?: string | undefined;
+  /** The sample's sandbox environment, which also decides whether the OS sandbox applies. */
+  environment?: Readonly<Record<string, string>> | undefined;
+  /** Variables for this one spawn, applied over everything else. */
+  extraEnv?: Readonly<Record<string, string>> | undefined;
+  /** Required so a caller cannot pipe a stream it never drains: jazz would block writing to it. */
+  stdout: Stdout;
+  stderr: Stderr;
+}
+
+/** Spawn the jazz runtime headless with `args`, under the sample's sandbox and environment. */
+export function spawnJazz<const Stdout extends OutputMode, const Stderr extends OutputMode>(
+  args: readonly string[],
+  options: SpawnJazzOptions<Stdout, Stderr>,
+): Bun.Subprocess<"ignore", Stdout, Stderr> {
+  return Bun.spawn<"ignore", Stdout, Stderr>(
+    sandboxedArgv([process.execPath, MAIN_TS, ...args], options.environment),
+    {
+      ...(options.workspaceDir !== undefined ? { cwd: options.workspaceDir } : {}),
+      env: {
+        ...process.env,
+        ...(options.cassettePath !== undefined
+          ? {
+              JAZZ_WEB_CASSETTE: options.cassettePath,
+              JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+            }
+          : {}),
+        ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
+        ...options.environment,
+        ...options.extraEnv,
+      },
+      stdout: options.stdout,
+      stderr: options.stderr,
+    },
+  );
+}
+
+function runArgs(options: RunJazzOptions, captureEvents: boolean): string[] {
+  const args = [
+    "run",
+    options.prompt,
+    "--agent",
+    options.agentId,
+    "--json",
+    ...(captureEvents ? ["--events", "all"] : []),
+    "--approval-policy",
+    "high-risk",
+    "--timeout",
+    String(options.timeoutMs),
+  ];
+  if (options.reasoningEffort) {
+    args.push("--reasoning", options.reasoningEffort);
+  }
+  if (options.conversationId) {
+    args.push("--conversation", options.conversationId);
+  }
+  if (options.maxIterations !== undefined) {
+    args.push("--max-iterations", String(options.maxIterations));
+  }
+  return args;
+}
 
 export interface RunJazzOptions {
   prompt: string;
@@ -88,49 +170,16 @@ export interface RunJazzOptions {
  * returns the parsed envelope plus that trajectory path.
  */
 export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResult> {
-  mkdirSync(REPORT_DIR, { recursive: true });
-  const eventsPath = join(REPORT_DIR, `${options.runId}.events.ndjson`);
-
-  const argv = [
-    process.execPath,
-    MAIN_TS,
-    "run",
-    options.prompt,
-    "--agent",
-    options.agentId,
-    "--json",
-    "--approval-policy",
-    "high-risk",
-    "--timeout",
-    String(options.timeoutMs),
-  ];
-  if (options.captureEvents !== false) {
-    argv.push("--events", "all");
-  }
-  if (options.reasoningEffort) {
-    argv.push("--reasoning", options.reasoningEffort);
-  }
-  if (options.conversationId) {
-    argv.push("--conversation", options.conversationId);
-  }
-  if (options.maxIterations !== undefined) {
-    argv.push("--max-iterations", String(options.maxIterations));
-  }
+  const eventsPath = reportFilePath(`${options.runId}.events.ndjson`);
 
   const startedAt = performance.now();
-  const proc = Bun.spawn(sandboxedArgv(argv, options.environment), {
-    cwd: options.workspaceDir,
-    env: {
-      ...process.env,
-      ...(options.useWebCassette === false
-        ? {}
-        : {
-            JAZZ_WEB_CASSETTE: options.cassettePath,
-            JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
-          }),
-      ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
-      ...options.environment,
-    },
+  const proc = spawnJazz(runArgs(options, options.captureEvents !== false), {
+    workspaceDir: options.workspaceDir,
+    ...(options.useWebCassette === false
+      ? {}
+      : { cassettePath: options.cassettePath, cassetteMode: options.cassetteMode }),
+    jazzHome: options.jazzHome,
+    environment: options.environment,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -174,40 +223,13 @@ export interface RunJazzUntilOptions extends Omit<RunJazzOptions, "cassetteMode"
  * run rather than at the end of it. That is the property under test.
  */
 export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<KilledRun> {
-  mkdirSync(REPORT_DIR, { recursive: true });
-  const eventsPath = join(REPORT_DIR, `${options.runId}.events.ndjson`);
+  const eventsPath = reportFilePath(`${options.runId}.events.ndjson`);
 
-  const argv = [
-    process.execPath,
-    MAIN_TS,
-    "run",
-    options.prompt,
-    "--agent",
-    options.agentId,
-    "--json",
-    "--events",
-    "all",
-    "--approval-policy",
-    "high-risk",
-    "--timeout",
-    String(options.timeoutMs),
-  ];
-  if (options.conversationId) {
-    argv.push("--conversation", options.conversationId);
-  }
-  if (options.maxIterations !== undefined) {
-    argv.push("--max-iterations", String(options.maxIterations));
-  }
-
-  const proc = Bun.spawn(sandboxedArgv(argv, options.environment), {
-    cwd: options.workspaceDir,
-    env: {
-      ...process.env,
-      JAZZ_WEB_CASSETTE: options.cassettePath,
-      JAZZ_WEB_MODE: "replay",
-      ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
-      ...options.environment,
-    },
+  const proc = spawnJazz(runArgs(options, true), {
+    workspaceDir: options.workspaceDir,
+    cassettePath: options.cassettePath,
+    jazzHome: options.jazzHome,
+    environment: options.environment,
     stdout: "pipe",
     stderr: "pipe",
   });

@@ -1,60 +1,20 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { tasks as easyTasks } from "./easy";
 import { tasks as everydayTasks } from "./everyday";
 import { tasks as hardTasks } from "./hard";
 import { tasks as harderTasks } from "./harder";
 import { TRAVEL_EXPECTED, reconcile, tasks as veryHardTasks } from "./very-hard";
-import type { CheckResult, EvalTask, OneShotResult } from "../../types";
+import { workspaceScenarios } from "../../test-harness";
+import { emptyResult, type CheckResult } from "../../types";
 
 const allTasks = [...easyTasks, ...hardTasks, ...harderTasks, ...everydayTasks, ...veryHardTasks];
-const workspaces: string[] = [];
-
-function task(id: string): EvalTask {
-  const found = allTasks.find((candidate) => candidate.id === id);
-  if (found === undefined) {
-    throw new Error(`no task ${id}`);
-  }
-  return found;
-}
-
-async function prepared(id: string): Promise<string> {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "adversarial-oracle-"));
-  workspaces.push(workspaceDir);
-  await task(id).setup(workspaceDir);
-  return workspaceDir;
-}
-
-function answer(text: string): OneShotResult {
-  return {
-    ok: true,
-    answer: text,
-    toolCalls: [],
-    costUSD: 0,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
-  };
-}
+const { task, prepared } = workspaceScenarios(allTasks, "adversarial-oracle");
 
 async function check(id: string, workspaceDir: string, text = ""): Promise<CheckResult> {
-  return task(id).check(answer(text), workspaceDir, 0);
+  return task(id).check(emptyResult({ answer: text }), workspaceDir, 0);
 }
-
-afterEach(() => {
-  for (const workspaceDir of workspaces.splice(0)) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
-});
 
 describe("adversarial scenario set", () => {
   it("has at least three multi-cycle scenarios per tier", () => {

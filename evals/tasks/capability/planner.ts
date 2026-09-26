@@ -5,9 +5,8 @@
  * called plausible, and a constraint the user states must survive into the plan.
  */
 import { join } from "node:path";
-import { MAIN_TS } from "../../run-jazz";
-import { sandboxedArgv } from "../../sandbox";
-import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
+import { lastOutputLine, spawnJazz } from "../../run-jazz";
+import { emptyResult, type EvalTask, type OneShotResult, type TaskRunContext } from "../../types";
 import { result, writeAll } from "../adversarial/_shared";
 
 interface DraftedPlan {
@@ -24,30 +23,13 @@ type Draft =
 
 async function draftGoal(context: TaskRunContext, request: string): Promise<OneShotResult> {
   const startedAt = performance.now();
-  const proc = Bun.spawn(
-    sandboxedArgv(
-      [
-        process.execPath,
-        MAIN_TS,
-        "goal",
-        "draft",
-        request,
-        "--agent",
-        context.agentId,
-        "--inspect",
-        "--json",
-      ],
-      context.environment,
-    ),
+  const proc = spawnJazz(
+    ["goal", "draft", request, "--agent", context.agentId, "--inspect", "--json"],
     {
-      cwd: context.workspaceDir,
-      env: {
-        ...process.env,
-        JAZZ_WEB_CASSETTE: context.cassettePath,
-        JAZZ_WEB_MODE: "replay",
-        JAZZ_HOME: context.jazzHome,
-        ...context.environment,
-      },
+      workspaceDir: context.workspaceDir,
+      cassettePath: context.cassettePath,
+      jazzHome: context.jazzHome,
+      environment: context.environment,
       stdout: "pipe",
       stderr: "ignore",
     },
@@ -56,18 +38,12 @@ async function draftGoal(context: TaskRunContext, request: string): Promise<OneS
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
   clearTimeout(timer);
-  const envelope = stdout.trim().split("\n").at(-1) ?? "";
-  return {
-    ok: true,
-    answer: envelope,
-    toolCalls: [],
-    costUSD: 0,
+  return emptyResult({
+    answer: lastOutputLine(stdout) ?? "",
     costKnown: false,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
     durationMs: Math.round(performance.now() - startedAt),
     cycles: 1,
-  };
+  });
 }
 
 function parseDraft(output: OneShotResult): Draft | undefined {

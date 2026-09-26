@@ -8,16 +8,20 @@
  * bundled email and calendar skills tell the model to use, with the same output shapes, so
  * following the skill works and improvising around it shows up in the log.
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { appendStubInvocation, stubState, writeStubState } from "./state";
 
 const [stubRoot = "", command = "", ...args] = process.argv.slice(2);
 
 function log(exitCode: number, note?: string): void {
-  appendFileSync(
-    join(stubRoot, "invocations.ndjson"),
-    `${JSON.stringify({ at: new Date().toISOString(), command, args, cwd: process.cwd(), exitCode, ...(note ? { note } : {}) })}\n`,
-  );
+  appendStubInvocation(stubRoot, {
+    at: new Date().toISOString(),
+    command,
+    args,
+    cwd: process.cwd(),
+    exitCode,
+    ...(note ? { note } : {}),
+  });
 }
 
 function finish(exitCode: number, stdout = "", stderr = "", note?: string): never {
@@ -31,17 +35,12 @@ function finish(exitCode: number, stdout = "", stderr = "", note?: string): neve
   process.exit(exitCode);
 }
 
-function statePath(tool: string): string {
-  return join(stubRoot, "data", `${tool}.json`);
-}
-
 function loadState<State>(tool: string, fallback: State): State {
-  const path = statePath(tool);
-  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as State) : fallback;
+  return stubState<State>(stubRoot, tool) ?? fallback;
 }
 
 function saveState(tool: string, state: unknown): void {
-  writeFileSync(statePath(tool), `${JSON.stringify(state, null, 2)}\n`);
+  writeStubState(stubRoot, tool, state);
 }
 
 /** Pull `--name value` / `-n value` options out of an argument list; flags without values are `true`. */

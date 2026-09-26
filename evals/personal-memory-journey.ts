@@ -6,15 +6,16 @@
  * `bun evals/personal-memory-journey.ts --samples 3`.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { readOption } from "./cli-options";
-import { runJazzOnce } from "./run-jazz";
+import { memoryEntries, walkFiles } from "./files";
+import { reportFilePath, runJazzOnce } from "./run-jazz";
 import { assertAllowedAgent } from "./runner";
 import type { OneShotResult } from "./types";
+import { toError } from "../packages/core/src/utils/storage";
 
-const REPORT_DIR = join(import.meta.dir, "report");
 const DEFAULT_PERSONA_PATH = join(import.meta.dir, "..", "personas", "default", "PERSONA.md");
 const AGENT_ID = "eval-memory-journey";
 const PERSONA_NAME = "eval-memory";
@@ -65,37 +66,6 @@ interface TurnMeasurement {
   readonly error?: string;
 }
 
-/** Every file under `root` ending in `extension`, recursively; empty when `root` is missing. */
-function walkFiles(root: string, extension: string): string[] {
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const entryPath = join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkFiles(entryPath, extension));
-    } else if (entry.isFile() && entry.name.endsWith(extension)) {
-      files.push(entryPath);
-    }
-  }
-  return files;
-}
-
-function memoryPaths(jazzHome: string): string[] {
-  const memoryRoot = join(jazzHome, "memory");
-  return walkFiles(memoryRoot, ".md").map((entryPath) => relative(memoryRoot, entryPath));
-}
-
-function memoryContents(jazzHome: string): string[] {
-  return walkFiles(join(jazzHome, "memory"), ".md").map((entryPath) =>
-    readFileSync(entryPath, "utf-8"),
-  );
-}
-
 interface StoredReceipt {
   readonly receiptId: string;
   readonly status: string;
@@ -103,7 +73,7 @@ interface StoredReceipt {
 }
 
 function storedReceipts(jazzHome: string): StoredReceipt[] {
-  return walkFiles(join(jazzHome, RECEIPTS_DIRECTORY_NAME), ".json").map(
+  return walkFiles(join(jazzHome, RECEIPTS_DIRECTORY_NAME), { extension: ".json" }).map(
     (entryPath) => JSON.parse(readFileSync(entryPath, "utf8")) as StoredReceipt,
   );
 }
@@ -229,7 +199,7 @@ async function journey(
     writeFileSync(cassettePath, "{}");
 
     for (const step of STEPS) {
-      const memoryBefore = memoryContents(jazzHome);
+      const memoryBefore = memoryEntries(jazzHome).map((entry) => entry.content);
       const beforeReceiptIds = new Set(
         storedReceipts(jazzHome).map((receipt) => receipt.receiptId),
       );
@@ -248,8 +218,9 @@ async function journey(
           captureEvents: false,
           useWebCassette: false,
         });
-        const memoryAfter = memoryContents(jazzHome);
-        const pathsAfter = memoryPaths(jazzHome);
+        const entriesAfter = memoryEntries(jazzHome);
+        const memoryAfter = entriesAfter.map((entry) => entry.content);
+        const pathsAfter = entriesAfter.map((entry) => entry.path);
         const allReceipts = storedReceipts(jazzHome);
         const receipts = receiptCounts(
           allReceipts.filter((receipt) => !beforeReceiptIds.has(receipt.receiptId)),
@@ -276,6 +247,7 @@ async function journey(
         );
       } catch (error) {
         console.error(`sample ${sample} ${step.id}: ${String(error)}`);
+        const entriesLeft = memoryEntries(jazzHome);
         results.push({
           sample,
           step: step.id,
@@ -288,12 +260,12 @@ async function journey(
           totalTokens: 0,
           answer: "",
           toolNames: [],
-          memory: memoryContents(jazzHome),
-          memoryPaths: memoryPaths(jazzHome),
+          memory: entriesLeft.map((entry) => entry.content),
+          memoryPaths: entriesLeft.map((entry) => entry.path),
           receipts: receiptCounts(
             storedReceipts(jazzHome).filter((receipt) => !beforeReceiptIds.has(receipt.receiptId)),
           ),
-          error: error instanceof Error ? error.message : String(error),
+          error: toError(error).message,
         });
       }
     }
@@ -310,13 +282,12 @@ if (!Number.isInteger(samples) || samples < 1) {
 }
 const provider = readOption("--provider", "ollama");
 const model = readOption("--model", "gemma4:31b-cloud");
-mkdirSync(REPORT_DIR, { recursive: true });
 const measurements: TurnMeasurement[] = [];
 for (let sample = 1; sample <= samples; sample++) {
   measurements.push(...(await journey(sample, model, provider)));
 }
 const stamp = new Date().toISOString().replaceAll(":", "-");
-const reportPath = join(REPORT_DIR, `personal-memory-journey-${stamp}.json`);
+const reportPath = reportFilePath(`personal-memory-journey-${stamp}.json`);
 writeFileSync(
   reportPath,
   `${JSON.stringify({ provider, model, samples, measurements }, null, 2)}\n`,

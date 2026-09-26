@@ -29,6 +29,19 @@ export interface OneShotResult {
   goal?: GoalOutcome;
 }
 
+/** A result with no answer, calls, or usage, for a run that produced none and for tests. */
+export function emptyResult(overrides: Partial<OneShotResult> = {}): OneShotResult {
+  return {
+    ok: true,
+    answer: "",
+    toolCalls: [],
+    costUSD: 0,
+    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    eventsPath: "",
+    ...overrides,
+  };
+}
+
 export interface GoalOutcome {
   /** The goal state it stopped in, or "timed-out" when the harness gave up waiting. */
   state: string;
@@ -123,6 +136,14 @@ export interface EvalTask {
    * whose answer is being judged (the resume, not the setup run).
    */
   run?(context: TaskRunContext): Promise<OneShotResult>;
+}
+
+export function findTask(tasks: readonly EvalTask[], id: string): EvalTask {
+  const found = tasks.find((candidate) => candidate.id === id);
+  if (found === undefined) {
+    throw new Error(`no task ${id}`);
+  }
+  return found;
 }
 
 /** One rollout's outcome, kept whole in the report so runs can be paired and audited. */

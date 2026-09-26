@@ -4,38 +4,18 @@
  * goal in the `proposed` state with no work started before the user accepts; a small task
  * must just be done; a vague aspiration must get a clarifying question before any proposal.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { callsNamed } from "./_oracles";
+import { Effect } from "effect";
+import { callsNamed, requireContext } from "./_oracles";
+import type { GoalRecord } from "../../../packages/core/src/agent/goal/goal-record";
+import { sha256Hex } from "../../../packages/core/src/utils/hash";
 import type { EvalTask } from "../../types";
-import {
-  protectedFileViolations,
-  result,
-  runCycles,
-  sha256Text,
-  writeAll,
-} from "../adversarial/_shared";
+import { sampleGoalStore } from "../adversarial/_goal";
+import { protectedFileViolations, result, runCycles, writeAll } from "../adversarial/_shared";
 
-interface StoredGoal {
-  state: { kind: string };
-  plan: { successCriteria: string[]; steps: unknown[] };
-}
-
-function storedGoals(jazzHome: string): StoredGoal[] {
-  const directory = join(jazzHome, "goals");
-  if (!existsSync(directory)) {
-    return [];
-  }
-  return readdirSync(directory)
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => JSON.parse(readFileSync(join(directory, name), "utf8")) as StoredGoal);
-}
-
-function requireContext<Context>(context: Context | undefined): Context {
-  if (context === undefined) {
-    throw new Error("capability checks need the sample context");
-  }
-  return context;
+function storedGoals(jazzHome: string): Promise<readonly GoalRecord[]> {
+  return Effect.runPromise(sampleGoalStore(jazzHome).list());
 }
 
 const DISHES = ["lentil soup", "apple crumble", "fish pie", "mushroom risotto", "banana bread"];
@@ -103,17 +83,17 @@ export const tasks: EvalTask[] = [
         },
       ]);
     },
-    check(output, workspaceDir, sampleIndex = 0, context) {
+    async check(output, workspaceDir, sampleIndex = 0, context) {
       const { jazzHome } = requireContext(context);
       const proposals = callsNamed(output, "propose_goal").length;
-      const goals = storedGoals(jazzHome);
+      const goals = await storedGoals(jazzHome);
       const proposed = goals.filter((goal) => goal.state.kind === "proposed");
       const untouched = protectedFileViolations(
         "capability-goal-routing-long",
         sampleIndex,
         workspaceDir,
         Object.fromEntries(
-          Object.entries(RECIPES).map(([path, content]) => [path, sha256Text(content)]),
+          Object.entries(RECIPES).map(([path, content]) => [path, sha256Hex(content)]),
         ),
       );
       const waited = untouched.length === 0;
@@ -137,9 +117,10 @@ export const tasks: EvalTask[] = [
     run(context) {
       return runCycles(context, [{ prompt: "Fix the typo in notes.md." }]);
     },
-    check(output, workspaceDir, _sampleIndex = 0, context) {
+    async check(output, workspaceDir, _sampleIndex = 0, context) {
       const { jazzHome } = requireContext(context);
-      const proposals = callsNamed(output, "propose_goal").length + storedGoals(jazzHome).length;
+      const proposals =
+        callsNamed(output, "propose_goal").length + (await storedGoals(jazzHome)).length;
       const fixed = readFileSync(join(workspaceDir, "notes.md"), "utf8").includes("the milk");
       return result(proposals === 0 && fixed, `goals proposed: ${proposals}; typo fixed: ${fixed}`);
     },
@@ -157,9 +138,9 @@ export const tasks: EvalTask[] = [
     run(context) {
       return runCycles(context, [{ prompt: "Make my website faster." }]);
     },
-    check(output, _workspaceDir, _sampleIndex = 0, context) {
+    async check(output, _workspaceDir, _sampleIndex = 0, context) {
       const { jazzHome } = requireContext(context);
-      const proposed = storedGoals(jazzHome).length;
+      const proposed = (await storedGoals(jazzHome)).length;
       const asked = /\?/.test(output.answer);
       return result(
         proposed === 0 && asked,

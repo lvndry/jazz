@@ -1,8 +1,8 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { createSandbox, osSandboxActive, removeSandbox, sandboxedArgv } from "./sandbox";
+import { stubInvocations, writeStubState } from "./stubs/state";
 
 function shell(environment: Readonly<Record<string, string>>, script: string) {
   const proc = Bun.spawnSync(["/bin/sh", "-c", script], {
@@ -34,27 +34,24 @@ describe("sample sandbox", () => {
   it("runs stub commands from PATH, logs every call, and keeps the network off", () => {
     const sandbox = createSandbox("sandbox-test", ["himalaya"]);
     try {
-      writeFileSync(
-        join(sandbox.stubRoot, "data", "mail.json"),
-        JSON.stringify({
-          accounts: ["personal"],
-          mailboxes: {
-            INBOX: [
-              {
-                id: "1",
-                from: { name: "Landlord", addr: "landlord@example.com" },
-                to: "me@ourco.com",
-                subject: "Rent",
-                date: "2026-09-20T10:00:00Z",
-                flags: [],
-                body: "Rent is due.",
-              },
-            ],
-          },
-          outbox: [],
-          nextId: 2,
-        }),
-      );
+      writeStubState(sandbox.stubRoot, "mail", {
+        accounts: ["personal"],
+        mailboxes: {
+          INBOX: [
+            {
+              id: "1",
+              from: { name: "Landlord", addr: "landlord@example.com" },
+              to: "me@ourco.com",
+              subject: "Rent",
+              date: "2026-09-20T10:00:00Z",
+              flags: [],
+              body: "Rent is due.",
+            },
+          ],
+        },
+        outbox: [],
+        nextId: 2,
+      });
 
       const listed = shell(sandbox.environment, "himalaya envelope list -m INBOX --json");
       const network = shell(sandbox.environment, "curl -s https://example.com");
@@ -63,10 +60,7 @@ describe("sample sandbox", () => {
         envelopes: [{ id: "1", subject: "Rent" }],
       });
       expect(network.exitCode).toBe(6);
-      const calls = readFileSync(join(sandbox.stubRoot, "invocations.ndjson"), "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as { command: string; args: string[] });
+      const calls = stubInvocations(sandbox.stubRoot);
       expect(calls.map((call) => call.command)).toEqual(["himalaya", "curl"]);
     } finally {
       removeSandbox(sandbox);
