@@ -38,6 +38,7 @@ import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { settleStoppingGoal } from "@/adapters/daemon/goal-worker";
 
@@ -177,7 +178,7 @@ export function proposeGoal(options: {
     if (completion._tag === "Left") {
       const failed: GoalProposal = {
         kind: "failed",
-        reason: "Jazz could not draft a goal proposal.",
+        reason: `Jazz could not draft a goal proposal: the planning call to ${options.agent.config.llmProvider}/${options.agent.config.llmModel} failed (${toError(completion.left).message}).`,
       };
       return failed;
     }

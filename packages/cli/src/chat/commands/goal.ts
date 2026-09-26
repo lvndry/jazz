@@ -93,17 +93,16 @@ export function offerProposedGoals(conversationId: string) {
 function draftGoal(context: CommandContext, request: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const inspect = yield* terminal.confirm(
-      "Inspect relevant local project files read-only? Matching file contents will be sent to this agent's configured model provider.",
-      false,
-    );
     const proposal = yield* proposeGoal({
       agent: context.agent,
       request,
-      inspect: inspect === true,
+      inspect: true,
     });
     if (proposal.kind === "failed") {
-      yield* terminal.warn(`${proposal.reason} The original request was not run.`);
+      yield* terminal.warn(proposal.reason);
+      yield* terminal.info(
+        "Nothing was started. Ask for the work directly in chat, or try `/goal` again with another agent or model.",
+      );
       return;
     }
     if (proposal.kind === "questions") {

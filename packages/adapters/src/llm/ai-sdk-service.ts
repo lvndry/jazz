@@ -866,10 +866,51 @@ const WRAPPED_OUTPUT_KEY = "result";
  * require an object at the root, so a union or any other non-object schema is sent as the
  * single property of an object and unwrapped from the result.
  */
-function providerOutputSchema(schema: z.ZodTypeAny): { schema: z.ZodTypeAny; wrapped: boolean } {
-  return schema instanceof z.ZodObject
-    ? { schema, wrapped: false }
-    : { schema: z.object({ [WRAPPED_OUTPUT_KEY]: schema }), wrapped: true };
+function providerOutputSchema(schema: z.ZodTypeAny): {
+  schema: ReturnType<typeof jsonSchema>;
+  wrapped: boolean;
+} {
+  const wrapped = !(schema instanceof z.ZodObject);
+  const objectSchema = wrapped ? z.object({ [WRAPPED_OUTPUT_KEY]: schema }) : schema;
+  return {
+    schema: jsonSchema(
+      compactToolJsonSchema(
+        unionsAsAnyOf(z.toJSONSchema(objectSchema) as Record<string, unknown>),
+      ) as JSONSchema7,
+      {
+        validate: (value) => {
+          const parsed = objectSchema.safeParse(value);
+          return parsed.success
+            ? { success: true, value: parsed.data }
+            : { success: false, error: parsed.error };
+        },
+      },
+    ),
+    wrapped,
+  };
+}
+
+/**
+ * Zod writes a discriminated union as `oneOf`, which strict structured-output modes (OpenAI's
+ * among them) refuse while accepting `anyOf`. Every union here tells its branches apart by a
+ * literal field, so at most one branch can match and the two mean the same.
+ */
+function unionsAsAnyOf(node: unknown): Record<string, unknown> {
+  const rewrite = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(rewrite);
+    }
+    if (!isRecord(value)) {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key === "oneOf" ? "anyOf" : key,
+        rewrite(child),
+      ]),
+    );
+  };
+  return rewrite(node) as Record<string, unknown>;
 }
 
 /**

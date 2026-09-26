@@ -710,6 +710,8 @@ describe("AI SDK Service - Unit Tests", () => {
       // A union at the root is refused by strict providers, so it travels inside an object.
       expect(responseFormat?.json_schema?.schema?.["type"]).toBe("object");
       expect(responseFormat?.json_schema?.schema?.["anyOf"]).toBeUndefined();
+      // Strict modes (OpenAI's, the ChatGPT backend's) refuse oneOf anywhere in the schema.
+      expect(JSON.stringify(responseFormat?.json_schema?.schema)).not.toContain('"oneOf"');
       expect(JSON.parse(response.content)).toEqual({
         status: "blocked",
         summary: "The oracle cannot inspect the service.",
