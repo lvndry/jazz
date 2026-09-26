@@ -82,13 +82,17 @@ export function executeWithoutStreaming(
     const strategy: CompletionStrategy = {
       shouldShowReasoning,
 
-      getCompletion(currentMessages: ConversationMessages, _iteration: number) {
+      getCompletion(
+        currentMessages: ConversationMessages,
+        _iteration: number,
+        toolsAllowed: boolean,
+      ) {
         return Effect.gen(function* () {
           const llmOptions = {
             model,
             messages: currentMessages,
             tools: runContext.tools,
-            toolChoice: "auto" as const,
+            toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }

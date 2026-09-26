@@ -12,6 +12,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
+import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal-tools";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -260,6 +261,12 @@ interface LoopState {
   iterationsUsed: number;
   contextPressureWarned: boolean;
   toolCompactionAnnounced: boolean;
+  /**
+   * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
+   * the turn may only describe the plan, never start it. Later completions are asked for
+   * text only, and tool calls the provider returns anyway are dropped.
+   */
+  awaitingGoalDecision: boolean;
 }
 
 interface LoopDeps {
@@ -423,6 +430,7 @@ export interface CompletionStrategy {
   getCompletion(
     messages: ConversationMessages,
     iteration: number,
+    toolsAllowed: boolean,
   ): Effect.Effect<
     { completion: ChatCompletionResponse; interrupted: boolean },
     LLMRateLimitError | Error,
@@ -852,6 +860,13 @@ function handleToolPhase(
     ) {
       deps.memoryOpportunities?.invalidateSnapshot();
     }
+    if (
+      toolResults.some(
+        (toolResult) => toolResult.success && toolResult.name === PROPOSE_GOAL_TOOL_NAME,
+      )
+    ) {
+      state.awaitingGoalDecision = true;
+    }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
       if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
@@ -974,6 +989,11 @@ function handleToolPhase(
         }),
     ),
   );
+}
+
+function withoutToolCalls(completion: ChatCompletionResponse): ChatCompletionResponse {
+  const { toolCalls: _dropped, ...rest } = completion;
+  return rest;
 }
 
 type RunIterationResult = { kind: "continue" } | { kind: "final" } | { kind: "interrupted" };
@@ -1246,7 +1266,11 @@ function runIteration(
             }),
           );
     const completionStartTime = Date.now();
-    const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+    const result = yield* strategy.getCompletion(
+      messagesForLLM,
+      iterationIndex,
+      !state.awaitingGoalDecision,
+    );
     if (memoryOpportunities !== undefined && pendingReceipts !== undefined) {
       const tickets = yield* Fiber.join(pendingReceipts);
       yield* memoryOpportunities.complete(tickets, requestMessages);
@@ -1272,7 +1296,10 @@ function runIteration(
       return { kind: "interrupted" } as const;
     }
 
-    const { completion } = result;
+    const completion =
+      state.awaitingGoalDecision && result.completion.toolCalls !== undefined
+        ? withoutToolCalls(result.completion)
+        : result.completion;
 
     // Log LLM response summary
     yield* logger.debug("LLM response received", {
@@ -1543,6 +1570,7 @@ export function executeAgentLoop(
           iterationsUsed: 0,
           contextPressureWarned: false,
           toolCompactionAnnounced: false,
+          awaitingGoalDecision: false,
         };
         let finished = false;
         let interrupted = false;

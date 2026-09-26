@@ -283,6 +283,73 @@ describe("executeAgentLoop", () => {
     expect(requests).toEqual([[{ role: "user", content: "hello" }]]);
   });
 
+  it("after a goal proposal is saved, asks for text only and drops tool calls returned anyway", async () => {
+    const toolsAllowedPerCall: boolean[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, _iteration, toolsAllowed) => {
+        toolsAllowedPerCall.push(toolsAllowed);
+        const toolCall = (id: string, name: string) => ({
+          id,
+          type: "function" as const,
+          function: { name, arguments: "{}" },
+        });
+        return Effect.succeed({
+          completion:
+            toolsAllowedPerCall.length === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [toolCall("call_1", "propose_goal")],
+                }
+              : {
+                  id: "c2",
+                  model: "gpt-4",
+                  content: "I proposed a plan; accept it to start.",
+                  toolCalls: [toolCall("call_2", "write_file")],
+                },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const executed: string[] = [];
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(
+      (toolCalls: readonly { id: string; function: { name: string } }[]) => {
+        executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
+        return Effect.succeed(
+          toolCalls.map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            result: { state: "proposed" },
+            success: true,
+          })),
+        );
+      },
+    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(toolsAllowedPerCall).toEqual([true, false]);
+      expect(executed).toEqual(["propose_goal"]);
+      expect(result.content).toBe("I proposed a plan; accept it to start.");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
   it("requests ephemeral workspace context before the first model call and after a file read", async () => {
     const directory = mkdtempSync(join(tmpdir(), "jazz-workspace-context-"));
     const source = join(directory, "main.ts");
