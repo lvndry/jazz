@@ -1407,6 +1407,158 @@ function registerDaemonCommand(program: Command): void {
  * rather than `trigger`: the inbound HTTP feature that used to share the word is now called
  * `webhook` (`daemon.ts`, `appConfig.webhooks`), leaving "trigger" to mean only this.
  */
+function registerGoalCommand(program: Command): void {
+  const goalCommand = program
+    .command("goal")
+    .description(
+      "Draft, start, and control goals Jazz works toward across runs (they advance while `jazz daemon` runs)",
+    );
+  const load = () => import("@jazz/cli/commands/goal");
+
+  goalCommand
+    .command("draft <request...>")
+    .description(
+      "Draft a plan for an objective, or the questions it needs answered, without starting it",
+    )
+    .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
+    .option("--inspect", "Let a read-only pass over the current directory inform the plan")
+    .option("--json", "Emit a single JSON envelope")
+    .action((request: string[], options: { agent: string; inspect?: boolean; json?: boolean }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.draftGoalCommand({
+              agent: options.agent,
+              request: request.join(" "),
+              inspect: options.inspect === true,
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  goalCommand
+    .command("start <request...>")
+    .description("Draft a plan and, with --yes, start it as a goal")
+    .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
+    .option("--inspect", "Let a read-only pass over the current directory inform the plan")
+    .option("--yes", "Accept the drafted plan without showing it for review first")
+    .option("--json", "Emit a single JSON envelope")
+    .option("--max-cycles <n>", "Most cycles the goal may run", parsePositiveInt("--max-cycles"))
+    .option(
+      "--cycle-iterations <n>",
+      "Iterations per cycle before progress is checked and saved",
+      parsePositiveInt("--cycle-iterations"),
+    )
+    .option("--max-tokens <n>", "Token budget for the whole goal", parsePositiveInt("--max-tokens"))
+    .option(
+      "--max-minutes <n>",
+      "Active-time budget for the whole goal, in minutes",
+      parsePositiveInt("--max-minutes"),
+    )
+    .option(
+      "--max-cost-usd <amount>",
+      "Dollar budget for the whole goal (enforced when pricing is known)",
+      parsePositiveFloat("--max-cost-usd"),
+    )
+    .action(
+      (
+        request: string[],
+        options: {
+          agent: string;
+          inspect?: boolean;
+          yes?: boolean;
+          json?: boolean;
+          maxCycles?: number;
+          cycleIterations?: number;
+          maxTokens?: number;
+          maxMinutes?: number;
+          maxCostUsd?: number;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.startGoalCommand({
+                agent: options.agent,
+                request: request.join(" "),
+                inspect: options.inspect === true,
+                yes: options.yes === true,
+                json: options.json === true,
+                budget: {
+                  ...(options.maxCycles !== undefined ? { maxCycles: options.maxCycles } : {}),
+                  ...(options.cycleIterations !== undefined
+                    ? { maxIterationsPerCycle: options.cycleIterations }
+                    : {}),
+                  ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+                  ...(options.maxMinutes !== undefined
+                    ? { maxDurationMs: options.maxMinutes * 60_000 }
+                    : {}),
+                  ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
+                },
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+    );
+
+  goalCommand
+    .command("list")
+    .description("List goals and their progress")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.listGoalsCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  goalCommand
+    .command("show <id>")
+    .description("Show one goal: state, progress, budget, and plan")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.showGoalCommand({ id, json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  for (const [control, description] of [
+    ["pause", "Stop starting new cycles; a running cycle finishes first"],
+    [
+      "resume",
+      "Resume a paused, review-required, or budget-limited goal; the note steers the next cycle",
+    ],
+    ["cancel", "Cancel a goal and its parked run"],
+  ] as const) {
+    goalCommand
+      .command(`${control} <id> [note...]`)
+      .description(description)
+      .option("--json", "Emit a single JSON envelope")
+      .action((id: string, note: string[], options: { json?: boolean }) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.controlGoalCommand({
+                control,
+                id,
+                ...(note.length > 0 ? { note: note.join(" ") } : {}),
+                json: options.json === true,
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+  }
+}
+
 function registerWakeTriggerCommand(program: Command): void {
   const wakeTriggerCommand = program
     .command("wake-trigger")
@@ -2143,6 +2295,7 @@ export function createCLIApp(): Command {
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
+  registerGoalCommand(program);
   registerIMessageCommand(program);
   registerWhatsappCommand(program);
   registerWakeTriggerCommand(program);

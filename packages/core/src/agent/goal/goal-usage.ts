@@ -134,5 +134,8 @@ export function extendBudget(goal: Pick<GoalRecord, "budget" | "usage">): GoalBu
       usage.activeDurationMs + DEFAULT_GOAL_BUDGET.maxDurationMs,
     ),
     ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+    ...(budget.maxIterationsPerCycle !== undefined
+      ? { maxIterationsPerCycle: budget.maxIterationsPerCycle }
+      : {}),
   };
 }

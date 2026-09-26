@@ -10,8 +10,8 @@
  * jobs, network commands are stubbed so a shell cannot reach past the web cassette, and the
  * timezone is UTC so times in prompts and oracles mean the same thing on every machine.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const STUB_IMPL = join(import.meta.dir, "stubs", "impl.ts");
@@ -33,6 +33,52 @@ export const DEFAULT_STUBS = [
   "osascript",
   "notify-send",
 ] as const;
+
+/** The user's real home, captured before any sample environment is applied. */
+const REAL_HOME = homedir();
+const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
+
+/**
+ * Binaries a sample must never run even by absolute path, which a closed PATH cannot stop:
+ * the OS schedulers, desktop automation, privilege escalation, and anything installed by the
+ * user outside the system directories.
+ */
+const FORBIDDEN_EXECUTABLES = [
+  "/bin/launchctl",
+  "/usr/bin/crontab",
+  "/usr/bin/at",
+  "/usr/bin/atq",
+  "/usr/bin/osascript",
+  "/usr/bin/open",
+  "/usr/bin/sudo",
+];
+const FORBIDDEN_EXECUTABLE_TREES = ["/opt/homebrew", "/usr/local/bin", "/Applications"];
+
+function osSandboxProfile(): string {
+  const literals = FORBIDDEN_EXECUTABLES.map((path) => `(literal "${path}")`).join(" ");
+  const trees = FORBIDDEN_EXECUTABLE_TREES.map((path) => `(subpath "${path}")`).join(" ");
+  return `(version 1)(allow default)(deny process-exec ${literals} ${trees})(deny file-write* (subpath "${REAL_HOME}"))`;
+}
+
+/**
+ * The argv to spawn a sample's jazz process under the OS sandbox on macOS: it may not execute
+ * the binaries above by any path, and may not write anywhere in the user's real home. Samples
+ * that carry the sandbox marker get it; elsewhere (no `sandbox-exec`) the argv is unchanged
+ * and the PATH stubs are the only guard, which `osSandboxActive` reports.
+ */
+export function sandboxedArgv(
+  argv: readonly string[],
+  environment: Readonly<Record<string, string>> | undefined,
+): string[] {
+  if (environment?.["JAZZ_EVAL_OS_SANDBOX"] !== "1" || !osSandboxActive()) {
+    return [...argv];
+  }
+  return [SANDBOX_EXEC, "-p", osSandboxProfile(), ...argv];
+}
+
+export function osSandboxActive(): boolean {
+  return process.platform === "darwin" && existsSync(SANDBOX_EXEC);
+}
 
 export interface SampleSandbox {
   readonly root: string;
@@ -83,6 +129,7 @@ export function createSandbox(label: string, stubs: readonly string[] = []): Sam
       XDG_DATA_HOME: join(home, ".local", "share"),
       PATH: [stubBin, dirname(process.execPath), ...SYSTEM_PATH].join(":"),
       TZ: "UTC",
+      JAZZ_EVAL_OS_SANDBOX: "1",
       JAZZ_SCHEDULER: "in-process",
       JAZZ_DISABLE_KEYRING: "1",
       CI: "1",

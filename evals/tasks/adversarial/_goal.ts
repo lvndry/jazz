@@ -14,6 +14,7 @@ import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import type { GoalPlan, GoalRecordInput } from "../../../packages/core/src/agent/goal/goal-record";
 import { MAIN_TS } from "../../run-jazz";
+import { sandboxedArgv } from "../../sandbox";
 import type { GoalOutcome, OneShotResult, TaskRunContext } from "../../types";
 
 /** How often the harness looks at the goal, and how long it gives the daemon to come up. */
@@ -110,7 +111,10 @@ export async function runGoal(
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const startedAt = performance.now();
   const daemon = Bun.spawn(
-    [process.execPath, MAIN_TS, "daemon", "--foreground", "--port", String(port)],
+    sandboxedArgv(
+      [process.execPath, MAIN_TS, "daemon", "--foreground", "--port", String(port)],
+      context.environment,
+    ),
     {
       cwd: context.workspaceDir,
       env: {

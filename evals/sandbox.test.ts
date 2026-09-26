@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { createSandbox, removeSandbox } from "./sandbox";
+import { createSandbox, osSandboxActive, removeSandbox, sandboxedArgv } from "./sandbox";
 
 function shell(environment: Readonly<Record<string, string>>, script: string) {
   const proc = Bun.spawnSync(["/bin/sh", "-c", script], {
@@ -71,4 +72,33 @@ describe("sample sandbox", () => {
       removeSandbox(sandbox);
     }
   });
+
+  /**
+   * The regression: a sample ran `/bin/launchctl` by absolute path, which a closed PATH
+   * cannot stop, and registered a real LaunchAgent in the user's session.
+   */
+  it.skipIf(!osSandboxActive())(
+    "blocks forbidden binaries by absolute path and writes to the real home",
+    () => {
+      const sandbox = createSandbox("sandbox-test");
+      try {
+        const probe = join(homedir(), `.jazz-eval-sandbox-probe-${process.pid}`);
+        const argv = sandboxedArgv(
+          [
+            "/bin/sh",
+            "-c",
+            `/bin/launchctl list >/dev/null 2>&1; echo launchctl=$?; touch "${probe}" 2>/dev/null; echo home=$?; touch "${sandbox.tmp}/ok" && echo tmp=0`,
+          ],
+          sandbox.environment,
+        );
+        const proc = Bun.spawnSync(argv, { env: { ...sandbox.environment }, stdout: "pipe" });
+        const output = proc.stdout.toString();
+        expect(output).toContain("launchctl=126");
+        expect(output).toContain("home=1");
+        expect(output).toContain("tmp=0");
+      } finally {
+        removeSandbox(sandbox);
+      }
+    },
+  );
 });

@@ -56,11 +56,11 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 
 /**
- * Iterations one cycle may take before it must report. Each cycle ends with a disposition
- * the controller checks, so this sets how often progress is verified and persisted; the
- * goal's token, time, and cost caps are what bound the spend.
+ * Iterations one cycle may take before it must report, unless the goal's budget sets its
+ * own. Each cycle ends with a disposition the controller checks, so this sets how often
+ * progress is verified and persisted; the goal's token, time, and cost caps bound the spend.
  */
-const MAX_CYCLE_ITERATIONS = 24;
+const DEFAULT_CYCLE_ITERATIONS = 24;
 
 /** A disposition is a small JSON object; this bounds a repair call that would ramble. */
 const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
@@ -430,7 +430,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
       runId,
       userInput: goalCyclePrompt(goal, runId),
       conversationId: goal.conversationId,
-      maxIterations: MAX_CYCLE_ITERATIONS,
+      maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
       ...caps,
       parkWhenUnattended: true,
       conversationHistory: [...(prior?.messages ?? [])],

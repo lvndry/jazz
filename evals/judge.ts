@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
 import { MAIN_TS, parseEnvelope } from "./run-jazz";
-import { createSandbox, removeSandbox } from "./sandbox";
+import { createSandbox, removeSandbox, sandboxedArgv } from "./sandbox";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(first: readonly number[], second: readonly number[]): number {
@@ -58,17 +58,20 @@ export function makeJudge(
       );
       const { JAZZ_DISABLE_KEYRING: _keyringOff, ...environment } = sandbox.environment;
       const proc = Bun.spawn(
-        [
-          process.execPath,
-          MAIN_TS,
-          "run",
-          prompt,
-          "--agent",
-          agentId,
-          "--json",
-          "--timeout",
-          String(timeoutMs),
-        ],
+        sandboxedArgv(
+          [
+            process.execPath,
+            MAIN_TS,
+            "run",
+            prompt,
+            "--agent",
+            agentId,
+            "--json",
+            "--timeout",
+            String(timeoutMs),
+          ],
+          environment,
+        ),
         // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
         { stdout: "pipe", stderr: "ignore", env: { ...process.env, ...environment } }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
       );

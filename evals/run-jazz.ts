@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { sandboxedArgv } from "./sandbox";
 import type { OneShotResult } from "./types";
 
 export type Envelope = Omit<OneShotResult, "eventsPath">;
@@ -117,7 +118,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
   }
 
   const startedAt = performance.now();
-  const proc = Bun.spawn(argv, {
+  const proc = Bun.spawn(sandboxedArgv(argv, options.environment), {
     cwd: options.workspaceDir,
     env: {
       ...process.env,
@@ -198,7 +199,7 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
     argv.push("--max-iterations", String(options.maxIterations));
   }
 
-  const proc = Bun.spawn(argv, {
+  const proc = Bun.spawn(sandboxedArgv(argv, options.environment), {
     cwd: options.workspaceDir,
     env: {
       ...process.env,

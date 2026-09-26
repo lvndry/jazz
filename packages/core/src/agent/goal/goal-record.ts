@@ -41,6 +41,11 @@ export interface GoalBudget {
   readonly maxDurationMs: number;
   /** A dollar limit is enforced only when the provider pricing is known. */
   readonly maxCostUSD?: number;
+  /**
+   * Iterations one cycle may take before it must report and be checked. Shorter cycles
+   * verify and persist progress more often at the cost of more checkpoints.
+   */
+  readonly maxIterationsPerCycle?: number;
 }
 
 export interface GoalUsage {
@@ -203,6 +208,7 @@ export const goalRecordSchema = z
       maxTokens: positiveInteger,
       maxDurationMs: positiveInteger,
       maxCostUSD: z.number().finite().positive().optional(),
+      maxIterationsPerCycle: positiveInteger.optional(),
     }),
     usage: usageSchema,
     cycle: z
