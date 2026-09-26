@@ -1427,7 +1427,10 @@ function registerGoalCommand(program: Command): void {
       "Draft a plan for an objective, or the questions it needs answered, without starting it",
     )
     .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
-    .option("--inspect", "Let a read-only pass over the current directory inform the plan")
+    .option(
+      "--no-inspect",
+      "Draft without first reading the current directory (by default a read-only pass informs the plan)",
+    )
     .option("--json", "Emit a single JSON envelope")
     .action((request: string[], options: { agent: string; inspect?: boolean; json?: boolean }) =>
       runCliAction(
@@ -1436,7 +1439,7 @@ function registerGoalCommand(program: Command): void {
             mod.draftGoalCommand({
               agent: options.agent,
               request: request.join(" "),
-              inspect: options.inspect === true,
+              inspect: options.inspect !== false,
               json: options.json === true,
             }),
           ),
@@ -1449,7 +1452,10 @@ function registerGoalCommand(program: Command): void {
     .command("start <request...>")
     .description("Draft a plan and, with --yes, start it as a goal")
     .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
-    .option("--inspect", "Let a read-only pass over the current directory inform the plan")
+    .option(
+      "--no-inspect",
+      "Draft without first reading the current directory (by default a read-only pass informs the plan)",
+    )
     .option("--yes", "Accept the drafted plan without showing it for review first")
     .option("--json", "Emit a single JSON envelope")
     .option(
@@ -1495,7 +1501,7 @@ function registerGoalCommand(program: Command): void {
               mod.startGoalCommand({
                 agent: options.agent,
                 request: request.join(" "),
-                inspect: options.inspect === true,
+                inspect: options.inspect !== false,
                 yes: options.yes === true,
                 json: options.json === true,
                 ...(options.approvalPolicy !== undefined
