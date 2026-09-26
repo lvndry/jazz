@@ -8,9 +8,10 @@
  * disposition's own next step.
  */
 
+import type { RunSpend } from "@/core/agent/run/run-spend";
 import type { GoalEvaluationResult } from "./goal-evaluation";
 import { withoutCycle, type GoalLimit, type GoalRecord, type GoalRecordInput } from "./goal-record";
-import { addSpend, reachedLimit, type RunSpend } from "./goal-usage";
+import { addSpend, reachedLimit } from "./goal-usage";
 
 export type EndedRun =
   | { readonly kind: "completed"; readonly spend: RunSpend }
