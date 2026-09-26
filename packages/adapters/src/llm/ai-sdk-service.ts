@@ -118,7 +118,10 @@ import {
   createChatGPTFetch,
 } from "./chatgpt";
 import { saveModelGeneratedFiles } from "./generated-files";
-import { resolveModelCapabilities } from "./model-capabilities/resolver";
+import {
+  resolveModelCapabilities,
+  type ResolvedModelCapabilities,
+} from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -1577,6 +1580,59 @@ class AISDKService implements LLMService {
     );
   }
 
+  private resolveCapabilities(
+    providerName: ProviderName,
+    modelId: ModelName,
+    modelInfo: ModelInfo | undefined,
+  ): ResolvedModelCapabilities {
+    const operator = this.config.llmConfig?.capabilityOverrides?.[providerName]?.[modelId];
+    return resolveModelCapabilities({
+      provider: providerName,
+      modelId,
+      catalog: {
+        ...(modelInfo?.isReasoningModel !== undefined && {
+          supportsReasoning: modelInfo.isReasoningModel,
+        }),
+        ...(modelInfo?.supportsTools !== undefined && {
+          supportsTools: modelInfo.supportsTools,
+        }),
+      },
+      ...(operator !== undefined && { operator }),
+    });
+  }
+
+  /**
+   * A listed model as an operator's `capabilityOverrides` entry corrects it, so the agent
+   * wizard's tool and reasoning steps agree with what a request will do. Only fields the
+   * operator set change; built-in profiles stay out of listings, where they would mark every
+   * model of a provider as reasoning.
+   */
+  private withOperatorOverrides(providerName: ProviderName, model: ModelInfo): ModelInfo {
+    if (this.config.llmConfig?.capabilityOverrides?.[providerName]?.[model.id] === undefined) {
+      return model;
+    }
+    const resolved = this.resolveCapabilities(providerName, model.id, model);
+    return {
+      ...model,
+      ...(resolved.source.tools === "operator" && resolved.supportsTools !== undefined
+        ? { supportsTools: resolved.supportsTools }
+        : {}),
+      ...(resolved.source.reasoning === "operator"
+        ? { isReasoningModel: resolved.reasoning.kind !== "unsupported" }
+        : {}),
+    };
+  }
+
+  readonly resolveReasoningControl = (
+    providerName: ProviderName,
+    modelId: string,
+  ): Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never> =>
+    Effect.promise(async () => {
+      await this.refreshRuntimeConfigIfChanged();
+      const modelInfo = await this.resolveModelInfo(providerName, modelId);
+      return this.resolveCapabilities(providerName, modelId, modelInfo).reasoning;
+    });
+
   /** Log once per provider, model, and requested level when the model cannot honor it as asked. */
   private reportReasoningClamp(
     providerName: ProviderName,
@@ -1631,7 +1687,7 @@ class AISDKService implements LLMService {
       Effect.map((models) => {
         const provider: LLMProvider = {
           name: providerName,
-          supportedModels: models.map((model) => model),
+          supportedModels: models.map((model) => this.withOperatorOverrides(providerName, model)),
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
             if (providerName === "chatgpt") {
@@ -1800,22 +1856,11 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
         // STEP 6: Tools selection
         // Check if the selected model supports tools
         // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
@@ -2092,22 +2137,11 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
         this.reportReasoningClamp(
           providerName,
           options.model,

@@ -50,12 +50,24 @@ type RawModelEntry = {
   fallback?: Partial<ModelsDevMetadata>;
 };
 
-/** Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults. */
+/**
+ * Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults.
+ *
+ * `catalogProvider` scopes the models.dev lookup to that provider's own listing first. When
+ * only another host lists the model, its context window, tools and modalities still describe
+ * the model, but its price belongs to that host, so the price is left unknown.
+ */
 function resolveToModelInfo(
   entry: RawModelEntry,
   devMap: Map<string, ModelsDevMetadata> | null,
+  catalogProvider?: string,
 ): ModelInfo {
-  const dev = getMetadataFromMap(devMap, entry.id);
+  const own =
+    catalogProvider === undefined
+      ? undefined
+      : getMetadataFromMap(devMap, entry.id, catalogProvider, { anyProvider: false });
+  const dev = own ?? getMetadataFromMap(devMap, entry.id);
+  const priced = catalogProvider === undefined || own !== undefined;
   if (dev) {
     return {
       id: entry.id,
@@ -70,12 +82,14 @@ function resolveToModelInfo(
       generatesImage: dev.generatesImage,
       generatesAudio: dev.generatesAudio,
       generatesVideo: dev.generatesVideo,
-      ...(dev.inputPricePerMillion !== undefined && {
-        inputPricePerMillion: dev.inputPricePerMillion,
-      }),
-      ...(dev.outputPricePerMillion !== undefined && {
-        outputPricePerMillion: dev.outputPricePerMillion,
-      }),
+      ...(priced &&
+        dev.inputPricePerMillion !== undefined && {
+          inputPricePerMillion: dev.inputPricePerMillion,
+        }),
+      ...(priced &&
+        dev.outputPricePerMillion !== undefined && {
+          outputPricePerMillion: dev.outputPricePerMillion,
+        }),
       supportsTemperature: dev.supportsTemperature,
     };
   }
@@ -450,6 +464,14 @@ export function resolveOllamaToolSupport(
 }
 
 // List extractors: provider API response → RawModelEntry[] (metadata resolved via models.dev or fallback)
+/**
+ * NVIDIA NIM's `/v1/models` also lists embedding, reranking, retrieval, guardrail, reward,
+ * document-parsing and detector models, which take no conversation. Their IDs name the job,
+ * and none of them are in the catalog as chat models, so the ID is the only signal.
+ */
+const NIM_NON_CHAT_MODEL_ID =
+  /(?:embed|rerank|retriever|nemoguard|content-safety|safety-guard|reward|nemotron-parse|detector|nvclip)/;
+
 const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelEntry[]>> = {
   openrouter: (data: unknown) => {
     const response = data as { data?: OpenRouterModel[] };
@@ -529,6 +551,12 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       displayName: model.id,
       // no fallback; models.dev or defaults
     }));
+  },
+  nvidia: (data: unknown) => {
+    const response = data as { data?: { id: string }[] };
+    return (response.data ?? [])
+      .filter((model) => !NIM_NON_CHAT_MODEL_ID.test(model.id))
+      .map((model) => ({ id: model.id, displayName: model.id }));
   },
   orcarouter: (data: unknown) => {
     const response = data as {
@@ -794,7 +822,10 @@ export function createModelFetcher(): ModelFetcherService {
             throw new Error(`No list extractor found for provider: ${providerName}`);
           }
           const raw = extractor(data);
-          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
+          const source = PROVIDER_MODELS[providerName];
+          const catalogProvider =
+            source.type === "dynamic" ? (source.catalogId ?? providerName) : providerName;
+          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap, catalogProvider));
         },
         catch: (error) => {
           if (error instanceof ChatGPTSignInRequiredError) {
