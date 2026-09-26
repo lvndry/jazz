@@ -7,13 +7,24 @@
  * then Bun's own directory and the system directories, so a command-line tool installed for
  * the user (a mail client, a calendar CLI) cannot act on the user's real accounts. The OS
  * scheduler is replaced by the in-process one so reminders never install launchd or `at`
- * jobs, network commands are stubbed so a shell cannot reach past the web cassette, and the
- * timezone is UTC so times in prompts and oracles mean the same thing on every machine.
+ * jobs, network commands are stubbed, and on macOS the OS sandbox refuses every outbound
+ * connection except to the model's own port, so neither a shell nor a script can reach past
+ * the web cassette or into the user's local services. The timezone is UTC so times in prompts
+ * and oracles mean the same thing on every machine.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { stubStateDirectory } from "./stubs/state";
+import { LOCAL_SERVER_PROVIDERS } from "../packages/core/src/constants/local-providers";
 
 const STUB_IMPL = join(import.meta.dir, "stubs", "impl.ts");
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
@@ -55,11 +66,50 @@ const FORBIDDEN_EXECUTABLES = [
 ];
 const FORBIDDEN_EXECUTABLE_TREES = ["/opt/homebrew", "/usr/local/bin", "/Applications"];
 
-function osSandboxProfile(): string {
+/**
+ * The ports a sample's agents need to reach their model: a local server's configured or
+ * default port, else 443 for a hosted provider. A hosted model therefore leaves 443 open to
+ * every host, which the OS sandbox cannot narrow by name; a local one leaves only its port.
+ */
+export function modelNetworkPorts(providers: readonly string[], llm: unknown): number[] {
+  const configured = (llm ?? {}) as Record<string, { base_url?: unknown } | undefined>;
+  const ports = providers.map((provider) => {
+    const local = LOCAL_SERVER_PROVIDERS[provider as keyof typeof LOCAL_SERVER_PROVIDERS];
+    const baseUrl = configured[provider]?.base_url;
+    const address = typeof baseUrl === "string" ? baseUrl : local?.defaultUrl;
+    if (address === undefined) {
+      return 443;
+    }
+    try {
+      const url = new URL(/^[a-z]+:\/\//i.test(address) ? address : `http://${address}`);
+      return Number(url.port || (url.protocol === "https:" ? 443 : 80));
+    } catch {
+      return 443;
+    }
+  });
+  return [...new Set(ports)].sort((left, right) => left - right);
+}
+
+/** The `llm` block of a Jazz home's config, the only part of it a sample ever sees. */
+export function readLlmConfig(jazzHome: string): unknown {
+  try {
+    return (JSON.parse(readFileSync(join(jazzHome, "config.json"), "utf-8")) as { llm?: unknown })
+      .llm;
+  } catch {
+    return undefined;
+  }
+}
+
+function osSandboxProfile(networkPorts: readonly number[]): string {
   const literals = FORBIDDEN_EXECUTABLES.map((path) => `(literal "${path}")`).join(" ");
   const trees = FORBIDDEN_EXECUTABLE_TREES.map((path) => `(subpath "${path}")`).join(" ");
-  return `(version 1)(allow default)(deny process-exec ${literals} ${trees})(deny file-write* (subpath "${REAL_HOME}"))`;
+  const allowedPorts = networkPorts
+    .map((port) => `(allow network-outbound (remote ip "*:${String(port)}"))`)
+    .join("");
+  return `(version 1)(allow default)(deny process-exec ${literals} ${trees})(deny file-write* (subpath "${REAL_HOME}"))(deny network-outbound)(allow network-outbound (remote unix-socket))${allowedPorts}`;
 }
+
+const NETWORK_PORTS_ENV = "JAZZ_EVAL_NETWORK_PORTS";
 
 /**
  * The argv to spawn a sample's jazz process under the OS sandbox on macOS: it may not execute
@@ -74,7 +124,11 @@ export function sandboxedArgv(
   if (environment?.["JAZZ_EVAL_OS_SANDBOX"] !== "1" || !osSandboxActive()) {
     return [...argv];
   }
-  return [SANDBOX_EXEC, "-p", osSandboxProfile(), ...argv];
+  const networkPorts = (environment[NETWORK_PORTS_ENV] ?? "")
+    .split(",")
+    .map(Number)
+    .filter((port) => Number.isSafeInteger(port) && port > 0);
+  return [SANDBOX_EXEC, "-p", osSandboxProfile(networkPorts), ...argv];
 }
 
 export function osSandboxActive(): boolean {
@@ -91,7 +145,15 @@ export interface SampleSandbox {
   readonly environment: Readonly<Record<string, string>>;
 }
 
-export function createSandbox(label: string, stubs: readonly string[] = []): SampleSandbox {
+/**
+ * A fresh private machine for one sample. `networkPorts` are the only outbound ports its
+ * processes may use (see {@link modelNetworkPorts}); with none, nothing leaves the machine.
+ */
+export function createSandbox(
+  label: string,
+  stubs: readonly string[] = [],
+  networkPorts: readonly number[] = [],
+): SampleSandbox {
   const root = mkdtempSync(join(tmpdir(), `eval-${label}-`));
   const home = join(root, "home");
   const jazzHome = join(home, ".jazz");
@@ -131,6 +193,7 @@ export function createSandbox(label: string, stubs: readonly string[] = []): Sam
       PATH: [stubBin, dirname(process.execPath), ...SYSTEM_PATH].join(":"),
       TZ: "UTC",
       JAZZ_EVAL_OS_SANDBOX: "1",
+      [NETWORK_PORTS_ENV]: networkPorts.join(","),
       JAZZ_SCHEDULER: "in-process",
       JAZZ_DISABLE_KEYRING: "1",
       CI: "1",

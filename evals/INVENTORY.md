@@ -171,8 +171,14 @@ over the tool-call trajectory, the sample's Jazz home, and stubbed command-line 
 
 Every sample runs in a sandbox (`sandbox.ts`): private HOME, JAZZ_HOME, TMPDIR and XDG dirs,
 UTC, an in-process scheduler, no keyring, and a closed PATH whose stub commands
-(`stubs/impl.ts`) log each call. Network commands fail as if offline; OS scheduling, package
-installs and desktop notifications are recorded without effect.
+(`stubs/impl.ts`) log each call. Stubbed network commands fail as if offline; OS scheduling,
+package installs and desktop notifications are recorded without effect. On macOS every jazz
+process in a sample also runs under `sandbox-exec`, which refuses schedulers, desktop automation,
+`sudo` and user-installed binaries by any path, refuses writes to the real home, and refuses every
+outbound connection except to the model's own port (`modelNetworkPorts`). A hosted model needs
+port 443, which the OS sandbox cannot narrow by host, so with one the network is closed only to
+other ports; the web cassette passes provider domains and the configured local model servers'
+exact `host:port` through, and records or replays everything else.
 
 ## Harness limitations found while running these suites
 

@@ -22,11 +22,15 @@ export function requestKey(input: RequestInfo | URL, init?: RequestInit): string
   return `${method} ${url} ${body}`;
 }
 
-// Hosts the cassette must NEVER intercept: the LLM provider APIs (the model
-// call itself), model-metadata, and local model servers. Only genuine web-tool
-// traffic is recorded/replayed — otherwise replay mode would starve the LLM.
-const BYPASS_HOST_SUBSTRINGS = [
+/**
+ * Domains the cassette never intercepts: the LLM provider APIs (the model call itself) and
+ * model metadata. A host matches when it is one of these or a subdomain of one, so a web
+ * page whose name merely contains a provider's name is still recorded. Local model servers
+ * are not listed here; they pass only at their exact `host:port`.
+ */
+const PROVIDER_DOMAINS = [
   "openai.com",
+  "chatgpt.com",
   "openrouter.ai",
   "anthropic.com",
   "googleapis.com",
@@ -38,15 +42,17 @@ const BYPASS_HOST_SUBSTRINGS = [
   "cohere.com",
   "fireworks.ai",
   "deepseek.com",
-  "moonshot",
-  "minimax",
-  "cerebras",
-  "dashscope",
+  "moonshot.ai",
+  "minimax.io",
+  "cerebras.ai",
+  "aliyuncs.com",
   "nvidia.com",
   "models.dev",
-  "localhost",
-  "127.0.0.1",
 ];
+
+function isProviderDomain(hostname: string): boolean {
+  return PROVIDER_DOMAINS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
 
 export function isBypassHost(
   input: RequestInfo | URL,
@@ -59,10 +65,7 @@ export function isBypassHost(
   } catch {
     return false;
   }
-  return (
-    modelServerHosts.includes(parsed.host) ||
-    BYPASS_HOST_SUBSTRINGS.some((needle) => parsed.hostname.includes(needle))
-  );
+  return modelServerHosts.includes(parsed.host) || isProviderDomain(parsed.hostname);
 }
 
 function hostOf(url: string): string | undefined {
@@ -76,7 +79,7 @@ function hostOf(url: string): string | undefined {
 /**
  * `host:port` of the user-run model servers Jazz may call, so a web tool's request to another
  * port on the same machine is still recorded: each local provider's base URL from
- * `<jazzHome>/config.json` and from its environment variable. A server can live at any
+ * `<jazzHome>/config.json`, from its environment variable, and its default address. A server can live at any
  * address, such as another machine on a private network, which no fixed host list covers,
  * and replaying the model call would starve the run.
  */
@@ -95,8 +98,12 @@ export function localModelServerHosts(
   }
   const urls = LOCAL_MODEL_PROVIDERS.flatMap((provider) => {
     const configured = llm[provider]?.base_url;
-    const fromEnvironment = environment[LOCAL_SERVER_PROVIDERS[provider].envVar];
-    return [typeof configured === "string" ? configured : undefined, fromEnvironment];
+    const server = LOCAL_SERVER_PROVIDERS[provider];
+    return [
+      typeof configured === "string" ? configured : undefined,
+      environment[server.envVar],
+      server.defaultUrl,
+    ];
   });
   return [
     ...new Set(

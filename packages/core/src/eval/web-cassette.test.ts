@@ -20,8 +20,17 @@ describe("isBypassHost", () => {
     expect(isBypassHost("https://api.openai.com/v1/responses")).toBe(true);
     expect(isBypassHost("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
     expect(isBypassHost("https://generativelanguage.googleapis.com/v1")).toBe(true);
-    expect(isBypassHost("http://localhost:11434/api/chat")).toBe(true);
     expect(isBypassHost("https://models.dev/api.json")).toBe(true);
+  });
+  /**
+   * The regression: hosts were matched by substring, and every localhost port was let
+   * through, so a page on an unrelated domain, or the user's own daemon, reached the network.
+   */
+  it("matches provider domains exactly and lets no local port through on its own", () => {
+    expect(isBypassHost("https://max.ai.example.com/page")).toBe(false);
+    expect(isBypassHost("https://notopenai.com/article")).toBe(false);
+    expect(isBypassHost("http://localhost:4747/goals")).toBe(false);
+    expect(isBypassHost("http://127.0.0.1:11434/api/chat", ["127.0.0.1:11434"])).toBe(true);
   });
   it("does not bypass genuine web-tool hosts", () => {
     expect(isBypassHost("https://example.com/article")).toBe(false);
@@ -44,7 +53,8 @@ describe("localModelServerHosts", () => {
 
       const hosts = localModelServerHosts(jazzHome, { SGLANG_BASE_URL: "gpu-box:30000" });
 
-      expect(hosts.sort()).toEqual(["100.85.157.126:8090", "gpu-box:30000"]);
+      expect(hosts).toContain("100.85.157.126:8090");
+      expect(hosts).toContain("gpu-box:30000");
       expect(isBypassHost("http://100.85.157.126:8090/v1/chat/completions", hosts)).toBe(true);
       expect(isBypassHost("http://100.85.157.126:9000/page", hosts)).toBe(false);
       expect(isBypassHost("https://example.com/article", hosts)).toBe(false);
@@ -53,8 +63,13 @@ describe("localModelServerHosts", () => {
     }
   });
 
-  it("returns nothing when there is no config and no environment override", () => {
-    expect(localModelServerHosts(join(tmpdir(), "no-such-jazz-home"), {})).toEqual([]);
+  it("falls back to each local server's default address", () => {
+    expect(localModelServerHosts(join(tmpdir(), "no-such-jazz-home"), {}).sort()).toEqual([
+      "127.0.0.1:11434",
+      "127.0.0.1:30000",
+      "127.0.0.1:8000",
+      "127.0.0.1:8080",
+    ]);
   });
 });
 

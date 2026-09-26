@@ -30,7 +30,7 @@ import {
   type RunMetadata,
   type SampleReport,
 } from "./sample-report";
-import { createSandbox, removeSandbox } from "./sandbox";
+import { createSandbox, modelNetworkPorts, readLlmConfig, removeSandbox } from "./sandbox";
 import { evaluateAdversarialTargets, type TargetVerdict } from "./targets";
 import {
   emptyResult,
@@ -184,9 +184,8 @@ export function seedIsolatedJazzHome(
       writeFileSync(target, readFileSync(source, "utf-8"));
     }
   }
-  const sourceConfig = join(sourceHome, "config.json");
-  if (existsSync(sourceConfig)) {
-    const { llm } = JSON.parse(readFileSync(sourceConfig, "utf-8")) as { llm?: unknown };
+  if (existsSync(join(sourceHome, "config.json"))) {
+    const llm = readLlmConfig(sourceHome);
     writeFileSync(
       join(homeDir, "config.json"),
       `${JSON.stringify({ llm: llm ?? {}, notifications: { enabled: false } }, null, 2)}\n`,
@@ -298,9 +297,13 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     seed,
   ).map((job, runOrder) => ({ ...job, runOrder }));
 
+  const networkPorts = modelNetworkPorts(
+    [readAgentModel(options.agentId).provider],
+    readLlmConfig(getJazzHomeDirectory()),
+  );
   await pool(jobs, options.concurrency, async ({ task, sampleIndex, runOrder }) => {
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
-    const sandbox = createSandbox(task.id, task.stubs ?? []);
+    const sandbox = createSandbox(task.id, task.stubs ?? [], networkPorts);
     const jazzHomeDir = seedIsolatedJazzHome(sandbox.jazzHome, [options.agentId]);
     const checkContext: CheckContext = {
       agentId: options.agentId,

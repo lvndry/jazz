@@ -1,7 +1,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { createSandbox, osSandboxActive, removeSandbox, sandboxedArgv } from "./sandbox";
+import {
+  createSandbox,
+  modelNetworkPorts,
+  osSandboxActive,
+  removeSandbox,
+  sandboxedArgv,
+} from "./sandbox";
 import { stubInvocations, writeStubState } from "./stubs/state";
 
 function shell(environment: Readonly<Record<string, string>>, script: string) {
@@ -95,4 +101,46 @@ describe("sample sandbox", () => {
       }
     },
   );
+});
+
+describe("the OS sandbox's network", () => {
+  const probe = (port: number) =>
+    `fetch("http://127.0.0.1:${String(port)}/").then(() => console.log("reached"), () => console.log("refused"))`;
+
+  async function reach(sandboxPorts: readonly number[], target: number): Promise<string> {
+    const sandbox = createSandbox("sandbox-network", [], sandboxPorts);
+    try {
+      const child = Bun.spawn(
+        sandboxedArgv([process.execPath, "-e", probe(target)], sandbox.environment),
+        { env: { ...process.env, ...sandbox.environment }, stdout: "pipe", stderr: "ignore" },
+      );
+      const output = await new Response(child.stdout).text();
+      await child.exited;
+      return output.trim();
+    } finally {
+      removeSandbox(sandbox);
+    }
+  }
+
+  it.skipIf(!osSandboxActive())(
+    "refuses outbound connections except to the model's own port",
+    async () => {
+      const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+      const port = server.port ?? 0;
+      try {
+        expect(await reach([], port)).toBe("refused");
+        expect(await reach([port], port)).toBe("reached");
+      } finally {
+        void server.stop(true);
+      }
+    },
+  );
+
+  it("allows a local model server's port, or 443 for a hosted provider", () => {
+    expect(
+      modelNetworkPorts(["vllm"], { vllm: { base_url: "http://100.85.157.126:8090/v1" } }),
+    ).toEqual([8090]);
+    expect(modelNetworkPorts(["ollama"], {})).toEqual([11434]);
+    expect(modelNetworkPorts(["openai", "openrouter"], {})).toEqual([443]);
+  });
 });

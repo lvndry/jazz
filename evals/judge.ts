@@ -1,9 +1,10 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
 import { parseEnvelope, spawnJazz } from "./run-jazz";
-import { createSandbox, removeSandbox } from "./sandbox";
+import { createSandbox, modelNetworkPorts, readLlmConfig, removeSandbox } from "./sandbox";
+import { getJazzHomeDirectory } from "../packages/core/src/utils/paths";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(first: readonly number[], second: readonly number[]): number {
@@ -49,13 +50,21 @@ export function makeJudge(
   timeoutMs: number = EVAL_CONFIG.timeoutMs,
 ): JudgeFn {
   return async (prompt) => {
-    const sandbox = createSandbox("judge");
+    const agentFile = join(import.meta.dir, "agents", `${agentId}.json`);
+    const provider = (
+      JSON.parse(readFileSync(agentFile, "utf-8")) as { config?: { llmProvider?: string } }
+    ).config?.llmProvider;
+    const sandbox = createSandbox(
+      "judge",
+      [],
+      modelNetworkPorts(
+        provider === undefined ? [] : [provider],
+        readLlmConfig(getJazzHomeDirectory()),
+      ),
+    );
     try {
       mkdirSync(join(sandbox.jazzHome, "agents"), { recursive: true });
-      copyFileSync(
-        join(import.meta.dir, "agents", `${agentId}.json`),
-        join(sandbox.jazzHome, "agents", `${agentId}.json`),
-      );
+      copyFileSync(agentFile, join(sandbox.jazzHome, "agents", `${agentId}.json`));
       // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
       const { JAZZ_DISABLE_KEYRING: _keyringOff, ...environment } = sandbox.environment;
       const proc = spawnJazz(
