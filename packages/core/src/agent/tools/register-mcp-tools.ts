@@ -17,6 +17,7 @@ import type { Tool, ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
+import { toError } from "@/core/utils/storage";
 import { toPascalCase } from "@/core/utils/string";
 import { buildResourceTools, registerMCPServerTools, type MCPToolDependencies } from "./mcp";
 import { mcpToolCategory } from "./tool-categories";
@@ -322,11 +323,7 @@ export function registerMCPToolsForAgent(
     }
 
     return connectedServers;
-  }).pipe(
-    Effect.mapError((error: unknown) =>
-      error instanceof Error ? error : new Error(String(error)),
-    ),
-  );
+  }).pipe(Effect.mapError((error: unknown) => toError(error)));
 }
 
 /**

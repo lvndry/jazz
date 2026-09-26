@@ -10,6 +10,9 @@
 import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
+import type { AutoApprovePolicy } from "@/core/types/tools";
+import { currentProcessOwner } from "@/core/utils/process";
+import { toError } from "@/core/utils/storage";
 import type { AgentResponse } from "../types";
 import { RunParkRequested, isRunParkRequested } from "./park-signal";
 import { DEFAULT_PARK_TTL_MS, createRunRecord, type RunRecord } from "./run-record";
@@ -25,6 +28,12 @@ export interface RunRecordingInput {
   readonly parkTtlMs?: number;
   /** Reads the run's spend so far. Called at every terminal or parked transition. */
   readonly costSoFarUSD?: () => number | undefined;
+  /** Reads prompt plus completion tokens so a goal can reconcile a cycle after restart. */
+  readonly totalTokensSoFar?: () => number;
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
+  readonly maxIterations?: number;
+  readonly workingDirectory?: string;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -56,7 +65,7 @@ function failureState(error: unknown): RunState {
   if (error instanceof GenerationInterruptedError) {
     return { kind: "canceled", at: "working" };
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = toError(error).message;
   return {
     kind: "failed",
     cause: message.toLowerCase().includes("timeout") ? "timeout" : "error",
@@ -83,17 +92,26 @@ export function withRunRecording<E, R>(
       return yield* effect;
     }
     const store = storeOption.value;
+    const activeStartedAt = Date.now();
 
     const withCost = (record: RunRecord): RunRecord => {
       const costUSD = input.costSoFarUSD?.();
-      return costUSD === undefined ? record : { ...record, costUSD };
+      const totalTokens = input.totalTokensSoFar?.();
+      return {
+        ...record,
+        ...(costUSD !== undefined ? { costUSD: (record.costUSD ?? 0) + costUSD } : {}),
+        ...(totalTokens !== undefined
+          ? { totalTokens: (record.totalTokens ?? 0) + totalTokens }
+          : {}),
+        activeDurationMs:
+          (record.activeDurationMs ?? 0) + Math.max(0, Date.now() - activeStartedAt),
+      };
     };
 
-    const moveTo = (state: RunState) =>
-      store.transition(input.runId, state).pipe(
-        Effect.flatMap((updated) => store.save(withCost(updated))),
-        Effect.ignore,
-      );
+    const moveTo = (state: RunState, includeMetrics = true) =>
+      store
+        .transition(input.runId, state, includeMetrics ? withCost : undefined)
+        .pipe(Effect.ignore);
 
     // A resumed run already has a record, and `resumeRun` has already claimed it by moving
     // it to `working`. Creating a second one here would leave the original parked forever
@@ -107,9 +125,24 @@ export function withRunRecording<E, R>(
           conversationId: input.conversationId,
           input: input.userInput,
           now: new Date(),
+          ...(input.approvalPolicy !== undefined ? { approvalPolicy: input.approvalPolicy } : {}),
+          ...(input.autoApprovedTools !== undefined
+            ? { autoApprovedTools: input.autoApprovedTools }
+            : {}),
+          ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+          ...(input.workingDirectory !== undefined
+            ? { workingDirectory: input.workingDirectory }
+            : {}),
         }),
       );
-      yield* moveTo({ kind: "working", iteration: 0 });
+      yield* moveTo(
+        {
+          kind: "working",
+          iteration: 0,
+          owner: currentProcessOwner(),
+        },
+        false,
+      );
     }
 
     return yield* effect.pipe(
@@ -148,7 +181,7 @@ export function withRunRecording<E, R>(
                   Effect.fail(
                     new Error(
                       `The run needed an approval nobody could answer, and could not be saved for later: ${
-                        failure instanceof Error ? failure.message : String(failure)
+                        toError(failure).message
                       }`,
                     ),
                   ),

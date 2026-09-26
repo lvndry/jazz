@@ -5,6 +5,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WakeTriggerRecord, WakeTriggerService } from "@/core/interfaces/wake-trigger-service";
 import { WakeTriggerServiceTag } from "@/core/interfaces/wake-trigger-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type WakeTriggerToolDeps = WakeTriggerService | FileSystem.FileSystem;
@@ -94,7 +95,7 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -141,7 +142,7 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -186,7 +187,7 @@ export function createCancelTriggerTool(): Tool<WakeTriggerToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

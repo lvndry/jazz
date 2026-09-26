@@ -5,7 +5,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AgentResponse } from "../types";
 import { RunParkRequested } from "./park-signal";
-import { withRunRecording } from "./run-recorder";
+import { withRunRecording, type RunRecordingInput } from "./run-recorder";
 
 const RUN_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
@@ -39,7 +39,7 @@ const PARK = new RunParkRequested({
 async function runWith<E>(
   store: InMemoryRunStore | undefined,
   effect: Effect.Effect<AgentResponse, E>,
-  input = INPUT,
+  input: RunRecordingInput = INPUT,
 ) {
   const layer = store === undefined ? Layer.empty : Layer.succeed(RunStoreTag, store);
   return Effect.runPromiseExit(
@@ -51,6 +51,22 @@ async function runWith<E>(
 }
 
 describe("withRunRecording", () => {
+  it("keeps the authority and iteration cap a run started with, for its resume", async () => {
+    const store = new InMemoryRunStore();
+    await runWith(store, Effect.fail(PARK), {
+      ...INPUT,
+      approvalPolicy: "read-only",
+      autoApprovedTools: ["git_status"],
+      maxIterations: 24,
+    });
+    const record = await Effect.runPromise(store.get(RUN_ID));
+    expect(record).toMatchObject({
+      approvalPolicy: "read-only",
+      autoApprovedTools: ["git_status"],
+      maxIterations: 24,
+    });
+  });
+
   it("records a completed run", async () => {
     const store = new InMemoryRunStore();
     const exit = await runWith(store, Effect.succeed(response("pushed")));
@@ -131,5 +147,33 @@ describe("withRunRecording", () => {
     expect(record?.state).toMatchObject({ kind: "completed", content: "pushed" });
     expect(record?.createdAt).toBe(parkedAt);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+
+  it("keeps cumulative usage across approval resumes without charging parked time", async () => {
+    const store = new InMemoryRunStore();
+    const firstSegment = {
+      ...INPUT,
+      totalTokensSoFar: () => 120,
+      costSoFarUSD: () => 0.12,
+    };
+    await runWith(store, Effect.fail(PARK), firstSegment);
+    const parked = await Effect.runPromise(store.get(RUN_ID));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 2 }));
+    const secondSegment = {
+      ...INPUT,
+      totalTokensSoFar: () => 80,
+      costSoFarUSD: () => 0.08,
+    };
+    await runWith(store, Effect.succeed(response("done")), secondSegment);
+    const completed = await Effect.runPromise(store.get(RUN_ID));
+
+    expect(completed?.totalTokens).toBe(200);
+    expect(completed?.costUSD).toBeCloseTo(0.2);
+    expect(completed?.activeDurationMs).toBeDefined();
+    expect((completed?.activeDurationMs ?? 0) + 60).toBeLessThan(
+      Date.now() - Date.parse(parked?.createdAt ?? new Date().toISOString()),
+    );
   });
 });

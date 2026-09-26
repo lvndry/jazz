@@ -18,6 +18,7 @@ import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
+import { toError } from "@/core/utils/storage";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
@@ -96,7 +97,7 @@ const MAX_RESULT_SCHEMA_BYTES = 32 * 1024;
 const MAX_STRUCTURED_RESULT_BYTES = 128 * 1024;
 
 function describeJsonSchemaError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return toError(error).message;
 }
 
 function validateResultSchema(resultSchema: Record<string, unknown>): readonly string[] {

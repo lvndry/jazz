@@ -17,6 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option } from "effect";
 import * as plist from "plist";
+import { toError } from "@/core/utils/storage";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { describeCronSchedule, isValidCronExpression } from "../utils/cron";
@@ -443,9 +444,6 @@ function parseScheduledWorkflow(
     return null;
   }
 }
-
-const toError = (error: unknown): Error =>
-  error instanceof Error ? error : new Error(String(error));
 
 function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> {
   return Effect.gen(function* () {

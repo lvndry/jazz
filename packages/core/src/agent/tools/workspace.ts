@@ -16,6 +16,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WorkspaceService, WorkspaceViewOutcome } from "@/core/interfaces/workspace-service";
 import { WorkspaceServiceTag } from "@/core/interfaces/workspace-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type WorkspaceToolDeps = WorkspaceService | FileSystem.FileSystem;
@@ -111,7 +112,7 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -210,7 +211,7 @@ export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

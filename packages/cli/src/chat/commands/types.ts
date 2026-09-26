@@ -37,6 +37,7 @@ export type CommandType =
   | "retry"
   | "shell"
   | "limit"
+  | "goal"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"
@@ -119,6 +120,8 @@ export interface CommandContext {
   sessionStartedAt: Date;
   /** Current auto-approve policy (for /mode display). */
   autoApprovePolicy?: AutoApprovePolicy;
+  /** The live auto-approve policy, for work that outlasts the command (a goal's cycles). */
+  currentAutoApprovePolicy?: () => AutoApprovePolicy | undefined;
   /** Currently auto-approved command prefixes (for /mode display). */
   autoApprovedCommands?: readonly string[];
   /** Commands persisted in config (always auto-approved across sessions). */

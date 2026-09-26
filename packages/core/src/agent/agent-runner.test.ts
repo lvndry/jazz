@@ -35,6 +35,7 @@ import { ToolRegistryTag } from "../interfaces/tool-registry";
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
+import type { ChatMessage } from "../types/message";
 
 describe("renderSkillRoutingAdvisory", () => {
   it("renders only a live-roster winner that beats no-skill", () => {
@@ -650,6 +651,56 @@ describe("AgentRunner", () => {
       await Effect.runPromise(Fiber.interrupt(fiber));
 
       expect(closes).toBe(1);
+    });
+
+    /**
+     * The regression: a goal cycle parked for approval, its resume timed out, and every later
+     * cycle on that conversation failed with "Tool results are missing" before doing any work.
+     */
+    it("answers tool calls a previous run left unanswered before sending the history", async () => {
+      const sent: ChatMessage[][] = [];
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: (_provider: string, options: { messages: ChatMessage[] }) => {
+          sent.push(options.messages);
+          return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
+        },
+      } as unknown as LLMService;
+      const parkedTail: ChatMessage[] = [
+        { role: "user", content: "continue the goal" },
+        {
+          role: "assistant",
+          content: "checking",
+          tool_calls: [
+            {
+              id: "call-parked",
+              type: "function",
+              function: { name: "execute_command", arguments: "{}" },
+            },
+          ],
+        },
+      ];
+
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          stream: false,
+          maxIterations: 1,
+          conversationHistory: parkedTail,
+        }),
+        { llm },
+      );
+
+      const request = sent[0] ?? [];
+      const callIndex = request.findIndex((message) =>
+        message.tool_calls?.some((toolCall) => toolCall.id === "call-parked"),
+      );
+      expect(callIndex).toBeGreaterThanOrEqual(0);
+      expect(request[callIndex + 1]).toMatchObject({
+        role: "tool",
+        tool_call_id: "call-parked",
+      });
+      expect(parkedTail).toHaveLength(2);
     });
   });
 

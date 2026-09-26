@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import { toError } from "@/core/utils/storage";
 import {
   bindCappedStdio,
   decodeCappedText,
@@ -282,7 +283,7 @@ export function normalizeFilterPattern(pattern?: string): FilterPatternResult {
       return {
         type: "substring",
         value: body,
-        error: `Invalid regex "${body}": ${e instanceof Error ? e.message : String(e)}`,
+        error: `Invalid regex "${body}": ${toError(e).message}`,
       };
     }
   }

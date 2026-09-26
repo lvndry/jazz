@@ -7,6 +7,7 @@
  */
 
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
+import { toError } from "@jazz/core/utils/storage";
 import type { OtlpSignal, ResolvedOtlpConfig } from "./otlp-config";
 import { buildLogsPayload } from "./otlp-mapping";
 import { OtlpOutbox } from "./otlp-outbox";
@@ -157,7 +158,7 @@ export class OtlpTelemetrySink implements TelemetrySink {
         retryable = isRetryableStatus(response.status);
         retryAfter = response.headers.get("retry-after");
       } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
+        lastError = toError(error);
         retryable = true;
       }
       if (!retryable) break;

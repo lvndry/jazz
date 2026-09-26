@@ -5,17 +5,10 @@ import { describe, expect, it } from "bun:test";
 import { tasks as blindSuccessorTasks } from "./blind-successor";
 import { tasks as killTestTasks } from "./kill-test";
 import { continuityCheck, sawCompaction } from "../../checks";
-import type { OneShotResult } from "../../types";
+import { emptyResult, type OneShotResult } from "../../types";
 
 function answer(text: string): OneShotResult {
-  return {
-    ok: true,
-    answer: text,
-    toolCalls: [],
-    costUSD: 0,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
-  };
+  return emptyResult({ answer: text });
 }
 
 describe("continuityCheck", () => {
@@ -95,6 +88,8 @@ describe("blind-successor task", () => {
         timeoutMs: 1,
         runId: "test",
         jazzHome,
+        environment: {},
+        stubRoot: join(workspaceDir, "stubs"),
       }).catch(() => undefined);
 
       const workDir = join(jazzHome, "work", "eval-sut", "continuity-blind-successor");

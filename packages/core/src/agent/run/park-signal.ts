@@ -13,9 +13,10 @@
  * transcript, and the runner turns the result into a parked record.
  */
 
-import { Data } from "effect";
+import { Cause, Data, Effect, Option } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import type { PendingInput } from "./run-state";
 
 export class RunParkRequested extends Data.TaggedError("RunParkRequested")<{
@@ -49,6 +50,42 @@ export class RunParkRequested extends Data.TaggedError("RunParkRequested")<{
 
 export function isRunParkRequested(error: unknown): error is RunParkRequested {
   return error instanceof RunParkRequested;
+}
+
+/** How a run ended that did not finish: parked for a person, or failed. */
+export type RunStop =
+  | { readonly kind: "parked"; readonly park: RunParkRequested }
+  | { readonly kind: "failed"; readonly error: string };
+
+export type RunOutcome<Response> =
+  { readonly kind: "finished"; readonly response: Response } | RunStop;
+
+/**
+ * A park arrives as a failure. Reading it as one loses the transcript it carries and hides
+ * the run waiting for an answer, so it is told apart here.
+ */
+export function classifyRunError(error: unknown): RunStop {
+  return isRunParkRequested(error)
+    ? { kind: "parked", park: error }
+    : { kind: "failed", error: toError(error).message };
+}
+
+/** A park, a failure, or a defect or interrupt, which must be settled like a failure. */
+export function classifyRunCause(cause: Cause.Cause<unknown>): RunStop {
+  const failure = Cause.failureOption(cause);
+  return Option.isSome(failure)
+    ? classifyRunError(failure.value)
+    : { kind: "failed", error: Cause.pretty(cause) };
+}
+
+/** Run to its outcome, never failing: whatever stops it is classified by `classifyRunCause`. */
+export function runToOutcome<A, E, R>(
+  run: Effect.Effect<A, E, R>,
+): Effect.Effect<RunOutcome<A>, never, R> {
+  return run.pipe(
+    Effect.map((response): RunOutcome<A> => ({ kind: "finished", response })),
+    Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
+  );
 }
 
 /**

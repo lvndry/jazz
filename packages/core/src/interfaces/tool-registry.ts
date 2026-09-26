@@ -5,6 +5,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
+import type { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { WorkspaceService } from "@/core/interfaces/workspace-service";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { CustomToolDefinition } from "@/core/types/agent";
@@ -91,6 +92,7 @@ export type ToolRequirements =
   | JobQueueService
   | PeerLedgerService
   | PeerTokenService
+  | GoalStoreTag
   // search_tools reads the registry itself to look up deferred-tool summaries/definitions.
   | ToolRegistry;
 

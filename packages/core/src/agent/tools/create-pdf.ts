@@ -22,6 +22,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import {
@@ -151,10 +152,7 @@ export function createPdfTool(
               landscape: args.landscape ?? false,
               format: args.format ?? "A4",
             }),
-          catch: (error) =>
-            new Error(
-              `Failed to render PDF: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+          catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });
         yield* fs.remove(htmlPath).pipe(Effect.catchAll(() => Effect.void));
 
@@ -177,7 +175,7 @@ export function createPdfTool(
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

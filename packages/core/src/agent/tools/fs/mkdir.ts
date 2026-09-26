@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -90,7 +91,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
           return {
             success: false,
             result: null,
-            error: `mkdir failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `mkdir failed: ${toError(error).message}`,
           };
         }
       }),

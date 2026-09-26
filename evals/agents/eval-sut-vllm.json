@@ -1,0 +1,45 @@
+{
+  "id": "eval-sut-vllm",
+  "name": "eval-sut-vllm",
+  "model": "vllm/qwen3.8-27b",
+  "config": {
+    "persona": "default",
+    "llmProvider": "vllm",
+    "llmModel": "qwen3.8-27b",
+    "reasoning": "medium",
+    "tools": [
+      "ls",
+      "cd",
+      "pwd",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "find",
+      "grep",
+      "glob",
+      "mkdir",
+      "mv",
+      "cp",
+      "rm",
+      "read_pdf",
+      "pdf_page_count",
+      "manage_todos",
+      "list_todos",
+      "get_time",
+      "web_fetch",
+      "http_request",
+      "execute_command",
+      "stat",
+      "add_reminder",
+      "list_reminders",
+      "cancel_reminder"
+    ],
+    "deniedTools": [
+      "enqueue_batch",
+      "list_jobs",
+      "cancel_batch",
+      "analyze_media",
+      "generate_media"
+    ]
+  }
+}

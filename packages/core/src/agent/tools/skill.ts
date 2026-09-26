@@ -7,6 +7,7 @@ import {
   type SkillMetadata,
   type SkillService,
 } from "@/core/skills/skill-service";
+import { toError } from "@/core/utils/storage";
 
 /**
  * Create skill tools with skill_name constrained to discovered skill names.
@@ -90,7 +91,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
             return {
               success: false,
               result: null,
-              error: error instanceof Error ? error.message : String(error),
+              error: toError(error).message,
             };
           }
         }),
@@ -124,7 +125,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
             return {
               success: false,
               result: null,
-              error: error instanceof Error ? error.message : String(error),
+              error: toError(error).message,
             };
           }
         }),

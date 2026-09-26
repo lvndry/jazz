@@ -12,6 +12,7 @@ import {
 } from "@jazz/adapters/llm/chatgpt";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 type SignInMethod = "browser" | "device" | "back";
@@ -66,7 +67,7 @@ export function signInToChatGPT(
           await saveChatGPTCredential(credential);
           return credential;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }),
     );
 

@@ -22,7 +22,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
-import { Footer, formatCompactCount, formatUsage } from "./Footer";
+import { Footer, formatUsage } from "./Footer";
 import { Header, headerGroups } from "./Header";
 import { hintsFor } from "./keymap";
 import { terminalCellWidth } from "./terminal-cells";
@@ -250,23 +250,6 @@ describe("Header", () => {
     expect(row).not.toContain("v0.14.2");
     expect(row).toContain("apps 4 of 4");
     expect(row).toContain("40%");
-  });
-});
-
-describe("formatCompactCount", () => {
-  it("steps through 100, 1k, 10k, 1M, 1B", () => {
-    expect(formatCompactCount(100)).toBe("100");
-    expect(formatCompactCount(999)).toBe("999");
-    expect(formatCompactCount(1_000)).toBe("1k");
-    expect(formatCompactCount(1_500)).toBe("1.5k");
-    expect(formatCompactCount(10_000)).toBe("10k");
-    expect(formatCompactCount(20_000)).toBe("20k");
-    expect(formatCompactCount(1_000_000)).toBe("1M");
-    expect(formatCompactCount(1_500_000)).toBe("1.5M");
-    expect(formatCompactCount(10_000_000)).toBe("10M");
-    expect(formatCompactCount(1_000_000_000)).toBe("1B");
-    expect(formatCompactCount(2_300_000_000)).toBe("2.3B");
-    expect(formatCompactCount(999_500)).toBe("1M");
   });
 });
 

@@ -77,6 +77,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "retry", args };
     case "limit":
       return { type: "limit", args };
+    case "goal":
+      return { type: "goal", args };
     default:
       // A slash command that matches a registered skill runs that skill.
       // args[0] is the skill name (mirrors the "unknown" convention).

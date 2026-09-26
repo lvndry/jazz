@@ -31,7 +31,9 @@ import {
   type ToolExecutionResult,
   type ToolRiskLevel,
 } from "@/core/types/tools";
+import { isRecord } from "@/core/utils/is-record";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { toError } from "@/core/utils/storage";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import {
   emitToolInvocation,
@@ -161,7 +163,7 @@ export class ToolExecutor {
               },
             }),
             Effect.catchAll((error) => {
-              const message = error instanceof Error ? error.message : String(error);
+              const message = toError(error).message;
               if (message.includes("timed out")) {
                 Effect.runFork(
                   logger.warn("Tool execution timed out", {
@@ -228,10 +230,9 @@ export class ToolExecutor {
         try {
           parsed = JSON.parse(argsString);
         } catch (parseError) {
-          throw new Error(
-            `Invalid JSON in tool arguments: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-            { cause: parseError },
-          );
+          throw new Error(`Invalid JSON in tool arguments: ${toError(parseError).message}`, {
+            cause: parseError,
+          });
         }
 
         const args: Record<string, unknown> =
@@ -648,7 +649,7 @@ export class ToolExecutor {
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = toError(error).message;
 
         // Emit error
         if (displayConfig.showToolExecution) {
@@ -815,8 +816,8 @@ export class ToolExecutor {
           let args: Record<string, unknown> = {};
           try {
             const parsed: unknown = JSON.parse(toolCall.function.arguments);
-            if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-              args = parsed as Record<string, unknown>;
+            if (isRecord(parsed)) {
+              args = parsed;
             }
           } catch {
             // Unparseable arguments are the per-call path's error to report, not this one's.

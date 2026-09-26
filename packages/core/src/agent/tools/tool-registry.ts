@@ -22,6 +22,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
@@ -353,14 +354,12 @@ class DefaultToolRegistry implements ToolRegistry {
         let errorMessage: string;
         if (Option.isSome(failureOpt)) {
           const failure = failureOpt.value;
-          errorMessage = failure instanceof Error ? failure.message : String(failure);
+          errorMessage = toError(failure).message;
         } else {
           const defects = Cause.defects(cause);
           const firstDefect = Chunk.get(defects, 0);
           errorMessage = Option.isSome(firstDefect)
-            ? firstDefect.value instanceof Error
-              ? firstDefect.value.message
-              : String(firstDefect.value)
+            ? toError(firstDefect.value).message
             : "Unknown error";
         }
 
@@ -404,7 +403,7 @@ class DefaultToolRegistry implements ToolRegistry {
     }).pipe(
       Effect.catchAll((error: ToolNotFoundError | Error) => {
         return Effect.gen(function* () {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           yield* logToolExecutionError(name, 0, errorMessage);
           yield* recordMisfire(name, "tool_not_found", errorMessage, 0, args);
           return {

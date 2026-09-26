@@ -12,6 +12,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
+import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -44,7 +45,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
-import { ToolExecutor } from "./tool-executor";
+import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
@@ -63,6 +64,7 @@ import {
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
+import { closeUnansweredToolCalls } from "../context/unanswered-tool-calls";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -259,6 +261,12 @@ interface LoopState {
   iterationsUsed: number;
   contextPressureWarned: boolean;
   toolCompactionAnnounced: boolean;
+  /**
+   * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
+   * the turn may only describe the plan, never start it. Later completions are asked for
+   * text only, and tool calls the provider returns anyway are dropped.
+   */
+  awaitingGoalDecision: boolean;
 }
 
 interface LoopDeps {
@@ -422,6 +430,7 @@ export interface CompletionStrategy {
   getCompletion(
     messages: ConversationMessages,
     iteration: number,
+    toolsAllowed: boolean,
   ): Effect.Effect<
     { completion: ChatCompletionResponse; interrupted: boolean },
     LLMRateLimitError | Error,
@@ -562,6 +571,7 @@ function finalizeRun(
 
     return {
       ...response,
+      ...(interrupted ? { interrupted: true } : {}),
       messages: currentMessages,
       usage: {
         promptTokens: runMetrics.totalPromptTokens,
@@ -580,33 +590,17 @@ function finalizeRun(
 }
 
 /**
- * Close assistant `tool_calls` that never got a `role: "tool"` result, so the transcript
- * stays valid to send. Used on a user interrupt mid-batch, and on a copy of the transcript
- * when a turn fails outright.
+ * Close assistant `tool_calls` that never got a `role: "tool"` result, in place, so the
+ * transcript stays valid to send. Used on a user interrupt mid-batch, and on a copy of the
+ * transcript when a turn fails outright.
  */
 function closeDanglingToolCalls(
   state: Pick<LoopState, "currentMessages">,
   content = "Tool execution interrupted by user",
 ): void {
-  const lastAssistant = [...state.currentMessages]
-    .reverse()
-    .find((message) => message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0);
-  if (lastAssistant?.tool_calls === undefined) return;
-
-  const existing = new Set(
-    state.currentMessages
-      .filter((message) => message.role === "tool" && message.tool_call_id !== undefined)
-      .map((message) => message.tool_call_id),
-  );
-
-  for (const toolCall of lastAssistant.tool_calls) {
-    if (existing.has(toolCall.id)) continue;
-    state.currentMessages.push({
-      role: "tool",
-      name: toolCall.function.name,
-      content,
-      tool_call_id: toolCall.id,
-    });
+  const closed = closeUnansweredToolCalls(state.currentMessages, content);
+  if (closed !== state.currentMessages) {
+    state.currentMessages.splice(0, state.currentMessages.length, ...closed);
   }
 }
 
@@ -808,8 +802,30 @@ function handleToolPhase(
       });
     }
 
-    const toolResults = yield* ToolExecutor.executeToolCalls(
-      toExecute,
+    // A goal proposal is the whole turn's action: nothing proposed alongside it may run before
+    // the user accepts, so its siblings are answered without executing.
+    const proposes = toExecute.some(
+      (toolCall) => toolCall.function.name === PROPOSE_GOAL_TOOL_NAME,
+    );
+    const dispatched = proposes
+      ? toExecute.filter((toolCall) => toolCall.function.name === PROPOSE_GOAL_TOOL_NAME)
+      : toExecute;
+    const withheld: ToolCallOutcome[] = proposes
+      ? toExecute
+          .filter((toolCall) => toolCall.function.name !== PROPOSE_GOAL_TOOL_NAME)
+          .map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            success: false,
+            result: {
+              error:
+                "Not run: a goal was proposed in the same turn, and nothing else runs until the user accepts it.",
+            },
+          }))
+      : [];
+
+    const executedResults = yield* ToolExecutor.executeToolCalls(
+      dispatched,
       contextWithTokenStats,
       displayConfig,
       toolRenderer,
@@ -827,6 +843,7 @@ function handleToolPhase(
         Effect.fail(withTranscript(signal, state.currentMessages, state.iterationsUsed)),
       ),
     );
+    const toolResults = [...executedResults, ...withheld];
 
     if (deps.workspaceContext !== undefined) {
       yield* Effect.promise(() => observeWorkspaceFiles(toolResults, deps.recentWorkspaceFiles));
@@ -866,6 +883,13 @@ function handleToolPhase(
       )
     ) {
       deps.memoryOpportunities?.invalidateSnapshot();
+    }
+    if (
+      toolResults.some(
+        (toolResult) => toolResult.success && toolResult.name === PROPOSE_GOAL_TOOL_NAME,
+      )
+    ) {
+      state.awaitingGoalDecision = true;
     }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
@@ -989,6 +1013,11 @@ function handleToolPhase(
         }),
     ),
   );
+}
+
+function withoutToolCalls(completion: ChatCompletionResponse): ChatCompletionResponse {
+  const { toolCalls: _dropped, ...rest } = completion;
+  return rest;
 }
 
 type RunIterationResult = { kind: "continue" } | { kind: "final" } | { kind: "interrupted" };
@@ -1261,7 +1290,11 @@ function runIteration(
             }),
           );
     const completionStartTime = Date.now();
-    const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+    const result = yield* strategy.getCompletion(
+      messagesForLLM,
+      iterationIndex,
+      !state.awaitingGoalDecision,
+    );
     if (memoryOpportunities !== undefined && pendingReceipts !== undefined) {
       const tickets = yield* Fiber.join(pendingReceipts);
       yield* memoryOpportunities.complete(tickets, requestMessages);
@@ -1287,7 +1320,10 @@ function runIteration(
       return { kind: "interrupted" } as const;
     }
 
-    const { completion } = result;
+    const completion =
+      state.awaitingGoalDecision && result.completion.toolCalls !== undefined
+        ? withoutToolCalls(result.completion)
+        : result.completion;
 
     // Log LLM response summary
     yield* logger.debug("LLM response received", {
@@ -1558,6 +1594,7 @@ export function executeAgentLoop(
           iterationsUsed: 0,
           contextPressureWarned: false,
           toolCompactionAnnounced: false,
+          awaitingGoalDecision: false,
         };
         let finished = false;
         let interrupted = false;

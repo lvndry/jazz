@@ -40,6 +40,7 @@ import type {
 } from "@jazz/core/types/mcp";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { retryWithBackoff } from "@jazz/core/utils/mcp";
+import { toError } from "@jazz/core/utils/storage";
 import type { Transport } from "@modelcontextprotocol/client";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -295,7 +296,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
         yield* Effect.tryPromise({
           try: () => client.connect(transport as Transport),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(
           Effect.timeoutFail({
             duration: `${CONNECT_TIMEOUT_MS} millis`,
@@ -319,7 +320,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           // missing binary will never appear mid-retry. Only genuinely
           // transient transport faults are worth the backoff.
           if (error instanceof InteractiveAuthRequiredError) return false;
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           if (/\b(401|403|ENOENT|EACCES)\b/.test(errorMessage)) return false;
           return (
             errorMessage.includes("ECONNREFUSED") ||
@@ -330,7 +331,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
         },
       }).pipe(
         Effect.mapError((error: unknown) => {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           const suggestion =
             error instanceof InteractiveAuthRequiredError
               ? `Run: jazz mcp auth ${config.name}`
@@ -372,7 +373,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
     }).pipe(
       Effect.mapError((error: unknown) => {
         if (error instanceof MCPConnectionError) return error;
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = toError(error).message;
         return new MCPConnectionError({
           serverName: config.name,
           reason: `Unexpected error during connection: ${errorMessage}`,
@@ -399,7 +400,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       yield* Effect.tryPromise({
         try: () => connection.client.close(),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.catchAll(() =>
           manager.logger.warn("MCP client close failed", { errorType: "close_failed" }),
@@ -448,7 +449,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
             return collected;
           },
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }),
         { maxRetries: 2, initialDelayMs: 500, maxDelayMs: 5000 },
       ).pipe(
@@ -456,7 +457,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           (error: unknown) =>
             new MCPToolDiscoveryError({
               serverName,
-              reason: `Failed to get tools from MCP server: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to get tools from MCP server: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -514,7 +515,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
                 }
               : undefined,
           ),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.timeoutFail({
           duration: `${CALL_TIMEOUT_MS} millis`,
@@ -525,7 +526,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
             new MCPToolExecutionError({
               serverName,
               toolName,
-              reason: `MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `MCP tool execution failed: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the tool arguments are correct and the MCP server is functioning properly`,
             }),
@@ -602,13 +603,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
           return collected;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
             new MCPPromptError({
               serverName,
-              reason: `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to list prompts: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -638,13 +639,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       const result = yield* Effect.tryPromise({
         try: () => connection.client.getPrompt({ name: promptName, arguments: args }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
             new MCPPromptError({
               serverName,
-              reason: `Failed to resolve prompt "${promptName}": ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to resolve prompt "${promptName}": ${toError(error).message}`,
               cause: error,
               suggestion: `Check the prompt name and that all required arguments were supplied`,
             }),
@@ -790,13 +791,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
           return collected;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
             new MCPResourceError({
               serverName,
-              reason: `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to list resources: ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the MCP server is running and responding correctly`,
             }),
@@ -825,13 +826,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       const result = yield* Effect.tryPromise({
         try: () => connection.client.readResource({ uri }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
             new MCPResourceError({
               serverName,
-              reason: `Failed to read resource "${uri}": ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to read resource "${uri}": ${toError(error).message}`,
               cause: error,
               suggestion: `Check that the URI is one the server advertises`,
             }),
@@ -869,7 +870,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
             mimeType: template.mimeType,
           }));
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         // A server may advertise `resources` without implementing templates, so
         // a failure here means "none", not a broken server.
@@ -907,7 +908,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           });
           return result.completion.values;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         // Completion is a convenience: a server that does not implement it
         // should cost the user a picker, not the whole prompt.

@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
@@ -72,10 +73,7 @@ function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<vo
   const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
     try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
-    catch: (error) =>
-      new Error(
-        `Failed to write todo file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+    catch: (error) => new Error(`Failed to write todo file ${filePath}: ${toError(error).message}`),
   });
 }
 
@@ -152,7 +150,7 @@ export function createManageTodosTool(): Tool<never> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -203,7 +201,7 @@ export function createListTodosTool(): Tool<never> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

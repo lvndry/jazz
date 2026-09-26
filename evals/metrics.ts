@@ -47,6 +47,9 @@ export function bootstrapCI(
   };
 }
 
+/** Seed for every report's bootstrap CI, so the same samples always give the same interval. */
+export const BOOTSTRAP_SEED = 1234;
+
 /** Seeded LCG so bootstrap is reproducible without Math.random. */
 export function makeRng(seed: number): () => number {
   let state = seed >>> 0;

@@ -10,13 +10,14 @@ Use these pages to answer two questions: where does a change belong, and which i
 
 1. [Architecture](./architecture.md): package ownership and dependency direction.
 2. [Run lifecycle](./run-lifecycle.md): input to final answer and persistence.
-3. [Context lifecycle](./context-lifecycle.md): pressure, trimming, compaction, and working state.
-4. [Tool lifecycle](./tool-lifecycle.md): registration, selection, disclosure, approval, and execution.
-5. [Plugin lifecycle](./plugin-lifecycle.md): trusted code, artifacts, per-run sessions, and advisory hooks.
-6. [Security threat model](../security/threat-model.md): trust boundaries and non-goals.
-7. [Testing and evals](./testing-and-evals.md): proving correctness and harness lift.
-8. [Design decisions](./design-decisions.md): why each choice is the way it is, and what it gives up.
-9. [Documentation quality](./documentation.md): writing code-backed concepts, lookup pages, and tutorials without filler or false completeness.
+3. [Goal lifecycle](./goal-lifecycle.md): inferred intent, durable multi-run work, completion evidence, budgets, and recovery.
+4. [Context lifecycle](./context-lifecycle.md): pressure, trimming, compaction, and working state.
+5. [Tool lifecycle](./tool-lifecycle.md): registration, selection, disclosure, approval, and execution.
+6. [Plugin lifecycle](./plugin-lifecycle.md): trusted code, artifacts, per-run sessions, and advisory hooks.
+7. [Security threat model](../security/threat-model.md): trust boundaries and non-goals.
+8. [Testing and evals](./testing-and-evals.md): proving correctness and harness lift.
+9. [Design decisions](./design-decisions.md): why each choice is the way it is, and what it gives up.
+10. [Documentation quality](./documentation.md): writing code-backed concepts, lookup pages, and tutorials without filler or false completeness.
 
 ## Extend Jazz
 

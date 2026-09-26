@@ -11,6 +11,7 @@ import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
 import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
+import { toError } from "@/core/utils/storage";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 
@@ -220,7 +221,7 @@ export class WorkflowsLive implements WorkflowService {
         // Parse WORKFLOW.md
         const content = yield* Effect.tryPromise({
           try: () => fs.readFile(workflowMdPath, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         const parsed = matter(content);
 
@@ -259,7 +260,7 @@ export class WorkflowsLive implements WorkflowService {
         yield* Ref.set(this.loadedWorkflows, new Map());
         yield* Effect.tryPromise({
           try: () => fs.rm(this.globalCachePath, { force: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         // Re-list to rebuild cache
         yield* this.listWorkflows();

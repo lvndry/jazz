@@ -8,7 +8,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { MAX_RUN_HISTORY_RECORDS } from "@/core/constants/agent";
 import { getGlobalUserDataDirectory } from "@/core/utils/paths";
-import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
+import { withLock, writeFileStringAtomic, toError } from "@/core/utils/storage";
 
 /**
  * Record of a single workflow run.
@@ -101,7 +101,7 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error, File
           (e as { _tag: string })._tag === "SystemError" &&
           (e as { reason?: string }).reason === "NotFound"
             ? Effect.succeed("")
-            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+            : Effect.fail(toError(e)),
         ),
       );
 

@@ -18,6 +18,7 @@ import type {
   PluginSkillDeclaration,
   PluginToolDeclaration,
 } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
 
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
 export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
@@ -54,10 +55,10 @@ const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 export type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
 function record(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${label} must be an object`);
   }
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function exactKeys(

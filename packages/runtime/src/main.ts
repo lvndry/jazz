@@ -26,10 +26,13 @@ async function main(): Promise<void> {
   // Eval-only, env-gated: install a deterministic fetch record/replay wrapper
   // before any tool can run. Dynamic import keeps this zero-cost in normal runs.
   if (process.env["JAZZ_WEB_CASSETTE"]) {
-    const { installWebCassette } = await import("@jazz/core/eval/web-cassette");
+    const { installWebCassette, localModelServerHosts } =
+      await import("@jazz/core/eval/web-cassette");
+    const { getJazzHomeDirectory } = await import("@jazz/core/utils/paths");
     installWebCassette(
       process.env["JAZZ_WEB_CASSETTE"],
       process.env["JAZZ_WEB_MODE"] === "record" ? "record" : "replay",
+      localModelServerHosts(getJazzHomeDirectory(), process.env),
     );
   }
 

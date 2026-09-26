@@ -1,6 +1,16 @@
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
-import { MAIN_TS, parseEnvelope } from "./run-jazz";
+import { parseEnvelope, spawnJazz } from "./run-jazz";
+import {
+  createSandbox,
+  modelCredentials,
+  modelNetworkPorts,
+  readLlmConfig,
+  removeSandbox,
+} from "./sandbox";
+import { getJazzHomeDirectory } from "../packages/core/src/utils/paths";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(first: readonly number[], second: readonly number[]): number {
@@ -46,13 +56,30 @@ export function makeJudge(
   timeoutMs: number = EVAL_CONFIG.timeoutMs,
 ): JudgeFn {
   return async (prompt) => {
-    const proc = Bun.spawn(
-      ["bun", MAIN_TS, "run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
-      { stdout: "pipe", stderr: "ignore" }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
+    const agentFile = join(import.meta.dir, "agents", `${agentId}.json`);
+    const provider = (
+      JSON.parse(readFileSync(agentFile, "utf-8")) as { config?: { llmProvider?: string } }
+    ).config?.llmProvider;
+    const providers = provider === undefined ? [] : [provider];
+    const sandbox = createSandbox(
+      "judge",
+      [],
+      modelNetworkPorts(providers, readLlmConfig(getJazzHomeDirectory())),
+      await modelCredentials(providers),
     );
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    return parseScore(parseEnvelope(stdout).answer);
+    try {
+      mkdirSync(join(sandbox.jazzHome, "agents"), { recursive: true });
+      copyFileSync(agentFile, join(sandbox.jazzHome, "agents", `${agentId}.json`));
+      const proc = spawnJazz(
+        ["run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
+        { environment: sandbox.environment, stdout: "pipe", stderr: "ignore" },
+      );
+      const stdout = await new Response(proc.stdout).text();
+      await proc.exited;
+      return parseScore(parseEnvelope(stdout).answer);
+    } finally {
+      removeSandbox(sandbox);
+    }
   };
 }
 

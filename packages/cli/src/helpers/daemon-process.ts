@@ -6,6 +6,8 @@
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { isProcessAlive } from "@jazz/core/utils/process";
+import { toError } from "@jazz/core/utils/storage";
 
 export function daemonPidPath(port: number): string {
   return path.join(getJazzHomeDirectory(), `daemon-${String(port)}.pid`);
@@ -31,7 +33,11 @@ export async function clearDaemonPid(port: number): Promise<void> {
   await nodeFs.rm(daemonPidPath(port), { force: true }).catch(() => undefined);
 }
 
-export function isProcessAlive(pid: number): boolean {
+/**
+ * Whether this process may signal `pid`. A pidfile pid recycled to another user's process
+ * exists but is not our daemon, so it does not count.
+ */
+function canSignal(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -51,7 +57,7 @@ export type StopDaemonResult =
  */
 export async function stopDaemonProcess(port: number): Promise<StopDaemonResult> {
   let pid = await readDaemonPid(port);
-  if (pid === undefined || !isProcessAlive(pid)) {
+  if (pid === undefined || !canSignal(pid)) {
     pid = await findListenerPid(port);
   }
   if (pid === undefined) {
@@ -63,7 +69,7 @@ export async function stopDaemonProcess(port: number): Promise<StopDaemonResult>
     process.kill(pid, "SIGTERM");
   } catch (error) {
     await clearDaemonPid(port);
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = toError(error).message;
     if (!isProcessAlive(pid)) return { kind: "stopped", pid };
     return { kind: "failed", pid, detail };
   }
@@ -105,6 +111,30 @@ export async function findListenerPid(port: number): Promise<number | undefined>
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * The goal owner id a daemon reports on `/health`, or undefined when nothing answers. A
+ * daemon serves one Jazz home, and the id tells whether it is this one.
+ */
+export async function probeDaemonOwner(
+  host: string,
+  port: number,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  const probeHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  try {
+    const response = await fetch(`http://${probeHost}:${String(port)}/health`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const body = (await response.json()) as { owner?: unknown };
+    return typeof body.owner === "string" ? body.owner : "";
+  } catch {
+    return undefined;
+  }
 }
 
 export async function waitForDaemonHealth(

@@ -17,6 +17,7 @@ import {
   type ModelsDevModelEntry,
 } from "@jazz/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
+import { toError } from "@jazz/core/utils/storage";
 import { gateway } from "ai";
 import { Effect } from "effect";
 import { ChatGPTSignInRequiredError } from "./chatgpt/credentials";
@@ -850,7 +851,7 @@ export function createModelFetcher(): ModelFetcherService {
           }
           return new LLMConfigurationError({
             provider: providerName,
-            message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Model discovery failed: ${toError(error).message}`,
           });
         },
       }),
@@ -876,7 +877,7 @@ export function listModelsForProvider(
       catch: (error) =>
         new LLMConfigurationError({
           provider,
-          message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to list models from models.dev: ${toError(error).message}`,
         }),
     });
   }

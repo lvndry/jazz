@@ -69,6 +69,7 @@ import {
   type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
@@ -78,6 +79,7 @@ import {
   formatProviderDisplayName,
   isChatGPTSignedIn,
 } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { sanitize } from "@jazz/core/utils/string";
 import { compactToolJsonSchema } from "@jazz/core/utils/tool-json-schema";
 import {
@@ -89,6 +91,7 @@ import {
 import {
   createGateway,
   generateText,
+  Output,
   stepCountIs,
   streamText,
   jsonSchema,
@@ -857,6 +860,90 @@ function getConfiguredProviders(
   return providers;
 }
 
+/** The property a non-object output schema is carried under; see {@link providerOutputSchema}. */
+const WRAPPED_OUTPUT_KEY = "result";
+
+/**
+ * The schema to send for structured output. Providers' strict modes (OpenAI's among them)
+ * require an object at the root, so a union or any other non-object schema is sent as the
+ * single property of an object and unwrapped from the result.
+ */
+function providerOutputSchema(schema: z.ZodTypeAny): {
+  schema: ReturnType<typeof jsonSchema>;
+  wrapped: boolean;
+} {
+  const wrapped = !(schema instanceof z.ZodObject);
+  const objectSchema = wrapped ? z.object({ [WRAPPED_OUTPUT_KEY]: schema }) : schema;
+  return {
+    schema: jsonSchema(
+      compactToolJsonSchema(
+        unionsAsAnyOf(z.toJSONSchema(objectSchema) as Record<string, unknown>),
+      ) as JSONSchema7,
+      {
+        validate: (value) => {
+          const parsed = objectSchema.safeParse(value);
+          return parsed.success
+            ? { success: true, value: parsed.data }
+            : { success: false, error: parsed.error };
+        },
+      },
+    ),
+    wrapped,
+  };
+}
+
+/**
+ * Zod writes a discriminated union as `oneOf`, which strict structured-output modes (OpenAI's
+ * among them) refuse while accepting `anyOf`. Every union here tells its branches apart by a
+ * literal field, so at most one branch can match and the two mean the same.
+ */
+function unionsAsAnyOf(node: unknown): Record<string, unknown> {
+  const rewrite = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(rewrite);
+    }
+    if (!isRecord(value)) {
+      return value;
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key === "oneOf" ? "anyOf" : key,
+        rewrite(child),
+      ]),
+    );
+  };
+  return rewrite(node) as Record<string, unknown>;
+}
+
+/**
+ * The parsed structured output as JSON text, or undefined when the model produced none. The
+ * SDK's `output` getter throws rather than returning undefined in that case, and the caller
+ * falls back to the raw text so its own validation can report what went wrong.
+ */
+function structuredOutputText(
+  result: { readonly output: unknown },
+  wrapped: boolean,
+): string | undefined {
+  try {
+    const output = result.output;
+    if (output === undefined) {
+      return undefined;
+    }
+    return JSON.stringify(wrapped && isRecord(output) ? output[WRAPPED_OUTPUT_KEY] : output);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A provider's API key: the configured one, else its environment variable. Completions and
+ * local servers' served-model lookups both use this, so a server that requires a key is
+ * reachable for both or for neither.
+ */
+function resolveProviderApiKey(provider: ProviderName, llmConfig?: LLMConfig): string | undefined {
+  return configuredProviderApiKey(llmConfig, provider) ?? llmProviderApiKeyFromEnv(provider);
+}
+
 function selectModel(
   providerName: ProviderName,
   modelId: ModelName,
@@ -870,9 +957,7 @@ function selectModel(
   }
 
   let model: LanguageModel;
-  const resolveApiKey = (provider: ProviderName): string | undefined => {
-    return configuredProviderApiKey(llmConfig, provider) ?? llmProviderApiKeyFromEnv(provider);
-  };
+  const resolveApiKey = (provider: ProviderName) => resolveProviderApiKey(provider, llmConfig);
 
   switch (providerName) {
     case "openai": {
@@ -974,6 +1059,7 @@ function selectModel(
         name: providerName,
         baseURL,
         includeUsage: true,
+        ...(providerName === "vllm" ? { supportsStructuredOutputs: true } : {}),
         ...(headers ? { headers } : {}),
         fetch: llmFetch,
       });
@@ -1703,7 +1789,7 @@ class AISDKService implements LLMService {
       catch: (error) =>
         new LLMConfigurationError({
           provider: providerName,
-          message: `Failed to refresh provider configuration: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to refresh provider configuration: ${toError(error).message}`,
         }),
     }).pipe(
       Effect.flatMap(() => this.getProviderModels(providerName)),
@@ -1933,11 +2019,18 @@ class AISDKService implements LLMService {
 
         const generateTextStart = Date.now();
         Effect.runFork(this.logger.debug(`[LLM Timing] Calling generateText...`));
+        const outputSchema =
+          options.outputSchema !== undefined
+            ? providerOutputSchema(options.outputSchema)
+            : undefined;
         const result = await generateText({
           model,
           messages: coreMessages,
           allowSystemInMessages: true,
           maxRetries: AI_SDK_MAX_RETRIES,
+          ...(outputSchema !== undefined
+            ? { output: Output.object({ schema: outputSchema.schema }) }
+            : {}),
           ...(typeof options.temperature === "number" && modelInfo?.supportsTemperature !== false
             ? { temperature: options.temperature }
             : {}),
@@ -1968,7 +2061,10 @@ class AISDKService implements LLMService {
         }
 
         const responseModel = options.model;
-        const content = result.text ?? "";
+        const content =
+          outputSchema !== undefined
+            ? (structuredOutputText(result, outputSchema.wrapped) ?? result.text ?? "")
+            : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.
         const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
@@ -2104,7 +2200,7 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl, apiKey),
+      try: () => fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp")),
       catch: (error) => error,
     });
   };
@@ -2115,7 +2211,8 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchVllmServerModel(baseUrl, preferredModelId, apiKey),
+      try: () =>
+        fetchVllmServerModel(baseUrl, preferredModelId, apiKey ?? resolveProviderApiKey("vllm")),
       catch: (error) => error,
     });
   };
@@ -2126,7 +2223,12 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchSglangServerModel(baseUrl, preferredModelId, apiKey),
+      try: () =>
+        fetchSglangServerModel(
+          baseUrl,
+          preferredModelId,
+          apiKey ?? resolveProviderApiKey("sglang"),
+        ),
       catch: (error) => error,
     });
   };

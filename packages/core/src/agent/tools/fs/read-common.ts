@@ -5,6 +5,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import { buildKeyFromContext } from "../context-utils";
 
 export type FsToolDeps = FileSystem.FileSystem | FileSystemContextService;
@@ -91,14 +92,14 @@ export function pdfExtensionError(filePath: string, hint: string): ToolExecution
 
 /** True if a pdf.js/pdf-parse error indicates the PDF is encrypted and needs (or rejected) a password. */
 export function isPdfPasswordError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = toError(error).message;
   return /password/i.test(message) || /encrypted/i.test(message);
 }
 
 export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfParser, never> {
   return Effect.tryPromise({
     try: () => import("pdf-parse"),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   }).pipe(
     Effect.map((pdfModule): LoadedPdfParser => ({
       kind: "ok",
@@ -110,7 +111,7 @@ export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfPar
         result: {
           success: false,
           result: null,
-          error: `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
+          error: `${failurePrefix}: ${toError(error).message}`,
         },
       }),
     ),

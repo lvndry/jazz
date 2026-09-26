@@ -46,7 +46,10 @@ export interface PickerState {
   readonly checked: ReadonlySet<number>;
   /** Questionnaire / checkbox multi-select mode. */
   readonly allowMultiple?: boolean;
-  /** A free-text row the user can type into when nothing matches. */
+  /**
+   * Accept an answer outside `choices`. A `questionnaire` takes it from `customValue`; a `select`
+   * or `search` takes it from the filter query, offered as one row after the matches.
+   */
   readonly allowCustom?: boolean;
   /** The free-text value, when `allowCustom` is set. */
   readonly customValue?: string;
@@ -66,6 +69,22 @@ export interface CreatePickerStateOptions {
   readonly customValue?: string | undefined;
   readonly defaultChecked?: readonly number[] | undefined;
   readonly initialCursor?: number | undefined;
+}
+
+/** Describes the row that submits the typed filter as the answer. */
+export const TYPED_ANSWER_DESCRIPTION = "Your own answer";
+
+/**
+ * The filter text a `select` or `search` would submit as its own answer, or undefined when the
+ * picker accepts none or nothing has been typed. That row sits at the cursor index just past the
+ * last match.
+ */
+export function typedAnswer(state: PickerState): string | undefined {
+  if (!state.allowCustom || (state.type !== "select" && state.type !== "search")) {
+    return undefined;
+  }
+  const text = state.query.trim();
+  return text.length > 0 ? text : undefined;
 }
 
 /** A choice paired with its position in the original list, after filtering/ranking. */
@@ -134,6 +153,8 @@ export interface PickerView {
   readonly cursor: number;
   readonly query: string;
   readonly checked: ReadonlySet<number>;
+  /** The typed-answer row after the matches, when the picker offers one. */
+  readonly typedAnswer?: { readonly text: string; readonly active: boolean };
 }
 
 /**
@@ -152,6 +173,7 @@ export function derivePickerView(state: PickerState): PickerView {
     selected: state.checked.has(entry.originalIndex),
     matchIndex: entry.matchIndex,
   }));
+  const text = typedAnswer(state);
   return {
     rows,
     totalCount: state.choices.length,
@@ -159,6 +181,7 @@ export function derivePickerView(state: PickerState): PickerView {
     cursor: state.cursor,
     query: state.query,
     checked: state.checked,
+    ...(text === undefined ? {} : { typedAnswer: { text, active: state.cursor === rows.length } }),
   };
 }
 
@@ -180,14 +203,21 @@ function clampCursor(cursor: number, length: number): number {
 /**
  * Move the cursor by `delta` through the filtered list, skipping disabled rows.
  * Skipping mirrors the standard `ScrollableSelect` rule and keeps disabled
- * choices unselectable without special-casing in the renderer.
+ * choices unselectable without special-casing in the renderer. `trailingRow`
+ * counts the typed-answer row after the matches, which is never disabled.
  */
-function moveCursor(filtered: readonly RankedChoice[], cursor: number, delta: number): number {
-  if (filtered.length === 0) return 0;
+function moveCursor(
+  filtered: readonly RankedChoice[],
+  cursor: number,
+  delta: number,
+  trailingRow: boolean,
+): number {
+  const length = filtered.length + (trailingRow ? 1 : 0);
+  if (length === 0) return 0;
   const direction = delta > 0 ? 1 : -1;
   let next = cursor;
-  for (let step = 0; step < filtered.length; step += 1) {
-    next = clampCursor(next + direction, filtered.length);
+  for (let step = 0; step < length; step += 1) {
+    next = clampCursor(next + direction, length);
     if (!filtered[next]?.choice.disabled) return next;
   }
   return cursor;
@@ -201,19 +231,23 @@ function moveCursor(filtered: readonly RankedChoice[], cursor: number, delta: nu
  */
 export function reducePicker(state: PickerState, intent: PickerIntent): PickerState {
   const filtered = filterAndRank(state.choices, state.query);
+  const trailingRow = typedAnswer(state) !== undefined;
 
   switch (intent.kind) {
     case "setQuery": {
       return { ...state, query: intent.query, cursor: 0 };
     }
     case "move": {
-      return { ...state, cursor: moveCursor(filtered, state.cursor, intent.delta) };
+      return { ...state, cursor: moveCursor(filtered, state.cursor, intent.delta, trailingRow) };
     }
     case "first": {
-      return { ...state, cursor: moveCursor(filtered, -1, filtered.length) };
+      return { ...state, cursor: moveCursor(filtered, -1, filtered.length, trailingRow) };
     }
     case "last": {
-      return { ...state, cursor: moveCursor(filtered, filtered.length, filtered.length) };
+      return {
+        ...state,
+        cursor: moveCursor(filtered, filtered.length + 1, filtered.length + 1, trailingRow),
+      };
     }
     case "toggle": {
       if (state.type !== "checkbox" && state.type !== "questionnaire") return state;
@@ -261,6 +295,11 @@ export function resolvePicker(state: PickerState): PickerResolution {
   const current = filtered[state.cursor];
   if (current !== undefined && !current.choice.disabled) {
     return { kind: "single", value: current.choice.value };
+  }
+
+  const text = typedAnswer(state);
+  if (text !== undefined) {
+    return state.cursor === filtered.length ? { kind: "custom", value: text } : { kind: "none" };
   }
 
   if (state.allowCustom && (state.customValue ?? "").length > 0) {

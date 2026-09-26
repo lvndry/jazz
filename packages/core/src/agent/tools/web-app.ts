@@ -7,6 +7,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { toError } from "@/core/utils/storage";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
@@ -251,10 +252,7 @@ export function createCompositionTool(
 
         yield* Effect.tryPromise({
           try: () => renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath),
-          catch: (error) =>
-            new Error(
-              `Failed to render static web app: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+          catch: (error) => new Error(`Failed to render static web app: ${toError(error).message}`),
         });
 
         // `source: "rendered"`, emphatically: this PNG is a screenshot of HTML the model wrote,
@@ -290,7 +288,7 @@ export function createCompositionTool(
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

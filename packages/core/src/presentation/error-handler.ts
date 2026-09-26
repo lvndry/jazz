@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
+import { toError } from "@/core/utils/storage";
 
 export interface ErrorDisplay {
   readonly title: string;
@@ -513,8 +514,7 @@ export function handleError(
         : null;
     if (unknownException) {
       const cause = unknownException.error;
-      const message =
-        cause instanceof Error ? cause.message : typeof cause === "string" ? cause : String(cause);
+      const message = toError(cause).message;
       yield* presentation.writeOutput(
         `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help\n`,
       );

@@ -21,11 +21,16 @@
  * neighbours are other local accounts and the operator's own open tabs.
  */
 
+import { isAbsolute } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
+import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
+import { newProposedGoal } from "@jazz/core/agent/goal/goal-record";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
@@ -34,6 +39,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -60,6 +66,7 @@ import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { Persona } from "@jazz/core/types/persona";
 import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
+import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import {
   DEFAULT_WEBHOOK_DISCLOSURE,
@@ -73,8 +80,10 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
@@ -86,12 +95,17 @@ import {
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
+import { resumeGoalAwareRun } from "@jazz/adapters/daemon/goal-worker";
 import {
-  loadConversation,
-  saveConversation,
+  controlGoal,
+  getOwnedGoal,
+  listOwnedGoals,
+  type GoalAction,
+} from "@jazz/adapters/goals/goal-actions";
+import {
+  loadConversationOrNull,
+  saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
-
-export const DEFAULT_DAEMON_PORT = 4747;
 
 /**
  * What the daemon's handlers need from the runtime.
@@ -105,6 +119,7 @@ export type DaemonRequirements =
   | AgentConfigService
   | PersonaService
   | RunStoreTag
+  | GoalStoreTag
   | ToolRegistry
   | ToolRequirements
   // A threaded webhook reads its conversation before the run and writes it after, so the
@@ -302,7 +317,7 @@ export function makeHandler(
   const agentWriteBody = async (request: Request): Promise<AgentWriteBody | Response> => {
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
-    const problem = configBodyProblem(body.config);
+    const problem = configBodyProblem(body["config"]);
     return problem === undefined ? body : json({ ok: false, error: problem }, 400);
   };
 
@@ -312,7 +327,7 @@ export function makeHandler(
   // process is alive without holding a credential that can drive an agent. It is registered
   // before the token middleware and answers without calling `next`, so the middleware below
   // never runs for it.
-  app.get("/health", () => json({ ok: true }));
+  app.get("/health", () => json({ ok: true, owner: getGoalOwnerInstanceId() }));
 
   // Everything past this point is behind the token, *including a path that matches nothing*:
   // the wildcard is reached before Hono's 404, so an unauthenticated caller cannot map the
@@ -330,6 +345,22 @@ export function makeHandler(
   app.get("/runs/:runId", (context) => runEffect(describeRun(context.req.param("runId"))));
   app.post("/runs/:runId/answer", (context) =>
     answerRunRoute(context.req.raw, context.req.param("runId"), runEffect),
+  );
+
+  app.post("/goals", (context) => createGoalRoute(context.req.raw, runEffect));
+  app.get("/goals", () => runEffect(listGoals()));
+  app.get("/goals/:goalId", (context) => runEffect(showGoal(context.req.param("goalId"))));
+  app.post("/goals/:goalId/accept", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "accept", runEffect),
+  );
+  app.post("/goals/:goalId/pause", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "pause", runEffect),
+  );
+  app.post("/goals/:goalId/resume", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "resume", runEffect),
+  );
+  app.post("/goals/:goalId/cancel", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "cancel", runEffect),
   );
 
   app.get("/agents", () => runEffect(listAgents()));
@@ -394,6 +425,161 @@ async function startRunRoute(
       : generateConversationId("daemon");
 
   return runEffect(startRun(agentIdentifier, prompt, conversationId));
+}
+
+async function createGoalRoute(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) {
+    return body;
+  }
+  const agentId = typeof body["agentId"] === "string" ? body["agentId"].trim() : "";
+  const requestText = typeof body["request"] === "string" ? body["request"].trim() : "";
+  const conversationId =
+    typeof body["conversationId"] === "string" && body["conversationId"].trim().length > 0
+      ? body["conversationId"].trim()
+      : generateConversationId("goal");
+  if (
+    agentId.length === 0 ||
+    agentId.length > 200 ||
+    requestText.length === 0 ||
+    requestText.length > 8000
+  ) {
+    return json(
+      { ok: false, error: "agentId and a request of 1–8000 characters are required" },
+      400,
+    );
+  }
+  const workingDirectory = body["workingDirectory"];
+  if (typeof workingDirectory !== "string" || !isAbsolute(workingDirectory)) {
+    return json(
+      {
+        ok: false,
+        error: "workingDirectory, the absolute directory the goal works in, is required",
+      },
+      400,
+    );
+  }
+  const plan = body["plan"];
+  if (!isRecord(plan)) {
+    return json({ ok: false, error: "a proposed plan is required" }, 400);
+  }
+  const { revision: _revision, ...planBody } = plan;
+  const suggestedName =
+    typeof body["name"] === "string" && body["name"].trim().length > 0 ? body["name"] : "goal";
+  const parsedDraft = parseGoalDraft(
+    JSON.stringify({ kind: "plan", name: suggestedName, ...planBody }),
+  );
+  if (parsedDraft?.kind !== "plan") {
+    return json({ ok: false, error: "plan is malformed or exceeds its limits" }, 400);
+  }
+  return runEffect(
+    Effect.gen(function* () {
+      const agents = yield* AgentServiceTag;
+      const store = yield* GoalStoreTag;
+      yield* agents.getAgent(agentId);
+      const name = yield* chooseGoalName(
+        typeof body["name"] === "string" ? body["name"] : undefined,
+      );
+      const record = yield* store.create(
+        newProposedGoal({
+          agentId,
+          name,
+          workingDirectory,
+          sourceConversationId: conversationId,
+          request: requestText,
+          plan: parsedDraft.plan,
+        }),
+      );
+      return json({ ok: true, goal: record }, 201);
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.succeed(json({ ok: false, error: toError(error).message }, 400)),
+      ),
+    ),
+  );
+}
+
+function listGoals() {
+  return Effect.map(listOwnedGoals(), (goals) => json({ ok: true, goals }));
+}
+
+function showGoal(goalId: string) {
+  return Effect.map(getOwnedGoal(goalId), (goal) =>
+    goal === undefined ? json({ ok: false, error: "no such goal" }, 404) : json({ ok: true, goal }),
+  );
+}
+
+/** Largest control body: a version, a plan revision, and a short note. */
+const MAX_GOAL_CONTROL_PAYLOAD_LENGTH = 4096;
+
+/**
+ * Apply a goal action for an HTTP client. The client names the version it last read, so an
+ * action decided on a stale view is refused instead of applied to a goal that moved on.
+ */
+async function goalControlRoute(
+  request: Request,
+  goalId: string,
+  action: Exclude<GoalAction, "decline">,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const body = await readJsonBody(request, MAX_GOAL_CONTROL_PAYLOAD_LENGTH);
+  if (body instanceof Response) {
+    return body;
+  }
+  const version = body["version"];
+  if (typeof version !== "number" || !Number.isSafeInteger(version)) {
+    return json({ ok: false, error: "current goal version is required" }, 400);
+  }
+  const planRevision = body["planRevision"];
+  if (
+    action === "accept" &&
+    (typeof planRevision !== "number" || !Number.isSafeInteger(planRevision))
+  ) {
+    return json({ ok: false, error: "the plan revision being accepted is required" }, 400);
+  }
+  const approvalPolicy = body["approvalPolicy"];
+  if (
+    approvalPolicy !== undefined &&
+    (action !== "accept" ||
+      typeof approvalPolicy !== "string" ||
+      !isApprovalPolicyLevel(approvalPolicy))
+  ) {
+    return json(
+      {
+        ok: false,
+        error: "approvalPolicy is read-only, low-risk, or high-risk, and only on accept",
+      },
+      400,
+    );
+  }
+  return runEffect(
+    Effect.map(
+      controlGoal(goalId, action, {
+        expectedVersion: version,
+        ...(typeof planRevision === "number" ? { planRevision } : {}),
+        ...(typeof approvalPolicy === "string" && isApprovalPolicyLevel(approvalPolicy)
+          ? { approvalPolicy }
+          : {}),
+        ...(typeof body["note"] === "string" ? { guidance: body["note"] } : {}),
+      }),
+      (outcome) => {
+        if (outcome.kind === "refused") {
+          return json(
+            { ok: false, error: outcome.reason },
+            outcome.cause === "missing" ? 404 : 409,
+          );
+        }
+        return json({
+          ok: true,
+          goal: outcome.goal,
+          ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+        });
+      },
+    ),
+  );
 }
 
 async function answerRunRoute(
@@ -632,7 +818,9 @@ export function makePeerInviteHandler(
     // Capped before parsing, because this is the one route that answers before knowing who
     // is calling.
     const raw = await readBody(context.req.raw, MAX_ANONYMOUS_PAYLOAD_LENGTH);
-    if (raw instanceof Response) return raw;
+    if (raw instanceof Response) {
+      return raw;
+    }
     let body: { secret?: unknown; as?: unknown };
     try {
       body = JSON.parse(raw) as { secret?: unknown; as?: unknown };
@@ -732,10 +920,15 @@ interface AgentWriteBody {
   readonly config?: unknown;
 }
 
-/** An operator body, parsed, or the response to send instead. */
-async function readJsonBody(request: Request): Promise<AgentWriteBody | Response> {
-  const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
-  if (raw instanceof Response) return raw;
+/** An operator body, parsed as a JSON object (empty reads as `{}`), or the response to send instead. */
+async function readJsonBody(
+  request: Request,
+  limit = MAX_OPERATOR_PAYLOAD_LENGTH,
+): Promise<Record<string, unknown> | Response> {
+  const raw = await readBody(request, limit);
+  if (raw instanceof Response) {
+    return raw;
+  }
 
   let parsed: unknown;
   try {
@@ -743,7 +936,7 @@ async function readJsonBody(request: Request): Promise<AgentWriteBody | Response
   } catch {
     return json({ ok: false, error: "body must be JSON" }, 400);
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return json({ ok: false, error: "body must be a JSON object" }, 400);
   }
   return parsed;
@@ -1014,9 +1207,7 @@ function fireWebhook(
     // without its past, and refusing to answer a webhook because an old log is unreadable
     // trades a degraded turn for no turn at all.
     const priorRecord = threaded
-      ? yield* loadConversation(webhook.agentId, conversationId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
-        )
+      ? yield* loadConversationOrNull(webhook.agentId, conversationId)
       : null;
 
     const options = yield* webhookRunOptions({
@@ -1035,13 +1226,11 @@ function fireWebhook(
     const response = yield* AgentRunner.run(options);
 
     if (threaded) {
-      const now = new Date().toISOString();
-      yield* saveConversation({
+      yield* saveRunTranscript({
         agentId: webhook.agentId,
         conversationId,
-        title: priorRecord?.title ?? `webhook: ${webhook.name}`,
-        startedAt: priorRecord?.startedAt ?? now,
-        endedAt: now,
+        prior: priorRecord,
+        fallbackTitle: `webhook: ${webhook.name}`,
         messages: response.messages ?? priorRecord?.messages ?? [],
       }).pipe(
         Effect.catchAll((error) =>
@@ -1086,10 +1275,7 @@ function fireWebhook(
             error: String(error),
           });
         }
-        return json(
-          { ok: false, error: error instanceof Error ? error.message : String(error) },
-          500,
-        );
+        return json({ ok: false, error: toError(error).message }, 500);
       }),
     ),
   ) as Effect.Effect<Response, unknown, AgentService | FileSystem.FileSystem>;
@@ -1129,9 +1315,7 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
     }
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.succeed(
-        json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500),
-      ),
+      Effect.succeed(json({ ok: false, error: toError(error).message }, 500)),
     ),
   );
 }
@@ -1161,7 +1345,7 @@ function answerA2A(
         json({
           jsonrpc: "2.0",
           id: null,
-          error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+          error: { code: -32603, message: toError(error).message },
         }),
       ),
     ),
@@ -1205,10 +1389,7 @@ function startRun(
         if (logger._tag === "Some") {
           yield* logger.value.warn("Daemon run failed", { error: String(error) });
         }
-        return json(
-          { ok: false, error: error instanceof Error ? error.message : String(error) },
-          500,
-        );
+        return json({ ok: false, error: toError(error).message }, 500);
       }),
     ),
   ) as Effect.Effect<Response, unknown, AgentService>;
@@ -1318,7 +1499,7 @@ function agentErrorResponse(error: unknown): Response {
   if (error instanceof StorageNotFoundError || error instanceof AgentNotFoundError) {
     return json({ ok: false, error: "agent not found" }, 404);
   }
-  return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  return json({ ok: false, error: toError(error).message }, 500);
 }
 
 /**
@@ -1331,7 +1512,7 @@ function agentErrorResponse(error: unknown): Response {
  */
 function configBodyProblem(config: unknown): string | undefined {
   if (config === undefined) return undefined;
-  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+  if (!isRecord(config)) {
     return "config must be a JSON object";
   }
   if ("llmApiKeys" in config) {
@@ -1418,7 +1599,7 @@ function listModels(provider: ProviderName, role?: CompanionRole) {
         json(
           {
             ok: false,
-            error: `Could not list models for ${provider}: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Could not list models for ${provider}: ${toError(error).message}`,
             suggestion: "Name the model directly — the catalogue is unavailable, not the model.",
           },
           502,
@@ -1562,7 +1743,7 @@ function personaErrorResponse(error: unknown): Response {
   return json(
     {
       ok: false,
-      error: `Could not write the persona: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Could not write the persona: ${toError(error).message}`,
     },
     500,
   );
@@ -1649,7 +1830,7 @@ function listPersonas() {
         json(
           {
             ok: false,
-            error: `Could not list personas: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Could not list personas: ${toError(error).message}`,
           },
           500,
         ),
@@ -1807,11 +1988,47 @@ function answerRun(
               ? { approved: true }
               : { approved: false, ...(note ? { userMessage: note } : {}) },
           };
-  return resumeRun({ runId, outcome }).pipe(
-    Effect.map((response) => json({ ok: true, runId, answer: response.content })),
+  return Effect.gen(function* () {
+    const result = yield* resumeGoalAwareRun({ runId, outcome });
+    if (result.kind === "blocked") {
+      return json({ ok: false, error: result.reason }, 409);
+    }
+    if (result.kind === "not-goal") {
+      return json({ ok: true, runId, answer: result.response.content });
+    }
+    const settled = result.outcome;
+    if (settled.kind === "parked") {
+      return json(
+        {
+          ok: false,
+          state: "input-required",
+          runId,
+          goalId: result.goalId,
+          expiresAt: settled.park.expiresAt,
+          pending: describePendingInput(settled.park.pending),
+        },
+        202,
+      );
+    }
+    if (settled.kind === "failed") {
+      return json({ ok: false, runId, goalId: result.goalId, error: settled.error }, 500);
+    }
+    return json({ ok: true, runId, goalId: result.goalId, answer: settled.response.content });
+  }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed(
-        json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 409),
+        isRunParkRequested(error) && error.runId !== undefined
+          ? json(
+              {
+                ok: false,
+                state: "input-required",
+                runId: error.runId,
+                expiresAt: error.expiresAt,
+                pending: describePendingInput(error.pending),
+              },
+              202,
+            )
+          : json({ ok: false, error: toError(error).message }, 409),
       ),
     ),
   );

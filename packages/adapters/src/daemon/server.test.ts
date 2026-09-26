@@ -1,4 +1,5 @@
 import path from "node:path";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
@@ -154,6 +155,41 @@ describe("the daemon's routes", () => {
 
     const response = await handle(request("GET", "/health"));
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, owner: getGoalOwnerInstanceId() });
+  });
+
+  it("refuses to accept a goal without the plan revision being accepted", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const response = await handle(
+      request("POST", "/goals/goal-1/accept", {
+        headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("refuses an approval policy outside the known tiers or off an accept", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const post = (path: string, body: unknown) =>
+      handle(
+        request("POST", path, {
+          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    expect(
+      (
+        await post("/goals/goal-1/accept", {
+          version: 1,
+          planRevision: 1,
+          approvalPolicy: "everything",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await post("/goals/goal-1/resume", { version: 1, approvalPolicy: "high-risk" })).status,
+    ).toBe(400);
   });
 
   it("rejects an unauthenticated request when a token is configured", async () => {

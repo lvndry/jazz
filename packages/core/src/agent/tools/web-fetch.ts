@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 
@@ -94,10 +95,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
 
         const response = yield* Effect.tryPromise({
           try: (signal) => fetchWithUserAgentFallback(args.url, { signal }),
-          catch: (error) =>
-            new Error(
-              `Failed to fetch ${args.url}: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+          catch: (error) => new Error(`Failed to fetch ${args.url}: ${toError(error).message}`),
         });
 
         if (!response.ok) {
@@ -119,10 +117,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
 
         const body = yield* Effect.tryPromise({
           try: () => response.text(),
-          catch: (error) =>
-            new Error(
-              `Failed to read response body: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+          catch: (error) => new Error(`Failed to read response body: ${toError(error).message}`),
         });
 
         const isHtml = contentType.includes("text/html");
@@ -132,10 +127,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         if (isHtml) {
           const extracted = yield* Effect.tryPromise({
             try: () => Defuddle(body, args.url, { markdown: true }),
-            catch: (error) =>
-              new Error(
-                `Failed to extract content: ${error instanceof Error ? error.message : String(error)}`,
-              ),
+            catch: (error) => new Error(`Failed to extract content: ${toError(error).message}`),
           }).pipe(Effect.either);
 
           if (extracted._tag === "Right") {

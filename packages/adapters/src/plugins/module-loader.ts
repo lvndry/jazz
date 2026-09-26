@@ -8,6 +8,7 @@
 
 import { pathToFileURL } from "node:url";
 import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
 import type { PluginArtifactInstaller } from "./artifact-installer";
 import { hashSourceTree } from "./github-source";
 import { pluginConsentDigest } from "./plugin-registry-service";
@@ -29,8 +30,8 @@ export interface EnabledPluginSnapshot {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const item = value;
   return (
     item["apiVersion"] === 1 &&
     typeof item["register"] === "function" &&

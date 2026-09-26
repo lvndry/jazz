@@ -21,7 +21,9 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { CommandRiskInput, CompactToolsInput, SkillRouteInput } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 export interface PluginCommandOptions {
@@ -51,7 +53,7 @@ function resolvePluginSource(source: string): string {
 function attempt<T>(operation: () => Promise<T>): Effect.Effect<T, Error> {
   return Effect.tryPromise({
     try: operation,
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   });
 }
 
@@ -61,18 +63,18 @@ function printJson(value: unknown): void {
 
 async function readSkillRouteInput(filePath: string): Promise<SkillRouteInput> {
   const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   if (typeof record["requestText"] !== "string" || !Array.isArray(record["skills"])) {
     throw new Error("route.skills input requires requestText and a skills array.");
   }
   const skills = record["skills"].map((item, index) => {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+    if (!isRecord(item)) {
       throw new Error(`skills[${index}] must be an object.`);
     }
-    const skill = item as Record<string, unknown>;
+    const skill = item;
     if (typeof skill["name"] !== "string" || typeof skill["description"] !== "string") {
       throw new Error(`skills[${index}] requires string name and description fields.`);
     }
@@ -83,10 +85,10 @@ async function readSkillRouteInput(filePath: string): Promise<SkillRouteInput> {
 
 async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput> {
   const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   if (Object.keys(record).length !== 1 || typeof record["command"] !== "string") {
     throw new Error("classify.command-risk input requires exactly one string command field.");
   }
@@ -95,14 +97,14 @@ async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput>
 
 async function readCompactToolsInput(filePath: string): Promise<CompactToolsInput> {
   const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   if (typeof record["goal"] !== "string" || !Array.isArray(record["candidates"])) {
     throw new Error("compact.tools input requires a goal string and a candidates array.");
   }
-  return value as CompactToolsInput;
+  return value as unknown as CompactToolsInput;
 }
 
 /** Scaffold a types-only SDK plugin project; dependency installation remains explicit. */

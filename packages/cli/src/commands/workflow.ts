@@ -1,5 +1,6 @@
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
+import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -9,6 +10,7 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
 import { agentModelString } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import {
   getCatchUpCandidates,
   runCatchUpForWorkflows,
@@ -41,7 +43,7 @@ import {
 import { Duration, Effect } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
-import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run/envelope";
+import { formatOneShotError, formatOneShotResult } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -458,7 +460,7 @@ export function runWorkflowCommand(
         updateLatestRunRecord(workflowName, {
           completedAt: new Date().toISOString(),
           status: "failed",
-          error: error instanceof Error ? error.message : String(error),
+          error: toError(error).message,
         }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       // The generic top-level error handler renders this failure (e.g. an

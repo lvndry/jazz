@@ -1,5 +1,10 @@
 import os from "node:os";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import { conversationsWaitingOnUser } from "@jazz/adapters/goals/goal-actions";
+import {
+  loadConversationOrNull,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
@@ -13,6 +18,7 @@ import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { agentDetailFields } from "./agent-details";
@@ -88,8 +94,15 @@ export function wizardCommand() {
       }
 
       if (hasConversationHistory) {
+        const waiting = yield* conversationsWaitingOnUser().pipe(
+          Effect.provide(makeFileGoalStoreLayer()),
+          Effect.catchAll(() => Effect.succeed(new Set<string>())),
+        );
         menuOptions.push({
-          label: "Resume conversation",
+          label:
+            waiting.size === 0
+              ? "Resume conversation"
+              : `Resume conversation (${String(waiting.size)} waiting for you)`,
           value: "resume-conversation",
         });
       }
@@ -296,7 +309,7 @@ export function wizardCommand() {
 
     yield* terminal.log("");
     yield* Effect.sync(() => process.exit(0));
-  }).pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+  }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
 /**
@@ -524,9 +537,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     // Read on demand: the picker above needs titles and dates, not transcripts, so the
     // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversation(selected.agent.id, selected.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
 
     yield* startChatWithAgent(selected.agent, {
       initialHistory: conversation?.messages ?? [],

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import {
   isPdfPasswordError,
@@ -65,7 +66,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
             // Use getInfo() to extract metadata without processing all content
             const infoResult = yield* Effect.tryPromise({
               try: () => pdfParser.getInfo(),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              catch: toError,
             });
             const pageCount = (infoResult as { pageCount?: number }).pageCount || 0;
 
@@ -95,19 +96,19 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
             return {
               success: false,
               result: null,
-              error: `Failed to extract PDF info: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+              error: `Failed to extract PDF info: ${toError(parseError).message}`,
             };
           } finally {
             yield* Effect.tryPromise({
               try: () => pdfParser.destroy(),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              catch: toError,
             }).pipe(Effect.catchAll(() => Effect.void));
           }
         } catch (error) {
           return {
             success: false,
             result: null,
-            error: `pdf_page_count failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `pdf_page_count failed: ${toError(error).message}`,
           };
         }
       }),

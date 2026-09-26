@@ -25,6 +25,8 @@ import type {
   SkillRouteInput,
   SkillRouteOutcome,
 } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";
@@ -108,10 +110,10 @@ function fail(message: string): never {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     fail("jazz-plugin.json must contain an object");
   }
-  return value as Record<string, unknown>;
+  return value;
 }
 
 async function readSourceManifest(pluginDirectory: string): Promise<SourceManifest> {
@@ -121,7 +123,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
       await fs.readFile(path.join(pluginDirectory, "jazz-plugin.json"), "utf8"),
     ) as unknown;
   } catch (error) {
-    fail(`invalid jazz-plugin.json (${error instanceof Error ? error.message : String(error)})`);
+    fail(`invalid jazz-plugin.json (${toError(error).message})`);
   }
   const source = record(decoded);
   const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "policyHooks", "entry"]);
@@ -201,8 +203,8 @@ function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const module = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const module = value;
   return (
     module["apiVersion"] === 1 &&
     typeof module["register"] === "function" &&

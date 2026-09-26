@@ -21,13 +21,13 @@ A persona is a reusable system prompt with a name. It decides how an agent works
 
 On disk it is one `PERSONA.md` file: YAML frontmatter plus the system prompt as the body.
 
-| Field         | Required | Purpose                                                                             |
-| ------------- | -------- | ----------------------------------------------------------------------------------- |
-| `name`        | Yes      | Short identifier (letters, numbers, `_`, `-`).                                      |
-| `description` | Yes      | One-line summary of the persona's character                                         |
-| `tone`        | No       | Descriptor like "sarcastic", "formal", "friendly"                                   |
-| `style`       | No       | Descriptor like "concise", "verbose", "technical"                                   |
-| `toolProfile` | No       | `categories` and/or `deny` lists. Narrows the tools an agent may use, never widens. |
+| Field         | Required | Purpose                                                                                                  |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `name`        | Yes      | Short identifier (letters, numbers, `_`, `-`).                                                           |
+| `description` | Yes      | One-line summary of the persona's character                                                              |
+| `tone`        | No       | Label shown in listings, like "sarcastic" or "formal". Not sent to the model: put the voice in the body. |
+| `style`       | No       | Label shown in listings, like "concise" or "technical". Not sent to the model: put it in the body.       |
+| `tools`       | No       | `categories` and/or `deny` lists. Narrows the tools an agent may use, never widens.                      |
 
 Jazz keeps the body intact and appends one `Jazz harness` block for runtime rules. The persona's identity, tone, and priorities are treated as a binding contract for the whole conversation.
 
@@ -113,7 +113,7 @@ name: mentor
 description: Experienced mentor who provides direct, growth-focused guidance.
 tone: direct
 style: constructive, concise
-toolProfile:
+tools:
   categories: [file_management, search, web_fetch]
 ---
 
@@ -163,7 +163,7 @@ Ask the user:
 - What should it always do, regardless of the request?
 - What generic model habits should it refuse? What would break the character?
 - Does it have a method for weighing evidence or tradeoffs? (If yes, add `Judgment`.)
-- Should it be limited to certain tools? (If yes, add `toolProfile`.)
+- Should it be limited to certain tools? (If yes, add `tools`.)
 
 ### Step 2: Draft the file
 

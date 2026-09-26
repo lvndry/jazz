@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
@@ -201,7 +202,7 @@ function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
     try {
       const raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
       const parsed: unknown = JSON.parse(raw);
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      if (isRecord(parsed)) {
         return parsed as Record<string, string>;
       }
       return {};

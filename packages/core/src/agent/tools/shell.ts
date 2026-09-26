@@ -11,6 +11,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
+import { toError } from "@/core/utils/storage";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -46,7 +47,7 @@ function formatTimeoutForApproval(ms: number): string {
  * to catch accidental destructive operations from a confused or malicious
  * model, while every command still requires explicit human approval upstream.
  *
- * See `shell-tools.security.test.ts` for the regression suite and the
+ * See `shell.security.test.ts` for the regression suite and the
  * documented set of known bypasses.
  */
 /** An inline `mktemp` command substitution — `$(mktemp …)` or `` `mktemp …` ``. */
@@ -151,6 +152,18 @@ type ForbiddenRule = {
 };
 
 export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
+  // Accepting a goal grants it authority to keep working unattended; that is the user's call.
+  {
+    pattern: /\bjazz\s+goal\s+(?:accept\b|start\b[^\n]*--yes\b)/,
+    reason:
+      "accepting a goal (`jazz goal accept`, `jazz goal start --yes`) is the user's decision, not an agent's",
+  },
+  // A parked run stopped to ask the user; an agent answering it would grant itself the step.
+  {
+    pattern: /\bjazz\s+(?:goal|runs)\s+(?:approve|answer)\b/,
+    reason:
+      "approving or answering a parked run (`jazz runs approve`, `jazz goal answer`) is the user's decision, not an agent's",
+  },
   // File-system destruction (rm with any -r/-f flag combination, root paths,
   // home, or wildcards)
   {
@@ -544,16 +557,17 @@ export function runShellCommand(input: {
       // No `timeout` option: it races the one below, and when Node's wins it kills with
       // SIGTERM and reaches `close` with a null code — reported as exit 0, so a command that
       // ran out of time came back looking like it succeeded.
+      // No `uid`/`gid` either, even our own: with them Bun often finds a fast command already
+      // exited before it watches it, and reports that exit inside spawn(), before any listener
+      // is attached, so `close` never fires and the call hangs until its timeout.
       child = spawn(shellBinary, shellArgs, {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         env: input.env,
         detached: false,
-        uid: process.getuid ? process.getuid() : undefined,
-        gid: process.getgid ? process.getgid() : undefined,
       });
     } catch (spawnError) {
-      finish(Effect.fail(spawnError instanceof Error ? spawnError : new Error(String(spawnError))));
+      finish(Effect.fail(toError(spawnError)));
       return;
     }
 
@@ -724,7 +738,7 @@ This command will be executed on your system. Only approve commands you trust.`;
                 stdout: "",
                 stderr: "",
                 exitCode: -1,
-                error: error instanceof Error ? error.message : String(error),
+                error: toError(error).message,
               }),
             ),
           );
@@ -756,7 +770,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             },
           };
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           return {
             success: false,
             result: null,

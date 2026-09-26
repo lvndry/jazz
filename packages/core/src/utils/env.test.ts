@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createSanitizedEnv } from "./env";
+import { AGENT_PROCESS_ENV, createSanitizedEnv } from "./env";
 
 describe("createSanitizedEnv", () => {
   it("scrubs sensitive-looking env vars by default", () => {
@@ -103,5 +103,11 @@ describe("createSanitizedEnv", () => {
         process.env["SSH_AUTH_SOCK"] = originalValue;
       }
     }
+  });
+});
+
+describe("the agent-process marker", () => {
+  it("is set on every environment Jazz builds for an agent's child process", () => {
+    expect(createSanitizedEnv()[AGENT_PROCESS_ENV]).toBe("1");
   });
 });

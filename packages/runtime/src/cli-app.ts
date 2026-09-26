@@ -1,6 +1,6 @@
 import * as path from "node:path";
+import type { GoalAnswer } from "@jazz/adapters/goals/goal-actions";
 import {
-  isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
@@ -10,6 +10,7 @@ import {
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
+import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import {
   companionRole,
   isMediaModality,
@@ -17,8 +18,10 @@ import {
   type CompanionRole,
 } from "@jazz/core/types/llm";
 import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
+import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
 
@@ -111,6 +114,10 @@ function registerRunCommand(program: Command): void {
       "Comma-separated tool names to auto-approve without prompting, regardless of --approval-policy (e.g. execute_command). Narrower than raising the whole policy tier.",
     )
     .option(
+      "--propose-goals",
+      "Let the agent propose a goal for work that outlasts this run. The proposal waits for `jazz goal accept`; off by default, since an unattended run has nobody to accept it.",
+    )
+    .option(
       "--timezone <iana-tz>",
       "IANA timezone (e.g. Europe/Paris) used to resolve relative/clock times for this run, e.g. the add_reminder tool. Defaults to UTC.",
     )
@@ -192,6 +199,7 @@ function registerRunCommand(program: Command): void {
           json?: boolean;
           approvalPolicy?: string;
           autoApproveTools?: string;
+          proposeGoals?: boolean;
           timezone?: string;
           timeout?: number;
           maxIterations?: number;
@@ -214,7 +222,10 @@ function registerRunCommand(program: Command): void {
       ) => {
         const json = options.json === true;
 
-        if (options.approvalPolicy !== undefined && !isApprovalPolicyFlag(options.approvalPolicy)) {
+        if (
+          options.approvalPolicy !== undefined &&
+          !isApprovalPolicyLevel(options.approvalPolicy)
+        ) {
           const message = `Invalid --approval-policy "${options.approvalPolicy}". Expected read-only, low-risk, or high-risk.`;
           if (json) {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
@@ -322,12 +333,13 @@ function registerRunCommand(program: Command): void {
               mod.runAgentOnceCommand(options.agent, prompt, {
                 json,
                 ...(options.approvalPolicy !== undefined &&
-                isApprovalPolicyFlag(options.approvalPolicy)
+                isApprovalPolicyLevel(options.approvalPolicy)
                   ? { approvalPolicy: options.approvalPolicy }
                   : {}),
                 ...(autoApproveTools && autoApproveTools.length > 0
                   ? { autoApprovedTools: autoApproveTools }
                   : {}),
+                ...(options.proposeGoals === true ? { proposeGoals: true } : {}),
                 ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
                   ? { reasoning: options.reasoning }
@@ -1182,7 +1194,7 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
   return Promise.resolve()
     .then(action)
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(toError(error).message);
       process.exitCode = 1;
     });
 }
@@ -1280,11 +1292,11 @@ function registerDaemonCommand(program: Command): void {
     .description(
       "Serve runs over HTTP so a parked run can be answered later, and from somewhere else",
     )
-    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), 4747)
+    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), DEFAULT_DAEMON_PORT)
     .option(
       "--host <address>",
       "Interface to bind. Anything other than loopback requires a daemon token (env or keyring).",
-      "127.0.0.1",
+      DEFAULT_DAEMON_HOST,
     )
     .option(
       "--serve-peers <agentId>",
@@ -1399,6 +1411,239 @@ function registerDaemonCommand(program: Command): void {
         cliRuntimeOptions(program),
       ),
     );
+}
+
+/** Register `jazz goal`: draft, start, list, show, and control goals from a shell. */
+function registerGoalCommand(program: Command): void {
+  const goalCommand = program
+    .command("goal")
+    .description(
+      "Draft, start, and control goals Jazz works toward across runs (they advance while `jazz daemon` runs)",
+    );
+  const load = () => import("@jazz/cli/commands/goal");
+
+  goalCommand
+    .command("draft <request...>")
+    .description(
+      "Draft a plan for an objective, or the questions it needs answered, without starting it",
+    )
+    .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
+    .option(
+      "--no-inspect",
+      "Draft without first reading the current directory (by default a read-only pass informs the plan)",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((request: string[], options: { agent: string; inspect?: boolean; json?: boolean }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.draftGoalCommand({
+              agent: options.agent,
+              request: request.join(" "),
+              inspect: options.inspect !== false,
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  goalCommand
+    .command("start <request...>")
+    .description("Draft a plan and, with --yes, start it as a goal")
+    .requiredOption("--agent <agentId>", "Agent ID or name that will work on the goal")
+    .option(
+      "--no-inspect",
+      "Draft without first reading the current directory (by default a read-only pass informs the plan)",
+    )
+    .option("--yes", "Accept the drafted plan without showing it for review first")
+    .option("--json", "Emit a single JSON envelope")
+    .option(
+      "--approval-policy <policy>",
+      "What the goal may run without asking once accepted: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
+    )
+    .option("--max-cycles <n>", "Most cycles the goal may run", parsePositiveInt("--max-cycles"))
+    .option(
+      "--cycle-iterations <n>",
+      "Iterations per cycle before progress is checked and saved",
+      parsePositiveInt("--cycle-iterations"),
+    )
+    .option("--max-tokens <n>", "Token budget for the whole goal", parsePositiveInt("--max-tokens"))
+    .option(
+      "--max-minutes <n>",
+      "Active-time budget for the whole goal, in minutes",
+      parsePositiveInt("--max-minutes"),
+    )
+    .option(
+      "--max-cost-usd <amount>",
+      "Dollar budget for the whole goal (enforced when pricing is known)",
+      parsePositiveFloat("--max-cost-usd"),
+    )
+    .action(
+      (
+        request: string[],
+        options: {
+          agent: string;
+          inspect?: boolean;
+          yes?: boolean;
+          json?: boolean;
+          maxCycles?: number;
+          cycleIterations?: number;
+          maxTokens?: number;
+          maxMinutes?: number;
+          maxCostUsd?: number;
+          approvalPolicy?: string;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.startGoalCommand({
+                agent: options.agent,
+                request: request.join(" "),
+                inspect: options.inspect !== false,
+                yes: options.yes === true,
+                json: options.json === true,
+                ...(options.approvalPolicy !== undefined
+                  ? { approvalPolicy: options.approvalPolicy }
+                  : {}),
+                budget: {
+                  ...(options.maxCycles !== undefined ? { maxCycles: options.maxCycles } : {}),
+                  ...(options.cycleIterations !== undefined
+                    ? { maxIterationsPerCycle: options.cycleIterations }
+                    : {}),
+                  ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+                  ...(options.maxMinutes !== undefined
+                    ? { maxDurationMs: options.maxMinutes * 60_000 }
+                    : {}),
+                  ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
+                },
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+    );
+
+  goalCommand
+    .command("list")
+    .description("List goals and their progress")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.listGoalsCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  goalCommand
+    .command("show <id>")
+    .description("Show one goal: state, progress, budget, and plan")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.showGoalCommand({ id, json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  for (const [decision, description] of [
+    ["accept", "Start a goal Jazz proposed"],
+    ["decline", "Drop a goal Jazz proposed"],
+  ] as const) {
+    const command = goalCommand
+      .command(`${decision} <id>`)
+      .description(description)
+      .option("--json", "Emit a single JSON envelope");
+    if (decision === "accept") {
+      command.option(
+        "--approval-policy <policy>",
+        "What the goal may run without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
+      );
+    }
+    command.action((id: string, options: { json?: boolean; approvalPolicy?: string }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.decideProposedGoalCommand({
+              id,
+              accept: decision === "accept",
+              json: options.json === true,
+              ...(options.approvalPolicy !== undefined
+                ? { approvalPolicy: options.approvalPolicy }
+                : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  }
+
+  const answerAction =
+    (toAnswer: (text: string) => GoalAnswer) =>
+    (id: string, text: string[], options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.answerGoalCommand({
+              id,
+              answer: toAnswer(text.join(" ").trim()),
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      );
+  goalCommand
+    .command("approve <goal>")
+    .description("Allow the step a goal is waiting on; the rest of its cycle runs here")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      answerAction(() => ({ kind: "approve" }))(id, [], options),
+    );
+  goalCommand
+    .command("reject <goal> [why...]")
+    .description("Refuse the step a goal is waiting on; the reason goes to the agent")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((why) => ({ kind: "reject", ...(why.length > 0 ? { note: why } : {}) })));
+  goalCommand
+    .command("answer <goal> <answer...>")
+    .description("Answer the question a goal is waiting on")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((response) => ({ kind: "answer", response })));
+
+  for (const [control, description] of [
+    ["pause", "Stop starting new cycles; a running cycle finishes first"],
+    [
+      "resume",
+      "Resume a paused, review-required, or budget-limited goal; the note steers the next cycle",
+    ],
+    ["cancel", "Cancel a goal and its parked run"],
+  ] as const) {
+    goalCommand
+      .command(`${control} <id> [note...]`)
+      .description(description)
+      .option("--json", "Emit a single JSON envelope")
+      .action((id: string, note: string[], options: { json?: boolean }) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.controlGoalCommand({
+                control,
+                id,
+                ...(note.length > 0 ? { note: note.join(" ") } : {}),
+                json: options.json === true,
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+  }
 }
 
 /**
@@ -1577,12 +1822,14 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     .option(
       "--host <address>",
       "Interface your daemon answers on — must match how you're running (or will run) `jazz daemon`",
-      "127.0.0.1",
+      DEFAULT_DAEMON_HOST,
     )
-    // 4747 mirrors `jazz daemon`'s own default (`DEFAULT_DAEMON_PORT`) — kept as a literal
-    // here rather than a static import, matching this file's lazy-import convention for
-    // command modules.
-    .option("--port <n>", "Port your daemon answers on", parsePositiveInt("--port"), 4747)
+    .option(
+      "--port <n>",
+      "Port your daemon answers on",
+      parsePositiveInt("--port"),
+      DEFAULT_DAEMON_PORT,
+    )
     .option(
       "--as <name>",
       "What to call yourself to the invitee. Defaults to this machine's hostname.",
@@ -2143,6 +2390,7 @@ export function createCLIApp(): Command {
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
+  registerGoalCommand(program);
   registerIMessageCommand(program);
   registerWhatsappCommand(program);
   registerWakeTriggerCommand(program);

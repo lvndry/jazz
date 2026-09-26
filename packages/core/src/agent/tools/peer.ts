@@ -31,6 +31,7 @@ import {
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /** A peer that cannot answer within this is treated as unreachable rather than waited on. */
@@ -127,9 +128,7 @@ async function postQuestion(
     const reason =
       error instanceof Error && error.name === "AbortError"
         ? `peer did not answer within ${String(PEER_TIMEOUT_MS / 1000)}s`
-        : error instanceof Error
-          ? error.message
-          : String(error);
+        : toError(error).message;
     return { ok: false, reason };
   } finally {
     clearTimeout(timer);

@@ -15,6 +15,7 @@ import { JobQueueServiceTag } from "@/core/interfaces/job-queue-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/storage";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
@@ -207,7 +208,7 @@ These commands will run unattended, without further approval, until every job fi
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -267,7 +268,7 @@ These commands will run unattended, without further approval, until every job fi
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),
@@ -306,7 +307,7 @@ These commands will run unattended, without further approval, until every job fi
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

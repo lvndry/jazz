@@ -5,8 +5,9 @@ import { read as readLedger, record as recordLedger } from "@jazz/adapters/peers
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "@/core/interfaces/peers";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
@@ -58,19 +59,12 @@ function peers(overrides: Partial<PeerConfig> = {}): readonly PeerConfig[] {
 }
 
 function layers(configured: readonly PeerConfig[]) {
-  const logger = {
-    debug: () => Effect.void,
-    info: () => Effect.void,
-    warn: () => Effect.void,
-    error: () => Effect.void,
-  } as unknown as LoggerService;
-
   const configService = {
     appConfig: Effect.succeed({ peers: configured }),
   } as unknown as AgentConfigService;
 
   return Layer.mergeAll(
-    Layer.succeed(LoggerServiceTag, logger),
+    Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(AgentConfigServiceTag, configService),
     Layer.succeed(PeerLedgerServiceTag, { record: recordLedger }),
     Layer.succeed(PeerTokenServiceTag, { resolveToken: resolvePeerToken }),

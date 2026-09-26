@@ -57,6 +57,7 @@ import type { PeerConfig } from "@/core/types/peer";
 import type { StreamingConfig } from "@/core/types/streaming";
 import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
+import { isRecord } from "@/core/utils/is-record";
 
 /**
  * `T` with every property optional, all the way down. A file is a partial override, so this is what
@@ -806,10 +807,6 @@ function parsePath(path: string): readonly string[] | undefined {
 
 const MCP_SERVERS = "mcpServers";
 
-function isObjectValue(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 /**
  * The literal server name in a whole-entry `mcpServers.<name>` write, or `undefined`.
  *
@@ -819,7 +816,7 @@ function isObjectValue(value: unknown): value is Record<string, unknown> {
  * (`mcpServers.<name>.enabled` / `.trusted`) carry a boolean and stay on the generic dotted path.
  */
 export function mcpServerEntryName(path: string, value: unknown): string | undefined {
-  if (!isObjectValue(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const prefix = `${MCP_SERVERS}.`;
   if (!path.startsWith(prefix)) return undefined;
   const name = path.slice(prefix.length);

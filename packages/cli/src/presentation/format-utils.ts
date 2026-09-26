@@ -10,6 +10,7 @@
  * consumers only need one import.
  */
 
+import { isRecord } from "@jazz/core/utils/is-record";
 import {
   formatToolArguments as formatToolArgumentsCore,
   formatToolResult as formatToolResultCore,
@@ -57,8 +58,8 @@ const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
 function languageFromToolResult(result: string): string | undefined {
   try {
     const parsed: unknown = JSON.parse(result);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-    const path = (parsed as Record<string, unknown>)["path"];
+    if (!isRecord(parsed)) return undefined;
+    const path = parsed["path"];
     return typeof path === "string" ? sourceLanguageFromPath(path) : undefined;
   } catch {
     return undefined;

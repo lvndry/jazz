@@ -14,6 +14,7 @@ import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
 import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 import {
   appendCapped,
@@ -35,7 +36,7 @@ import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
  * - `record`: always returns a fixed response with no side effects.
  * - `command`: spawns `handler.command` directly (no shell), matching
  *   `execute_command`'s env-sanitization, cwd resolution, and timeout/kill
- *   semantics (see `shell-tools.ts`).
+ *   semantics (see `shell.ts`).
  */
 
 /** Hard cap on captured stdout/stderr per command execution, in BYTES (not UTF-16 code units). */
@@ -64,7 +65,7 @@ type CommandExecutionOutcome =
  * collect stdout/stderr up to `MAX_COMMAND_OUTPUT_BYTES` each. Resolves
  * (never rejects) with either the process outcome or a bounded error message
  * covering spawn failures and timeout kills — mirrors how `execute_command`
- * in `shell-tools.ts` reports failures to the model.
+ * in `shell.ts` reports failures to the model.
  */
 function runCustomToolCommand(
   argv: readonly string[],
@@ -95,7 +96,7 @@ function runCustomToolCommand(
     } catch (spawnError) {
       resolve({
         ok: false,
-        error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+        error: toError(spawnError).message,
       });
       return;
     }
@@ -123,7 +124,7 @@ function runCustomToolCommand(
     });
 
     child.on("error", (error) => {
-      finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      finish({ ok: false, error: toError(error).message });
     });
 
     child.on("close", (code) => {

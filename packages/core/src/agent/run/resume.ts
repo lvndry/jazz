@@ -7,11 +7,12 @@
  * approval it needs is already answered.
  */
 
-import { hostname } from "node:os";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
 import type { RunId } from "./run-state";
@@ -42,6 +43,12 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /** Remaining aggregate goal caps for the cycle containing this parked run. */
+  readonly goalLimits?: {
+    readonly maxTokens: number;
+    readonly maxDurationMs: number;
+    readonly maxCostUSD?: number;
+  };
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -78,28 +85,6 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
 
-    // Claimed before the work starts: two approvals racing on the same parked run would
-    // otherwise both replay the tool, and the transition table rejects the second.
-    yield* store
-      .transition(options.runId, {
-        kind: "working",
-        iteration: snapshot.iteration,
-        // Kept so a resume that dies mid-flight can be re-parked rather than stranded.
-        recovery: {
-          pending,
-          snapshot,
-          expiresAt: record.state.expiresAt,
-          pid: process.pid,
-          host: hostname(),
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
-        ),
-      );
-
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
     const lastAssistant = [...snapshot.messages]
@@ -122,6 +107,27 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
     }
+
+    // Claim only after validating the complete snapshot. Two approvals racing on the same
+    // parked run still cannot replay the tool because the transition is atomic.
+    yield* store
+      .transition(options.runId, {
+        kind: "working",
+        iteration: snapshot.iteration,
+        owner: currentProcessOwner(),
+        recovery: {
+          pending,
+          snapshot,
+          expiresAt: record.state.expiresAt,
+          ...currentProcessOwner(),
+        },
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
+        ),
+      );
 
     // Everything this turn has already been answered, plus the answer just given. Building
     // the map from the new answer alone was the bug: a turn needing two approvals would stop
@@ -147,6 +153,26 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
+    if (record.workingDirectory !== undefined) {
+      const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+      if (Option.isSome(fileSystemContext)) {
+        yield* fileSystemContext.value
+          .setCwd(
+            { agentId: record.agentId, conversationId: record.conversationId },
+            record.workingDirectory,
+          )
+          .pipe(
+            Effect.mapError(
+              () =>
+                new RunNotResumableError(
+                  options.runId,
+                  `the directory it worked in, ${record.workingDirectory}, is gone`,
+                ),
+            ),
+          );
+      }
+    }
+
     const response: AgentResponse = yield* AgentRunner.run({
       agent,
       runId: options.runId,
@@ -157,8 +183,18 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
-      ...(options.autoApprovedTools !== undefined
-        ? { autoApprovedTools: options.autoApprovedTools }
+      ...(options.goalLimits !== undefined ? options.goalLimits : {}),
+      ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
+      ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
+      ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
+        ? {
+            autoApprovedTools: [
+              ...new Set([
+                ...(record.autoApprovedTools ?? []),
+                ...(options.autoApprovedTools ?? []),
+              ]),
+            ],
+          }
         : {}),
     });
 
