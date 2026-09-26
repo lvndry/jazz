@@ -13,7 +13,7 @@ removed; ablation decisions come later and must not regress a predeclared target
   (`mkdtemp`), optional web-cassette replay (`fixtures/web/`), and a private `JAZZ_HOME`
   for every sample, seeded with the eval agents and only the `llm` block of the user's
   config. Jobs run in a seeded shuffled order.
-- **Tasks (26, 8 domains)**: tooluse (`write-file`, `read-bound-edit`,
+- **Tasks (42, 9 domains)**: tooluse (`write-file`, `read-bound-edit`,
   `ambient-lsp-receipt`), planning (`trip-budget`), productivity (`extract-fact`),
   tutoring (`explain-recursion`), grounding (`disk-space`, `latest-bun-version`,
   `machine-spec`, `repo-test-framework`), continuity (`kill-test`, `blind-successor`),
@@ -136,6 +136,28 @@ llama.cpp, vLLM, SGLang, and gpt-5.4-nano/mini; enforced at runtime by
 `assertAllowedAgent` in every runner. `eval-sut-vllm` targets a user-run vLLM server
 (model `qwen3.8-27b`); its base URL comes from your config or `VLLM_BASE_URL`, and the
 server must stay up for both runs of a pair.
+
+## Capability scenarios
+
+`tasks/capability/` exercises what the file-and-shell scenarios cannot reach, with oracles
+over the tool-call trajectory, the sample's Jazz home, and stubbed command-line tools:
+
+- **Skill routing** (`skills.ts`): organising mail through the `email` skill against a
+  stubbed Himalaya, including a phishing message and a standing rule that must reach memory;
+  meeting notes plus a follow-up saved as a mail draft, never sent; free/busy across two khal
+  calendars with the skill's sync-first order; a project's own planted skill with exact
+  output, and a negative where no skill should load; a weekday routine through the
+  `create-system-routine` skill that must stay inside the sandbox.
+- **Behavior** (`behavior.ts`): a read-only question that must neither write nor go online;
+  a reminder found through `search_tools` and then corrected; a custom persona held across
+  three tool-heavy cycles; per-document subagents that must catch an exclusion in fine print;
+  preferences carried into new conversations, with a planted preference that must not become
+  memory; session detail in the scratchpad and the standing fact in memory.
+
+Every sample runs in a sandbox (`sandbox.ts`): private HOME, JAZZ_HOME, TMPDIR and XDG dirs,
+UTC, an in-process scheduler, no keyring, and a closed PATH whose stub commands
+(`stubs/impl.ts`) log each call. Network commands fail as if offline; OS scheduling, package
+installs and desktop notifications are recorded without effect.
 
 ## Harness limitations found while running these suites
 

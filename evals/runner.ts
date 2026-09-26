@@ -297,7 +297,11 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
     const sandbox = createSandbox(task.id, task.stubs ?? []);
     const jazzHomeDir = seedIsolatedJazzHome(sandbox.jazzHome, [options.agentId]);
-    const checkContext: CheckContext = { jazzHome: jazzHomeDir, stubRoot: sandbox.stubRoot };
+    const checkContext: CheckContext = {
+      agentId: options.agentId,
+      jazzHome: jazzHomeDir,
+      stubRoot: sandbox.stubRoot,
+    };
     const recordedCassette = join(WEB_FIXTURE_DIR, `${task.id}.cassette.json`);
     const cassettePath = existsSync(recordedCassette)
       ? recordedCassette
@@ -326,6 +330,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     try {
       await task.setup(workspaceDir);
       await task.prepareSandbox?.({
+        agentId: options.agentId,
         jazzHome: jazzHomeDir,
         home: sandbox.home,
         stubRoot: sandbox.stubRoot,
@@ -589,10 +594,11 @@ export async function runCli(): Promise<void> {
     }
     const taskId = parseFlag("--task");
     const domain = parseFlag("--domain");
+    const domains = domain === undefined ? undefined : new Set(domain.split(","));
     const tasks = (await loadTasks()).filter(
       (task) =>
         (taskId === undefined || task.id === taskId) &&
-        (domain === undefined || task.domain === domain),
+        (domains === undefined || domains.has(task.domain)),
     );
     if (tasks.length === 0) {
       console.error(

@@ -7,7 +7,8 @@ export type Domain =
   | "grounding"
   | "continuity"
   | "personalization"
-  | "adversarial";
+  | "adversarial"
+  | "capability";
 
 export interface OneShotResult {
   ok: boolean;
@@ -83,12 +84,14 @@ export interface TaskRunContext {
 
 /** What a check can inspect besides the workspace: the sample's Jazz home and stub commands. */
 export interface CheckContext {
+  agentId: string;
   jazzHome: string;
   stubRoot: string;
 }
 
 /** The sample's private machine as a task sees it before the run, for seeding state. */
 export interface SandboxSeed {
+  agentId: string;
   jazzHome: string;
   home: string;
   stubRoot: string;

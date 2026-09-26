@@ -28,7 +28,18 @@
       "get_time",
       "web_fetch",
       "http_request",
-      "execute_command"
+      "execute_command",
+      "stat",
+      "add_reminder",
+      "list_reminders",
+      "cancel_reminder"
+    ],
+    "deniedTools": [
+      "enqueue_batch",
+      "list_jobs",
+      "cancel_batch",
+      "analyze_media",
+      "generate_media"
     ]
   },
   "createdAt": "2026-09-26T00:00:00.000Z",

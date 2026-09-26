@@ -80,6 +80,11 @@ export interface Cycle {
   prompt: string;
   /** Changes the workspace before this cycle starts, the way the world moves between sessions. */
   before?: (workspaceDir: string) => void;
+  /**
+   * Run this cycle in its own conversation, named by this suffix, instead of the scenario's
+   * shared one: a user coming back in a new chat, where only memory carries over.
+   */
+  conversation?: string;
 }
 
 /**
@@ -102,7 +107,10 @@ export async function runCycles(
         cassettePath: context.cassettePath,
         timeoutMs: context.timeoutMs,
         runId: `${context.runId}-c${index + 1}`,
-        conversationId: context.runId,
+        conversationId:
+          cycle.conversation === undefined
+            ? context.runId
+            : `${context.runId}-${cycle.conversation}`,
         jazzHome: context.jazzHome,
         environment: context.environment,
       }),

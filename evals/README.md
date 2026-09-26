@@ -17,7 +17,7 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
-Use `--task <id>` to run a single task, or `--domain <name>` to run one domain, while
+Use `--task <id>` to run a single task, or `--domain <name>[,<name>...]` to run some domains, while
 developing a focused harness change. `--seed <n>` fixes the shuffled run order (a default seed
 is used otherwise). `--concurrency <n>` sets parallel samples, and `--samples-beyond-easy <n>` runs a
 different number of samples for medium, hard, and very hard tasks.

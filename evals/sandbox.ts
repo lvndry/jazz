@@ -7,7 +7,8 @@
  * then Bun's own directory and the system directories, so a command-line tool installed for
  * the user (a mail client, a calendar CLI) cannot act on the user's real accounts. The OS
  * scheduler is replaced by the in-process one so reminders never install launchd or `at`
- * jobs, and network commands are stubbed so a shell cannot reach past the web cassette.
+ * jobs, network commands are stubbed so a shell cannot reach past the web cassette, and the
+ * timezone is UTC so times in prompts and oracles mean the same thing on every machine.
  */
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,10 +19,20 @@ const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 
 /**
  * Commands every sample gets as logging stubs. The network ones fail as if offline; the OS
- * scheduler and package manager ones succeed without touching the machine, so a scenario can
- * see an attempt without it having any effect.
+ * scheduler, package manager, and desktop notification ones succeed without touching the
+ * machine, so a scenario can see an attempt (or a reminder being delivered) without it
+ * having any effect.
  */
-export const DEFAULT_STUBS = ["curl", "wget", "crontab", "launchctl", "brew", "at"] as const;
+export const DEFAULT_STUBS = [
+  "curl",
+  "wget",
+  "crontab",
+  "launchctl",
+  "brew",
+  "at",
+  "osascript",
+  "notify-send",
+] as const;
 
 export interface SampleSandbox {
   readonly root: string;
@@ -71,6 +82,7 @@ export function createSandbox(label: string, stubs: readonly string[] = []): Sam
       XDG_CONFIG_HOME: join(home, ".config"),
       XDG_DATA_HOME: join(home, ".local", "share"),
       PATH: [stubBin, dirname(process.execPath), ...SYSTEM_PATH].join(":"),
+      TZ: "UTC",
       JAZZ_SCHEDULER: "in-process",
       JAZZ_DISABLE_KEYRING: "1",
       CI: "1",

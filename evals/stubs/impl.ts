@@ -608,6 +608,10 @@ switch (command) {
   case "at":
     finish(0, "", "", "os scheduling attempted");
     break;
+  case "osascript":
+  case "notify-send":
+    finish(0, "", "", "desktop notification");
+    break;
   case "brew":
     finish(
       1,
