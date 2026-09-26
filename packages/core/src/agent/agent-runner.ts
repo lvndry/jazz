@@ -68,6 +68,7 @@ import {
   type RecursiveRunner,
 } from "./context/summarizer";
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
+import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
@@ -940,6 +941,13 @@ export class AgentRunner {
   > {
     return Effect.scoped(
       Effect.gen(function* () {
+        if (options.conversationId && options.internal !== true) {
+          yield* Effect.tryPromise({
+            try: () =>
+              assertConversationWritable(options.agent.id, options.conversationId as string),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
+        }
         // Get services
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;

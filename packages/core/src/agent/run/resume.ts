@@ -8,10 +8,11 @@
  */
 
 import { Effect, Option } from "effect";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
-import type { ApprovalOutcome } from "@/core/types/tools";
+import type { ApprovalOutcome, AutoApprovePolicy } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
@@ -49,6 +50,17 @@ export interface ResumeRunOptions {
     readonly maxDurationMs: number;
     readonly maxCostUSD?: number;
   };
+  /** Preserve an unattended caller's authority ceiling across the park; overrides the policy stored on the run. */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
+  readonly maxCostUSD?: number;
+  readonly maxDurationMs?: number;
+  readonly maxIterations?: number;
+  readonly withholdInteractiveTools?: boolean;
+  /**
+   * Provider keys for this resumed segment only, layered over the agent's own. A long-lived
+   * host process resolves them per segment so a key stored after it started still applies.
+   */
+  readonly providerApiKeys?: Partial<Record<ProviderName, string>>;
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -77,13 +89,23 @@ export function resumeRun(options: ResumeRunOptions) {
     }
 
     const { snapshot, pending } = record.state;
-    const agent = yield* agentService
+    const storedAgent = yield* agentService
       .getAgent(record.agentId)
       .pipe(
         Effect.mapError(
           () => new RunNotResumableError(options.runId, `its agent ${record.agentId} is gone`),
         ),
       );
+    const agent =
+      options.providerApiKeys === undefined
+        ? storedAgent
+        : {
+            ...storedAgent,
+            config: {
+              ...storedAgent.config,
+              llmApiKeys: { ...storedAgent.config.llmApiKeys, ...options.providerApiKeys },
+            },
+          };
 
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
@@ -186,6 +208,15 @@ export function resumeRun(options: ResumeRunOptions) {
       ...(options.goalLimits !== undefined ? options.goalLimits : {}),
       ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
       ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
+      ...(options.autoApprovePolicy !== undefined
+        ? { autoApprovePolicy: options.autoApprovePolicy }
+        : {}),
+      ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
+      ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
+      ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
+      ...(options.withholdInteractiveTools !== undefined
+        ? { withholdInteractiveTools: options.withholdInteractiveTools }
+        : {}),
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

@@ -1,0 +1,15 @@
+---
+description: "Portable snapshot contents and ownership fencing for remote conversation handoff."
+---
+
+# Remote handoff snapshot
+
+`createDetachSnapshot` in [`snapshot.ts`](../../packages/adapters/src/detach/snapshot.ts) writes a directory containing `manifest.json` and `files/<relativePath>` for each manifest entry. The manifest records byte length and SHA-256 for every file. An importer checks the complete bundle before it clones or writes any destination file.
+
+The snapshot contains the conversation transcript, its per-conversation work directory and todo file, one Git bundle of `HEAD`, and tracked plus non-ignored untracked workspace files. It also carries the selected agent definition with `llmApiKeys` removed (custom tools included), every user skill under `$JAZZ_HOME/skills` (a top-level symlinked skill is copied from its target), and the agent's custom persona directory. It does not copy global Jazz config, credentials, plugin skills or personas, memory, or generated files. A persona that is neither built in nor under `$JAZZ_HOME/personas`, and transcripts referencing generated artifacts, stop export. A workspace must be a Git repository with a commit; ignored files and paths outside its root stay on the source machine. The Git bundle contains commit history, which may include files no longer present in the working tree.
+
+`prepareDetach` in [`ownership.ts`](../../packages/core/src/agent/detach/ownership.ts) records a durable local fence. Both `preparing` and `remote` reject a new local agent run or conversation save. Snapshot creation must finish before preparation when it is given in-memory history, because it strictly saves that history first. A failed transfer may call `abortDetach` only while preparing. A committed handoff cannot be rolled back by losing SSH connectivity; the remote may be running. The remote host imports into its own Jazz home and a dedicated empty workspace, then starts a continuation under the same `(agentId, conversationId)`. The source machine owns the agent definition and the conversation's work directory, so a later handoff of either replaces the host's copy. Skills and personas are shared by every handoff on a host: an identical copy is skipped and a different one stops the import.
+
+`applyDetachResult` brings a released result home. It compares the handed-off workspace, the result, and the local tree: a path changed remotely whose local bytes match neither side is a conflict, and any conflict stops the apply before a write unless the caller lets the remote win. It then replaces the work directory and todos and saves the returned transcript through `saveConversation(..., { fenceHeldBy })`, which writes past the fence only for the handoff that holds it. A saved UI transcript stops at the handoff, so the remote turns are appended to it; if the remote rewrote history, the stale UI transcript is dropped and resume paints from messages.
+
+The remote run persists its transcript without the work-state preamble it prepends each turn, so replies never stack preamble copies and reclaim sees the handed-off messages as a prefix.

@@ -175,6 +175,62 @@ See [MCP configuration](./configure/mcp.md).
 
 ---
 
+## `jazz hosts`
+
+| Command                                               | Purpose                                     |
+| ----------------------------------------------------- | ------------------------------------------- |
+| `jazz hosts list`                                     | List registered SSH servers                 |
+| `jazz hosts add <name> <ssh-target> <workspace-path>` | Register a server and existing workspace    |
+| `jazz hosts remove <name>`                            | Remove the local host registration          |
+| `jazz hosts doctor <name>`                            | Check SSH, disk, platform, Jazz, and daemon |
+
+To set up a server and move a conversation step by step, see
+[Continue on your server](./features/detach.md).
+
+The SSH target is a configured SSH alias. The remote workspace must exist and be writable.
+Pass `--allow-file-secrets` to `hosts add` for a server without an OS keyring (libsecret);
+without it, a handoff to such a server stops before anything moves.
+See [Detach hosts](./security/detach-hosts.md) for the host checks and credential scope.
+
+## `jazz detach`
+
+| Command                                         | Purpose                                                          |
+| ----------------------------------------------- | ---------------------------------------------------------------- |
+| `jazz detach list`                              | List conversations moved to a server, newest first               |
+| `jazz detach attach <handoffId>`                | Watch a remote conversation live, reply, and answer approvals    |
+| `jazz detach status <handoffId>`                | Read the remote state of a detached conversation                 |
+| `jazz detach approve <handoffId>`               | Approve the tool call on which a detached run has parked         |
+| `jazz detach reject <handoffId>`                | Reject that tool call and let the detached run continue          |
+| `jazz detach cancel <handoffId>`                | Stop the remote run's current or queued turn                     |
+| `jazz detach reclaim <handoffId> [--overwrite]` | Bring the conversation and its file changes back to this machine |
+| `jazz detach pull <handoffId>`                  | Download remote file changes to a local staging directory        |
+
+`unknown` means the host could not be reached; it does not mean the remote run stopped.
+For a parked tool approval, `status` shows the tool and its approval message before
+offering `approve` or `reject`. Other interactive input is reported as unsupported
+in this version.
+`attach` replays everything the remote run has done so far, then follows it live. When a
+turn finishes it prompts for your next message; when the run parks it asks to approve or
+reject. An empty answer or Ctrl+C leaves; the remote run keeps going, and attaching again
+picks up where you left off.
+
+`reclaim` freezes the remote job so the host never runs it again, downloads its final state,
+applies the remote file changes to your working tree, and restores the conversation locally
+with the remote turns included. Continue it with `/resume` in chat. If a file changed both
+locally and remotely, nothing is written: commit or stash your edits and rerun, or pass
+`--overwrite` to let the remote version win. A reclaim that fails part way leaves the
+conversation fenced; rerunning it continues where it stopped.
+
+`pull` downloads and verifies the completed result, then lists changed paths and conflicts
+with local changes, without touching the working tree.
+
+In interactive chat, `/detach <host>` asks for a continuation instruction, previews the
+files and state to transfer, and asks for confirmation. When entered while the agent is
+busy, it runs after the current turn. A failure before remote ownership leaves the local
+chat available. Once transfer begins, the local chat closes if the remote run acknowledges
+the handoff or ownership cannot be resolved safely. Register and check hosts with
+`jazz hosts` first.
+
 ## `jazz runs`
 
 Inspect runs still in flight, including your own parked ones, and, once a daemon started
@@ -494,6 +550,7 @@ Available inside an interactive session. Type `/help` for the current list.
 | `/peers`            | List configured peers and what each may learn or do                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `/new`              | Start a fresh conversation                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/fork`             | Branch to a new conversation, keeping the full history; the original is preserved                                                                                                                                                                                                                                                                                                                                                                     |
+| `/detach`           | Hand this conversation to a registered SSH host after reviewing its snapshot                                                                                                                                                                                                                                                                                                                                                                          |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.

@@ -349,6 +349,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
             ...this.currentConfig,
             ...(fromFile.webhooks !== undefined ? { webhooks: fromFile.webhooks } : {}),
             ...(fromFile.peers !== undefined ? { peers: fromFile.peers } : {}),
+            ...(fromFile.hosts !== undefined ? { hosts: fromFile.hosts } : {}),
           };
         } else {
           const nextRuntime = buildRuntimeConfig({ ...this.sources, global: checked.config });

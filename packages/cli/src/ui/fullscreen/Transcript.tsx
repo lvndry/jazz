@@ -929,7 +929,16 @@ function agentRows(
   };
 
   const items = parseProse(block.markdown, glyphs);
-  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+  // Models often open a text block with newlines after a tool call; a leading blank row would strand the marker on an empty line.
+  let firstItem = 0;
+  let endItem = items.length;
+  while (firstItem < endItem && items[firstItem]?.kind === "blank") {
+    firstItem += 1;
+  }
+  while (endItem > firstItem && items[endItem - 1]?.kind === "blank") {
+    endItem -= 1;
+  }
+  for (let itemIndex = firstItem; itemIndex < endItem; itemIndex += 1) {
     const item = items[itemIndex];
     if (item === undefined) continue;
     const key = `${block.id}:${String(itemIndex)}`;

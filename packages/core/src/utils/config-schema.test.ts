@@ -72,6 +72,14 @@ describe("parseConfigFile", () => {
         },
       },
       peers: [{ name: "sam", url: "https://sam.example", disclosure: "public" }],
+      hosts: [
+        {
+          name: "nightbox",
+          sshTarget: "nightbox",
+          workspacePath: "/home/jazz/work",
+          allowFileSecrets: true,
+        },
+      ],
       webhooks: [{ name: "deploy", agentId: "default", promptTemplate: "{{payload}}" }],
       daemon: { token: "file-fallback" },
     };
@@ -104,6 +112,16 @@ describe("parseConfigFile", () => {
       expected: "true or false",
       actual: "false",
     });
+  });
+
+  it("rejects command syntax and traversal in detach host configuration", () => {
+    const parsed = parseConfigFile({
+      hosts: [
+        { name: "nightbox", sshTarget: "nightbox;evil", workspacePath: "/home/jazz/../root" },
+      ],
+    });
+    expect(parsed.issues.length).toBeGreaterThan(0);
+    expect(parsed.config.hosts).toEqual([]);
   });
 
   it("rejects nonpositive exporter queue and metric intervals", () => {
