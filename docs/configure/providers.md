@@ -89,14 +89,14 @@ export NVIDIA_API_KEY="nvapi-..."
 jazz agent create
 ```
 
-Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). For example, a Qwen thinking model that takes the chat-template toggle:
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares the chat-template toggle for a Qwen model:
 
 ```json
 {
   "llm": {
     "capabilityOverrides": {
       "nvidia": {
-        "qwen/qwen3-next-80b-a3b-thinking": {
+        "qwen/qwen3.5-122b-a10b": {
           "reasoning": {
             "kind": "toggle",
             "transport": "openai-compatible.chat.template-enable-thinking",

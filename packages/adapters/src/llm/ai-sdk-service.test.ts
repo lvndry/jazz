@@ -1198,7 +1198,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
       }) as typeof fetch,
     });
     await generateText({
-      model: provider("qwen/qwen3-next-80b-a3b-thinking"),
+      model: provider("qwen/qwen3.5-122b-a10b"),
       prompt: "hi",
       ...(providerOptions ? { providerOptions } : {}),
     });
@@ -1206,7 +1206,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
   }
 
   const nimOptions = (reasoning: ReasoningSelection): ChatCompletionOptions => ({
-    model: "qwen/qwen3-next-80b-a3b-thinking",
+    model: "qwen/qwen3.5-122b-a10b",
     messages: [{ role: "user", content: "hi" }],
     reasoning,
   });

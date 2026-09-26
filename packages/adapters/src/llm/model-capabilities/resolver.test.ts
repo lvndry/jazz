@@ -113,7 +113,7 @@ describe("resolveModelCapabilities", () => {
 
     const nvidia = resolveModelCapabilities({
       provider: "nvidia",
-      modelId: "qwen/qwen3-next-80b-a3b-thinking",
+      modelId: "qwen/qwen3.5-122b-a10b",
       operator: { reasoning: override },
     });
     expect(nvidia.reasoning).toEqual(override);
