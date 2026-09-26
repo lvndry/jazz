@@ -10,7 +10,7 @@
 import type { RunState } from "@/core/agent/run/run-state";
 import { settleCycle } from "./goal-reconcile";
 import { asInput, withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
-import { extendBudget, runSpend, type RunSpend } from "./goal-usage";
+import { extendBudget, remainingCaps, runSpend, type RunSpend } from "./goal-usage";
 
 export type GoalControl = "pause" | "resume" | "cancel";
 
@@ -92,7 +92,17 @@ export function decideResume(
     const run = latestRun?.state;
     if (run?.kind === "input-required") {
       const reason = run.pending.kind === "tool-approval" ? "approval" : "question";
-      return write({ ...asInput(goal), state: { kind: "awaiting-input", reason } });
+      const waiting: GoalRecordInput = {
+        ...asInput(goal),
+        state: { kind: "awaiting-input", reason },
+      };
+      if (remainingCaps(goal, latestRun?.spend).kind === "limit") {
+        return write(
+          { ...waiting, budget: extendBudget(goal) },
+          "The budget ran out while the run waited; it was extended by one default budget.",
+        );
+      }
+      return write(waiting);
     }
     if (run?.kind === "working" || run?.kind === "submitted") {
       return write({ ...asInput(goal), state: { kind: "active" } });

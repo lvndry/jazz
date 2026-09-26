@@ -18,9 +18,14 @@ import {
   validateGoalEvaluation,
   type GoalEvaluationResult,
 } from "@jazz/core/agent/goal/goal-evaluation";
-import { goalCyclePrompt } from "@jazz/core/agent/goal/goal-prompt";
+import { cycleMessages, goalCyclePrompt } from "@jazz/core/agent/goal/goal-prompt";
 import { settleCycle, type EndedRun } from "@jazz/core/agent/goal/goal-reconcile";
-import { asInput, type GoalCycle, type GoalRecord } from "@jazz/core/agent/goal/goal-record";
+import {
+  asInput,
+  type GoalCycle,
+  type GoalRecord,
+  type GoalRecordInput,
+} from "@jazz/core/agent/goal/goal-record";
 import {
   reachedLimit,
   remainingCaps,
@@ -39,7 +44,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { Effect } from "effect";
+import { Cause, Effect, Fiber, Option } from "effect";
 import {
   loadConversation,
   saveConversation,
@@ -52,9 +57,21 @@ import {
  */
 const MAX_CYCLE_ITERATIONS = 24;
 
-function processIsAlive(owner: GoalCycle["owner"]): boolean {
+/** A disposition is a small JSON object; this bounds a repair call that would ramble. */
+const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
+
+/**
+ * Cycle runs this process is executing right now. A cycle whose owner pid is this process
+ * but which is not in the set died here (a defect, an interrupt) and will not settle itself.
+ */
+const cyclesInFlight = new Set<string>();
+
+function ownerIsRunning(owner: GoalCycle["owner"], runId: string): boolean {
   if (owner.host !== hostname()) {
     return false;
+  }
+  if (owner.pid === process.pid) {
+    return cyclesInFlight.has(runId);
   }
   try {
     process.kill(owner.pid, 0);
@@ -62,6 +79,15 @@ function processIsAlive(owner: GoalCycle["owner"]): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/** Mark a cycle run as executing in this process for the duration of `work`. */
+function inFlight<A, E, R>(runId: string, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => cyclesInFlight.add(runId)),
+    () => work,
+    () => Effect.sync(() => cyclesInFlight.delete(runId)),
+  );
 }
 
 function cappedBy(response: AgentResponse): Exclude<GoalLimit, "cycles"> | undefined {
@@ -92,6 +118,29 @@ function endedRun(run: RunRecord | undefined): EndedRun | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * Compare-and-set a goal, logging a refused write instead of failing the caller. A version
+ * conflict means another writer moved the goal first and the next tick sees its state; an
+ * invariant violation is a bug, and the log names it rather than leaving the goal silently
+ * where it was.
+ */
+function writeGoal(goal: GoalRecord, next: GoalRecordInput, purpose: string) {
+  return Effect.gen(function* () {
+    const goals = yield* GoalStoreTag;
+    const logger = yield* LoggerServiceTag;
+    yield* goals.compareAndSet(goal.goalId, goal.version, next).pipe(
+      Effect.catchAll((error) =>
+        logger.warn(`Could not update goal to ${purpose}`, {
+          goalId: goal.goalId,
+          from: goal.state.kind,
+          to: next.state.kind,
+          error: error.message,
+        }),
+      ),
+    );
+  });
 }
 
 function saveGoalTranscript(goal: GoalRecord, messages: readonly ChatMessage[]) {
@@ -157,7 +206,7 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
           cycleMessages,
         ),
         temperature: 0,
-        maxTokens: 1600,
+        maxTokens: REPAIR_MAX_OUTPUT_TOKENS,
         reasoning: "disable",
         outputSchema: goalEvaluationSchemaForPlan(goal.plan),
         ...(agent.config.llmApiKeys !== undefined
@@ -225,7 +274,7 @@ export function finishCycle(
       ...(evaluation !== undefined ? { evaluation } : {}),
       ...(runCap !== undefined ? { cappedBy: runCap } : {}),
     });
-    yield* goals.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.ignore);
+    yield* writeGoal(goal, next, "settle its cycle");
   });
 }
 
@@ -248,96 +297,108 @@ export function settleParkedCycle(goalId: string, runId: string) {
     }
     const reason = run.state.pending.kind === "tool-approval" ? "approval" : "question";
     if (cycle.stopAfter === "cancel") {
-      yield* runs.transition(runId, { kind: "canceled", at: "parked" }).pipe(Effect.ignore);
+      yield* runs.transition(runId, { kind: "canceled", at: "parked" }).pipe(
+        Effect.catchAll((error) =>
+          Effect.flatMap(LoggerServiceTag, (logger) =>
+            logger.warn("Could not cancel a canceled goal's parked run", {
+              goalId,
+              runId,
+              error: error.message,
+            }),
+          ),
+        ),
+      );
       yield* finishCycle(goalId, runId, []);
       return;
     }
     if (cycle.stopAfter === "pause") {
       const { stopAfter: _stopAfter, ...openCycle } = cycle;
-      yield* goals
-        .compareAndSet(goal.goalId, goal.version, {
-          ...asInput(goal),
-          state: { kind: "paused" },
-          cycle: openCycle,
-        })
-        .pipe(Effect.ignore);
+      yield* writeGoal(
+        goal,
+        { ...asInput(goal), state: { kind: "paused" }, cycle: openCycle },
+        "pause at its parked run",
+      );
       return;
     }
     if (goal.state.kind === "active" || goal.state.kind === "awaiting-input") {
-      yield* goals
-        .compareAndSet(goal.goalId, goal.version, {
-          ...asInput(goal),
-          state: { kind: "awaiting-input", reason },
-        })
-        .pipe(Effect.ignore);
+      yield* writeGoal(
+        goal,
+        { ...asInput(goal), state: { kind: "awaiting-input", reason } },
+        "wait for input",
+      );
     }
   });
 }
 
-function startCycle(goal: GoalRecord) {
+/**
+ * Claim a cycle for a due goal. Returns the run to start, or nothing when the goal hit a
+ * limit or another writer claimed it first. The claim is durable before any work begins.
+ */
+function claimCycle(goal: GoalRecord) {
   return Effect.gen(function* () {
-    const goals = yield* GoalStoreTag;
     const agents = yield* AgentServiceTag;
     const limit = reachedLimit(goal);
     const caps = remainingCaps(goal);
     if (limit !== undefined || caps.kind === "limit") {
-      yield* goals.compareAndSet(goal.goalId, goal.version, {
-        ...asInput(goal),
-        state: { kind: "budget-limited", limit: limit ?? (caps as { limit: GoalLimit }).limit },
-      });
-      return;
+      yield* writeGoal(
+        goal,
+        {
+          ...asInput(goal),
+          state: { kind: "budget-limited", limit: limit ?? (caps as { limit: GoalLimit }).limit },
+        },
+        "stop at its budget",
+      );
+      return undefined;
     }
     const agent = yield* agents.getAgent(goal.agentId).pipe(Effect.either);
     if (agent._tag === "Left") {
-      yield* goals.compareAndSet(goal.goalId, goal.version, {
-        ...asInput(goal),
-        state: { kind: "review-required", reason: "The goal's agent is no longer available." },
-      });
-      return;
+      yield* writeGoal(
+        goal,
+        {
+          ...asInput(goal),
+          state: { kind: "review-required", reason: "The goal's agent is no longer available." },
+        },
+        "report its missing agent",
+      );
+      return undefined;
     }
-    const prior = yield* loadConversation(goal.agentId, goal.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const goals = yield* GoalStoreTag;
     const runId = randomUUID();
-    const historyStart = prior?.messages.length ?? 0;
     const claimed = yield* goals
       .compareAndSet(goal.goalId, goal.version, {
         ...asInput(goal),
         state: { kind: "active" },
-        cycle: { runId, owner: { pid: process.pid, host: hostname() }, historyStart },
+        cycle: { runId, owner: { pid: process.pid, host: hostname() } },
         latestRunId: runId,
         usage: { ...goal.usage, cycles: goal.usage.cycles + 1 },
       })
       .pipe(Effect.either);
     if (claimed._tag === "Left") {
-      return;
+      return undefined;
     }
-    yield* runCycle(claimed.right, agent.right, runId, caps.caps, prior?.messages ?? []);
+    return { goal: claimed.right, agent: agent.right, runId, caps: caps.caps };
   });
 }
 
-function runCycle(
-  goal: GoalRecord,
-  agent: Agent,
-  runId: string,
-  caps: CycleCaps,
-  history: readonly ChatMessage[],
-) {
+function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps) {
   return Effect.gen(function* () {
+    const prior = yield* loadConversation(goal.agentId, goal.conversationId).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
     const outcome = yield* AgentRunner.run({
       agent,
       runId,
-      userInput: goalCyclePrompt(goal),
+      userInput: goalCyclePrompt(goal, runId),
       conversationId: goal.conversationId,
       maxIterations: MAX_CYCLE_ITERATIONS,
       ...caps,
       parkWhenUnattended: true,
-      conversationHistory: [...history],
+      conversationHistory: [...(prior?.messages ?? [])],
     }).pipe(
       Effect.map((response): RunOutcome => ({ kind: "finished", response })),
-      Effect.catchAll((error) => Effect.succeed(classifyRunError(error))),
+      Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
     );
-    yield* settleRunOutcome(goal, runId, history.length, outcome);
+    yield* settleRunOutcome(goal, runId, outcome);
   });
 }
 
@@ -346,19 +407,20 @@ export type RunOutcome =
   | { readonly kind: "parked"; readonly park: RunParkRequested }
   | { readonly kind: "failed"; readonly error: string };
 
-function classifyRunError(error: unknown): RunOutcome {
-  if (isRunParkRequested(error)) {
-    return { kind: "parked", park: error };
+/** A park, a failure, or a defect or interrupt, which must settle the cycle like a failure. */
+function classifyRunCause(cause: Cause.Cause<unknown>): RunOutcome {
+  const failure = Cause.failureOption(cause);
+  if (Option.isSome(failure)) {
+    const error = failure.value;
+    if (isRunParkRequested(error)) {
+      return { kind: "parked", park: error };
+    }
+    return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
   }
-  return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
+  return { kind: "failed", error: Cause.pretty(cause) };
 }
 
-function settleRunOutcome(
-  goal: GoalRecord,
-  runId: string,
-  historyStart: number,
-  outcome: RunOutcome,
-) {
+function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome) {
   return Effect.gen(function* () {
     if (outcome.kind === "parked") {
       if (outcome.park.messages !== undefined) {
@@ -376,49 +438,92 @@ function settleRunOutcome(
     yield* finishCycle(
       goal.goalId,
       runId,
-      messages.slice(historyStart),
+      cycleMessages(messages, runId),
       cappedBy(outcome.response),
     );
   });
 }
 
-/** One daemon tick: settle cycles whose runs have moved on, then start due cycles. */
+/**
+ * Settle a cycle whose run is `working` but whose process is gone. A resumed run carries its
+ * parked snapshot, so it goes back to waiting for its answer; anything else failed, and the
+ * run is closed too so nothing can re-park and run it outside the goal later.
+ */
+function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
+  return Effect.gen(function* () {
+    const runs = yield* RunStoreTag;
+    if (run.state.kind !== "working") {
+      return;
+    }
+    const recovery = run.state.recovery;
+    if (recovery !== undefined) {
+      yield* runs.transition(run.runId, {
+        kind: "input-required",
+        pending: recovery.pending,
+        snapshot: recovery.snapshot,
+        expiresAt: recovery.expiresAt,
+      });
+      yield* settleParkedCycle(goal.goalId, run.runId);
+      return;
+    }
+    const error = "the process running it stopped";
+    yield* runs
+      .transition(run.runId, { kind: "failed", cause: "error", error })
+      .pipe(Effect.catchAll(() => Effect.void));
+    yield* finishCycle(goal.goalId, run.runId, []);
+  });
+}
+
+/**
+ * One daemon tick: settle cycles whose runs have moved on and start due cycles. A started
+ * cycle runs on its own fiber so one long cycle does not hold up triggers, workflows, or
+ * other goals; the fibers are returned for callers that want to wait on them.
+ */
 export function runDueGoals() {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
     const logger = yield* LoggerServiceTag;
+    const started: Fiber.RuntimeFiber<void, never>[] = [];
     const candidates = yield* goals.list({ states: ["active", "awaiting-input", "stopping"] });
     for (const goal of candidates) {
       yield* Effect.gen(function* () {
         const cycle = goal.cycle;
         if (cycle === undefined) {
-          if (goal.state.kind === "active") {
-            yield* startCycle(goal);
+          if (goal.state.kind !== "active") {
+            return;
           }
+          const claim = yield* claimCycle(goal);
+          if (claim !== undefined) {
+            started.push(
+              yield* inFlight(
+                claim.runId,
+                runCycle(claim.goal, claim.agent, claim.runId, claim.caps),
+              ).pipe(
+                Effect.catchAllCause((cause) =>
+                  logger.warn("Goal cycle failed to settle", {
+                    goalId: goal.goalId,
+                    error: Cause.pretty(cause),
+                  }),
+                ),
+                Effect.forkDaemon,
+              ),
+            );
+          }
+          return;
+        }
+        if (ownerIsRunning(cycle.owner, cycle.runId)) {
           return;
         }
         const run = yield* runs.get(cycle.runId);
         if (run === undefined || run.state.kind === "submitted") {
-          if (!processIsAlive(cycle.owner)) {
-            yield* finishCycle(goal.goalId, cycle.runId, []);
-          }
+          yield* finishCycle(goal.goalId, cycle.runId, []);
           return;
         }
         if (run.state.kind === "working") {
           const owner = run.state.owner ?? cycle.owner;
-          if (!processIsAlive(owner)) {
-            yield* goals.compareAndSet(
-              goal.goalId,
-              goal.version,
-              settleCycle(goal, {
-                run: {
-                  kind: "failed",
-                  error: "the process running it stopped",
-                  spend: runSpend(run),
-                },
-              }),
-            );
+          if (!ownerIsRunning(owner, cycle.runId)) {
+            yield* settleDeadWorkingRun(goal, run);
           }
           return;
         }
@@ -432,30 +537,31 @@ export function runDueGoals() {
         yield* finishCycle(
           goal.goalId,
           cycle.runId,
-          prior?.messages.slice(cycle.historyStart) ?? [],
+          cycleMessages(prior?.messages ?? [], cycle.runId),
         );
       }).pipe(
-        Effect.catchAll((error) =>
-          logger.warn("Goal tick failed", {
-            goalId: goal.goalId,
-            error: error instanceof Error ? error.message : String(error),
-          }),
+        Effect.catchAllCause((cause) =>
+          logger.warn("Goal tick failed", { goalId: goal.goalId, error: Cause.pretty(cause) }),
         ),
       );
     }
+    return started;
   });
 }
 
 /**
  * Answer a parked run, and when it belongs to a goal, settle the goal's cycle with the
- * result: finished, parked again on another approval, or failed. Every surface that answers
- * runs uses this, so none of them can leave the goal waiting on a run that has moved on.
+ * result: finished, parked again on another approval, or failed. The goal is active again
+ * while the answered run works, so a pause or cancel in that window is recorded on the
+ * cycle instead of being lost. Every surface that answers runs uses this.
  */
 export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
-    const candidates = yield* goals.list({ states: ["awaiting-input", "paused", "stopping"] });
+    const candidates = yield* goals.list({
+      states: ["active", "awaiting-input", "paused", "stopping"],
+    });
     const goal = candidates.find((candidate) => candidate.cycle?.runId === options.runId);
     if (goal === undefined) {
       const response = yield* resumeRun(options);
@@ -478,14 +584,26 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     if (caps.kind === "limit") {
       return {
         kind: "blocked",
-        reason: `Goal ${goal.goalId} reached its ${caps.limit} budget while waiting. Pause it and resume it to extend the budget, or cancel it.`,
+        reason: `Goal ${goal.goalId} reached its ${caps.limit} budget while waiting. Pause and resume the goal to extend its budget, or cancel it.`,
       } as const;
     }
-    const outcome = yield* resumeRun({ ...options, goalLimits: caps.caps }).pipe(
-      Effect.map((response): RunOutcome => ({ kind: "finished", response })),
-      Effect.catchAll((error) => Effect.succeed(classifyRunError(error))),
+    const working = yield* goals
+      .compareAndSet(goal.goalId, goal.version, { ...asInput(goal), state: { kind: "active" } })
+      .pipe(Effect.either);
+    if (working._tag === "Left") {
+      return {
+        kind: "blocked",
+        reason: `Goal ${goal.goalId} changed while answering; check /goal list and retry.`,
+      } as const;
+    }
+    const outcome = yield* inFlight(
+      options.runId,
+      resumeRun({ ...options, goalLimits: caps.caps }).pipe(
+        Effect.map((response): RunOutcome => ({ kind: "finished", response })),
+        Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
+      ),
     );
-    yield* settleRunOutcome(goal, options.runId, goal.cycle?.historyStart ?? 0, outcome);
+    yield* settleRunOutcome(working.right, options.runId, outcome);
     return { kind: "resumed", goalId: goal.goalId, outcome } as const;
   });
 }

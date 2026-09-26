@@ -3,6 +3,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { decidePause } from "@jazz/core/agent/goal/goal-controls";
 import type { GoalRecord, GoalRecordInput } from "@jazz/core/agent/goal/goal-record";
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
@@ -15,7 +16,7 @@ import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logg
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { resumeGoalAwareRun, runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { loadConversation } from "@jazz/adapters/history/conversation-history-service";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
@@ -98,6 +99,12 @@ function harness(repair?: string): Harness {
 
 function run<A>(test: Harness, effect: Effect.Effect<A, unknown, unknown>): Promise<A> {
   return Effect.runPromise(effect.pipe(Effect.provide(test.layer)) as Effect.Effect<A, unknown>);
+}
+
+/** One daemon tick, waiting for any cycle it started to settle. */
+async function tick(test: Harness): Promise<void> {
+  const started = await run(test, runDueGoals());
+  await Effect.runPromise(Fiber.joinAll(started));
 }
 
 function record(
@@ -197,7 +204,7 @@ describe("runDueGoals", () => {
     await run(test, test.goals.create(acceptedGoal()));
     const runner = scriptRunner(test, COMPLETE);
     try {
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
@@ -217,9 +224,9 @@ describe("runDueGoals", () => {
     await run(test, test.goals.create(acceptedGoal()));
     const runner = scriptRunner(test, CONTINUE);
     try {
-      await run(test, runDueGoals());
+      await tick(test);
       expect((await current(test)).state).toEqual({ kind: "active" });
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
@@ -242,7 +249,7 @@ describe("runDueGoals", () => {
     await run(test, test.goals.create(acceptedGoal()));
     const runner = scriptRunner(test, "I fixed it and everything works now!");
     try {
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
@@ -281,7 +288,7 @@ describe("runDueGoals", () => {
         return yield* Effect.fail(new RunParkRequested({ pending, runId, messages: [] } as never));
       })) as unknown as typeof AgentRunner.run);
     try {
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       parkRunner.mockRestore();
     }
@@ -295,7 +302,7 @@ describe("runDueGoals", () => {
         record(runId, { kind: "failed", cause: "error", error: "Operation timed out" }),
       ),
     );
-    await run(test, runDueGoals());
+    await tick(test);
 
     const settled = await current(test);
     expect(settled.state.kind).toBe("review-required");
@@ -312,7 +319,6 @@ describe("runDueGoals", () => {
           cycle: {
             runId: "run-dead",
             owner: { pid: 999_999_999, host: hostname() },
-            historyStart: 0,
           },
           latestRunId: "run-dead",
           usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },
@@ -331,7 +337,7 @@ describe("runDueGoals", () => {
     );
     const runner = scriptRunner(test, COMPLETE);
     try {
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
@@ -353,13 +359,146 @@ describe("runDueGoals", () => {
     );
     const runner = scriptRunner(test, COMPLETE);
     try {
-      await run(test, runDueGoals());
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
 
     expect((await current(test)).state).toEqual({ kind: "budget-limited", limit: "cycles" });
     expect(test.prompts).toHaveLength(0);
+  });
+});
+
+const APPROVAL = {
+  kind: "tool-approval" as const,
+  request: {
+    toolCallId: "call-edit",
+    toolName: "edit_file",
+    message: "edit src/slug.js",
+    executeToolName: "execute_edit_file",
+    executeArgs: {},
+  },
+};
+
+/** A goal awaiting approval on a parked cycle run, the state a user answers from. */
+async function parkedGoal(test: Harness): Promise<string> {
+  const runId = "run-parked";
+  const prompt = `[goal cycle ${runId}]\nContinue the goal.`;
+  await run(
+    test,
+    test.goals.create(
+      acceptedGoal({
+        state: { kind: "awaiting-input", reason: "approval" },
+        cycle: { runId, owner: { pid: process.pid, host: hostname() } },
+        latestRunId: runId,
+        usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },
+      }),
+    ),
+  );
+  await run(
+    test,
+    test.runs.save(
+      record(runId, {
+        kind: "input-required",
+        pending: APPROVAL,
+        snapshot: {
+          iteration: 1,
+          messages: [
+            { role: "user", content: prompt },
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-edit",
+                  type: "function",
+                  function: { name: "edit_file", arguments: "{}" },
+                },
+              ],
+            },
+          ],
+        },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    ),
+  );
+  return runId;
+}
+
+/** Stand in for the resumed AgentRunner.run: optionally act mid-run, record completion, answer. */
+function resumedRunner(test: Harness, finalAnswer: string, midRun?: () => Promise<void>) {
+  return spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
+    Effect.gen(function* () {
+      if (midRun !== undefined) {
+        yield* Effect.promise(midRun);
+      }
+      const runId = options.runId ?? "unknown";
+      yield* test.runs.save(record(runId, { kind: "completed", content: finalAnswer }));
+      return {
+        content: finalAnswer,
+        conversationId: "goal-chat",
+        messages: [
+          ...(options.conversationHistory ?? []),
+          {
+            role: "tool",
+            name: "execute_command",
+            content: TOOL_OUTPUT,
+            tool_call_id: "call-edit",
+          },
+          { role: "assistant", content: finalAnswer },
+        ],
+      } as unknown as AgentResponse;
+    })) as unknown as typeof AgentRunner.run);
+}
+
+describe("answering a goal's parked run", () => {
+  /**
+   * The regression: a resumed run finished with verified evidence while the goal was still
+   * awaiting input, and the goal stayed stuck there because the transition was refused.
+   */
+  it("completes the goal when the answered run finishes with verified evidence", async () => {
+    const test = harness();
+    const runId = await parkedGoal(test);
+    const runner = resumedRunner(test, COMPLETE);
+    try {
+      const result = await run(
+        test,
+        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+      );
+      expect(result.kind).toBe("resumed");
+    } finally {
+      runner.mockRestore();
+    }
+
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("completed");
+    expect(goal.usage.totalTokens).toBe(1_200);
+  });
+
+  /** The regression: a pause while the answered run worked was dropped and cycles went on. */
+  it("keeps a pause requested while the answered run is working", async () => {
+    const test = harness();
+    const runId = await parkedGoal(test);
+    const runner = resumedRunner(test, CONTINUE, async () => {
+      const goal = await current(test);
+      const decision = decidePause(goal);
+      if (decision.kind !== "write") {
+        throw new Error(decision.reason);
+      }
+      await run(test, test.goals.compareAndSet(goal.goalId, goal.version, decision.next));
+    });
+    try {
+      await run(
+        test,
+        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+      );
+    } finally {
+      runner.mockRestore();
+    }
+
+    const goal = await current(test);
+    expect(goal.state).toEqual({ kind: "paused" });
+    expect(goal.plan.steps[0]?.state).toBe("completed");
   });
 });
 
@@ -374,7 +513,6 @@ describe("resumeGoalAwareRun", () => {
           cycle: {
             runId: "run-parked",
             owner: { pid: process.pid, host: hostname() },
-            historyStart: 0,
           },
           latestRunId: "run-parked",
           usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },

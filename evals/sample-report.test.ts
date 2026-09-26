@@ -108,10 +108,10 @@ describe("evaluateAdversarialTargets", () => {
   );
 
   it("meets every target on a passing run with a sufficient paired improvement", () => {
-    const hardFinal = Array.from({ length: 10 }, (_unused, index) =>
-      sample({ taskId: "hard-1", difficulty: "hard", sampleIndex: index, pass: index < 5 }),
+    const hardFinal = Array.from({ length: 30 }, (_unused, index) =>
+      sample({ taskId: "hard-1", difficulty: "hard", sampleIndex: index, pass: index < 15 }),
     );
-    const hardBaseline = hardFinal.map((record) => ({ ...record, pass: record.sampleIndex < 3 }));
+    const hardBaseline = hardFinal.map((record) => ({ ...record, pass: record.sampleIndex < 9 }));
     const final = buildSampleReport([...easySamples, ...hardFinal]);
 
     const verdicts = evaluateAdversarialTargets(final, pairSamples(hardBaseline, hardFinal));
@@ -173,7 +173,7 @@ describe("run isolation and order", () => {
       expect(readFileSync(join(isolated, "agents", "my-agent.json"), "utf-8")).toBe(
         '{"id":"my-agent"}',
       );
-      expect(readFileSync(join(isolated, "agents", "lysk-server-vllm.json"), "utf-8")).toContain(
+      expect(readFileSync(join(isolated, "agents", "eval-sut-vllm.json"), "utf-8")).toContain(
         "qwen3.8-27b",
       );
       expect(JSON.parse(readFileSync(join(isolated, "config.json"), "utf-8"))).toEqual({

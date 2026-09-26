@@ -1,6 +1,6 @@
 {
-  "id": "lysk-server-vllm",
-  "name": "lysk-server-vllm",
+  "id": "eval-sut-vllm",
+  "name": "eval-sut-vllm",
   "model": "vllm/qwen3.8-27b",
   "config": {
     "persona": "default",

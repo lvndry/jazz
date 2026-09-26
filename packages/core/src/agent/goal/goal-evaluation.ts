@@ -16,6 +16,19 @@ import type { GoalEvidenceItem, GoalPlan } from "./goal-record";
  */
 const MIN_QUOTE_CHARS = 8;
 
+/**
+ * Each elided fragment must carry this much on its own, and a quote may elide only a few
+ * times; otherwise "R...a...n" style quotes match nearly any output.
+ */
+const MIN_FRAGMENT_CHARS = 6;
+const MAX_QUOTE_FRAGMENTS = 3;
+
+/**
+ * Tools whose results mostly repeat what the model itself wrote (the content or diff it
+ * asked for). Quoting them would let a cycle cite its own words as evidence.
+ */
+const SELF_AUTHORED_RESULT_TOOLS = new Set(["write_file", "edit_file"]);
+
 function makeGoalEvaluationSchema(completedStepId: z.ZodType<string>) {
   return z.discriminatedUnion("status", [
     z.object({
@@ -69,6 +82,17 @@ export function numberedCriteria(plan: GoalPlan): string {
   return plan.successCriteria.map((criterion, index) => `${index + 1}. ${criterion}`).join("\n");
 }
 
+/**
+ * How much of a cycle the repair call sees: recent tool output up to a total, each result
+ * truncated from the front so its end (where commands print their summary) survives, plus
+ * the tail of the cycle's answer and of the progress so far. Enough for a disposition, small
+ * enough to be a cheap extra call.
+ */
+const REPAIR_TOOL_OUTPUT_CHARS = 16_000;
+const REPAIR_CHARS_PER_TOOL_RESULT = 2_000;
+const REPAIR_ANSWER_CHARS = 6_000;
+const REPAIR_PROGRESS_CHARS = 2_000;
+
 /** Builds a compact, explicitly untrusted trace for repairing an unstructured cycle result. */
 export function goalEvaluationRepairMessages(
   goal: GoalPlan,
@@ -77,12 +101,12 @@ export function goalEvaluationRepairMessages(
   messages: readonly ChatMessage[],
 ): ChatMessage[] {
   const toolOutputs: { name: string; content: string }[] = [];
-  let remainingChars = 16_000;
+  let remainingChars = REPAIR_TOOL_OUTPUT_CHARS;
   for (const message of [...messages].reverse()) {
     if (message.role !== "tool" || remainingChars <= 0) {
       continue;
     }
-    const content = message.content.slice(-Math.min(2_000, remainingChars));
+    const content = message.content.slice(-Math.min(REPAIR_CHARS_PER_TOOL_RESULT, remainingChars));
     toolOutputs.push({ name: message.name ?? "tool", content });
     remainingChars -= content.length;
   }
@@ -111,20 +135,85 @@ export function goalEvaluationRepairMessages(
           objective,
           successCriteria,
         })),
-        previousProgress: previousProgress?.slice(-2_000),
-        cycleResponse: assistantOutput.slice(-6_000),
+        previousProgress: previousProgress?.slice(-REPAIR_PROGRESS_CHARS),
+        cycleResponse: assistantOutput.slice(-REPAIR_ANSWER_CHARS),
         toolOutputs,
       }),
     },
   ];
 }
 
-function parseJson(content: string): unknown {
+/**
+ * The disposition object in a cycle's final answer: the whole answer, a fenced block, or the
+ * last JSON object after the model's prose. Models routinely explain before they emit the
+ * JSON they were asked for; what counts is the object, which still has to validate.
+ */
+export function extractDisposition(content: string): unknown {
   const trimmed = content.trim();
-  const unfenced = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    : trimmed;
-  return JSON.parse(unfenced) as unknown;
+  const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].at(-1)?.[1];
+  for (const candidate of [trimmed, fenced?.trim()]) {
+    if (candidate === undefined) {
+      continue;
+    }
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      // Not the whole object; fall through to the next form.
+    }
+  }
+  const end = trimmed.lastIndexOf("}");
+  for (
+    let start = trimmed.lastIndexOf("{", end);
+    start >= 0;
+    start = trimmed.lastIndexOf("{", start - 1)
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+      if (typeof parsed === "object" && parsed !== null && "status" in parsed) {
+        return parsed;
+      }
+    } catch {
+      // An inner brace; keep widening toward the start of the answer.
+    }
+  }
+  throw new Error("no disposition object in the answer");
+}
+
+function stringLeaves(value: unknown, into: string[]): void {
+  if (typeof value === "string") {
+    into.push(value);
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      stringLeaves(item, into);
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const item of Object.values(value)) {
+      stringLeaves(item, into);
+    }
+  }
+}
+
+/**
+ * What the cycle's tools showed, one quotable text per tool result: the result as stored,
+ * plus the string values inside a result stored as JSON, since a command's output lives
+ * JSON-escaped in its result and a model quotes the text it read. Results of tools that
+ * echo the model's own writing are left out.
+ */
+export function toolOutputTexts(messages: readonly ChatMessage[]): string[] {
+  const texts: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "tool" || SELF_AUTHORED_RESULT_TOOLS.has(message.name ?? "")) {
+      continue;
+    }
+    const parts = [message.content];
+    try {
+      stringLeaves(JSON.parse(message.content) as unknown, parts);
+    } catch {
+      // Plain-text result; the raw content is all there is.
+    }
+    texts.push(parts.join("\n"));
+  }
+  return texts;
 }
 
 function collapseWhitespace(text: string): string {
@@ -132,12 +221,11 @@ function collapseWhitespace(text: string): string {
 }
 
 /**
- * Whether a quote occurs in the tool output, ignoring whitespace differences and allowing
- * `...` elisions: each fragment must appear, in order. Models reflow and trim long lines
+ * Whether a quote occurs in one tool result, ignoring whitespace differences and allowing up
+ * to two `...` elisions whose fragments appear in order. Models reflow and trim long lines
  * when they quote, and neither changes what was observed.
  */
-export function quoteAppears(quote: string, toolOutput: string): boolean {
-  const haystack = collapseWhitespace(toolOutput);
+export function quoteAppears(quote: string, toolOutputs: readonly string[]): boolean {
   const fragments = collapseWhitespace(quote.replace(/^["'`\s]+|["'`\s]+$/g, ""))
     .split(/\s*(?:\.\.\.|…)\s*/)
     .filter((fragment) => fragment.length > 0);
@@ -145,18 +233,25 @@ export function quoteAppears(quote: string, toolOutput: string): boolean {
     (sum, fragment) => sum + fragment.replace(/\s/g, "").length,
     0,
   );
-  if (quotedChars < MIN_QUOTE_CHARS) {
+  if (
+    quotedChars < MIN_QUOTE_CHARS ||
+    fragments.length > MAX_QUOTE_FRAGMENTS ||
+    (fragments.length > 1 && fragments.some((fragment) => fragment.length < MIN_FRAGMENT_CHARS))
+  ) {
     return false;
   }
-  let from = 0;
-  for (const fragment of fragments) {
-    const found = haystack.indexOf(fragment, from);
-    if (found < 0) {
-      return false;
+  return toolOutputs.some((output) => {
+    const haystack = collapseWhitespace(output);
+    let from = 0;
+    for (const fragment of fragments) {
+      const found = haystack.indexOf(fragment, from);
+      if (found < 0) {
+        return false;
+      }
+      from = found + fragment.length;
     }
-    from = found + fragment.length;
-  }
-  return true;
+    return true;
+  });
 }
 
 /**
@@ -170,7 +265,7 @@ export function validateGoalEvaluation(
 ): GoalEvaluationResult {
   let parsed: unknown;
   try {
-    parsed = parseJson(content);
+    parsed = extractDisposition(content);
   } catch {
     return { kind: "invalid", reason: "The cycle did not return valid JSON." };
   }
@@ -196,10 +291,7 @@ export function validateGoalEvaluation(
     return { kind: "valid", evaluation };
   }
 
-  const toolOutput = cycleMessages
-    .filter((message) => message.role === "tool")
-    .map((message) => message.content)
-    .join("\n");
+  const toolOutputs = toolOutputTexts(cycleMessages);
   const items: GoalEvidenceItem[] = [];
   const cited = new Set<number>();
   for (const item of evaluation.evidence) {
@@ -210,7 +302,7 @@ export function validateGoalEvaluation(
         reason: `Completion cited criterion ${item.criterion}, which the accepted plan does not have.`,
       };
     }
-    if (!quoteAppears(item.quote, toolOutput)) {
+    if (!quoteAppears(item.quote, toolOutputs)) {
       return {
         kind: "invalid",
         reason: `Completion evidence for criterion ${item.criterion} does not appear in this cycle's tool output.`,

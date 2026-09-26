@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+  extractDisposition,
   goalEvaluationRepairMessages,
   goalEvaluationSchemaForPlan,
   quoteAppears,
+  toolOutputTexts,
   validateGoalEvaluation,
 } from "./goal-evaluation";
 import type { GoalPlan } from "./goal-record";
@@ -119,7 +121,7 @@ describe("validateGoalEvaluation", () => {
 });
 
 describe("quoteAppears", () => {
-  const output = "Ran 42 tests across 7 files.\n 42 pass\n  0 fail\nDone in 1.2s";
+  const output = ["Ran 42 tests across 7 files.\n 42 pass\n  0 fail\nDone in 1.2s"];
 
   it("ignores whitespace reflow and surrounding quote marks", () => {
     expect(quoteAppears('"42 pass 0 fail"', output)).toBe(true);
@@ -127,12 +129,21 @@ describe("quoteAppears", () => {
 
   it("accepts elided quotes whose fragments appear in order", () => {
     expect(quoteAppears("Ran 42 tests ... 0 fail", output)).toBe(true);
-    expect(quoteAppears("0 fail … Ran 42 tests", output)).toBe(false);
+    expect(quoteAppears("Ran 42 tests ... Done in 1.2s", output)).toBe(true);
+    expect(quoteAppears("Done in 1.2s … Ran 42 tests", output)).toBe(false);
   });
 
-  it("rejects quotes too short to prove anything and paraphrases", () => {
+  it("rejects short quotes, paraphrases, and elisions that could match anything", () => {
     expect(quoteAppears("pass", output)).toBe(false);
     expect(quoteAppears("all 42 tests passed", output)).toBe(false);
+    expect(quoteAppears("R...a...n...4...2...t", output)).toBe(false);
+    expect(quoteAppears("Ran 42 t... across ... files. ... Done in", output)).toBe(false);
+  });
+
+  it("matches within one tool result, never across two", () => {
+    expect(quoteAppears("first result ... second result", ["first result", "second result"])).toBe(
+      false,
+    );
   });
 });
 
@@ -150,5 +161,62 @@ describe("validateGoalEvaluation dispositions", () => {
     );
     expect(invalidStep.kind).toBe("invalid");
     expect(validateGoalEvaluation("done", plan, []).kind).toBe("invalid");
+  });
+});
+
+describe("reading a live cycle's answer", () => {
+  /**
+   * The regression, from a live goal on a local model: the fix was right and verified, but
+   * the answer explained itself before the JSON and quoted `bun test` output that the command
+   * result stores JSON-escaped, so the goal went to review instead of completing.
+   */
+  it("accepts prose followed by the disposition, quoting decoded command output", () => {
+    const commandResult = JSON.stringify({ exitCode: 0, stderr: "1 pass\n 0 fail\nRan 1 test" });
+    const answer = [
+      "Fixed the slug function; `bun test` reports 1 pass, 0 fail.",
+      "",
+      JSON.stringify({
+        status: "complete",
+        summary: "Fixed.",
+        evidence: [
+          { criterion: 1, quote: "1 pass\n 0 fail" },
+          { criterion: 2, quote: '"exitCode":0' },
+        ],
+      }),
+    ].join("\n");
+
+    const result = validateGoalEvaluation(answer, plan, [
+      { role: "tool", name: "execute_command", content: commandResult },
+    ]);
+
+    expect(result.kind).toBe("valid");
+  });
+
+  it("finds the last disposition in prose or a fenced block and rejects answers with none", () => {
+    expect(extractDisposition('Done.\n```json\n{"status":"blocked","summary":"x"}\n```')).toEqual({
+      status: "blocked",
+      summary: "x",
+    });
+    expect(
+      extractDisposition('I used {braces} here. {"status":"question","question":"Which?"}'),
+    ).toEqual({ status: "question", question: "Which?" });
+    expect(() => extractDisposition("All done, everything works.")).toThrow();
+  });
+
+  it("exposes JSON tool results' string values and ignores the model's own writes", () => {
+    const texts = toolOutputTexts([
+      {
+        role: "tool",
+        name: "execute_command",
+        content: JSON.stringify({ stdout: 'said "hi"\nbye' }),
+      },
+      { role: "tool", name: "read_file", content: "plain text result" },
+      { role: "tool", name: "write_file", content: JSON.stringify({ diff: "+ all tests pass" }) },
+      { role: "user", content: "user text is not tool output" },
+    ]);
+
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toContain('said "hi"\nbye');
+    expect(texts[1]).toBe("plain text result");
   });
 });

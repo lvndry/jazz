@@ -424,14 +424,18 @@ async function createGoalRoute(
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
   const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
-  if (raw instanceof Response) return raw;
+  if (raw instanceof Response) {
+    return raw;
+  }
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
     return json({ ok: false, error: "body must be JSON" }, 400);
   }
-  if (!isPlainObject(value)) return json({ ok: false, error: "body must be an object" }, 400);
+  if (!isPlainObject(value)) {
+    return json({ ok: false, error: "body must be an object" }, 400);
+  }
   const agentId = typeof value["agentId"] === "string" ? value["agentId"].trim() : "";
   const requestText = typeof value["request"] === "string" ? value["request"].trim() : "";
   const conversationId =
@@ -520,7 +524,9 @@ async function goalControlRoute(
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
   const raw = await readBody(request, 4096);
-  if (raw instanceof Response) return raw;
+  if (raw instanceof Response) {
+    return raw;
+  }
   let body: unknown;
   try {
     body = raw.length > 0 ? JSON.parse(raw) : {};
@@ -569,7 +575,7 @@ async function goalControlRoute(
       const next = decision.next;
       const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.either);
       if (saved._tag === "Left") {
-        return json({ ok: false, error: "goal changed; refresh and retry" }, 409);
+        return json({ ok: false, error: saved.left.message }, 409);
       }
       yield* settleStoppingGoal(saved.right.goalId);
       return json({
@@ -817,7 +823,9 @@ export function makePeerInviteHandler(
     // Capped before parsing, because this is the one route that answers before knowing who
     // is calling.
     const raw = await readBody(context.req.raw, MAX_ANONYMOUS_PAYLOAD_LENGTH);
-    if (raw instanceof Response) return raw;
+    if (raw instanceof Response) {
+      return raw;
+    }
     let body: { secret?: unknown; as?: unknown };
     try {
       body = JSON.parse(raw) as { secret?: unknown; as?: unknown };
@@ -920,7 +928,9 @@ interface AgentWriteBody {
 /** An operator body, parsed, or the response to send instead. */
 async function readJsonBody(request: Request): Promise<AgentWriteBody | Response> {
   const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
-  if (raw instanceof Response) return raw;
+  if (raw instanceof Response) {
+    return raw;
+  }
 
   let parsed: unknown;
   try {

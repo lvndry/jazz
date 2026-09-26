@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { RunState } from "@/core/agent/run/run-state";
 import { decideCancel, decidePause, decideResume, type LatestRun } from "./goal-controls";
-import { settleCycle } from "./goal-reconcile";
+import { settleCycle, type CycleEnd } from "./goal-reconcile";
 import { parseGoalRecord, type GoalRecord } from "./goal-record";
+import { canTransitionGoal, type GoalState } from "./goal-state";
 import { addSpend, extendBudget, reachedLimit, remainingCaps } from "./goal-usage";
 
 const RUN_ID = "run-1";
@@ -42,7 +43,7 @@ function goal(overrides: Partial<GoalRecord> = {}): GoalRecord {
       costKnown: true,
       costUSD: 0.1,
     },
-    cycle: { runId: RUN_ID, owner: { pid: 1, host: "host" }, historyStart: 4 },
+    cycle: { runId: RUN_ID, owner: { pid: 1, host: "host" } },
     latestRunId: RUN_ID,
     createdAt: "2026-09-26T00:00:00.000Z",
     updatedAt: "2026-09-26T00:00:00.000Z",
@@ -297,4 +298,69 @@ describe("goal controls", () => {
         .kind,
     ).toBe("refused");
   });
+});
+
+describe("settleCycle outcomes are writable from every cycle state", () => {
+  /**
+   * The regression, from a live goal: a resumed run finished with verified evidence while
+   * the goal was awaiting input, settleCycle produced "completed", and the store refused the
+   * transition, leaving the goal stuck with its cycle open.
+   */
+  const states: { state: GoalState; stopAfter?: "pause" | "cancel" }[] = [
+    { state: { kind: "active" } },
+    { state: { kind: "awaiting-input", reason: "approval" } },
+    { state: { kind: "paused" } },
+    { state: { kind: "stopping" }, stopAfter: "pause" },
+    { state: { kind: "stopping" }, stopAfter: "cancel" },
+  ];
+  const continued = valid({
+    status: "continue",
+    summary: "s",
+    nextAction: "n",
+    completedStepIds: ["fix"],
+  });
+  const ends: CycleEnd[] = [
+    {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: valid({
+        status: "complete",
+        summary: "Done",
+        evidence: [{ criterion: "Header test passes", quote: "1 pass 0 fail" }],
+      }),
+    },
+    { run: { kind: "completed", spend: SPEND }, evaluation: continued },
+    { run: { kind: "completed", spend: SPEND }, evaluation: continued, cappedBy: "tokens" },
+    {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: valid({ status: "blocked", summary: "b" }),
+    },
+    {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: valid({ status: "question", question: "q" }),
+    },
+    { run: { kind: "completed", spend: SPEND }, evaluation: { kind: "invalid", reason: "bad" } },
+    { run: { kind: "completed", spend: SPEND } },
+    { run: { kind: "failed", error: "boom", spend: SPEND } },
+    { run: { kind: "canceled", spend: SPEND } },
+    { run: { kind: "missing" } },
+  ];
+
+  for (const { state, stopAfter } of states) {
+    for (const end of ends) {
+      const label = `${state.kind}${stopAfter ? `/${stopAfter}` : ""} + ${end.run.kind}${end.evaluation ? `/${end.evaluation.kind === "valid" ? end.evaluation.evaluation.status : "invalid"}` : ""}${end.cappedBy ? "/capped" : ""}`;
+      it(label, () => {
+        const from = goal({
+          state,
+          cycle: { ...goal().cycle!, ...(stopAfter !== undefined ? { stopAfter } : {}) },
+        });
+        const next = settleCycle(from, end);
+        const legal =
+          next.state.kind === from.state.kind ||
+          canTransitionGoal(from.state.kind, next.state.kind);
+        expect({ legal, to: next.state.kind }).toEqual({ legal: true, to: next.state.kind });
+        const parsed = parseGoalRecord({ ...next, version: from.version + 1 });
+        expect(parsed.ok ? "valid" : parsed.error).toBe("valid");
+      });
+    }
+  }
 });

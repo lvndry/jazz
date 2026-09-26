@@ -44,8 +44,9 @@ describe("localModelServerHosts", () => {
 
       const hosts = localModelServerHosts(jazzHome, { SGLANG_BASE_URL: "gpu-box:30000" });
 
-      expect(hosts.sort()).toEqual(["100.85.157.126", "gpu-box"]);
+      expect(hosts.sort()).toEqual(["100.85.157.126:8090", "gpu-box:30000"]);
       expect(isBypassHost("http://100.85.157.126:8090/v1/chat/completions", hosts)).toBe(true);
+      expect(isBypassHost("http://100.85.157.126:9000/page", hosts)).toBe(false);
       expect(isBypassHost("https://example.com/article", hosts)).toBe(false);
     } finally {
       rmSync(jazzHome, { recursive: true, force: true });

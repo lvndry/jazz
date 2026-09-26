@@ -61,8 +61,6 @@ export interface GoalCycle {
   readonly runId: string;
   /** Process that started the run, for telling a crashed worker from a live one. */
   readonly owner: { readonly pid: number; readonly host: string };
-  /** Message offset at which the cycle began; completion quotes must come after it. */
-  readonly historyStart: number;
   /** A pause or cancel requested while the run was in flight, applied once it settles. */
   readonly stopAfter?: "pause" | "cancel";
 }
@@ -211,7 +209,6 @@ export const goalRecordSchema = z
       .object({
         runId: nonEmpty,
         owner: z.object({ pid: positiveInteger, host: z.string() }),
-        historyStart: nonNegativeInteger,
         stopAfter: z.enum(["pause", "cancel"]).optional(),
       })
       .optional(),

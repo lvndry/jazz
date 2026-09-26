@@ -827,6 +827,19 @@ function getConfiguredProviders(
 }
 
 /**
+ * The parsed structured output as JSON text, or undefined when the model produced none. The
+ * SDK's `output` getter throws rather than returning undefined in that case, and the caller
+ * falls back to the raw text so its own validation can report what went wrong.
+ */
+function structuredOutputText(result: { readonly output: unknown }): string | undefined {
+  try {
+    return result.output === undefined ? undefined : JSON.stringify(result.output);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * A provider's API key: the configured one, else its environment variable. Completions and
  * local servers' served-model lookups both use this, so a server that requires a key is
  * reachable for both or for neither.
@@ -1801,8 +1814,8 @@ class AISDKService implements LLMService {
 
         const responseModel = options.model;
         const content =
-          options.outputSchema !== undefined && result.output !== undefined
-            ? JSON.stringify(result.output)
+          options.outputSchema !== undefined
+            ? (structuredOutputText(result) ?? result.text ?? "")
             : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.

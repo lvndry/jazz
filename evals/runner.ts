@@ -29,7 +29,7 @@ import {
   type SampleReport,
 } from "./sample-report";
 import { evaluateAdversarialTargets, type TargetVerdict } from "./targets";
-import type { Domain, EvalTask, SampleRecord } from "./types";
+import type { Domain, EvalTask, OneShotResult, SampleRecord } from "./types";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const TASKS_DIR = join(REPO_ROOT, "evals", "tasks");
@@ -229,9 +229,39 @@ export interface RunSuiteOptions {
   judgeOk: boolean; // whether rubric scores are trustworthy (from calibration)
   /** Seeds the run order; the same seed and task set replay the same order. */
   seed?: number;
+  /**
+   * Samples per hard-tier task, when it should differ from `samples`. The hard targets are
+   * judged over the whole tier, so many hard tasks can each run fewer samples.
+   */
+  hardSamples?: number;
 }
 
 const DEFAULT_RUN_ORDER_SEED = 20260926;
+
+/**
+ * The state oracle's safety findings for a rollout that threw before its check ran. A sample
+ * that deleted a protected file and then crashed must still count against the safety target,
+ * or crashing would be a way to meet it. The sample stays failed regardless.
+ */
+async function violationsAfterError(
+  task: EvalTask,
+  workspaceDir: string,
+  sampleIndex: number,
+): Promise<SampleRecord["violations"]> {
+  const noAnswer: OneShotResult = {
+    ok: false,
+    answer: "",
+    toolCalls: [],
+    costUSD: 0,
+    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    eventsPath: "",
+  };
+  try {
+    return (await task.check(noAnswer, workspaceDir, sampleIndex)).violations ?? [];
+  } catch {
+    return [];
+  }
+}
 
 export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport> {
   const perTask = new Map<string, PerTaskRollups>();
@@ -239,10 +269,19 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
   const judge = makeJudge();
   const seed = options.seed ?? DEFAULT_RUN_ORDER_SEED;
   const startedAt = new Date().toISOString();
+  const git = gitState();
 
   const jobs = seededShuffle(
     options.tasks.flatMap((task) =>
-      Array.from({ length: options.samples }, (_unused, sampleIndex) => ({ task, sampleIndex })),
+      Array.from(
+        {
+          length:
+            task.baseDifficulty === "hard" && options.hardSamples !== undefined
+              ? options.hardSamples
+              : options.samples,
+        },
+        (_unused, sampleIndex) => ({ task, sampleIndex }),
+      ),
     ),
     seed,
   ).map((job, runOrder) => ({ ...job, runOrder }));
@@ -303,6 +342,9 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       record.costKnown = result.costKnown === true;
       record.totalTokens = result.tokenUsage.totalTokens;
       record.cycles = result.cycles ?? 1;
+      if (result.goal !== undefined) {
+        record.goalState = result.goal.state;
+      }
       const check = await task.check(result, workspaceDir, sampleIndex);
       record.pass = check.pass;
       record.score = check.score;
@@ -317,6 +359,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       console.error(`eval task ${task.id} (sample ${sampleIndex}) failed:`, error);
       record.pass = false;
       record.error = error instanceof Error ? error.message : String(error);
+      record.violations = await violationsAfterError(task, workspaceDir, sampleIndex);
     } finally {
       record.durationMs = Math.round(performance.now() - sampleStartedAt);
       rmSync(workspaceDir, { recursive: true, force: true });
@@ -339,7 +382,6 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     perTask.set(task.id, entry);
   });
 
-  const git = gitState();
   return {
     ...aggregate([...perTask.values()]),
     metadata: {
@@ -372,7 +414,7 @@ export async function runAB(
   delta: { passAt1: number; passHatK: number };
   paired: PairedComparison;
 }> {
-  const a = await runSuite({
+  const first = await runSuite({
     tasks,
     agentId: agentA,
     samples,
@@ -380,7 +422,7 @@ export async function runAB(
     judgeOk,
     ...(seed !== undefined ? { seed } : {}),
   });
-  const b = await runSuite({
+  const second = await runSuite({
     tasks,
     agentId: agentB,
     samples,
@@ -389,13 +431,13 @@ export async function runAB(
     ...(seed !== undefined ? { seed } : {}),
   });
   return {
-    a,
-    b,
+    a: first,
+    b: second,
     delta: {
-      passAt1: abDelta(a.overall.passAt1, b.overall.passAt1).delta,
-      passHatK: abDelta(a.overall.passHatK, b.overall.passHatK).delta,
+      passAt1: abDelta(first.overall.passAt1, second.overall.passAt1).delta,
+      passHatK: abDelta(first.overall.passHatK, second.overall.passHatK).delta,
     },
-    paired: pairSamples(a.sampleReport.samples, b.sampleReport.samples),
+    paired: pairSamples(first.sampleReport.samples, second.sampleReport.samples),
   };
 }
 
@@ -521,6 +563,8 @@ export async function runCli(): Promise<void> {
     const seedFlag = parseFlag("--seed");
     const seed = seedFlag === undefined ? undefined : Number(seedFlag);
     const baselinePath = parseFlag("--baseline");
+    const concurrency = Number(parseFlag("--concurrency") ?? EVAL_CONFIG.concurrency);
+    const hardSamplesFlag = parseFlag("--hard-samples");
     assertAllowedAgent(agentId);
     if (abAgent) {
       assertAllowedAgent(abAgent);
@@ -561,23 +605,16 @@ export async function runCli(): Promise<void> {
     const stamp = parseFlag("--stamp") ?? "run";
     let report: unknown;
     if (abAgent) {
-      report = await runAB(
-        tasks,
-        agentId,
-        abAgent,
-        samples,
-        EVAL_CONFIG.concurrency,
-        judgeOk,
-        seed,
-      );
+      report = await runAB(tasks, agentId, abAgent, samples, concurrency, judgeOk, seed);
     } else {
       const suite = await runSuite({
         tasks,
         agentId,
         samples,
-        concurrency: EVAL_CONFIG.concurrency,
+        concurrency,
         judgeOk,
         ...(seed !== undefined ? { seed } : {}),
+        ...(hardSamplesFlag !== undefined ? { hardSamples: Number(hardSamplesFlag) } : {}),
       });
       report =
         baselinePath === undefined

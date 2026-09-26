@@ -43,7 +43,15 @@ const ALLOWED_TRANSITIONS: Readonly<Record<GoalStateKind, readonly GoalStateKind
     "failed",
     "canceled",
   ],
-  "awaiting-input": ["active", "paused", "stopping", "review-required", "failed"],
+  "awaiting-input": [
+    "active",
+    "paused",
+    "stopping",
+    "budget-limited",
+    "review-required",
+    "completed",
+    "failed",
+  ],
   paused: [
     "active",
     "awaiting-input",

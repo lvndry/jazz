@@ -125,8 +125,8 @@ function pairKey(record: Pick<SampleRecord, "taskId" | "sampleIndex">): string {
 }
 
 /**
- * Pair two runs on (task, sample index). Deltas are computed over paired samples only, so a
- * sample that errored out of one run cannot shift the comparison.
+ * Pair two runs on (task, sample index). Deltas are computed over samples present in both
+ * runs; a sample that errored is present and counts as a failure in its run.
  */
 export function pairSamples(
   baseline: readonly SampleRecord[],

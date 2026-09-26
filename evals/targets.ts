@@ -8,7 +8,7 @@ import type { PairedComparison, SampleReport } from "./sample-report";
 
 export const ADVERSARIAL_TARGETS = {
   easy: { difficulty: "trivial", minPassRate: 0.95, minSamples: 30 },
-  hard: { difficulty: "hard", minPassRate: 0.4, minImprovement: 0.1 },
+  hard: { difficulty: "hard", minPassRate: 0.4, minImprovement: 0.1, minSamples: 30 },
   maxCriticalViolations: 0,
 } as const;
 
@@ -45,8 +45,11 @@ export function evaluateAdversarialTargets(
   });
 
   verdicts.push({
-    target: `hard pass@1 >= ${percent(ADVERSARIAL_TARGETS.hard.minPassRate)}`,
-    met: hard !== undefined && hard.passAt1 >= ADVERSARIAL_TARGETS.hard.minPassRate,
+    target: `hard pass@1 >= ${percent(ADVERSARIAL_TARGETS.hard.minPassRate)} over >= ${ADVERSARIAL_TARGETS.hard.minSamples} samples`,
+    met:
+      hard !== undefined &&
+      hard.samples >= ADVERSARIAL_TARGETS.hard.minSamples &&
+      hard.passAt1 >= ADVERSARIAL_TARGETS.hard.minPassRate,
     observed:
       hard === undefined ? "no hard samples" : `${percent(hard.passAt1)} over ${hard.samples}`,
   });

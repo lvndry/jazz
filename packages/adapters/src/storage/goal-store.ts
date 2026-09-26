@@ -13,7 +13,7 @@ import * as nodeFs from "node:fs/promises";
 import { hostname } from "node:os";
 import * as path from "node:path";
 import { parseGoalRecord, type GoalId, type GoalRecord } from "@jazz/core/agent/goal/goal-record";
-import { transitionGoal } from "@jazz/core/agent/goal/goal-state";
+import { isTerminalGoal, transitionGoal } from "@jazz/core/agent/goal/goal-state";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
 import { getGoalsDirectory } from "@jazz/core/utils/paths";
 import { Effect, Layer } from "effect";
@@ -129,6 +129,23 @@ function nextRecord(
     (!current.usage.costKnown && next.usage.costKnown)
   ) {
     throw new Error("Goal usage cannot move backwards or treat an unknown cost as known.");
+  }
+  if (isTerminalGoal(current.state)) {
+    throw new Error(`Goal "${current.goalId}" is ${current.state.kind} and can no longer change.`);
+  }
+  if (
+    current.cycle !== undefined &&
+    next.cycle !== undefined &&
+    next.cycle.runId !== current.cycle.runId
+  ) {
+    throw new Error("An open cycle must be settled before another one is claimed.");
+  }
+  if (
+    current.cycle === undefined &&
+    next.cycle !== undefined &&
+    (next.usage.cycles !== current.usage.cycles + 1 || next.latestRunId !== next.cycle.runId)
+  ) {
+    throw new Error("Claiming a cycle must count it and record its run.");
   }
   if (next.plan.revision < current.plan.revision) {
     throw new Error("A goal plan revision cannot move backwards.");
@@ -407,6 +424,20 @@ export class FileGoalStore implements GoalStore {
     }
   }
 
+  /**
+   * Read a record found by listing the directory. A corrupt record is reported and skipped
+   * here, so one damaged file does not stop every other goal from being listed, scheduled,
+   * or activated; reading it by id still fails loudly.
+   */
+  private async readListedFile(goalId: GoalId): Promise<GoalRecord | undefined> {
+    try {
+      return await this.readFile(goalId);
+    } catch (error) {
+      console.error(`[goals] Skipping goal "${goalId}": ${normalizeError(error).message}`);
+      return undefined;
+    }
+  }
+
   private async writeFile(record: GoalRecord): Promise<void> {
     const destination = this.pathFor(record.goalId);
     await nodeFs.mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -471,7 +502,7 @@ export class FileGoalStore implements GoalStore {
       if (candidateId === goalId || !isGoalId(candidateId)) {
         continue;
       }
-      const record = await this.readFile(candidateId);
+      const record = await this.readListedFile(candidateId);
       if (
         record !== undefined &&
         record.ownerInstanceId === next.ownerInstanceId &&
@@ -494,11 +525,13 @@ export class FileGoalStore implements GoalStore {
           const record: GoalRecord = { ...structuredClone(input), version: 1 };
           assertRecordValid(record);
           if (isGoalClaimed(record.state)) {
-            await this.withActivationLock(() =>
-              this.assertNoActiveConversationConflict(record.goalId, record),
-            );
+            await this.withActivationLock(async () => {
+              await this.assertNoActiveConversationConflict(record.goalId, record);
+              await this.writeFile(record);
+            });
+          } else {
+            await this.writeFile(record);
           }
-          await this.writeFile(record);
           return structuredClone(record);
         });
       },
@@ -537,7 +570,7 @@ export class FileGoalStore implements GoalStore {
           if (!isGoalId(goalId)) {
             continue;
           }
-          const record = await this.readFile(goalId);
+          const record = await this.readListedFile(goalId);
           if (record !== undefined) {
             records.push(record);
           }
@@ -563,11 +596,13 @@ export class FileGoalStore implements GoalStore {
           }
           const updated = nextRecord(current, expectedVersion, next, new Date());
           if (isGoalClaimed(next.state)) {
-            await this.withActivationLock(() =>
-              this.assertNoActiveConversationConflict(goalId, next),
-            );
+            await this.withActivationLock(async () => {
+              await this.assertNoActiveConversationConflict(goalId, next);
+              await this.writeFile(updated);
+            });
+          } else {
+            await this.writeFile(updated);
           }
-          await this.writeFile(updated);
           return structuredClone(updated);
         });
       },

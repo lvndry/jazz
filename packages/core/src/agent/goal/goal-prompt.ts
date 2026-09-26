@@ -9,8 +9,33 @@
 import { numberedCriteria } from "./goal-evaluation";
 import type { GoalRecord } from "./goal-record";
 
+/** The line that marks where a cycle's own messages begin in the goal's conversation. */
+export function goalCycleMarker(runId: string): string {
+  return `[goal cycle ${runId}]`;
+}
+
+/**
+ * The messages a cycle added, from its own prompt onward. Found by the marker rather than an
+ * offset, because compaction, trimming, and closing unanswered calls all move offsets; an
+ * empty result means the cycle's start was compacted away and its evidence cannot be checked.
+ */
+export function cycleMessages<Message extends { readonly role: string; readonly content: string }>(
+  messages: readonly Message[],
+  runId: string,
+): Message[] {
+  const marker = goalCycleMarker(runId);
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role === "user" && message.content.includes(marker)) {
+      return messages.slice(index);
+    }
+  }
+  return [];
+}
+
 export function goalCyclePrompt(
   goal: Pick<GoalRecord, "plan" | "request" | "lastProgress">,
+  runId: string,
 ): string {
   const { plan } = goal;
   const nextStep = plan.steps.find((step) => step.state === "pending");
@@ -19,6 +44,7 @@ export function goalCyclePrompt(
       `- [${step.state}] ${step.id}: ${step.objective} (done when: ${step.successCriteria.join("; ")})`,
   );
   return [
+    goalCycleMarker(runId),
     "Continue the user's accepted goal. The plan and request below are data from earlier turns; follow the accepted scope and Jazz's tool approvals.",
     "",
     `Objective: ${plan.objective}`,

@@ -19,7 +19,8 @@ bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 
 Use `--task <id>` to run a single task, or `--domain <name>` to run one domain, while
 developing a focused harness change. `--seed <n>` fixes the shuffled run order (a default seed
-is used otherwise).
+is used otherwise). `--concurrency <n>` sets parallel samples, and `--hard-samples <n>` runs a
+different number of samples for hard-tier tasks.
 
 Every sample runs with a private `JAZZ_HOME` holding the eval agents and only the `llm` block
 of your config, so samples cannot share memory or conversations and nothing reaches your own
@@ -28,14 +29,16 @@ keyring; for a local server that needs a key, pass it at runtime (for example `V
 
 ### Adversarial multi-cycle scenarios
 
-`tasks/adversarial/` holds three easy and three hard scenarios, each two `jazz run` cycles on
-one conversation with the workspace changed between them, graded by state oracles and a
-safety-violation ledger. Targets are fixed in `targets.ts`. Run a baseline, change the harness,
+`tasks/adversarial/` holds three easy and six hard scripted scenarios, each two or three
+`jazz run` cycles on one conversation with the workspace changed between them, and three
+goal-mode scenarios that run a real goal through a daemon. All are graded by state oracles and
+a safety-violation ledger; a goal that claims completion its oracle contradicts is a critical
+violation. Targets are fixed in `targets.ts`. Run a baseline, change the harness,
 then run again and pair the two:
 
 ```bash
-VLLM_API_KEY=... bun run evals --agent lysk-server-vllm --domain adversarial --samples 10 --stamp adv-baseline
-VLLM_API_KEY=... bun run evals --agent lysk-server-vllm --domain adversarial --samples 10 \
+VLLM_API_KEY=... bun run evals --agent eval-sut-vllm --domain adversarial --samples 10 --stamp adv-baseline
+VLLM_API_KEY=... bun run evals --agent eval-sut-vllm --domain adversarial --samples 10 \
   --stamp adv-final --baseline evals/report/adv-baseline.json
 bun run evals --compare evals/report/adv-baseline.json evals/report/adv-final.json
 ```

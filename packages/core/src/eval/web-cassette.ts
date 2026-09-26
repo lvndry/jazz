@@ -52,28 +52,29 @@ export function isBypassHost(
   modelServerHosts: readonly string[] = [],
 ): boolean {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  let host: string;
+  let parsed: URL;
   try {
-    host = new URL(url).hostname;
+    parsed = new URL(url);
   } catch {
     return false;
   }
   return (
-    modelServerHosts.includes(host) ||
-    BYPASS_HOST_SUBSTRINGS.some((needle) => host.includes(needle))
+    modelServerHosts.includes(parsed.host) ||
+    BYPASS_HOST_SUBSTRINGS.some((needle) => parsed.hostname.includes(needle))
   );
 }
 
-function hostnameOf(url: string): string | undefined {
+function hostOf(url: string): string | undefined {
   try {
-    return new URL(/^[a-z]+:\/\//i.test(url) ? url : `http://${url}`).hostname;
+    return new URL(/^[a-z]+:\/\//i.test(url) ? url : `http://${url}`).host;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Hosts of the user-run model servers Jazz may call: each local provider's base URL from
+ * `host:port` of the user-run model servers Jazz may call, so a web tool's request to another
+ * port on the same machine is still recorded: each local provider's base URL from
  * `<jazzHome>/config.json` and from its environment variable. A server can live at any
  * address, such as another machine on a private network, which no fixed host list covers,
  * and replaying the model call would starve the run.
@@ -100,7 +101,7 @@ export function localModelServerHosts(
     ...new Set(
       urls
         .filter((url): url is string => url !== undefined && url.trim().length > 0)
-        .map((url) => hostnameOf(url.trim()))
+        .map((url) => hostOf(url.trim()))
         .filter((host): host is string => host !== undefined),
     ),
   ];
@@ -123,7 +124,9 @@ export function installWebCassette(
 
   // Bun's `typeof fetch` demands a `preconnect` member the cassette never needs.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (isBypassHost(input, modelServerHosts)) return realFetch(input, init);
+    if (isBypassHost(input, modelServerHosts)) {
+      return realFetch(input, init);
+    }
     const key = requestKey(input, init);
     if (mode === "replay") {
       const entry = cassette[key];
