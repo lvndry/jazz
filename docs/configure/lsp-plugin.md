@@ -12,10 +12,18 @@ remain available for document and workspace symbols, definitions, references, ho
 symbol rename, and document formatting. The plugin works with servers that speak LSP 3.17 over stdio
 and implement the requested methods. There is no language server bundled with Jazz.
 
-Pack the plugin from this repository with `bun run plugin:pack plugins/lsp`, then install the
-generated `plugins/lsp/release/catalog-entry.json` through the normal
-[plugin lifecycle](./plugins.md). Trust and enable it for the agent. The pack step bundles its
-diff renderer into a self-contained artifact. Configure server commands in `~/.jazz/lsp.json`:
+Install the published plugin through the normal [plugin lifecycle](./plugins.md). No repository
+clone or local build is needed; the published artifact includes its diff renderer:
+
+```sh
+jazz plugin add com.jazz.plugins.lsp
+jazz plugin inspect com.jazz.plugins.lsp
+jazz plugin trust com.jazz.plugins.lsp
+jazz plugin enable com.jazz.plugins.lsp --agent default
+```
+
+Replace `default` with your agent name or ID, or omit `--agent` to enable it for every agent.
+Install your language-server executable separately and configure its command in `~/.jazz/lsp.json`:
 
 ```json
 {
