@@ -25,7 +25,17 @@ export interface CycleEnd {
   readonly evaluation?: GoalEvaluationResult;
   /** A run-level cap the cycle hit, which leaves the goal budget-limited. */
   readonly cappedBy?: Exclude<GoalLimit, "cycles">;
+  /** The cycle's outcome was not checked at all; it goes straight to review with this reason. */
+  readonly unchecked?: string;
 }
+
+/**
+ * Completion claims that may fail their evidence check in a row before the goal stops for
+ * review. A weak model often does the work but quotes badly on the first try; told what was
+ * missing, it usually produces the output on the next cycle. Unlimited retries would let a
+ * goal loop on a claim it cannot support.
+ */
+const MAX_UNVERIFIED_CLAIMS = 2;
 
 function review(base: GoalRecordInput, reason: string): GoalRecordInput {
   return { ...base, state: { kind: "review-required", reason } };
@@ -41,6 +51,9 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
   const usage = end.run.kind === "missing" ? goal.usage : addSpend(goal.usage, end.run.spend);
   const base: GoalRecordInput = { ...withoutCycle(goal), usage };
 
+  if (end.unchecked !== undefined && stopAfter !== "cancel") {
+    return review(base, end.unchecked);
+  }
   if (end.run.kind !== "completed") {
     if (stopAfter === "cancel") {
       return { ...base, state: { kind: "canceled" } };
@@ -68,10 +81,11 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
     };
   }
 
+  const { unverifiedClaims: _previousClaims, ...settledBase } = base;
   const progressed =
     evaluation?.kind === "valid" && evaluation.evaluation.status === "continue"
       ? {
-          ...base,
+          ...settledBase,
           plan: {
             ...goal.plan,
             steps: goal.plan.steps.map((step) =>
@@ -83,7 +97,9 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
           },
           lastProgress: `${evaluation.evaluation.summary}\nNext: ${evaluation.evaluation.nextAction}`,
         }
-      : base;
+      : evaluation?.kind === "invalid"
+        ? base
+        : settledBase;
 
   if (stopAfter === "cancel") {
     return { ...progressed, state: { kind: "canceled" } };
@@ -98,7 +114,21 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
     return review(progressed, "The cycle ended without a disposition to check.");
   }
   if (evaluation.kind === "invalid") {
-    return review(progressed, evaluation.reason);
+    const claims = (goal.unverifiedClaims ?? 0) + 1;
+    if (claims > MAX_UNVERIFIED_CLAIMS) {
+      return review(progressed, evaluation.reason);
+    }
+    const limit = reachedLimit(progressed);
+    const feedback = `The last cycle's report was not accepted: ${evaluation.reason} Produce tool output that shows each remaining criterion holds, then report again.`;
+    return {
+      ...progressed,
+      unverifiedClaims: claims,
+      lastProgress:
+        progressed.lastProgress === undefined
+          ? feedback
+          : `${progressed.lastProgress}\n${feedback}`,
+      state: limit === undefined ? { kind: "active" } : { kind: "budget-limited", limit },
+    };
   }
   switch (evaluation.evaluation.status) {
     case "blocked":

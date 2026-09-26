@@ -53,7 +53,7 @@ function goalVariant(
       const completed = output.goal?.state === "completed";
       return result(
         checked.pass && completed,
-        `goal ${output.goal?.state ?? "missing"}; ${checked.detail}`,
+        `goal ${output.goal?.state ?? "missing"}${output.goal?.reason !== undefined ? ` (${output.goal.reason})` : ""}; ${checked.detail}`,
         violations,
       );
     },

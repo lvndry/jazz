@@ -38,6 +38,7 @@ import {
 import { isRunParkRequested, type RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
+import { PROPOSE_GOAL_TOOL_NAME } from "@jazz/core/agent/tools/goal-tools";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
@@ -426,7 +427,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
       Effect.catchAll(() => Effect.succeed(null)),
     );
     const outcome = yield* AgentRunner.run({
-      agent,
+      agent: withoutGoalProposals(agent),
       runId,
       userInput: goalCyclePrompt(goal, runId),
       conversationId: goal.conversationId,
@@ -440,6 +441,14 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
     );
     yield* settleRunOutcome(goal, runId, outcome);
   });
+}
+
+/** A cycle works on its goal; it never proposes another one. */
+function withoutGoalProposals(agent: Agent): Agent {
+  const denied = agent.config.deniedTools ?? [];
+  return denied.includes(PROPOSE_GOAL_TOOL_NAME)
+    ? agent
+    : { ...agent, config: { ...agent.config, deniedTools: [...denied, PROPOSE_GOAL_TOOL_NAME] } };
 }
 
 export type RunOutcome =

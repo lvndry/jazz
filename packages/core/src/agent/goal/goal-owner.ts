@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import { hostname } from "node:os";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 
 export function getGoalOwnerInstanceId(): string {
   return createHash("sha256").update(`${hostname()}\0${getJazzHomeDirectory()}`).digest("hex");

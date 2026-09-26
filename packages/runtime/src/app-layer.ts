@@ -30,6 +30,7 @@ import {
 import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
 import { createSkillRegistryServiceLayer } from "@jazz/adapters/skill-registry-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-service";
 import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-service";
 import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-registry-service";
@@ -239,6 +240,7 @@ export function createAppLayer(
   const memoryServiceLayer = createMemoryServiceLayer();
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
   const reminderServiceLayer = createReminderServiceLayer();
+  const goalStoreLayer = makeFileGoalStoreLayer();
   const wakeTriggerServiceLayer = createWakeTriggerServiceLayer();
   const jobQueueServiceLayer = createJobQueueServiceLayer();
   const peerLedgerServiceLayer = createPeerLedgerServiceLayer();
@@ -287,6 +289,7 @@ export function createAppLayer(
     memoryServiceLayer,
     workspaceServiceLayer,
     reminderServiceLayer,
+    goalStoreLayer,
     wakeTriggerServiceLayer,
     jobQueueServiceLayer,
     peerLedgerServiceLayer,

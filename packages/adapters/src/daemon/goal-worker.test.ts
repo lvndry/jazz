@@ -255,7 +255,9 @@ describe("runDueGoals", () => {
     }
 
     const goal = await current(test);
-    expect(goal.state.kind).toBe("review-required");
+    expect(goal.state).toEqual({ kind: "active" });
+    expect(goal.unverifiedClaims).toBe(1);
+    expect(goal.lastProgress).toContain("not accepted");
     expect(goal.usage.totalTokens).toBe(1_207);
   });
 

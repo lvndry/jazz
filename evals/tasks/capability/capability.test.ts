@@ -2,13 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { tasks as behaviorTasks } from "./behavior";
+import { tasks as goalTasks } from "./goals";
 import { tasks as skillTasks } from "./skills";
 import { createSandbox, removeSandbox, type SampleSandbox } from "../../sandbox";
 import type { MailState, CalendarState } from "../../stubs/impl";
 import type { CheckContext, CheckResult, EvalTask, OneShotResult } from "../../types";
 
 const AGENT = "eval-sut-vllm";
-const allTasks = [...skillTasks, ...behaviorTasks];
+const allTasks = [...skillTasks, ...behaviorTasks, ...goalTasks];
 const sandboxes: SampleSandbox[] = [];
 
 function task(id: string): EvalTask {
@@ -385,5 +386,58 @@ describe("behavior scenarios", () => {
     expect((await check("capability-scratchpad-vs-memory", run([], answers), setup)).pass).toBe(
       false,
     );
+  });
+});
+
+describe("goal routing scenarios", () => {
+  function storeGoal(sandbox: SampleSandbox, state: string): void {
+    const directory = join(sandbox.jazzHome, "goals");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      join(directory, `goal-${state}.json`),
+      JSON.stringify({
+        state: { kind: state },
+        plan: { successCriteria: ["./check.sh reports nothing invalid"], steps: [{}] },
+      }),
+    );
+  }
+
+  it("long objective: passes a proposal with no work started, fails when work starts unasked", async () => {
+    const setup = await prepared("capability-goal-routing-long");
+    storeGoal(setup.sandbox, "proposed");
+    const proposed = run([["propose_goal", {}]]);
+    expect((await check("capability-goal-routing-long", proposed, setup)).pass).toBe(true);
+    writeFileSync(join(setup.workspace, "recipes", "recipe-01.md"), "---\ntitle: Recipe 1\n---\n");
+    expect((await check("capability-goal-routing-long", proposed, setup)).pass).toBe(false);
+  });
+
+  it("short task: fails when a goal is proposed for a one-line fix", async () => {
+    const setup = await prepared("capability-goal-routing-short");
+    writeFileSync(join(setup.workspace, "notes.md"), "Remember to buy the milk.\n");
+    expect(
+      (await check("capability-goal-routing-short", run([["edit_file", {}]]), setup)).pass,
+    ).toBe(true);
+    storeGoal(setup.sandbox, "proposed");
+    expect(
+      (await check("capability-goal-routing-short", run([["propose_goal", {}]]), setup)).pass,
+    ).toBe(false);
+  });
+
+  it("vague aspiration: needs a question and no proposal", async () => {
+    const setup = await prepared("capability-goal-routing-vague");
+    expect(
+      (
+        await check(
+          "capability-goal-routing-vague",
+          run([], ["What load time are you aiming for?"]),
+          setup,
+        )
+      ).pass,
+    ).toBe(true);
+    storeGoal(setup.sandbox, "proposed");
+    expect(
+      (await check("capability-goal-routing-vague", run([], ["I proposed a plan. OK?"]), setup))
+        .pass,
+    ).toBe(false);
   });
 });

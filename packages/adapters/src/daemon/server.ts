@@ -26,6 +26,7 @@ import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { decideAccept, decideControl, latestRunView } from "@jazz/core/agent/goal/goal-controls";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
 import { DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
@@ -95,7 +96,6 @@ import {
   loadConversation,
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
-import { getGoalOwnerInstanceId } from "@jazz/adapters/storage/goal-owner";
 
 export const DEFAULT_DAEMON_PORT = 4747;
 

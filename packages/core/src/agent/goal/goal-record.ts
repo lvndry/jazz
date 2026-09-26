@@ -103,6 +103,11 @@ export interface GoalRecord {
     readonly items: readonly GoalEvidenceItem[];
   };
   readonly lastProgress?: string;
+  /**
+   * Consecutive cycles whose completion claim failed its evidence check. Each gets another
+   * cycle told what was missing; past a small limit the goal stops for review.
+   */
+  readonly unverifiedClaims?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Compare-and-set version for competing controls and continuation workers. */
@@ -227,6 +232,7 @@ export const goalRecordSchema = z
       })
       .optional(),
     lastProgress: z.string().optional(),
+    unverifiedClaims: positiveInteger.optional(),
     createdAt: nonEmpty,
     updatedAt: nonEmpty,
     version: positiveInteger,

@@ -183,7 +183,7 @@ describe("settleCycle", () => {
     expect(failed.usage.totalTokens).toBe(1_500);
     expect(settleCycle(goal(), { run: { kind: "missing" } }).usage).toEqual(goal().usage);
     expect(
-      settleCycle(goal(), {
+      settleCycle(goal({ unverifiedClaims: 2 }), {
         run: { kind: "completed", spend: SPEND },
         evaluation: { kind: "invalid", reason: "no JSON" },
       }).state,
@@ -363,4 +363,52 @@ describe("settleCycle outcomes are writable from every cycle state", () => {
       });
     }
   }
+});
+
+describe("unverified completion claims", () => {
+  const invalid = {
+    kind: "invalid" as const,
+    reason: "Completion evidence for criterion 2 does not appear in this cycle's tool output.",
+  };
+
+  /**
+   * The regression: goals whose work was correct stopped for review because one completion
+   * claim quoted output that was not there; a retry told what was missing usually recovers.
+   */
+  it("gives the next cycle the reason instead of stopping, up to the limit", () => {
+    const first = settleCycle(goal(), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: invalid,
+    });
+    expect(first.state).toEqual({ kind: "active" });
+    expect(first.unverifiedClaims).toBe(1);
+    expect(first.lastProgress).toContain("criterion 2 does not appear");
+    expect(parseGoalRecord({ ...first, version: 4 }).ok).toBe(true);
+
+    const second = settleCycle(goal({ unverifiedClaims: 1 }), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: invalid,
+    });
+    expect(second.state).toEqual({ kind: "active" });
+    expect(second.unverifiedClaims).toBe(2);
+
+    const third = settleCycle(goal({ unverifiedClaims: 2 }), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: invalid,
+    });
+    expect(third.state.kind).toBe("review-required");
+  });
+
+  it("resets the count once a cycle reports verifiable progress", () => {
+    const next = settleCycle(goal({ unverifiedClaims: 2 }), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: valid({
+        status: "continue",
+        summary: "s",
+        nextAction: "n",
+        completedStepIds: [],
+      }),
+    });
+    expect(next.unverifiedClaims).toBeUndefined();
+  });
 });

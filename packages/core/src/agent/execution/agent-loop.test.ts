@@ -28,6 +28,7 @@ import { makeDefaultObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GoalStoreTag } from "../../interfaces/goal-store";
 import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
@@ -130,6 +131,7 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(WakeTriggerServiceTag, {} as any),
   Layer.succeed(JobQueueServiceTag, {} as any),
   Layer.succeed(ReminderServiceTag, {} as any),
+  Layer.succeed(GoalStoreTag, {} as any),
   Layer.succeed(PeerLedgerServiceTag, {} as any),
   Layer.succeed(PeerTokenServiceTag, {} as any),
 );
@@ -841,6 +843,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -1159,6 +1162,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -1225,6 +1229,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );

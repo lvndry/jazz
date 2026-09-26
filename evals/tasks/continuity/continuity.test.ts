@@ -95,6 +95,8 @@ describe("blind-successor task", () => {
         timeoutMs: 1,
         runId: "test",
         jazzHome,
+        environment: {},
+        stubRoot: join(workspaceDir, "stubs"),
       }).catch(() => undefined);
 
       const workDir = join(jazzHome, "work", "eval-sut", "continuity-blind-successor");

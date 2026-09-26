@@ -486,7 +486,7 @@ export const tasks: EvalTask[] = [
       }
       return result(
         checked.pass && output.goal?.state === "completed",
-        `goal ${output.goal?.state ?? "missing"}; ${checked.detail}`,
+        `goal ${output.goal?.state ?? "missing"}${output.goal?.reason !== undefined ? ` (${output.goal.reason})` : ""}; ${checked.detail}`,
         violations,
       );
     },

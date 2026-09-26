@@ -6,23 +6,52 @@
  * The planning and controls themselves live in `goals/goal-actions`, shared with `jazz goal`.
  */
 
-import { getGoalOwnerInstanceId } from "@jazz/adapters/storage/goal-owner";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { Effect } from "effect";
 import {
   activateGoal,
   applyGoalControl,
+  decideProposedGoal,
   describeGoal,
   describePlan,
+  proposedGoals,
   proposeGoal,
 } from "@/cli/goals/goal-actions";
 import type { CommandContext } from "./types";
 
 export { describeGoal };
+
+/**
+ * After a chat turn, ask about each goal the agent proposed in it: show the plan and start it
+ * only if the user accepts. Declining cancels the proposal. This is the only way a proposed
+ * goal starts from chat, whatever the approval mode.
+ */
+export function offerProposedGoals(conversationId: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    for (const goal of yield* proposedGoals(conversationId)) {
+      yield* terminal.log("\nGoal proposal\n");
+      yield* terminal.log(describePlan(goal.plan));
+      const accepted = yield* terminal.confirm(
+        "Start this goal? Jazz keeps working on it across runs while `jazz daemon` is running.",
+        false,
+      );
+      const outcome = yield* decideProposedGoal(goal.goalId, accepted === true);
+      if (outcome.kind === "refused") {
+        yield* terminal.warn(outcome.reason);
+      } else if (accepted === true) {
+        yield* terminal.success(`Goal ${goal.goalId} started. Follow it with /goal list.`);
+      } else {
+        yield* terminal.info("Proposal declined; the goal was not started.");
+      }
+    }
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+}
 
 function draftGoal(context: CommandContext, request: string) {
   return Effect.gen(function* () {
@@ -115,6 +144,23 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
       return { shouldContinue: true };
     }).pipe(Effect.provide(makeFileGoalStoreLayer()));
   }
+  if (command === "accept" || command === "decline") {
+    return Effect.gen(function* () {
+      const terminal = yield* TerminalServiceTag;
+      const goalId = rest[0];
+      if (goalId === undefined) {
+        yield* terminal.warn(`Usage: /goal ${command} <goal-id>`);
+        return { shouldContinue: true };
+      }
+      const outcome = yield* decideProposedGoal(goalId, command === "accept");
+      if (outcome.kind === "refused") {
+        yield* terminal.warn(outcome.reason);
+      } else {
+        yield* terminal.success(`Goal ${goalId}: ${outcome.goal.state.kind}.`);
+      }
+      return { shouldContinue: true };
+    }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+  }
   if (command === "pause" || command === "resume" || command === "cancel") {
     return controlGoal(command, rest[0], rest.slice(1).join(" ")).pipe(
       Effect.as({ shouldContinue: true }),
@@ -148,33 +194,4 @@ function controlGoal(control: GoalControl, goalId: string | undefined, guidance:
       yield* terminal.info(outcome.note);
     }
   }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
-}
-
-const GOAL_VERBS =
-  "improve|optimi[sz]e|increase|reduce|migrate|refactor|moderni[sz]e|rebuild|redesign|implement|build";
-const MAKE_BETTER = "make\\b.{1,80}\\b(?:faster|better|smaller|cheaper|safer|more|less)";
-
-/**
- * Cheap candidate gate for offering the goal flow. A match only offers it; declining runs the
- * turn normally, so a false positive costs one prompt and a miss costs nothing.
- */
-export function mayBeGoalRequest(message: string): boolean {
-  const normalized = message.trim();
-  if (normalized.length < 10 || normalized.length > 4000) {
-    return false;
-  }
-  if (
-    /^(what|how|why|when|where|who|do you think|is it worth|i wonder|could we|should we|would it)\b/i.test(
-      normalized,
-    ) ||
-    /\b(what if|whether we should|maybe we should)\b/i.test(normalized)
-  ) {
-    return false;
-  }
-  const direct = new RegExp(`^(?:please\\s+)?(?:${GOAL_VERBS}|${MAKE_BETTER})\\b`, "i");
-  const asked = new RegExp(
-    `^(?:i want(?: you)? to|we need to|let's|help me|can you|could you|please)\\b.{0,160}\\b(?:${GOAL_VERBS}|${MAKE_BETTER})\\b`,
-    "i",
-  );
-  return direct.test(normalized) || asked.test(normalized);
 }

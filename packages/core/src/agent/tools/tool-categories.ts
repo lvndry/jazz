@@ -93,6 +93,11 @@ export const USER_INTERACTION_CATEGORY: ToolCategory = {
   displayName: "User Interaction",
   loadTier: "eager",
 };
+export const GOALS_CATEGORY: ToolCategory = {
+  id: "goals",
+  displayName: "Goals",
+  loadTier: "eager",
+};
 export const COMPOSITION_CATEGORY: ToolCategory = {
   id: "composition",
   displayName: "Compositions",
@@ -121,6 +126,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
   COMPOSITION_CATEGORY,
+  GOALS_CATEGORY,
 ] as const;
 
 /**
@@ -138,6 +144,7 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   JOB_QUEUE_CATEGORY,
   WORKSPACE_CATEGORY,
   MEMORY_CATEGORY,
+  GOALS_CATEGORY,
 ] as const;
 
 /**

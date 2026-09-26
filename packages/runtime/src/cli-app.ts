@@ -1529,6 +1529,30 @@ function registerGoalCommand(program: Command): void {
       ),
     );
 
+  for (const [decision, description] of [
+    ["accept", "Start a goal Jazz proposed"],
+    ["decline", "Drop a goal Jazz proposed"],
+  ] as const) {
+    goalCommand
+      .command(`${decision} <id>`)
+      .description(description)
+      .option("--json", "Emit a single JSON envelope")
+      .action((id: string, options: { json?: boolean }) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.decideProposedGoalCommand({
+                id,
+                accept: decision === "accept",
+                json: options.json === true,
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+  }
+
   for (const [control, description] of [
     ["pause", "Stop starting new cycles; a running cycle finishes first"],
     [

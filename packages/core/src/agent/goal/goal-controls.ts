@@ -116,10 +116,7 @@ export function decideResume(
             : run?.kind === "completed"
               ? { kind: "completed", spend: latestRun.spend }
               : { kind: "canceled", spend: latestRun.spend },
-      evaluation: {
-        kind: "invalid",
-        reason: "The cycle's run ended while the goal was paused, so its outcome was not checked.",
-      },
+      unchecked: "The cycle's run ended while the goal was paused, so its outcome was not checked.",
     });
     return write(settled, "The paused cycle's run had already ended; review it before continuing.");
   }

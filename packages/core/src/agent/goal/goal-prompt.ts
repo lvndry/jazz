@@ -64,6 +64,7 @@ export function goalCyclePrompt(
     "End this cycle with one JSON object as your entire final message, and nothing else:",
     '- More work remains: {"status":"continue","summary":"what this cycle did","nextAction":"the next bounded action","completedStepIds":["ids of steps finished and verified in this cycle"]}',
     '- Every goal criterion is met: {"status":"complete","summary":"...","evidence":[{"criterion":1,"quote":"text copied from a tool result in this cycle that shows criterion 1 is met"}]} with one entry per criterion.',
+    "  Quotes must come from tool output in this cycle. For a criterion that something did not change or did not happen, run a check that prints a confirmation when it holds (for example `cmp -s before after && echo unchanged`) and quote that line.",
     '- You need a decision only the user can make: {"status":"question","question":"..."}',
     '- You cannot continue safely: {"status":"blocked","summary":"what is blocked and why"}',
     "",

@@ -7,17 +7,18 @@
  * 2 the request needs answers before a plan can be drafted.
  */
 
-import { getGoalOwnerInstanceId } from "@jazz/adapters/storage/goal-owner";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { Effect } from "effect";
 import {
   activateGoal,
   applyGoalControl,
+  decideProposedGoal,
   describeGoal,
   describePlan,
   proposeGoal,
@@ -160,6 +161,28 @@ export function showGoalCommand(options: { readonly id: string; readonly json: b
       options.json,
       { ok: true, goal },
       [...describeGoal(goal), "", describePlan(goal.plan)].join("\n"),
+    );
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+}
+
+/** Start (`accept`) or drop (`decline`) a goal the agent proposed. */
+export function decideProposedGoalCommand(options: {
+  readonly id: string;
+  readonly accept: boolean;
+  readonly json: boolean;
+}) {
+  return Effect.gen(function* () {
+    const outcome = yield* decideProposedGoal(options.id, options.accept);
+    if (outcome.kind === "refused") {
+      fail(options.json, outcome.reason);
+      return;
+    }
+    emit(
+      options.json,
+      { ok: true, goal: outcome.goal },
+      options.accept
+        ? `Goal ${options.id} started. It advances while \`jazz daemon\` is running.`
+        : `Goal ${options.id} declined.`,
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()));
 }

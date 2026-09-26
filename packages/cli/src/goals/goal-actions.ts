@@ -7,7 +7,6 @@
 
 import { randomUUID } from "node:crypto";
 import { settleStoppingGoal } from "@jazz/adapters/daemon/goal-worker";
-import { getGoalOwnerInstanceId } from "@jazz/adapters/storage/goal-owner";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import {
   decideAccept,
@@ -15,6 +14,7 @@ import {
   latestRunView,
   type GoalControl,
 } from "@jazz/core/agent/goal/goal-controls";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import {
   goalDraftSchema,
   goalPlanningPrompt,
@@ -218,6 +218,53 @@ export function activateGoal(options: {
     const active = yield* store.compareAndSet(proposed.goalId, proposed.version, acceptance.next);
     return { kind: "active", goal: active } as const;
   });
+}
+
+/**
+ * Accept or decline a goal the agent proposed. Accepting activates it for the daemon;
+ * declining cancels it so it never runs. Only a goal still in `proposed` can be decided.
+ */
+export function decideProposedGoal(goalId: string, accept: boolean) {
+  return Effect.gen(function* () {
+    const store = yield* GoalStoreTag;
+    const goal = yield* store.get(goalId);
+    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
+      return { kind: "refused", reason: `No goal with id "${goalId}".` } as const;
+    }
+    if (goal.state.kind !== "proposed") {
+      return {
+        kind: "refused",
+        reason: `Goal ${goalId} is ${goal.state.kind}, not awaiting acceptance.`,
+      } as const;
+    }
+    const decision = accept
+      ? decideAccept(goal, goal.plan.revision)
+      : decideControl(goal, "cancel", undefined);
+    if (decision.kind === "refused") {
+      return { kind: "refused", reason: decision.reason } as const;
+    }
+    const saved = yield* store
+      .compareAndSet(goal.goalId, goal.version, decision.next)
+      .pipe(Effect.either);
+    if (saved._tag === "Left") {
+      return {
+        kind: "refused",
+        reason: `Could not update goal ${goalId}: ${saved.left.message}`,
+      } as const;
+    }
+    return { kind: "decided", goal: saved.right } as const;
+  });
+}
+
+/** Goals the agent proposed in a conversation that still wait for the user's answer. */
+export function proposedGoals(sourceConversationId: string) {
+  return Effect.flatMap(GoalStoreTag, (store) =>
+    store.list({
+      ownerInstanceId: getGoalOwnerInstanceId(),
+      sourceConversationId,
+      states: ["proposed"],
+    }),
+  );
 }
 
 /** Pause, resume, or cancel a goal this installation owns. */
