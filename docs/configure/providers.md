@@ -206,8 +206,6 @@ Transports name the request field Jazz sends, not a vendor. OpenAI-compatible pr
 | `openai-compatible.chat.template-enable-thinking` | `toggle` | `chat_template_kwargs.enable_thinking`                        |
 | `openai-compatible.chat.template-thinking-budget` | `budget` | `chat_template_kwargs.thinking_budget`, omitted when disabled |
 
-The older names `llamacpp.chat.enable-thinking`, `llamacpp.chat.thinking-budget`, `vllm.chat.reasoning-effort`, and `sglang.chat.reasoning-effort` still load and are read as their `openai-compatible.chat.*` equivalents.
-
 When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisable": false` becomes the lowest level. Jazz logs each adjustment once per model.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.

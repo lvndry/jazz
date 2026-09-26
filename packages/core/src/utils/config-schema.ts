@@ -49,10 +49,8 @@ import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
 import {
   CAPABILITY_REASONING_EFFORTS,
-  LEGACY_REASONING_TRANSPORTS,
   type ModelCapabilityOverride,
   type ReasoningControlSurface,
-  type ReasoningTransport,
 } from "@/core/types/model-capabilities";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
@@ -134,43 +132,15 @@ const capabilityReasoningEfforts = z.array(z.enum(CAPABILITY_REASONING_EFFORTS))
 
 const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported") });
 
-type LegacyReasoningTransport = keyof typeof LEGACY_REASONING_TRANSPORTS;
-
-/**
- * A transport field that also accepts the legacy names mapping onto one of
- * `current`, rewriting them so the parsed config only ever holds current names.
- */
-function reasoningTransport<const Current extends ReasoningTransport>(
-  current: readonly [Current, ...Current[]],
-) {
-  const legacy = (Object.keys(LEGACY_REASONING_TRANSPORTS) as LegacyReasoningTransport[]).filter(
-    (name) =>
-      (current as readonly ReasoningTransport[]).includes(LEGACY_REASONING_TRANSPORTS[name]),
-  );
-  return z
-    .enum([...current, ...legacy] as [
-      Current | LegacyReasoningTransport,
-      ...(Current | LegacyReasoningTransport)[],
-    ])
-    .transform((name): Current =>
-      name in LEGACY_REASONING_TRANSPORTS
-        ? (LEGACY_REASONING_TRANSPORTS[name as LegacyReasoningTransport] as Current)
-        : (name as Current),
-    );
-}
-
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
-  transport: reasoningTransport([
-    "ollama.chat.think",
-    "openai-compatible.chat.template-enable-thinking",
-  ]),
+  transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
   canDisable: flag,
 });
 
 const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
-  transport: reasoningTransport([
+  transport: z.enum([
     "openai.responses.reasoning-effort",
     "openai-compatible.chat.reasoning-effort",
   ]),
@@ -210,7 +180,7 @@ const adaptiveReasoningSchema = z.strictObject({
 const budgetReasoningSchema = z
   .strictObject({
     kind: z.literal("budget"),
-    transport: reasoningTransport(["openai-compatible.chat.template-thinking-budget"]),
+    transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     canDisable: flag,
