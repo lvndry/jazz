@@ -5,11 +5,13 @@
  */
 
 import { addRunSpend, type RunSpend } from "@/core/agent/run/run-spend";
-import { nextCronRun } from "@/core/utils/cron";
+import { isValidCronExpression, nextCronRun } from "@/core/utils/cron";
 import type { ProcessOwner } from "@/core/utils/process";
+import { parseDurationMs } from "@/core/utils/time";
 import {
   DEFAULT_LOOP_BUDGET,
   MAX_CONSECUTIVE_LOOP_FAILURES,
+  MIN_LOOP_INTERVAL_MS,
   withoutRun,
   type LoopBudget,
   type LoopLastRun,
@@ -262,4 +264,105 @@ export function decideLoopControl(
         : { kind: "write", next };
     }
   }
+}
+
+function describeSchedule(schedule: LoopSchedule): string {
+  if (schedule.kind === "cron") {
+    return `on the schedule \`${schedule.expression}\`${schedule.timezone !== undefined ? ` (${schedule.timezone})` : ""}`;
+  }
+  const minutes = Math.round(schedule.everyMs / 60_000);
+  return minutes % 60 === 0 ? `every ${String(minutes / 60)}h` : `every ${String(minutes)}m`;
+}
+
+/** The input for one run: the loop's prompt with what the run needs to know about the loop. */
+export function loopRunPrompt(loop: LoopRecord): string {
+  return [
+    `This is run ${String(loop.usage.runs)} of a loop that runs ${describeSchedule(loop.schedule)}. The user is not watching.`,
+    ...(loop.lastRun?.summary !== undefined
+      ? [`The previous run (${loop.lastRun.outcome}) ended with: ${loop.lastRun.summary}`]
+      : []),
+    "When the loop's purpose is met, or it can no longer make progress, call end_loop with the reason so it stops; otherwise do this run's work and report briefly.",
+    "",
+    loop.prompt,
+  ].join("\n");
+}
+
+interface ToolCallMessage {
+  readonly role: string;
+  readonly content?: unknown;
+  readonly tool_call_id?: string;
+  readonly tool_calls?: readonly {
+    readonly id: string;
+    readonly function: { readonly name: string; readonly arguments: string };
+  }[];
+}
+
+/**
+ * The reason a run asked to end its loop, from its messages: the last `end_loop` call whose
+ * result came back without an error.
+ */
+export function endLoopRequest(messages: readonly ToolCallMessage[]): string | undefined {
+  const failedCalls = new Set(
+    messages
+      .filter(
+        (message) =>
+          message.role === "tool" &&
+          typeof message.content === "string" &&
+          /"success"\s*:\s*false|"error"\s*:/.test(message.content),
+      )
+      .map((message) => message.tool_call_id),
+  );
+  const answered = new Set(
+    messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id),
+  );
+  const calls = messages.flatMap((message) =>
+    message.role === "assistant" ? (message.tool_calls ?? []) : [],
+  );
+  for (const call of [...calls].reverse()) {
+    if (call.function.name !== "end_loop" || !answered.has(call.id) || failedCalls.has(call.id)) {
+      continue;
+    }
+    try {
+      const reason = (JSON.parse(call.function.arguments) as { reason?: unknown }).reason;
+      if (typeof reason === "string" && reason.trim().length > 0) {
+        return reason.trim();
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A schedule from what a person typed: a duration ("10m", "1h30m", "every 2h") or a cron
+ * expression ("*\/15 9-17 * * mon-fri"). An interval under the minimum is refused, not rounded.
+ */
+export function parseLoopSchedule(
+  spec: string,
+  timezone?: string,
+):
+  | { readonly ok: true; readonly schedule: LoopSchedule }
+  | { readonly ok: false; readonly reason: string } {
+  const trimmed = spec.trim().replace(/^every\s+/i, "");
+  const everyMs = parseDurationMs(trimmed);
+  if (everyMs !== null) {
+    return everyMs < MIN_LOOP_INTERVAL_MS
+      ? { ok: false, reason: `A loop runs at most once a minute; "${spec}" is shorter.` }
+      : { ok: true, schedule: { kind: "every", everyMs } };
+  }
+  if (isValidCronExpression(trimmed)) {
+    return {
+      ok: true,
+      schedule: {
+        kind: "cron",
+        expression: trimmed,
+        ...(timezone !== undefined ? { timezone } : {}),
+      },
+    };
+  }
+  return {
+    ok: false,
+    reason: `"${spec}" is neither a duration like 10m or 1h30m nor a cron expression.`,
+  };
 }

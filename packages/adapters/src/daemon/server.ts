@@ -40,6 +40,7 @@ import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -119,6 +120,7 @@ export type DaemonRequirements =
   | PersonaService
   | RunStoreTag
   | GoalStoreTag
+  | LoopStoreTag
   | ToolRegistry
   | ToolRequirements
   // A threaded webhook reads its conversation before the run and writes it after, so the
