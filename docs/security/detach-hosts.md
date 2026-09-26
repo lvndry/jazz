@@ -4,6 +4,9 @@ description: "Register and check an SSH host before detaching a Jazz conversatio
 
 # Detach hosts
 
+This page covers what a detach host can see and do. To set one up and use it, start with
+[Continue on your server](../features/detach.md).
+
 Register an SSH alias that already resolves through your SSH configuration and a workspace
 directory owned by the remote user:
 

@@ -183,6 +183,9 @@ See [MCP configuration](./configure/mcp.md).
 | `jazz hosts remove <name>`                            | Remove the local host registration          |
 | `jazz hosts doctor <name>`                            | Check SSH, disk, platform, Jazz, and daemon |
 
+To set up a server and move a conversation step by step, see
+[Continue on your server](./features/detach.md).
+
 The SSH target is a configured SSH alias. The remote workspace must exist and be writable.
 Pass `--allow-file-secrets` to `hosts add` for a server without an OS keyring (libsecret);
 without it, a handoff to such a server stops before anything moves.
