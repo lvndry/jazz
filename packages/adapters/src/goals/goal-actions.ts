@@ -29,7 +29,8 @@ import {
   type GoalRecord,
 } from "@jazz/core/agent/goal/goal-record";
 import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
-import { DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
+import { addSpend, DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
+import { agentRunSpend, priceOneOffCall, type CallSpend } from "@jazz/core/agent/run/run-spend";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -53,8 +54,10 @@ const DISCOVERY_REQUEST_CHARS = 4_000;
 const PLANNER_MAX_OUTPUT_TOKENS = 2_500;
 const DISCOVERY_TOOLS = new Set(["read_file", "ls", "grep", "glob", "find"]);
 
+/** What drafting a plan spent; `costUSD` is absent when any part of it had unknown pricing. */
 export interface PlanningSpend {
   readonly totalTokens: number;
+  readonly costUSD?: number;
   readonly startedAt: number;
 }
 
@@ -85,6 +88,16 @@ export function listOwnedGoals(
   );
 }
 
+function planningSpend(parts: readonly CallSpend[], startedAt: number): PlanningSpend {
+  const totalTokens = parts.reduce((sum, part) => sum + part.totalTokens, 0);
+  const costKnown = parts.every((part) => part.costKnown);
+  return {
+    totalTokens,
+    ...(costKnown ? { costUSD: parts.reduce((sum, part) => sum + (part.costUSD ?? 0), 0) } : {}),
+    startedAt,
+  };
+}
+
 /**
  * Draft a plan for a request, or the questions that must be answered first. With `inspect`,
  * a bounded read-only pass over the current project informs the plan first; its file contents
@@ -111,7 +124,7 @@ export function proposeGoal(options: {
     let discoveryNotes = options.inspect
       ? "No bounded local project discovery tools were available."
       : "The user declined local project inspection; feasibility is uncertain and no project files were read.";
-    let discoveryTokens = 0;
+    const spent: CallSpend[] = [];
     if (readOnlyToolNames.length > 0) {
       const discovery = yield* AgentRunner.run({
         agent: options.agent,
@@ -133,12 +146,11 @@ export function proposeGoal(options: {
       }).pipe(Effect.either);
       if (discovery._tag === "Right") {
         discoveryNotes = discovery.right.content;
-        discoveryTokens =
-          (discovery.right.usage?.promptTokens ?? 0) +
-          (discovery.right.usage?.completionTokens ?? 0);
+        spent.push(agentRunSpend(options.agent, discovery.right));
       } else {
         discoveryNotes =
           "Bounded local discovery could not complete; feasibility remains uncertain.";
+        spent.push({ totalTokens: 0, costKnown: false });
       }
     }
     const completion = yield* llm
@@ -168,10 +180,8 @@ export function proposeGoal(options: {
       };
       return failed;
     }
-    const spend: PlanningSpend = {
-      totalTokens: discoveryTokens + (completion.right.usage?.totalTokens ?? 0),
-      startedAt,
-    };
+    spent.push(yield* priceOneOffCall(options.agent, completion.right.usage));
+    const spend = planningSpend(spent, startedAt);
     const draft = parseGoalDraft(completion.right.content);
     if (draft === undefined) {
       const invalid: GoalProposal = {
@@ -189,7 +199,7 @@ export function proposeGoal(options: {
 }
 
 /**
- * Create the goal for an accepted plan and activate it.
+ * Create the goal for an accepted plan and activate it, charged with what drafting it spent.
  * `sourceConversationId` scopes the one-active-goal-per-conversation rule; a goal started
  * outside a conversation has none. The rule is checked before the goal is created so a
  * refusal leaves no orphaned proposal behind.
@@ -223,11 +233,11 @@ export function activateGoal(options: {
         request: options.request,
         plan: options.plan,
         budget: { ...DEFAULT_GOAL_BUDGET, ...options.budget },
-        usage: {
-          ...NO_GOAL_USAGE,
+        usage: addSpend(NO_GOAL_USAGE, {
           totalTokens: options.spend.totalTokens,
+          ...(options.spend.costUSD !== undefined ? { costUSD: options.spend.costUSD } : {}),
           activeDurationMs: Math.max(0, Date.now() - options.spend.startedAt),
-        },
+        }),
       }),
     );
     const acceptance = decideAccept(proposed, proposed.plan.revision);
