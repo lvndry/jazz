@@ -622,8 +622,16 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
         reason: `Goal ${goal.goalId} reached its ${caps.limit} budget while waiting. Pause and resume the goal to extend its budget, or cancel it.`,
       } as const;
     }
+    // The resuming process takes the cycle over, so a daemon tick while it works sees a live
+    // owner instead of an abandoned cycle and leaves its settlement to this process.
     const working = yield* goals
-      .compareAndSet(goal.goalId, goal.version, { ...asInput(goal), state: { kind: "active" } })
+      .compareAndSet(goal.goalId, goal.version, {
+        ...asInput(goal),
+        state: { kind: "active" },
+        ...(goal.cycle !== undefined
+          ? { cycle: { ...goal.cycle, owner: currentProcessOwner() } }
+          : {}),
+      })
       .pipe(Effect.either);
     if (working._tag === "Left") {
       return {

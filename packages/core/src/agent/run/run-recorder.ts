@@ -109,10 +109,9 @@ export function withRunRecording<E, R>(
     };
 
     const moveTo = (state: RunState, includeMetrics = true) =>
-      store.transition(input.runId, state).pipe(
-        Effect.flatMap((updated) => store.save(includeMetrics ? withCost(updated) : updated)),
-        Effect.ignore,
-      );
+      store
+        .transition(input.runId, state, includeMetrics ? withCost : undefined)
+        .pipe(Effect.ignore);
 
     // A resumed run already has a record, and `resumeRun` has already claimed it by moving
     // it to `working`. Creating a second one here would leave the original parked forever

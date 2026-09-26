@@ -621,6 +621,36 @@ describe("answering a goal's parked run", () => {
     expect(seen[0]?.maxIterations).toBe(24);
   });
 
+  /**
+   * The regression: a daemon tick during a resume in another process saw the cycle still
+   * owned by the daemon, found it not in flight there, and settled it before the resumed run's
+   * spend was saved, recording zero tokens. The resuming process now owns the cycle while it
+   * works, so a daemon checks that process instead. (Both sides share one process in a test,
+   * so the handover itself is what is checked.)
+   */
+  it("hands the cycle to the process resuming it", async () => {
+    const test = harness();
+    const runId = await parkedGoal(test);
+    let ownerWhileResuming: { pid: number; startedAt?: number } | undefined;
+    const runner = resumedRunner(test, COMPLETE, async () => {
+      ownerWhileResuming = (await current(test)).cycle?.owner;
+    });
+    try {
+      await run(
+        test,
+        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+      );
+    } finally {
+      runner.mockRestore();
+    }
+
+    expect(ownerWhileResuming).toMatchObject({ pid: process.pid });
+    expect(ownerWhileResuming?.startedAt).toBeDefined();
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("completed");
+    expect(goal.usage.totalTokens).toBe(1_200);
+  });
+
   /** The regression: a pause while the answered run worked was dropped and cycles went on. */
   it("keeps a pause requested while the answered run is working", async () => {
     const test = harness();
