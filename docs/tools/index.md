@@ -198,10 +198,10 @@ Opt-in per agent (like Memory) rather than always-on. Deliberately separate from
 is small, curated, one-file-per-topic notes; workspace is where large working drafts, research
 dumps, and intermediate artifacts live, referenced from memory rather than duplicated into it.
 
-| Tool                | Risk        | Approval pair | What it does                                                                                     |
-| ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
-| `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: working drafts, research dumps, and intermediate artifacts too…    |
-| `manage_scratchpad` | `low-risk`  | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional… |
+| Tool                | Risk        | Approval pair | What it does                                                                                          |
+| ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
+| `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
+| `manage_scratchpad` | `low-risk`  | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
 
 ### Reminders
 

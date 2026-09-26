@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { MCPTool } from "@/core/types/mcp";
-import { registerMCPServerTools, resolveToolRiskLevel } from "./mcp-tools";
+import { registerMCPServerTools, resolveToolRiskLevel } from "./mcp";
 
 function server(trusted: boolean): MCPServerConfig {
   return { name: "probe", command: "noop", trusted } as MCPServerConfig;

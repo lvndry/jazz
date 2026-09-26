@@ -20,21 +20,12 @@ import { buildKeyFromContext } from "../context-utils";
 
 const writeFileParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        "File to write. Absolute or relative to the session working directory. Created if it does not exist.",
-      ),
-    content: z
-      .string()
-      .describe(
-        "The complete file contents. This replaces any existing file. Omitting the end of the file deletes it.",
-      ),
+    path: z.string().min(1).describe("Absolute or relative to the working directory."),
+    content: z.string().describe("The complete file; anything omitted is deleted."),
     createDirs: z
       .boolean()
       .optional()
-      .describe("Create missing parent directories. Default false."),
+      .describe("Create missing parent directories (default false)."),
   })
   .strict();
 
@@ -51,9 +42,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     name: "write_file",
     disclosure: "public",
     description:
-      "Create a new UTF-8 file, or replace an entire existing file. Use this when the file does not exist yet, or when you intend to replace every line. " +
-      "To change part of an existing file, use edit_file. Prefer createDirs: true over a separate mkdir when creating a new file. " +
-      "content is the complete file — omitting the end deletes it. createDirs defaults to false (unlike mkdir, which creates parents by default).",
+      "Create a UTF-8 file or replace one entirely. To change part of a file, use edit_file. Set createDirs to create missing parent directories.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),

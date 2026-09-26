@@ -325,7 +325,7 @@ exits the same way an LLM-stream interrupt does.
 ## Two shell-specific defenses
 
 `execute_command` gets two protections beyond the approval gate, both in
-[`shell-tools.ts`](../../packages/core/src/agent/tools/shell-tools.ts).
+[`shell.ts`](../../packages/core/src/agent/tools/shell.ts).
 
 ### A 56-pattern denylist
 
@@ -346,7 +346,7 @@ against a real path (or a mix of temp and real paths) still blocks.
 
 Its purpose is catching an accident from a confused model. Approval is the real control, and
 container isolation is the real boundary. The known bypasses are documented as a regression
-suite in [`shell-tools.security.test.ts`](../../packages/core/src/agent/tools/shell-tools.security.test.ts) ,
+suite in [`shell.security.test.ts`](../../packages/core/src/agent/tools/shell.security.test.ts) ,
 worth reading before you rely on the denylist for anything.
 
 ### Environment sanitization

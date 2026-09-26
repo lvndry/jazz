@@ -14,6 +14,7 @@ describe("isBypassHost", () => {
     expect(isBypassHost("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
     expect(isBypassHost("https://generativelanguage.googleapis.com/v1")).toBe(true);
     expect(isBypassHost("http://localhost:11434/api/chat")).toBe(true);
+    expect(isBypassHost("https://ollama.com/api/chat")).toBe(true);
     expect(isBypassHost("https://models.dev/api.json")).toBe(true);
   });
   it("does not bypass genuine web-tool hosts", () => {

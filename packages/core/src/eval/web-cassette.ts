@@ -41,6 +41,7 @@ const BYPASS_HOST_SUBSTRINGS = [
   "cerebras",
   "dashscope",
   "nvidia.com",
+  "ollama.com",
   "models.dev",
   "localhost",
   "127.0.0.1",

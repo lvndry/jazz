@@ -36,58 +36,31 @@ function resolveGrepPattern(
 export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      pattern: z
-        .string()
-        .min(1)
-        .describe(
-          "Text to search for inside files. Treated as a literal substring unless you prefix it with re: (for example 're:function\\s+\\w+') or set regex to true. Do not do both.",
-        ),
+      pattern: z.string().min(1).describe("Literal substring, or re:<regex>."),
       path: z
         .string()
         .optional()
-        .describe(
-          "File or directory to search. Absolute or relative to the session working directory. Prefer a narrow directory. Defaults to the working directory. Do not pass '/'.",
-        ),
-      recursive: z
-        .boolean()
-        .optional()
-        .describe(
-          "Search subdirectories. Default true. Set false to search only the given directory.",
-        ),
+        .describe("Narrowest file or directory containing the target. Default cwd."),
+      recursive: z.boolean().optional().describe("Default true."),
       regex: z
         .boolean()
         .optional()
-        .describe(
-          "Treat pattern as a regular expression. Prefer prefixing pattern with re: instead of setting this flag.",
-        ),
-      ignoreCase: z.boolean().optional().describe("Match without regard to case."),
-      maxResults: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of matches to return. Default 200, hard cap 2000."),
-      filePattern: z
-        .string()
-        .optional()
-        .describe("Only search files whose names match this glob. Examples: '*.js', '*.ts'."),
-      exclude: z.string().optional().describe("Skip files whose names match this pattern."),
-      excludeDir: z
-        .string()
-        .optional()
-        .describe("Skip directories whose names match this pattern."),
+        .describe("Treat pattern as a regex. Use either this or the re: prefix."),
+      ignoreCase: z.boolean().optional().describe("Case-insensitive."),
+      maxResults: z.number().int().positive().optional().describe("Default 200, max 2000."),
+      filePattern: z.string().optional().describe("Filename glob to include, e.g. '*.ts'."),
+      exclude: z.string().optional().describe("Filename glob to skip."),
+      excludeDir: z.string().optional().describe("Directory name glob to skip."),
       contextLines: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Number of lines to include above and below each match."),
+        .describe("Lines of context around each match."),
       outputMode: z
         .enum(["content", "files", "count"])
         .optional()
-        .describe(
-          "What to return: 'content' (matching lines, default), 'files' (paths only), or 'count' (match counts).",
-        ),
+        .describe("content (lines, default), files (paths), or count."),
     })
     .strict();
 
@@ -376,12 +349,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "grep",
     disclosure: "private",
     description:
-      "Search inside file contents. Uses ripgrep when installed, otherwise grep. " +
-      "Use this to find a symbol or string. Prefer this over execute_command with rg or grep. " +
-      "Do not use this to locate files by name or glob (find, also available as glob) or to list a directory (ls). " +
-      "Defaults: literal substring, recursive, 200 matches, content mode. Recursion has no depth limit — always pass path, never '/'. " +
-      "Start with a specific path and a small maxResults, then widen if needed. " +
-      "Do not set both regex:true and a re: prefix. Hidden files are skipped unless path points at them. With ripgrep, .gitignore is honoured; the grep fallback is not.",
+      "Search file contents with ripgrep, falling back to grep; use it for every content search. For file names, use find. Recursion is unbounded: start from a narrow path. Skips hidden files unless path points at them.",
     tags: ["search", "text"],
     parameters,
     validate: makeZodValidator(parameters),
