@@ -10,7 +10,6 @@
 import { Effect } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
-import type { Agent } from "@/core/types/agent";
 import type { ApprovalOutcome } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
@@ -43,11 +42,6 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
-  /**
-   * Restrictions the caller placed on the agent when the run started, applied again to the
-   * agent loaded for the resume (a goal cycle denies `propose_goal`, for one).
-   */
-  readonly restrictAgent?: (agent: Agent) => Agent;
   /** Remaining aggregate goal caps for the cycle containing this parked run. */
   readonly goalLimits?: {
     readonly maxTokens: number;
@@ -82,14 +76,13 @@ export function resumeRun(options: ResumeRunOptions) {
     }
 
     const { snapshot, pending } = record.state;
-    const storedAgent = yield* agentService
+    const agent = yield* agentService
       .getAgent(record.agentId)
       .pipe(
         Effect.mapError(
           () => new RunNotResumableError(options.runId, `its agent ${record.agentId} is gone`),
         ),
       );
-    const agent = options.restrictAgent?.(storedAgent) ?? storedAgent;
 
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.

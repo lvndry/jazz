@@ -566,7 +566,7 @@ export class ChatServiceImpl implements ChatService {
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
-            ...(ephemeral ? { disablePersistence: true } : {}),
+            ...(ephemeral ? { disablePersistence: true } : { offersGoalProposals: true }),
             autoApprovePolicy: getCurrentAutoApprovePolicy,
             autoApprovedCommands,
             autoApprovedTools,

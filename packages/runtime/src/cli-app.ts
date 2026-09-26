@@ -113,6 +113,10 @@ function registerRunCommand(program: Command): void {
       "Comma-separated tool names to auto-approve without prompting, regardless of --approval-policy (e.g. execute_command). Narrower than raising the whole policy tier.",
     )
     .option(
+      "--propose-goals",
+      "Let the agent propose a goal for work that outlasts this run. The proposal waits for `jazz goal accept`; off by default, since an unattended run has nobody to accept it.",
+    )
+    .option(
       "--timezone <iana-tz>",
       "IANA timezone (e.g. Europe/Paris) used to resolve relative/clock times for this run, e.g. the add_reminder tool. Defaults to UTC.",
     )
@@ -194,6 +198,7 @@ function registerRunCommand(program: Command): void {
           json?: boolean;
           approvalPolicy?: string;
           autoApproveTools?: string;
+          proposeGoals?: boolean;
           timezone?: string;
           timeout?: number;
           maxIterations?: number;
@@ -333,6 +338,7 @@ function registerRunCommand(program: Command): void {
                 ...(autoApproveTools && autoApproveTools.length > 0
                   ? { autoApprovedTools: autoApproveTools }
                   : {}),
+                ...(options.proposeGoals === true ? { proposeGoals: true } : {}),
                 ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
                   ? { reasoning: options.reasoning }

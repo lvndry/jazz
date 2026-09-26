@@ -41,7 +41,6 @@ import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { priceOneOffCall } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
-import { PROPOSE_GOAL_TOOL_NAME } from "@jazz/core/agent/tools/goal-tools";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
@@ -399,7 +398,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
     const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
     const outcome = yield* runToOutcome(
       AgentRunner.run({
-        agent: withoutGoalProposals(agent),
+        agent,
         runId,
         userInput: goalCyclePrompt(goal, runId),
         conversationId: goal.conversationId,
@@ -412,14 +411,6 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
     );
     yield* settleRunOutcome(goal, runId, outcome);
   });
-}
-
-/** A cycle works on its goal; it never proposes another one. */
-function withoutGoalProposals(agent: Agent): Agent {
-  const denied = agent.config.deniedTools ?? [];
-  return denied.includes(PROPOSE_GOAL_TOOL_NAME)
-    ? agent
-    : { ...agent, config: { ...agent.config, deniedTools: [...denied, PROPOSE_GOAL_TOOL_NAME] } };
 }
 
 function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<AgentResponse>) {
@@ -627,9 +618,7 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(
-          resumeRun({ ...options, goalLimits: caps.caps, restrictAgent: withoutGoalProposals }),
-        );
+        const settled = yield* runToOutcome(resumeRun({ ...options, goalLimits: caps.caps }));
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),

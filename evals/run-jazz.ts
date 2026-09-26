@@ -137,11 +137,16 @@ function runArgs(options: RunJazzOptions, captureEvents: boolean): string[] {
   if (options.maxIterations !== undefined) {
     args.push("--max-iterations", String(options.maxIterations));
   }
+  if (options.proposeGoals === true) {
+    args.push("--propose-goals");
+  }
   return args;
 }
 
 export interface RunJazzOptions {
   prompt: string;
+  /** Let the agent propose goals, as a person running `jazz run --propose-goals` would. */
+  proposeGoals?: boolean;
   agentId: string;
   workspaceDir: string;
   cassettePath: string;

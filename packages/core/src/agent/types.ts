@@ -143,6 +143,12 @@ export interface AgentRunnerOptions {
    */
   readonly autoApprovedTools?: readonly string[];
   /**
+   * Whether a person on this surface is shown the goals the agent proposes and can accept them.
+   * Only then does the run get `propose_goal`; anywhere else a proposal would sit unseen while
+   * the rest of the run lost its tools.
+   */
+  readonly offersGoalProposals?: boolean;
+  /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.
    */

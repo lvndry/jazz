@@ -80,6 +80,7 @@ export const tasks: EvalTask[] = [
         {
           prompt:
             "Set this up as ongoing work you keep doing in the background after I close this chat: get all 40 recipes in recipes/ into the format in FORMAT.md, and keep at it until ./check.sh reports nothing invalid.",
+          proposeGoals: true,
         },
       ]);
     },
@@ -115,7 +116,7 @@ export const tasks: EvalTask[] = [
       writeAll(workspaceDir, { "notes.md": "Remember to buy teh milk.\n" });
     },
     run(context) {
-      return runCycles(context, [{ prompt: "Fix the typo in notes.md." }]);
+      return runCycles(context, [{ prompt: "Fix the typo in notes.md.", proposeGoals: true }]);
     },
     async check(output, workspaceDir, _sampleIndex = 0, context) {
       const { jazzHome } = requireContext(context);
@@ -136,7 +137,7 @@ export const tasks: EvalTask[] = [
       });
     },
     run(context) {
-      return runCycles(context, [{ prompt: "Make my website faster." }]);
+      return runCycles(context, [{ prompt: "Make my website faster.", proposeGoals: true }]);
     },
     async check(output, _workspaceDir, _sampleIndex = 0, context) {
       const { jazzHome } = requireContext(context);

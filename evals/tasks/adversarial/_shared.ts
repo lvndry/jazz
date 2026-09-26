@@ -86,6 +86,8 @@ export interface Cycle {
    * shared one: a user coming back in a new chat, where only memory carries over.
    */
   conversation?: string;
+  /** Run with `--propose-goals`, so the agent can move this work into goal mode. */
+  proposeGoals?: boolean;
 }
 
 /**
@@ -114,6 +116,7 @@ export async function runCycles(
             : `${context.runId}-${cycle.conversation}`,
         jazzHome: context.jazzHome,
         environment: context.environment,
+        ...(cycle.proposeGoals === true ? { proposeGoals: true } : {}),
       }),
     );
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig } from "@/core/types";
-import { resolveAgentToolNames, toolDenials } from "./agent-tool-resolution";
+import { resolveAgentToolNames, runToolDenials, toolDenials } from "./agent-tool-resolution";
 
 function agentWith(config: Partial<AgentConfig>): Agent {
   return {
@@ -97,5 +97,17 @@ describe("resolving what an agent can actually reach", () => {
       "read_file",
       "execute_command",
     ]);
+  });
+});
+
+describe("runToolDenials", () => {
+  /**
+   * The regression: every surface got `propose_goal`, so a webhook or workflow run that called
+   * it left an unseen proposal and lost its tools for the rest of the run.
+   */
+  it("withholds propose_goal unless the surface shows proposals to a person", () => {
+    const agent = agentWith({ deniedTools: ["rm"] });
+    expect([...runToolDenials(agent, undefined, {})].sort()).toEqual(["propose_goal", "rm"]);
+    expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })]).toEqual(["rm"]);
   });
 });

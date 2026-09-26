@@ -111,6 +111,8 @@ export function extractCompositionResult(
 export interface RunAgentOnceOptions {
   readonly json: boolean;
   readonly approvalPolicy?: ApprovalPolicyLevel | undefined;
+  /** Give the agent `propose_goal`; a proposal waits for `jazz goal accept`. */
+  readonly proposeGoals?: boolean;
   /**
    * Tool names to auto-approve without prompting, regardless of `approvalPolicy`.
    * Narrower than raising the whole risk tier — e.g. `["execute_command"]` unblocks
@@ -430,6 +432,7 @@ export function runAgentOnceCommand(
       ...(options.autoApprovedTools?.length
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),
+      ...(options.proposeGoals === true ? { offersGoalProposals: true } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.maxCostUSD != null ? { maxCostUSD: options.maxCostUSD } : {}),

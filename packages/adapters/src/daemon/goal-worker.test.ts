@@ -583,7 +583,7 @@ describe("answering a goal's parked run", () => {
       runner.mockRestore();
     }
 
-    expect(seen[0]?.agent.config.deniedTools).toContain("propose_goal");
+    expect(seen[0]?.offersGoalProposals).toBeUndefined();
     expect(seen[0]?.maxIterations).toBe(24);
   });
 

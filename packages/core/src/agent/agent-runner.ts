@@ -79,7 +79,7 @@ import {
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
-import { toolDenials } from "./tools/agent-tool-resolution";
+import { runToolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
@@ -569,7 +569,7 @@ function initializeAgentRun(
 
     // Both scopes of denial, after everything that grants. Neither is undoable below: the
     // allowlist and carve-outs that follow can only narrow further.
-    const denied = toolDenials(agent, toolProfile);
+    const denied = runToolDenials(agent, toolProfile, options);
     combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
 
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool

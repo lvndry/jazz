@@ -228,9 +228,9 @@ The goal is saved as `proposed` and nothing runs until the user accepts the plan
 right after the turn, and `jazz goal accept <id>` accepts it elsewhere. Subagents and goal cycles
 cannot propose goals. See [Goal lifecycle](../maintainers/goal-lifecycle.md).
 
-| Tool           | Risk       | Approval pair | What it does                                                                                       |
-| -------------- | ---------- | ------------- | -------------------------------------------------------------------------------------------------- |
-| `propose_goal` | `low-risk` | none          | Propose a plan (objective, observable criteria, milestones) for work that must continue over time. |
+| Tool           | Risk       | Approval pair | What it does                                                                                                                                                |
+| -------------- | ---------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `propose_goal` | `low-risk` | none          | Propose a plan (objective, observable criteria, milestones) for work that must continue over time. Only in interactive chat and `jazz run --propose-goals`. |
 
 ### Wake Triggers
 
