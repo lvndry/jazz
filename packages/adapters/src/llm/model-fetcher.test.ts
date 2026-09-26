@@ -118,6 +118,123 @@ describe("ModelFetcher", () => {
     expect(result[0]!.supportsTools).toBe(true);
   });
 
+  it("lists NVIDIA NIM chat models live, dropping embedding, guardrail and parser models", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              { id: "deepseek-ai/deepseek-v4.1-flash" },
+              { id: "nvidia/nv-embedqa-mistral-7b-v2" },
+              { id: "nvidia/llama-3.1-nemoguard-8b-content-safety" },
+              { id: "nvidia/nemotron-parse" },
+              { id: "nvidia/nemotron-4-340b-reward" },
+              { id: "meta/llama-3.3-70b-instruct" },
+            ],
+          }),
+      }),
+    ) as unknown as typeof fetch;
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("nvidia", "https://integrate.api.nvidia.com", "/v1/models", "nvapi-key"),
+    );
+
+    expect(result.map((model) => model.id)).toEqual([
+      "deepseek-ai/deepseek-v4.1-flash",
+      "meta/llama-3.3-70b-instruct",
+    ]);
+  });
+
+  it("scopes catalog metadata to the listing provider before any other host's entry", async () => {
+    const { getMetadataFromMap } = await import("@jazz/core/utils/models-dev");
+    const lookup = getMetadataFromMap as unknown as ReturnType<typeof mock>;
+    lookup.mockClear();
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ id: "deepseek-ai/deepseek-v4-flash" }] }),
+      }),
+    ) as unknown as typeof fetch;
+
+    await Effect.runPromise(
+      fetcher.fetchModels("nvidia", "https://integrate.api.nvidia.com", "/v1/models"),
+    );
+
+    expect(lookup).toHaveBeenCalledWith(
+      expect.anything(),
+      "deepseek-ai/deepseek-v4-flash",
+      "nvidia",
+      { anyProvider: false },
+    );
+  });
+
+  it("keeps another host's model traits but not its price when the provider lists no entry", async () => {
+    const { getMetadataFromMap } = await import("@jazz/core/utils/models-dev");
+    const lookup = getMetadataFromMap as unknown as ReturnType<typeof mock>;
+    const otherHost = {
+      ...modelsDevEntry({ id: "deepseek-ai/deepseek-v4.1-flash" }).metadata,
+      contextWindow: 1_048_576,
+      inputPricePerMillion: 0.3,
+      outputPricePerMillion: 1.2,
+    };
+    lookup.mockImplementation(
+      (_map: unknown, _id: string, _provider?: string, options?: { anyProvider?: boolean }) =>
+        options?.anyProvider === false ? undefined : otherHost,
+    );
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [{ id: "deepseek-ai/deepseek-v4.1-flash" }] }),
+      }),
+    ) as unknown as typeof fetch;
+
+    try {
+      const [model] = await Effect.runPromise(
+        fetcher.fetchModels("nvidia", "https://integrate.api.nvidia.com", "/v1/models"),
+      );
+
+      expect(model).toMatchObject({ contextWindow: 1_048_576, supportsTools: true });
+      expect(model?.inputPricePerMillion).toBeUndefined();
+      expect(model?.outputPricePerMillion).toBeUndefined();
+    } finally {
+      lookup.mockImplementation(() => modelsDevMetadata);
+    }
+  });
+
+  it("looks Fireworks models up under models.dev's fireworks-ai listing", async () => {
+    const { getMetadataFromMap } = await import("@jazz/core/utils/models-dev");
+    const lookup = getMetadataFromMap as unknown as ReturnType<typeof mock>;
+    lookup.mockClear();
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            models: [
+              {
+                name: "accounts/fireworks/models/kimi-k2",
+                state: "READY",
+                conversationConfig: {},
+                supportsServerless: true,
+              },
+            ],
+          }),
+      }),
+    ) as unknown as typeof fetch;
+
+    await Effect.runPromise(
+      fetcher.fetchModels("fireworks", "https://api.fireworks.ai", "/v1/accounts/fireworks/models"),
+    );
+
+    expect(lookup).toHaveBeenCalledWith(
+      expect.anything(),
+      "accounts/fireworks/models/kimi-k2",
+      "fireworks-ai",
+      { anyProvider: false },
+    );
+  });
+
   it("lists vLLM models with their served context windows without probing llama.cpp /props", async () => {
     const requestedUrls: string[] = [];
     global.fetch = mock((url: string) => {

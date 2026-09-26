@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { clearModelsDevCache, getModelsDevMap, getModelsDevProviderModels } from "./models-dev";
+import {
+  clearModelsDevCache,
+  getMetadataFromMap,
+  getModelsDevMap,
+  getModelsDevProviderModels,
+  type ModelsDevMetadata,
+} from "./models-dev";
 
 const SAMPLE_API = {
   anthropic: {
@@ -135,5 +141,27 @@ describe("models-dev mirror override", () => {
       if (originalMirror === undefined) delete process.env["JAZZ_MODELS_DEV_URL"];
       else process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
     }
+  });
+});
+
+describe("getMetadataFromMap", () => {
+  const metadata = (contextWindow: number) => ({ contextWindow }) as ModelsDevMetadata;
+  const map = new Map<string, ModelsDevMetadata>([
+    ["shared-model", metadata(1)],
+    ["host-a:shared-model", metadata(2)],
+  ]);
+
+  it("prefers the provider's own entry, then any provider's", () => {
+    expect(getMetadataFromMap(map, "shared-model", "host-a")?.contextWindow).toBe(2);
+    expect(getMetadataFromMap(map, "shared-model", "host-b")?.contextWindow).toBe(1);
+  });
+
+  it("returns only the provider's own entry when anyProvider is false", () => {
+    expect(
+      getMetadataFromMap(map, "shared-model", "host-a", { anyProvider: false })?.contextWindow,
+    ).toBe(2);
+    expect(
+      getMetadataFromMap(map, "shared-model", "host-b", { anyProvider: false }),
+    ).toBeUndefined();
   });
 });

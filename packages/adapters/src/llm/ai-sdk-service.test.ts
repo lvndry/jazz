@@ -217,6 +217,37 @@ describe("AI SDK Service - Unit Tests", () => {
       });
     });
 
+    it("lists models as operator overrides correct them, leaving other fields and models alone", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.getProvider("openai");
+      });
+      const provider = await runWithTestLayers(
+        testEffect,
+        createTestConfigLayer({
+          openai: { api_key: "sk-test" },
+          capabilityOverrides: {
+            openai: {
+              "mock-model-newer": {
+                supportsTools: false,
+                reasoning: {
+                  kind: "effort",
+                  transport: "openai.responses.reasoning-effort",
+                  efforts: ["low"],
+                  canDisable: true,
+                },
+              },
+            },
+          },
+        }),
+      );
+      const overridden = provider.supportedModels.find((model) => model.id === "mock-model-newer");
+      const untouched = provider.supportedModels.find((model) => model.id === "mock-model-older");
+      expect(overridden).toMatchObject({ supportsTools: false, isReasoningModel: true });
+      expect(overridden?.contextWindow).toBe(128000);
+      expect(untouched).toMatchObject({ supportsTools: true, isReasoningModel: false });
+    });
+
     it("detects an NVIDIA NIM key from the NIM_API_KEY alias", async () => {
       const savedNvidia = process.env["NVIDIA_API_KEY"];
       const savedNim = process.env["NIM_API_KEY"];

@@ -1601,6 +1601,28 @@ class AISDKService implements LLMService {
     });
   }
 
+  /**
+   * A listed model as an operator's `capabilityOverrides` entry corrects it, so the agent
+   * wizard's tool and reasoning steps agree with what a request will do. Only fields the
+   * operator set change; built-in profiles stay out of listings, where they would mark every
+   * model of a provider as reasoning.
+   */
+  private withOperatorOverrides(providerName: ProviderName, model: ModelInfo): ModelInfo {
+    if (this.config.llmConfig?.capabilityOverrides?.[providerName]?.[model.id] === undefined) {
+      return model;
+    }
+    const resolved = this.resolveCapabilities(providerName, model.id, model);
+    return {
+      ...model,
+      ...(resolved.source.tools === "operator" && resolved.supportsTools !== undefined
+        ? { supportsTools: resolved.supportsTools }
+        : {}),
+      ...(resolved.source.reasoning === "operator"
+        ? { isReasoningModel: resolved.reasoning.kind !== "unsupported" }
+        : {}),
+    };
+  }
+
   readonly resolveReasoningControl = (
     providerName: ProviderName,
     modelId: string,
@@ -1665,7 +1687,7 @@ class AISDKService implements LLMService {
       Effect.map((models) => {
         const provider: LLMProvider = {
           name: providerName,
-          supportedModels: models.map((model) => model),
+          supportedModels: models.map((model) => this.withOperatorOverrides(providerName, model)),
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
             if (providerName === "chatgpt") {
