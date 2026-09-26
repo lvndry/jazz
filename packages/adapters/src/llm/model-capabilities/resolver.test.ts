@@ -7,7 +7,7 @@ import { resolveModelCapabilities } from "./resolver";
 const effort: ReasoningControlSurface = {
   kind: "effort",
   efforts: ["low", "high"],
-  canDisable: true,
+  canDisableReasoning: true,
   transport: "openai.responses.reasoning-effort",
 };
 
@@ -56,7 +56,7 @@ describe("resolveModelCapabilities", () => {
         reasoning: {
           kind: "effort",
           efforts: ["medium"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
         supportsTools: false,
@@ -65,7 +65,7 @@ describe("resolveModelCapabilities", () => {
         reasoning: {
           kind: "effort",
           efforts: ["xhigh"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
         supportsTools: true,
@@ -94,7 +94,7 @@ describe("resolveModelCapabilities", () => {
       operator: {
         reasoning: {
           kind: "toggle",
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "ollama.chat.think",
         },
       },
@@ -107,7 +107,7 @@ describe("resolveModelCapabilities", () => {
   test("accepts an openai-compatible transport for any OpenAI-compatible provider", () => {
     const override: ReasoningControlSurface = {
       kind: "toggle",
-      canDisable: true,
+      canDisableReasoning: true,
       transport: "openai-compatible.chat.template-enable-thinking",
     };
 

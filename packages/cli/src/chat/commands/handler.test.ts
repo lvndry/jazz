@@ -353,7 +353,7 @@ describe("handleSpecialCommand /reasoning", () => {
     kind: "effort",
     transport: "openai-compatible.chat.reasoning-effort",
     efforts: ["low", "medium", "high"],
-    canDisable: true,
+    canDisableReasoning: true,
   } as const;
 
   function reasoningTerminal(overrides: Partial<TerminalService> = {}) {
