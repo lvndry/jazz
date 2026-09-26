@@ -2,12 +2,14 @@
  * Cross-process mutex for file stores whose read-modify-write must not interleave.
  *
  * The lock is a directory created exclusively and stamped with its holder (`owner.json`: pid,
- * host, and a per-acquisition token). A lock is reclaimed when its holder is a dead process on
- * this host, or when it has carried no readable holder for longer than `staleMs` (a crash
- * between creating the directory and stamping it). A live holder, or one on another host, is
- * never stolen. Reclaiming renames the lock aside before deleting it, and release deletes it
- * only while it still carries this acquisition's token, so a reclaimed-and-reacquired lock is
- * never removed by its previous holder.
+ * host, process start time, and a per-acquisition token). A lock is reclaimed when its holder is
+ * a dead or reused process on this host, when it has carried no readable holder for longer than
+ * `staleMs` (a crash between creating the directory and stamping it), or when it has been held
+ * longer than `maxHoldMs`, which no critical section comes near and which also frees a lock whose
+ * holder is on another host. Reclaiming and releasing both happen under a short-lived guard
+ * directory: a reclaimer re-checks staleness while holding it, so two waiters that both saw a
+ * dead holder cannot take turns removing each other's fresh lock, and a release removes the lock
+ * only while it still carries this acquisition's token.
  */
 
 import { randomUUID } from "node:crypto";
@@ -21,18 +23,25 @@ const HOLDER_FILE = "owner.json";
 export interface FileLockOptions {
   /** How long a lock with no readable holder is trusted to be mid-acquisition. */
   readonly staleMs?: number;
+  /** How long any holder may keep the lock before it is presumed stuck and reclaimed. */
+  readonly maxHoldMs?: number;
   readonly maxWaitMs?: number;
   readonly retryDelayMs?: number;
   readonly timeoutError?: (lockDirectory: string) => Error;
 }
 
 const DEFAULT_STALE_MS = 30_000;
+/** Critical sections are a read, a check, and a write; ten minutes is a stuck holder. */
+const DEFAULT_MAX_HOLD_MS = 10 * 60_000;
+/** The guard covers one stat, one read, and one removal; older than this, its holder died. */
+const GUARD_STALE_MS = 10_000;
 const DEFAULT_MAX_WAIT_MS = 5_000;
 const DEFAULT_RETRY_DELAY_MS = 25;
 
 interface LockHolder {
   readonly pid: number;
   readonly host: string;
+  readonly startedAt?: number;
   readonly token: string;
 }
 
@@ -55,29 +64,43 @@ async function readHolder(lockDirectory: string): Promise<LockHolder | undefined
   }
 }
 
-async function isStale(lockDirectory: string, staleMs: number): Promise<boolean> {
+async function isStale(lockDirectory: string, staleMs: number, maxHoldMs: number) {
   const stats = await nodeFs.stat(lockDirectory).catch(() => undefined);
   if (stats === undefined) {
-    return true;
+    return false;
   }
+  const heldForMs = Date.now() - stats.mtimeMs;
   const holder = await readHolder(lockDirectory);
   if (holder !== undefined) {
-    return isLocalOwnerGone(holder);
+    return heldForMs > maxHoldMs || isLocalOwnerGone(holder);
   }
-  return Date.now() - stats.mtimeMs > staleMs;
+  return heldForMs > staleMs;
 }
 
-async function removeStaleLock(lockDirectory: string): Promise<void> {
-  const quarantineDirectory = `${lockDirectory}.stale-${randomUUID()}`;
+/**
+ * Run `operation` holding the guard for `lockDirectory`, or return false when another process
+ * holds it. A guard left by a process that died is removed once it is older than its window.
+ */
+async function underGuard(lockDirectory: string, operation: () => Promise<void>) {
+  const guard = `${lockDirectory}.guard`;
   try {
-    await nodeFs.rename(lockDirectory, quarantineDirectory);
+    await nodeFs.mkdir(guard, { mode: 0o700 });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return;
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
     }
-    throw error;
+    const stats = await nodeFs.stat(guard).catch(() => undefined);
+    if (stats !== undefined && Date.now() - stats.mtimeMs > GUARD_STALE_MS) {
+      await nodeFs.rm(guard, { recursive: true, force: true });
+    }
+    return false;
   }
-  await nodeFs.rm(quarantineDirectory, { recursive: true, force: true }).catch(() => undefined);
+  try {
+    await operation();
+    return true;
+  } finally {
+    await nodeFs.rm(guard, { recursive: true, force: true });
+  }
 }
 
 /** Acquire the lock, creating its parent directory first, and return its release. */
@@ -86,6 +109,7 @@ export async function acquireFileLock(
   options: FileLockOptions = {},
 ): Promise<() => Promise<void>> {
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
+  const maxHoldMs = options.maxHoldMs ?? DEFAULT_MAX_HOLD_MS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const deadline = Date.now() + (options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS);
   const token = randomUUID();
@@ -105,17 +129,32 @@ export async function acquireFileLock(
         throw error;
       }
       return async () => {
-        const current = await readHolder(lockDirectory);
-        if (current?.token === token) {
-          await nodeFs.rm(lockDirectory, { recursive: true, force: true });
+        const releaseBy = Date.now() + GUARD_STALE_MS * 2;
+        for (;;) {
+          const released = await underGuard(lockDirectory, async () => {
+            const current = await readHolder(lockDirectory);
+            if (current?.token === token) {
+              await nodeFs.rm(lockDirectory, { recursive: true, force: true });
+            }
+          });
+          if (released || Date.now() >= releaseBy) {
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         }
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         throw error;
       }
-      if (await isStale(lockDirectory, staleMs)) {
-        await removeStaleLock(lockDirectory);
+      let reclaimed = false;
+      await underGuard(lockDirectory, async () => {
+        if (await isStale(lockDirectory, staleMs, maxHoldMs)) {
+          await nodeFs.rm(lockDirectory, { recursive: true, force: true });
+          reclaimed = true;
+        }
+      });
+      if (reclaimed) {
         continue;
       }
       if (Date.now() >= deadline) {

@@ -8,6 +8,23 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 
 /**
+ * Flush a directory so a rename in it survives a crash. Best effort: by now the new document is
+ * in place, and reporting a failed write for a change that landed would be the worse error.
+ */
+async function syncDirectory(directory: string): Promise<void> {
+  try {
+    const handle = await nodeFs.open(directory, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return;
+  }
+}
+
+/**
  * Write `value` to an exclusively created sibling temporary file (mode 0600), flush it, rename
  * it over `destination`, and flush the directory so the rename itself survives a crash. The
  * parent directory is created with mode 0700 when missing.
@@ -29,12 +46,7 @@ export async function writeJsonFileDurably(destination: string, value: unknown):
     }
     await nodeFs.rename(temporary, destination);
     await nodeFs.chmod(destination, 0o600);
-    const directoryHandle = await nodeFs.open(directory, "r");
-    try {
-      await directoryHandle.sync();
-    } finally {
-      await directoryHandle.close();
-    }
+    await syncDirectory(directory);
   } finally {
     await nodeFs.rm(temporary, { force: true }).catch(() => undefined);
   }

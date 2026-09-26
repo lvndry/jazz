@@ -165,7 +165,7 @@ export class PluginStateStore {
 
   constructor(options: PluginStateStoreOptions) {
     this.statePath = path.join(options.pluginDirectory, "state.json");
-    this.lockPath = path.join(options.pluginDirectory, ".state.lock");
+    this.lockPath = path.join(options.pluginDirectory, ".state.lock.d");
   }
 
   async read(): Promise<PluginStateDocument> {
@@ -228,6 +228,7 @@ export class PluginStateStore {
   private withLock<T>(operation: () => Promise<T>): Promise<T> {
     return withFileLock(this.lockPath, operation, {
       staleMs: STALE_LOCK_MS,
+      maxHoldMs: STALE_LOCK_MS,
       maxWaitMs: LOCK_MAX_WAIT_MS,
       retryDelayMs: LOCK_RETRY_MS,
       timeoutError: (lockPath) =>

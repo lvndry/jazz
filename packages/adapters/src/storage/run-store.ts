@@ -192,7 +192,7 @@ export class FileRunStore implements RunStore {
   }
 
   private lockPathFor(runId: RunId): string {
-    return `${this.pathFor(runId)}.lock`;
+    return `${this.pathFor(runId)}.lock.d`;
   }
 
   /**
