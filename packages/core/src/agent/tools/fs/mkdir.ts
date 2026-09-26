@@ -35,7 +35,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
     name: "mkdir",
     disclosure: "public",
     description:
-      "Create a directory; succeeds if it already exists. To create a file in a new directory, use write_file with createDirs.",
+      "Create a directory; succeeds if it already exists. To create a file, use write_file, which creates missing parent directories.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
     validate: makeZodValidator(mkdirParameters),
