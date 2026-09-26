@@ -68,6 +68,7 @@ import {
   type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
@@ -854,14 +855,35 @@ function getConfiguredProviders(
   return providers;
 }
 
+/** The property a non-object output schema is carried under; see {@link providerOutputSchema}. */
+const WRAPPED_OUTPUT_KEY = "result";
+
+/**
+ * The schema to send for structured output. Providers' strict modes (OpenAI's among them)
+ * require an object at the root, so a union or any other non-object schema is sent as the
+ * single property of an object and unwrapped from the result.
+ */
+function providerOutputSchema(schema: z.ZodTypeAny): { schema: z.ZodTypeAny; wrapped: boolean } {
+  return schema instanceof z.ZodObject
+    ? { schema, wrapped: false }
+    : { schema: z.object({ [WRAPPED_OUTPUT_KEY]: schema }), wrapped: true };
+}
+
 /**
  * The parsed structured output as JSON text, or undefined when the model produced none. The
  * SDK's `output` getter throws rather than returning undefined in that case, and the caller
  * falls back to the raw text so its own validation can report what went wrong.
  */
-function structuredOutputText(result: { readonly output: unknown }): string | undefined {
+function structuredOutputText(
+  result: { readonly output: unknown },
+  wrapped: boolean,
+): string | undefined {
   try {
-    return result.output === undefined ? undefined : JSON.stringify(result.output);
+    const output = result.output;
+    if (output === undefined) {
+      return undefined;
+    }
+    return JSON.stringify(wrapped && isRecord(output) ? output[WRAPPED_OUTPUT_KEY] : output);
   } catch {
     return undefined;
   }
@@ -1930,13 +1952,17 @@ class AISDKService implements LLMService {
 
         const generateTextStart = Date.now();
         Effect.runFork(this.logger.debug(`[LLM Timing] Calling generateText...`));
+        const outputSchema =
+          options.outputSchema !== undefined
+            ? providerOutputSchema(options.outputSchema)
+            : undefined;
         const result = await generateText({
           model,
           messages: coreMessages,
           allowSystemInMessages: true,
           maxRetries: AI_SDK_MAX_RETRIES,
-          ...(options.outputSchema !== undefined
-            ? { output: Output.object({ schema: options.outputSchema }) }
+          ...(outputSchema !== undefined
+            ? { output: Output.object({ schema: outputSchema.schema }) }
             : {}),
           ...(typeof options.temperature === "number" && modelInfo?.supportsTemperature !== false
             ? { temperature: options.temperature }
@@ -1969,8 +1995,8 @@ class AISDKService implements LLMService {
 
         const responseModel = options.model;
         const content =
-          options.outputSchema !== undefined
-            ? (structuredOutputText(result) ?? result.text ?? "")
+          outputSchema !== undefined
+            ? (structuredOutputText(result, outputSchema.wrapped) ?? result.text ?? "")
             : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.

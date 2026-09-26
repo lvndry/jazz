@@ -666,7 +666,7 @@ describe("AI SDK Service - Unit Tests", () => {
     });
   });
 
-  it("applies a goal disposition schema through the configured vLLM provider", async () => {
+  it("sends a goal disposition union as an object schema and returns the unwrapped disposition", async () => {
     let requestBody: Record<string, unknown> | undefined;
     const plan = testGoalPlan();
     globalThis.fetch = (async (_input, init) => {
@@ -678,7 +678,8 @@ describe("AI SDK Service - Unit Tests", () => {
             {
               message: {
                 role: "assistant",
-                content: '{"status":"blocked","summary":"The oracle cannot inspect the service."}',
+                content:
+                  '{"result":{"status":"blocked","summary":"The oracle cannot inspect the service."}}',
               },
               finish_reason: "stop",
             },
@@ -706,7 +707,9 @@ describe("AI SDK Service - Unit Tests", () => {
       const responseFormat = requestBody?.["response_format"] as
         { type?: string; json_schema?: { schema?: Record<string, unknown> } } | undefined;
       expect(responseFormat?.type).toBe("json_schema");
-      expect(responseFormat?.json_schema?.schema).toBeDefined();
+      // A union at the root is refused by strict providers, so it travels inside an object.
+      expect(responseFormat?.json_schema?.schema?.["type"]).toBe("object");
+      expect(responseFormat?.json_schema?.schema?.["anyOf"]).toBeUndefined();
       expect(JSON.parse(response.content)).toEqual({
         status: "blocked",
         summary: "The oracle cannot inspect the service.",
