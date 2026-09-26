@@ -1,4 +1,5 @@
 import path from "node:path";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
@@ -154,6 +155,7 @@ describe("the daemon's routes", () => {
 
     const response = await handle(request("GET", "/health"));
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, owner: getGoalOwnerInstanceId() });
   });
 
   it("rejects an unauthenticated request when a token is configured", async () => {

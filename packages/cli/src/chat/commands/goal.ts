@@ -13,6 +13,7 @@ import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { Effect } from "effect";
+import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import {
   activateGoal,
   applyGoalControl,
@@ -38,14 +39,17 @@ export function offerProposedGoals(conversationId: string) {
       yield* terminal.log("\nGoal proposal\n");
       yield* terminal.log(describePlan(goal.plan));
       const accepted = yield* terminal.confirm(
-        "Start this goal? Jazz keeps working on it across runs while `jazz daemon` is running.",
+        "Start this goal? Jazz keeps working on it in the background until it is done.",
         false,
       );
       const outcome = yield* decideProposedGoal(goal.goalId, accepted === true);
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
       } else if (accepted === true) {
-        yield* terminal.success(`Goal ${goal.goalId} started. Follow it with /goal list.`);
+        const daemon = yield* ensureDaemonRunning();
+        yield* terminal.success(
+          `${describeGoalStart(goal.goalId, daemon)} Follow it with /goal list.`,
+        );
       } else {
         yield* terminal.info("Proposal declined; the goal was not started.");
       }
@@ -97,11 +101,10 @@ function draftGoal(context: CommandContext, request: string) {
       yield* terminal.warn(activation.reason);
       return;
     }
-    yield* terminal.success(
-      `Goal ${activation.goal.goalId} accepted. Jazz will continue it while the daemon is running.`,
-    );
+    const daemon = yield* ensureDaemonRunning();
+    yield* terminal.success(describeGoalStart(activation.goal.goalId, daemon));
     yield* terminal.info(
-      "Start it with `jazz daemon`; inspect or control it with `/goal list`, `/goal pause`, or `/goal cancel`.",
+      "Inspect or control it with `/goal list`, `/goal pause`, or `/goal cancel`.",
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()));
 }
@@ -155,8 +158,10 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
       const outcome = yield* decideProposedGoal(goalId, command === "accept");
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
+      } else if (command === "accept") {
+        yield* terminal.success(describeGoalStart(goalId, yield* ensureDaemonRunning()));
       } else {
-        yield* terminal.success(`Goal ${goalId}: ${outcome.goal.state.kind}.`);
+        yield* terminal.success(`Goal ${goalId} declined.`);
       }
       return { shouldContinue: true };
     }).pipe(Effect.provide(makeFileGoalStoreLayer()));

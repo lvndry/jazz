@@ -13,7 +13,6 @@
 import { randomBytes } from "node:crypto";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import {
-  DEFAULT_DAEMON_PORT,
   isLoopback,
   makeA2AHandler,
   makeHandler,
@@ -49,6 +48,8 @@ import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
+import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
+import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -60,6 +61,7 @@ import { Effect, Runtime } from "effect";
 import {
   clearDaemonPid,
   stopDaemonProcess,
+  probeDaemonOwner,
   waitForDaemonHealth,
   writeDaemonPid,
 } from "../helpers/daemon-process";
@@ -435,12 +437,12 @@ export function daemonCommand(options: DaemonCommandOptions) {
   );
 }
 
-/**
- * Re-exec this CLI with `--foreground`, detach, wait until `/health` answers, then exit.
- */
-function startDaemonInBackground(options: DaemonCommandOptions) {
+type BackgroundStart =
+  { readonly kind: "started"; readonly pid: number } | { readonly kind: "unhealthy" };
+
+/** Re-exec this CLI with `--foreground`, detach, and wait until `/health` answers. */
+function spawnBackgroundDaemon(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
-    const terminal = yield* TerminalServiceTag;
     const invocation = yield* getJazzSchedulerInvocation();
     const args = [
       ...invocation,
@@ -469,16 +471,28 @@ function startDaemonInBackground(options: DaemonCommandOptions) {
       } catch {
         // already gone
       }
+      const unhealthy: BackgroundStart = { kind: "unhealthy" };
+      return unhealthy;
+    }
+    yield* Effect.promise(() => writeDaemonPid(options.port, child.pid));
+    const started: BackgroundStart = { kind: "started", pid: child.pid };
+    return started;
+  });
+}
+
+function startDaemonInBackground(options: DaemonCommandOptions) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const started = yield* spawnBackgroundDaemon(options);
+    if (started.kind === "unhealthy") {
       yield* terminal.error(
         `jazz daemon did not become healthy on http://${options.host}:${String(options.port)} — not leaving it running.`,
       );
       process.exitCode = 1;
       return;
     }
-
-    yield* Effect.promise(() => writeDaemonPid(options.port, child.pid));
     yield* terminal.success(
-      `jazz daemon running in the background on http://${options.host}:${String(options.port)} (pid ${String(child.pid)})`,
+      `jazz daemon running in the background on http://${options.host}:${String(options.port)} (pid ${String(started.pid)})`,
     );
     yield* terminal.info(`Stop it with: jazz daemon stop --port ${String(options.port)}`);
     yield* terminal.info("Logs stay quiet in background mode; use --foreground to watch them.");
@@ -646,4 +660,50 @@ export function uninstallDaemonServiceCommand(options: { readonly yes?: boolean 
   });
 }
 
-export { DEFAULT_DAEMON_PORT };
+/** How long `ensureDaemonRunning` waits on a daemon that may already be serving. */
+const RUNNING_DAEMON_PROBE_MS = 1_000;
+
+export type DaemonAvailability =
+  | { readonly kind: "running" }
+  | { readonly kind: "started"; readonly pid: number }
+  /** Something else holds the daemon port: a daemon for another Jazz home, or an older one. */
+  | { readonly kind: "port-taken"; readonly port: number }
+  | { readonly kind: "unavailable" };
+
+/**
+ * Make sure the local daemon is serving, starting one in the background when none answers,
+ * so accepting a goal starts its work instead of leaving it waiting for `jazz daemon`.
+ */
+export function ensureDaemonRunning() {
+  return Effect.gen(function* () {
+    const options = { host: DEFAULT_DAEMON_HOST, port: DEFAULT_DAEMON_PORT };
+    const owner = yield* Effect.promise(() =>
+      probeDaemonOwner(options.host, options.port, RUNNING_DAEMON_PROBE_MS),
+    );
+    if (owner !== undefined) {
+      const found: DaemonAvailability =
+        owner === getGoalOwnerInstanceId()
+          ? { kind: "running" }
+          : { kind: "port-taken", port: options.port };
+      return found;
+    }
+    const started = yield* spawnBackgroundDaemon(options);
+    const availability: DaemonAvailability =
+      started.kind === "started" ? started : { kind: "unavailable" };
+    return availability;
+  });
+}
+
+/** What accepting a goal did, in one sentence, given whether a daemon is now working on it. */
+export function describeGoalStart(goalId: string, daemon: DaemonAvailability): string {
+  switch (daemon.kind) {
+    case "running":
+      return `Goal ${goalId} started; the daemon is working on it.`;
+    case "started":
+      return `Goal ${goalId} started; launched the daemon in the background (pid ${String(daemon.pid)}) to work on it.`;
+    case "port-taken":
+      return `Goal ${goalId} accepted, but the daemon on port ${String(daemon.port)} is not serving this Jazz home (another home, or a daemon from an older Jazz); restart it with \`jazz daemon stop\` then \`jazz daemon\`, or run one for this home on another port.`;
+    case "unavailable":
+      return `Goal ${goalId} accepted, but the daemon could not be started; run \`jazz daemon\` to begin the work.`;
+  }
+}

@@ -107,6 +107,30 @@ export async function findListenerPid(port: number): Promise<number | undefined>
   return undefined;
 }
 
+/**
+ * The goal owner id a daemon reports on `/health`, or undefined when nothing answers. A
+ * daemon serves one Jazz home, and the id tells whether it is this one.
+ */
+export async function probeDaemonOwner(
+  host: string,
+  port: number,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  const probeHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  try {
+    const response = await fetch(`http://${probeHost}:${String(port)}/health`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const body = (await response.json()) as { owner?: unknown };
+    return typeof body.owner === "string" ? body.owner : "";
+  } catch {
+    return undefined;
+  }
+}
+
 export async function waitForDaemonHealth(
   host: string,
   port: number,

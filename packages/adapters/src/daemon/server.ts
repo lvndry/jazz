@@ -97,8 +97,6 @@ import {
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
 
-export const DEFAULT_DAEMON_PORT = 4747;
-
 /**
  * What the daemon's handlers need from the runtime.
  *
@@ -319,7 +317,7 @@ export function makeHandler(
   // process is alive without holding a credential that can drive an agent. It is registered
   // before the token middleware and answers without calling `next`, so the middleware below
   // never runs for it.
-  app.get("/health", () => json({ ok: true }));
+  app.get("/health", () => json({ ok: true, owner: getGoalOwnerInstanceId() }));
 
   // Everything past this point is behind the token, *including a path that matches nothing*:
   // the wildcard is reached before Hono's 404, so an unauthenticated caller cannot map the

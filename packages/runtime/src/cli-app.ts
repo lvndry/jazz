@@ -10,6 +10,7 @@ import {
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
+import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import {
   companionRole,
   isMediaModality,
@@ -1280,11 +1281,11 @@ function registerDaemonCommand(program: Command): void {
     .description(
       "Serve runs over HTTP so a parked run can be answered later, and from somewhere else",
     )
-    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), 4747)
+    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), DEFAULT_DAEMON_PORT)
     .option(
       "--host <address>",
       "Interface to bind. Anything other than loopback requires a daemon token (env or keyring).",
-      "127.0.0.1",
+      DEFAULT_DAEMON_HOST,
     )
     .option(
       "--serve-peers <agentId>",
@@ -1753,12 +1754,14 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     .option(
       "--host <address>",
       "Interface your daemon answers on — must match how you're running (or will run) `jazz daemon`",
-      "127.0.0.1",
+      DEFAULT_DAEMON_HOST,
     )
-    // 4747 mirrors `jazz daemon`'s own default (`DEFAULT_DAEMON_PORT`) — kept as a literal
-    // here rather than a static import, matching this file's lazy-import convention for
-    // command modules.
-    .option("--port <n>", "Port your daemon answers on", parsePositiveInt("--port"), 4747)
+    .option(
+      "--port <n>",
+      "Port your daemon answers on",
+      parsePositiveInt("--port"),
+      DEFAULT_DAEMON_PORT,
+    )
     .option(
       "--as <name>",
       "What to call yourself to the invitee. Defaults to this machine's hostname.",

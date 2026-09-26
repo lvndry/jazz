@@ -237,15 +237,16 @@ by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wa
 ## `jazz goal`
 
 Goals are objectives Jazz keeps working toward across runs until verified evidence shows they
-are done. They advance while `jazz daemon` is running. In chat, Jazz proposes one on its own
-when a request needs sustained work; these commands drive goals from a shell or a script.
+are done. The daemon does the work: accepting or starting a goal launches `jazz daemon` in the
+background when none is serving this Jazz home. In chat, Jazz proposes one on its own when a
+request needs sustained work; these commands drive goals from a shell or a script.
 
 ```bash
 jazz goal draft --agent assistant "Get every recipe into the new format until ./check.sh passes"
 jazz goal start --agent assistant --yes --max-cycles 20 --cycle-iterations 12 "…"
 jazz goal list
 jazz goal show <id>
-jazz goal accept <id>           # start a goal Jazz proposed
+jazz goal accept <id>           # start a goal Jazz proposed; the work begins right away
 jazz goal decline <id>
 jazz goal pause <id>
 jazz goal resume <id> [note]    # the note answers its question or steers the next cycle

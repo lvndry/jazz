@@ -15,6 +15,7 @@ import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { Effect } from "effect";
+import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import {
   activateGoal,
   applyGoalControl,
@@ -124,10 +125,11 @@ export function startGoalCommand(options: StartGoalOptions) {
       fail(options.json, activation.reason);
       return;
     }
+    const daemon = yield* ensureDaemonRunning();
     emit(
       options.json,
-      { ok: true, kind: "started", goal: activation.goal },
-      `${describePlan(proposal.plan)}\n\nGoal ${activation.goal.goalId} started. It advances while \`jazz daemon\` is running.`,
+      { ok: true, kind: "started", goal: activation.goal, daemon: daemon.kind },
+      `${describePlan(proposal.plan)}\n\n${describeGoalStart(activation.goal.goalId, daemon)}`,
     );
   }).pipe(
     Effect.catchAll((error) =>
@@ -177,12 +179,15 @@ export function decideProposedGoalCommand(options: {
       fail(options.json, outcome.reason);
       return;
     }
+    if (!options.accept) {
+      emit(options.json, { ok: true, goal: outcome.goal }, `Goal ${options.id} declined.`);
+      return;
+    }
+    const daemon = yield* ensureDaemonRunning();
     emit(
       options.json,
-      { ok: true, goal: outcome.goal },
-      options.accept
-        ? `Goal ${options.id} started. It advances while \`jazz daemon\` is running.`
-        : `Goal ${options.id} declined.`,
+      { ok: true, goal: outcome.goal, daemon: daemon.kind },
+      describeGoalStart(options.id, daemon),
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()));
 }
