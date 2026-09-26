@@ -69,18 +69,6 @@ export type ReasoningTransport =
   | "openai-compatible.chat.template-thinking-budget";
 
 /**
- * Transport names accepted in configuration before the vendor-neutral
- * `openai-compatible.*` names existed. Parsing rewrites them to the name they
- * always encoded, so saved `capabilityOverrides` keep working.
- */
-export const LEGACY_REASONING_TRANSPORTS = {
-  "llamacpp.chat.enable-thinking": "openai-compatible.chat.template-enable-thinking",
-  "llamacpp.chat.thinking-budget": "openai-compatible.chat.template-thinking-budget",
-  "vllm.chat.reasoning-effort": "openai-compatible.chat.reasoning-effort",
-  "sglang.chat.reasoning-effort": "openai-compatible.chat.reasoning-effort",
-} as const satisfies Readonly<Record<string, ReasoningTransport>>;
-
-/**
  * The controls an exact provider-facing model ID accepts.
  *
  * A capability override replaces Jazz's built-in profile for the selected

@@ -26,6 +26,7 @@ import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type {
   AnthropicProviderConfig,
+  ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
   LLMConfig,
@@ -48,10 +49,8 @@ import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
 import {
   CAPABILITY_REASONING_EFFORTS,
-  LEGACY_REASONING_TRANSPORTS,
   type ModelCapabilityOverride,
   type ReasoningControlSurface,
-  type ReasoningTransport,
 } from "@/core/types/model-capabilities";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
@@ -133,43 +132,15 @@ const capabilityReasoningEfforts = z.array(z.enum(CAPABILITY_REASONING_EFFORTS))
 
 const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported") });
 
-type LegacyReasoningTransport = keyof typeof LEGACY_REASONING_TRANSPORTS;
-
-/**
- * A transport field that also accepts the legacy names mapping onto one of
- * `current`, rewriting them so the parsed config only ever holds current names.
- */
-function reasoningTransport<const Current extends ReasoningTransport>(
-  current: readonly [Current, ...Current[]],
-) {
-  const legacy = (Object.keys(LEGACY_REASONING_TRANSPORTS) as LegacyReasoningTransport[]).filter(
-    (name) =>
-      (current as readonly ReasoningTransport[]).includes(LEGACY_REASONING_TRANSPORTS[name]),
-  );
-  return z
-    .enum([...current, ...legacy] as [
-      Current | LegacyReasoningTransport,
-      ...(Current | LegacyReasoningTransport)[],
-    ])
-    .transform((name): Current =>
-      name in LEGACY_REASONING_TRANSPORTS
-        ? (LEGACY_REASONING_TRANSPORTS[name as LegacyReasoningTransport] as Current)
-        : (name as Current),
-    );
-}
-
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
-  transport: reasoningTransport([
-    "ollama.chat.think",
-    "openai-compatible.chat.template-enable-thinking",
-  ]),
+  transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
   canDisable: flag,
 });
 
 const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
-  transport: reasoningTransport([
+  transport: z.enum([
     "openai.responses.reasoning-effort",
     "openai-compatible.chat.reasoning-effort",
   ]),
@@ -209,7 +180,7 @@ const adaptiveReasoningSchema = z.strictObject({
 const budgetReasoningSchema = z
   .strictObject({
     kind: z.literal("budget"),
-    transport: reasoningTransport(["openai-compatible.chat.template-thinking-budget"]),
+    transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     canDisable: flag,
@@ -269,6 +240,12 @@ const llmShape = {
     } satisfies SchemaShape<AnthropicProviderConfig>)
     .exactOptional(),
   cerebras: apiKeyOnly,
+  chatgpt: z
+    .strictObject({
+      account_id: text.exactOptional(),
+      plan: text.exactOptional(),
+    } satisfies SchemaShape<ChatGPTProviderConfig>)
+    .exactOptional(),
   deepseek: apiKeyOnly,
   fireworks: apiKeyOnly,
   gemini: apiKeyOnly,
@@ -472,8 +449,33 @@ function unwrap(schema: z.ZodType): z.ZodType {
   return current;
 }
 
-function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undefined {
+/**
+ * The option of a discriminated union that `value` selects, by its discriminator. Undefined
+ * when there is no value to read or no option claims it, so callers fall back to trying
+ * every option.
+ */
+function selectedOption(union: z.ZodDiscriminatedUnion, value: unknown): z.ZodType | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const discriminator = union.def.discriminator;
+  const selector = (value as Record<string, unknown>)[discriminator];
+  return (union.options as readonly z.ZodType[]).find((option) => {
+    const inner = unwrap(option);
+    if (!(inner instanceof z.ZodObject)) return false;
+    const field = inner.shape[discriminator] as z.ZodType | undefined;
+    return field instanceof z.ZodLiteral && field.values.has(selector as never);
+  });
+}
+
+function childSchema(
+  schema: z.ZodType,
+  segment: PropertyKey,
+  value?: unknown,
+): z.ZodType | undefined {
   const inner = unwrap(schema);
+  if (inner instanceof z.ZodDiscriminatedUnion) {
+    const selected = selectedOption(inner, value);
+    if (selected !== undefined) return childSchema(selected, segment, value);
+  }
   if (inner instanceof z.ZodUnion) {
     for (const option of inner.options as readonly z.ZodType[]) {
       const child = childSchema(option, segment);
@@ -495,17 +497,27 @@ function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undef
   return undefined;
 }
 
-function schemaFrom(root: z.ZodType, path: Path): z.ZodType | undefined {
+/**
+ * The schema at `path`. With the config `value` it walks alongside, a discriminated union
+ * resolves to the option the value's discriminator selects, so a `kind: "effort"` entry is
+ * described by the effort schema rather than whichever option happens to come first.
+ */
+function schemaFrom(root: z.ZodType, path: Path, value?: unknown): z.ZodType | undefined {
   let current: z.ZodType | undefined = root;
+  let currentValue = value;
   for (const segment of path) {
     if (current === undefined) return undefined;
-    current = childSchema(current, segment);
+    current = childSchema(current, segment, currentValue);
+    currentValue =
+      currentValue !== null && typeof currentValue === "object"
+        ? (currentValue as Record<PropertyKey, unknown>)[segment]
+        : undefined;
   }
   return current;
 }
 
-function schemaAt(path: Path): z.ZodType | undefined {
-  return schemaFrom(ConfigFileSchema, path);
+function schemaAt(path: Path, value?: unknown): z.ZodType | undefined {
+  return schemaFrom(ConfigFileSchema, path, value);
 }
 
 /** Render a path the way a person would type it: `webhooks[1].promptTemplate`. */
@@ -731,7 +743,7 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
-        expected: describeExpected(schemaAt(issue.path)),
+        expected: describeExpected(schemaAt(issue.path, working)),
         actual,
       });
       removals.push(removed);

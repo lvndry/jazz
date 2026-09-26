@@ -234,7 +234,7 @@ describe("parseConfigFile", () => {
             "Qwen3-32B": {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 256,
                 maximumBudgetTokens: 32768,
                 canDisable: true,
@@ -251,77 +251,16 @@ describe("parseConfigFile", () => {
     );
   });
 
-  it("rewrites legacy vendor-named transports to their openai-compatible names", () => {
-    const { config, issues } = parseConfigFile({
-      llm: {
-        capabilityOverrides: {
-          llamacpp: {
-            toggle: {
-              reasoning: {
-                kind: "toggle",
-                transport: "llamacpp.chat.enable-thinking",
-                canDisable: true,
-              },
-            },
-            budget: {
-              reasoning: {
-                kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
-                minimumBudgetTokens: 256,
-                canDisable: true,
-              },
-            },
-          },
-          vllm: {
-            effort: {
-              reasoning: {
-                kind: "effort",
-                transport: "vllm.chat.reasoning-effort",
-                efforts: ["high"],
-                canDisable: true,
-              },
-            },
-          },
-          sglang: {
-            effort: {
-              reasoning: {
-                kind: "effort",
-                transport: "sglang.chat.reasoning-effort",
-                efforts: ["high"],
-                canDisable: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    expect(issues).toEqual([]);
-    const overrides = config.llm?.capabilityOverrides;
-    const transportOf = (reasoning: unknown) => (reasoning as { transport: string }).transport;
-    expect(transportOf(overrides?.llamacpp?.["toggle"]?.reasoning)).toBe(
-      "openai-compatible.chat.template-enable-thinking",
-    );
-    expect(transportOf(overrides?.llamacpp?.["budget"]?.reasoning)).toBe(
-      "openai-compatible.chat.template-thinking-budget",
-    );
-    expect(transportOf(overrides?.vllm?.["effort"]?.reasoning)).toBe(
-      "openai-compatible.chat.reasoning-effort",
-    );
-    expect(transportOf(overrides?.sglang?.["effort"]?.reasoning)).toBe(
-      "openai-compatible.chat.reasoning-effort",
-    );
-  });
-
-  it("rejects a legacy transport under the wrong control kind", () => {
+  it("describes an invalid transport by the control kind the entry declares", () => {
     const { issues } = parseConfigFile({
       llm: {
         capabilityOverrides: {
           vllm: {
             model: {
               reasoning: {
-                kind: "toggle",
-                transport: "vllm.chat.reasoning-effort",
+                kind: "effort",
+                transport: "bogus",
+                efforts: ["high"],
                 canDisable: true,
               },
             },
@@ -330,6 +269,32 @@ describe("parseConfigFile", () => {
       },
     });
 
+    expect(issues[0]).toMatchObject({
+      path: "llm.capabilityOverrides.vllm.model.reasoning.transport",
+      expected: "openai.responses.reasoning-effort or openai-compatible.chat.reasoning-effort",
+      actual: "bogus",
+    });
+  });
+
+  it("rejects the retired vendor-named transports", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "vllm.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
     expect(issues.map((issue) => issue.path)).toContain(
       "llm.capabilityOverrides.vllm.model.reasoning.transport",
     );

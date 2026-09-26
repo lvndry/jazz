@@ -16,9 +16,14 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { LoggingConfig, SchedulerMode, WebSearchProviderName } from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import {
+  configuredProviderApiKey,
+  formatProviderDisplayName,
+  isChatGPTSignedIn,
+} from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
 import { store } from "../ui/store";
 import type { WizardMenuOption } from "../ui/WizardHome";
@@ -122,7 +127,9 @@ function configureLLMProviders() {
       ).map((provider) => {
         const configured = isLocalServerProvider(provider)
           ? !!config.llm?.[provider]?.base_url || !!config.llm?.[provider]?.api_key
-          : !!config.llm?.[provider]?.api_key;
+          : provider === "chatgpt"
+            ? isChatGPTSignedIn(config.llm)
+            : !!configuredProviderApiKey(config.llm, provider);
         return {
           name: `${formatProviderDisplayName(provider)} ${configured ? "(configured)" : ""}`,
           value: provider,
@@ -188,6 +195,30 @@ function configureLLMProviders() {
         }
 
         yield* terminal.log(""); // Spacing
+        continue;
+      }
+
+      if (provider === "chatgpt") {
+        if (isChatGPTSignedIn(config.llm)) {
+          const action = yield* terminal.select<"keep" | "switch" | "sign-out">(
+            "You are signed in to ChatGPT.",
+            {
+              choices: [
+                { name: "Keep this account", value: "keep" },
+                { name: "Sign in with a different account", value: "switch" },
+                { name: "Sign out", value: "sign-out" },
+              ],
+            },
+          );
+          if (action === "sign-out") {
+            yield* signOutOfChatGPT(terminal, configService);
+          } else if (action === "switch") {
+            yield* signInToChatGPT(terminal, configService);
+          }
+        } else {
+          yield* signInToChatGPT(terminal, configService);
+        }
+        yield* terminal.log("");
         continue;
       }
 
