@@ -21,6 +21,7 @@ import type {
   GoalPlan,
   GoalRecordInput,
 } from "../../../packages/core/src/agent/goal/goal-record";
+import type { ApprovalPolicyLevel } from "../../../packages/core/src/types/tools";
 import { toError } from "../../../packages/core/src/utils/storage";
 import { reportFilePath, spawnJazz } from "../../run-jazz";
 import {
@@ -64,6 +65,11 @@ export interface GoalScenario {
   readonly request: string;
   /** Overrides on the eval's default budget, e.g. short cycles to force several of them. */
   readonly budget?: Partial<GoalBudget>;
+  /**
+   * The tier granted at acceptance. Defaults to high-risk, the same authority the one-shot
+   * scenarios run with, so a goal and a one-shot run are compared on equal terms.
+   */
+  readonly approvalPolicy?: ApprovalPolicyLevel;
   /** Start from a later point in the goal's life: a paused goal with earlier progress. */
   readonly initial?: Pick<GoalRecordInput, "state" | "lastProgress" | "usage">;
   /** The user's reply to any question the goal asks; a fixed deferral when absent. */
@@ -141,6 +147,7 @@ export async function runGoal(
       steps: scenario.plan.steps.map((step) => ({ ...step, state: "pending" as const })),
     },
     approvedPlanRevision: 1,
+    approvalPolicy: scenario.approvalPolicy ?? "high-risk",
     state: { kind: "active" },
     budget: {
       maxCycles: 6,
