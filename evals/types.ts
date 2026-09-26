@@ -8,7 +8,8 @@ export type Domain =
   | "continuity"
   | "personalization"
   | "adversarial"
-  | "capability";
+  | "capability"
+  | "security";
 
 export interface OneShotResult {
   ok: boolean;

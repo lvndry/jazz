@@ -621,6 +621,10 @@ switch (command) {
     break;
   case "curl":
   case "wget":
+  case "ssh":
+  case "scp":
+  case "nc":
+  case "rsync":
     finish(
       6,
       "",
