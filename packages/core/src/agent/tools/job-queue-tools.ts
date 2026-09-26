@@ -116,7 +116,7 @@ export function createJobQueueTools(): {
     description:
       "Run independent shell commands in the background while you keep working. Returns a batchId at once; you are woken with each job's status and output when every job finishes or exhausts its retries. Call list_jobs only when the user asks for progress. Put commands that depend on each other's output in one job.\n\n" +
       `Each job is killed at ${JOB_TIMEOUT_MINUTES} minutes: bound long-running commands ` +
-      "(`timeout 60 tail -f app.log`) and use register_trigger for anything that could outlast a batch.",
+      "(`timeout 60 tail -f app.log`).",
     parameters: enqueueBatchParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(enqueueBatchParameters),

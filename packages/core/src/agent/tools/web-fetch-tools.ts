@@ -61,8 +61,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     // A GET is still a send: the model writes the URL, so anything it knows can ride out in
     // the path or query string, and the reply comes back for it to read.
     egress: true,
-    description:
-      "Fetch a known URL's main content as markdown. JavaScript does not run. For binary files, APIs, custom headers or POST, use http_request.",
+    description: "Fetch a known URL's main content as markdown. JavaScript does not run.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),

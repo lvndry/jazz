@@ -34,7 +34,7 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
     summary:
       "Schedule a reminder that will be delivered back to this person later: remind, ping or notify.",
     description:
-      "Schedule a notification to this person for later, when they ask to be reminded, pinged or notified. Use it for every future notification to a human; for your own follow-ups, use register_trigger.",
+      "Schedule a notification to this person for later, when they ask to be reminded, pinged or notified. Use it for every future notification to a human.",
     parameters: addReminderParameters,
     riskLevel: "low-risk",
     hidden: false,

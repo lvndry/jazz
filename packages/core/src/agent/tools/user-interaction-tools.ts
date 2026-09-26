@@ -127,7 +127,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Let the human pick a file interactively when find and ls cannot identify it. Interactive sessions only.",
+      "Let the human pick a file interactively when you cannot identify the file yourself. Interactive sessions only.",
     parameters: filePickerSchema,
     hidden: false,
     riskLevel: "read-only",

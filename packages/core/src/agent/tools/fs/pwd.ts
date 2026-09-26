@@ -14,7 +14,7 @@ export function createPwdTool(): Tool<FileSystemContextService> {
   return defineTool<FileSystemContextService, Record<string, never>>({
     name: "pwd",
     disclosure: "internal",
-    description: "Print the session working directory shared by file tools and execute_command.",
+    description: "Print the session working directory tools resolve relative paths against.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: makeZodValidator(parameters),

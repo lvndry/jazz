@@ -51,7 +51,7 @@ const waitForParameters = z
         SHELL_COMMAND_MAX_TIMEOUT_MS,
         `timeoutMs cannot exceed ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}ms (${String(
           SHELL_COMMAND_TIMEOUT_MINUTES,
-        )} minutes). To keep waiting past that, let this call return and use register_trigger.`,
+        )} minutes). Pass at most ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}, and call wait_for again if it times out.`,
       )
       .optional()
       .describe(
@@ -85,7 +85,7 @@ export function createWaitTools(): ApprovalToolPair<WaitToolDeps> {
     description:
       "Rerun a command until it exits 0, all in one tool call; use it for every wait-until check. " +
       `Runs up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes, then returns timedOut: true ` +
-      "with the last output. For longer or open-ended waits, use register_trigger.",
+      "with the last output.",
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),

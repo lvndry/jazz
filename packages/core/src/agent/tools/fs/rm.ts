@@ -37,8 +37,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
   const config: ApprovalToolConfig<RmDeps, RmArgs> = {
     name: "rm",
     disclosure: "public",
-    description:
-      "Permanently delete a file or directory (no trash). For git rm use execute_command.",
+    description: "Permanently delete a file or directory (no trash).",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
     validate: makeZodValidator(rmParameters),

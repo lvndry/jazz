@@ -89,7 +89,7 @@ describe("wait_for", () => {
   });
 
   /**
-   * Running out of budget is an answer the caller acts on — re-arm with register_trigger — so it
+   * Running out of budget is an answer the caller acts on — call wait_for again — so it
    * comes back as a successful tool call carrying timedOut, not as an error that discards the
    * last check's output.
    */
@@ -127,7 +127,7 @@ describe("wait_for", () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("register_trigger");
+    expect(result.error).toContain(`at most ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}`);
   });
 
   it("refuses an interval below the floor", async () => {

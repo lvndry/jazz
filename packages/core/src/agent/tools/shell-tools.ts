@@ -424,13 +424,12 @@ const executeCommandParameters = z
         SHELL_COMMAND_MAX_TIMEOUT_MS,
         `timeout cannot exceed ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}ms (${String(
           SHELL_COMMAND_TIMEOUT_MINUTES,
-        )} minutes), the hard ceiling on one command. To wait longer than that, let this command ` +
-          `finish and use register_trigger to resume the task later.`,
+        )} minutes), the hard ceiling on one command. Pass at most ${String(
+          SHELL_COMMAND_MAX_TIMEOUT_MS,
+        )}.`,
       )
       .optional()
-      .describe(
-        `Milliseconds. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}; for longer waits use register_trigger.`,
-      ),
+      .describe(`Milliseconds. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}.`),
   })
   .strict();
 
@@ -624,7 +623,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     name: "execute_command",
     disclosure: "private",
     description:
-      "Run a non-interactive shell command; stdin is empty. Use the dedicated tools (ls, find, grep, read_file, mkdir) and tools from search_tools for what they cover, and this for git and everything else. " +
+      "Run a non-interactive shell command; stdin is empty. Use a dedicated tool whenever one covers the task, including tools from search_tools; use this for git and everything else. " +
       "Read-only commands may be auto-approved; anything that mutates needs approval. " +
       "sudo and inline -c/-e code are blocked: write code to a temp file and run it. The environment has no secrets and takes no env vars. " +
       "stdout and stderr are each capped at 256 KB.",

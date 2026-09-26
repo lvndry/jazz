@@ -112,7 +112,7 @@ export function createManageTodosTool(): Tool<never> {
     name: "manage_todos",
     disclosure: "private",
     description:
-      "Replace this conversation's todo list, shown as progress in the UI. Use it for work with three or more distinct steps. Send every item each call. Keep exactly one item in_progress and mark it completed as soon as it is done. Record lasting progress with update_work_state. For a clock-time ping, use add_reminder.",
+      "Replace this conversation's todo list, shown as progress in the UI. Use it for work with three or more distinct steps. Send every item each call. Keep exactly one item in_progress and mark it completed as soon as it is done. Record lasting progress with update_work_state.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,

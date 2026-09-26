@@ -69,7 +69,7 @@ describe("the execute_command timeout ceiling", () => {
     const result = await runWithTimeout(SHELL_COMMAND_MAX_TIMEOUT_MS + 1);
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("register_trigger");
+    expect(result.error).toContain(`at most ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}`);
   });
 
   it("caps the executor deadline at the same value the schema allows", () => {

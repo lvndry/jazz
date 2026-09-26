@@ -36,8 +36,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
   const config: ApprovalToolConfig<MvDeps, MvArgs> = {
     name: "mv",
     disclosure: "public",
-    description:
-      "Rename or move a file or directory within one filesystem. To move across devices, use execute_command.",
+    description: "Rename or move a file or directory within one filesystem.",
     tags: ["filesystem", "write"],
     parameters: mvParameters,
     validate: makeZodValidator(mvParameters),
