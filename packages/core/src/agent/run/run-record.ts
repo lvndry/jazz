@@ -40,6 +40,8 @@ export interface RunRecord {
   readonly autoApprovedTools?: readonly string[];
   /** The run's iteration cap, which a resumed run keeps rather than falling back to the default. */
   readonly maxIterations?: number;
+  /** Where the run worked, restored on resume instead of the resuming process's directory. */
+  readonly workingDirectory?: string;
 }
 
 /**
@@ -61,6 +63,7 @@ export function createRunRecord(input: {
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
+  readonly workingDirectory?: string;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -76,5 +79,6 @@ export function createRunRecord(input: {
       ? { autoApprovedTools: input.autoApprovedTools }
       : {}),
     ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+    ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
   };
 }

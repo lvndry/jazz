@@ -23,8 +23,19 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { Effect } from "effect";
 import { stubStateDirectory } from "./stubs/state";
-import { LOCAL_SERVER_PROVIDERS } from "../packages/core/src/constants/local-providers";
+import { resolveLocalProviderBaseUrl } from "../packages/adapters/src/llm/models";
+import { detectKeyringBackend, keyringGet } from "../packages/adapters/src/secrets/keyring";
+import {
+  LLM_PROVIDER_ENV_VARS,
+  llmProviderApiKeyFromEnv,
+} from "../packages/adapters/src/secrets/registry";
+import {
+  LOCAL_SERVER_PROVIDERS,
+  type LocalServerProvider,
+} from "../packages/core/src/constants/local-providers";
+import type { LLMConfig } from "../packages/core/src/types/config";
 
 const STUB_IMPL = join(import.meta.dir, "stubs", "impl.ts");
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
@@ -67,27 +78,50 @@ const FORBIDDEN_EXECUTABLES = [
 const FORBIDDEN_EXECUTABLE_TREES = ["/opt/homebrew", "/usr/local/bin", "/Applications"];
 
 /**
- * The ports a sample's agents need to reach their model: a local server's configured or
- * default port, else 443 for a hosted provider. A hosted model therefore leaves 443 open to
+ * The ports a sample's agents need to reach their model: a local server's port, resolved as
+ * the runtime resolves it (config, then its environment variable, then its default), else 443
+ * for a hosted provider. A hosted model therefore leaves 443 open to
  * every host, which the OS sandbox cannot narrow by name; a local one leaves only its port.
  */
 export function modelNetworkPorts(providers: readonly string[], llm: unknown): number[] {
-  const configured = (llm ?? {}) as Record<string, { base_url?: unknown } | undefined>;
   const ports = providers.map((provider) => {
-    const local = LOCAL_SERVER_PROVIDERS[provider as keyof typeof LOCAL_SERVER_PROVIDERS];
-    const baseUrl = configured[provider]?.base_url;
-    const address = typeof baseUrl === "string" ? baseUrl : local?.defaultUrl;
-    if (address === undefined) {
+    if (!(provider in LOCAL_SERVER_PROVIDERS)) {
       return 443;
     }
     try {
-      const url = new URL(/^[a-z]+:\/\//i.test(address) ? address : `http://${address}`);
+      const url = new URL(
+        resolveLocalProviderBaseUrl(provider as LocalServerProvider, llm as LLMConfig | undefined),
+      );
       return Number(url.port || (url.protocol === "https:" ? 443 : 80));
     } catch {
       return 443;
     }
   });
   return [...new Set(ports)].sort((left, right) => left - right);
+}
+
+/**
+ * The API keys the given providers need, as the environment variables Jazz reads them from.
+ * A sample runs with the keyring off, so a key the wizard stored there would otherwise be
+ * missing; it is read once here, before any sample starts. A key already set in the
+ * environment wins and is left to pass through.
+ */
+export async function modelCredentials(
+  providers: readonly string[],
+): Promise<Record<string, string>> {
+  const backend = await Effect.runPromise(detectKeyringBackend());
+  const credentials: Record<string, string> = {};
+  for (const provider of new Set(providers)) {
+    const envVar = LLM_PROVIDER_ENV_VARS[provider];
+    if (envVar === undefined || llmProviderApiKeyFromEnv(provider) !== undefined) {
+      continue;
+    }
+    const stored = await Effect.runPromise(keyringGet(backend, `llm.${provider}.api_key`));
+    if (stored !== undefined && stored.length > 0) {
+      credentials[envVar] = stored;
+    }
+  }
+  return credentials;
 }
 
 /** The `llm` block of a Jazz home's config, the only part of it a sample ever sees. */
@@ -153,6 +187,7 @@ export function createSandbox(
   label: string,
   stubs: readonly string[] = [],
   networkPorts: readonly number[] = [],
+  credentials: Readonly<Record<string, string>> = {},
 ): SampleSandbox {
   const root = mkdtempSync(join(tmpdir(), `eval-${label}-`));
   const home = join(root, "home");
@@ -196,6 +231,7 @@ export function createSandbox(
       [NETWORK_PORTS_ENV]: networkPorts.join(","),
       JAZZ_SCHEDULER: "in-process",
       JAZZ_DISABLE_KEYRING: "1",
+      ...credentials,
       CI: "1",
     },
   };

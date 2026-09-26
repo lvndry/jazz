@@ -28,6 +28,7 @@ export function testGoal(overrides: Partial<GoalRecordInput> = {}): GoalRecordIn
     agentId: "agent-1",
     sourceConversationId: "chat",
     conversationId: "goal-chat",
+    workingDirectory: "/work/importer",
     request: "Make the header test pass",
     plan: testGoalPlan(),
     approvedPlanRevision: 1,

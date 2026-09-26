@@ -1,5 +1,5 @@
 /**
- * Goal planning: what `jazz goal draft --inspect --json` makes of a request, before any work
+ * Goal planning: what `jazz goal draft --json` makes of a request, before any work
  * runs. A clear objective must become a plan whose finish line a command can check, a vague
  * one must come back as questions, an objective its own constraints rule out must not be
  * called plausible, and a constraint the user states must survive into the plan.
@@ -23,17 +23,14 @@ type Draft =
 
 async function draftGoal(context: TaskRunContext, request: string): Promise<OneShotResult> {
   const startedAt = performance.now();
-  const proc = spawnJazz(
-    ["goal", "draft", request, "--agent", context.agentId, "--inspect", "--json"],
-    {
-      workspaceDir: context.workspaceDir,
-      cassettePath: context.cassettePath,
-      jazzHome: context.jazzHome,
-      environment: context.environment,
-      stdout: "pipe",
-      stderr: "ignore",
-    },
-  );
+  const proc = spawnJazz(["goal", "draft", request, "--agent", context.agentId, "--json"], {
+    workspaceDir: context.workspaceDir,
+    cassettePath: context.cassettePath,
+    jazzHome: context.jazzHome,
+    environment: context.environment,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
   const timer = setTimeout(() => proc.kill("SIGKILL"), context.timeoutMs);
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;

@@ -47,6 +47,7 @@ const PROVIDER_DOMAINS = [
   "cerebras.ai",
   "aliyuncs.com",
   "nvidia.com",
+  "ollama.com",
   "models.dev",
 ];
 

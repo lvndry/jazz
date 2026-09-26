@@ -19,3 +19,11 @@ describe("extractJsonObject", () => {
     expect(extractJsonObject('  {"kind":"plan"}  ', "kind")).toEqual({ kind: "plan" });
   });
 });
+
+describe("extractJsonObject on malformed answers", () => {
+  /** The regression: a brace at index 0 was found again forever, freezing the daemon. */
+  it("gives up instead of looping when nothing parses", () => {
+    expect(() => extractJsonObject("{broken}", "status")).toThrow('no JSON object with "status"');
+    expect(() => extractJsonObject("{ {also} broken", "status")).toThrow();
+  });
+});

@@ -1,4 +1,4 @@
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { type ProviderName } from "@jazz/core/constants/models";
 import { type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { type LLMService } from "@jazz/core/interfaces/llm";

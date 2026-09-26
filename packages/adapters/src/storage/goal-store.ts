@@ -62,6 +62,7 @@ function nextGoalRecord(
     next.agentId !== current.agentId ||
     next.sourceConversationId !== current.sourceConversationId ||
     next.conversationId !== current.conversationId ||
+    next.workingDirectory !== current.workingDirectory ||
     next.request !== current.request
   ) {
     throw new Error("A goal update cannot change its owner, conversation, agent, or root request.");

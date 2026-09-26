@@ -12,7 +12,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
-import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal-tools";
+import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -45,7 +45,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
-import { ToolExecutor } from "./tool-executor";
+import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
@@ -801,8 +801,30 @@ function handleToolPhase(
       });
     }
 
-    const toolResults = yield* ToolExecutor.executeToolCalls(
-      toExecute,
+    // A goal proposal is the whole turn's action: nothing proposed alongside it may run before
+    // the user accepts, so its siblings are answered without executing.
+    const proposes = toExecute.some(
+      (toolCall) => toolCall.function.name === PROPOSE_GOAL_TOOL_NAME,
+    );
+    const dispatched = proposes
+      ? toExecute.filter((toolCall) => toolCall.function.name === PROPOSE_GOAL_TOOL_NAME)
+      : toExecute;
+    const withheld: ToolCallOutcome[] = proposes
+      ? toExecute
+          .filter((toolCall) => toolCall.function.name !== PROPOSE_GOAL_TOOL_NAME)
+          .map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            success: false,
+            result: {
+              error:
+                "Not run: a goal was proposed in the same turn, and nothing else runs until the user accepts it.",
+            },
+          }))
+      : [];
+
+    const executedResults = yield* ToolExecutor.executeToolCalls(
+      dispatched,
       contextWithTokenStats,
       displayConfig,
       toolRenderer,
@@ -820,6 +842,7 @@ function handleToolPhase(
         Effect.fail(withTranscript(signal, state.currentMessages, state.iterationsUsed)),
       ),
     );
+    const toolResults = [...executedResults, ...withheld];
 
     if (deps.workspaceContext !== undefined) {
       yield* Effect.promise(() => observeWorkspaceFiles(toolResults, deps.recentWorkspaceFiles));

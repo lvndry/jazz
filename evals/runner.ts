@@ -30,7 +30,13 @@ import {
   type RunMetadata,
   type SampleReport,
 } from "./sample-report";
-import { createSandbox, modelNetworkPorts, readLlmConfig, removeSandbox } from "./sandbox";
+import {
+  createSandbox,
+  modelCredentials,
+  modelNetworkPorts,
+  readLlmConfig,
+  removeSandbox,
+} from "./sandbox";
 import { evaluateAdversarialTargets, type TargetVerdict } from "./targets";
 import {
   emptyResult,
@@ -297,13 +303,12 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     seed,
   ).map((job, runOrder) => ({ ...job, runOrder }));
 
-  const networkPorts = modelNetworkPorts(
-    [readAgentModel(options.agentId).provider],
-    readLlmConfig(getJazzHomeDirectory()),
-  );
+  const provider = readAgentModel(options.agentId).provider;
+  const networkPorts = modelNetworkPorts([provider], readLlmConfig(getJazzHomeDirectory()));
+  const credentials = await modelCredentials([provider]);
   await pool(jobs, options.concurrency, async ({ task, sampleIndex, runOrder }) => {
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
-    const sandbox = createSandbox(task.id, task.stubs ?? [], networkPorts);
+    const sandbox = createSandbox(task.id, task.stubs ?? [], networkPorts, credentials);
     const jazzHomeDir = seedIsolatedJazzHome(sandbox.jazzHome, [options.agentId]);
     const checkContext: CheckContext = {
       agentId: options.agentId,

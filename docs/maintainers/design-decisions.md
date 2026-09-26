@@ -329,7 +329,7 @@ the playbook stays in the conversation as the `load_skill` tool result.
 **Cost accepted.** Two extra round trips before the agent starts working with a skill. Later
 turns must follow a playbook that lives in transcript history, not in the system prompt.
 
-📄 [`skill-tools.ts`](../../packages/core/src/agent/tools/skill-tools.ts) · [Skills loading](../concepts/skills.md)
+📄 [`skill.ts`](../../packages/core/src/agent/tools/skill.ts) · [Skills loading](../concepts/skills.md)
 
 ### Deferred tool schemas
 
@@ -348,7 +348,7 @@ run. Names/summaries must stay visible in the prompt regardless: hiding them ent
 push the model toward replicating a listed tool with `execute_command` instead of discovering
 it, which `execute_command`'s own description now warns against explicitly.
 
-📄 [`search-tools-tool.ts`](../../packages/core/src/agent/tools/search-tools-tool.ts) · [Tools reference](../tools/index.md)
+📄 [`search-tools.ts`](../../packages/core/src/agent/tools/search-tools.ts) · [Tools reference](../tools/index.md)
 
 ---
 

@@ -1,5 +1,5 @@
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp-tools";
+import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
   createCategoryMappings,

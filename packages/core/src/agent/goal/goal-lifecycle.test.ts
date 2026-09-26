@@ -518,3 +518,29 @@ describe("resuming a goal that ran out of budget while paused", () => {
     }
   });
 });
+
+describe("resuming a paused goal whose parked run used up the budget", () => {
+  /**
+   * The regression: the extension measured from recorded usage, which excludes the parked
+   * run's spend, so a 5M-token goal whose parked run had spent 5M was "extended" to 5M.
+   */
+  it("extends past what the parked run has spent, so the answer can go through", () => {
+    const paused = goal({
+      state: { kind: "paused" },
+      budget: { maxCycles: 5, maxTokens: 5_000_000, maxDurationMs: 60_000_000 },
+      usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: true, costUSD: 0 },
+    });
+    const parked: LatestRun = {
+      state: {
+        kind: "input-required",
+        pending: { kind: "question", toolCallId: "call-1", question: "Which folder?" },
+      } as never,
+      spend: { totalTokens: 5_000_000, activeDurationMs: 1_000 },
+    };
+    const decision = decideResume(paused, parked);
+    expect(decision.kind).toBe("write");
+    if (decision.kind === "write") {
+      expect(remainingCaps(decision.next, parked.spend).kind).toBe("caps");
+    }
+  });
+});

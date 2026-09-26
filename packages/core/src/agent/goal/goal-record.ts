@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { APPROVAL_POLICY_LEVELS, type ApprovalPolicyLevel } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
@@ -101,6 +102,11 @@ export interface GoalRecord {
   readonly sourceConversationId?: string;
   /** Private conversation owned by the goal controller, avoiding races with user chat turns. */
   readonly conversationId: string;
+  /**
+   * Absolute directory the goal works in: where it was proposed or started. Every cycle runs
+   * there, never in whatever directory the daemon happened to start from.
+   */
+  readonly workingDirectory: string;
   /** The user's request, preserved verbatim as the root intent. */
   readonly request: string;
   /** The current plan proposal; editing it creates a new revision. */
@@ -172,6 +178,7 @@ export const NO_GOAL_USAGE: GoalUsage = {
  */
 export function newProposedGoal(options: {
   readonly agentId: string;
+  readonly workingDirectory: string;
   readonly sourceConversationId: string | undefined;
   readonly request: string;
   readonly plan: GoalPlan;
@@ -187,6 +194,7 @@ export function newProposedGoal(options: {
       ? { sourceConversationId: options.sourceConversationId }
       : {}),
     conversationId: generateConversationId("goal"),
+    workingDirectory: options.workingDirectory,
     request: options.request,
     plan: options.plan,
     state: { kind: "proposed" },
@@ -311,6 +319,7 @@ export const goalRecordSchema = z
     agentId: nonEmpty,
     sourceConversationId: z.string().optional(),
     conversationId: nonEmpty,
+    workingDirectory: z.string().refine(isAbsolute, "must be an absolute path"),
     request: z.string(),
     plan: planSchema,
     approvedPlanRevision: positiveInteger.optional(),

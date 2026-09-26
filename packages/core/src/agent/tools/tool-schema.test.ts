@@ -5,6 +5,7 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { registerAllTools } from "./register-tools";
+import { ALL_CATEGORIES, BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 import { createToolRegistryLayer } from "./tool-registry";
 
 interface JsonSchemaNode {
@@ -89,5 +90,51 @@ describe("tool JSON schemas advertised to the model", () => {
     );
 
     expect(missing, missing.join("\n")).toEqual([]);
+  });
+
+  /**
+   * An agent is granted whole categories, and only the built-in ones unconditionally, so a
+   * tool's text naming a tool from another opt-in category points the model at a tool it may
+   * not have. Only underscored names are checked: short ones like `find` or `ls` collide with
+   * ordinary words.
+   */
+  it("names only tools the same agent is guaranteed to have", async () => {
+    const violations = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* registerAllTools();
+        const registry = yield* ToolRegistryTag;
+        const categoryByTool = new Map<string, string>();
+        for (const category of ALL_CATEGORIES) {
+          for (const toolName of yield* registry.getToolsInCategory(category.id)) {
+            categoryByTool.set(toolName, category.id);
+          }
+        }
+        const builtinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((category) => category.id));
+        const underscoredToolNames = [...categoryByTool.keys()].filter((name) =>
+          name.includes("_"),
+        );
+
+        const found: string[] = [];
+        for (const name of yield* registry.listTools()) {
+          const tool = yield* registry.getTool(name);
+          const advertisedText = `${tool.description} ${JSON.stringify(z.toJSONSchema(tool.parameters))}`;
+          for (const mentioned of underscoredToolNames) {
+            if (mentioned === name || !new RegExp(`\\b${mentioned}\\b`).test(advertisedText)) {
+              continue;
+            }
+            const mentionedCategory = categoryByTool.get(mentioned);
+            const guaranteed =
+              mentionedCategory === categoryByTool.get(name) ||
+              (mentionedCategory !== undefined && builtinCategoryIds.has(mentionedCategory));
+            if (!guaranteed) {
+              found.push(`${name} mentions ${mentioned} (${mentionedCategory ?? "uncategorized"})`);
+            }
+          }
+        }
+        return found;
+      }).pipe(Effect.provide(createToolRegistryLayer())),
+    );
+
+    expect(violations, violations.join("\n")).toEqual([]);
   });
 });

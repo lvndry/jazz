@@ -263,8 +263,8 @@ wait for you. In chat, accepting a proposal asks the same question.
 `start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it. Budget flags:
 `--max-cycles`, `--cycle-iterations` (how long a cycle runs before its progress is checked and
 saved), `--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pricing is known).
-`--inspect` lets a read-only pass over the current directory inform the plan; those file
-contents go to the agent's model provider. With `--json` each command prints one JSON envelope.
+A read-only pass over the current directory informs the plan, as it would in chat; `--no-inspect`
+drafts from the request alone. With `--json` each command prints one JSON envelope.
 Exit codes: `0` done, `1` refused or failed, `2` the request needs answers before a plan.
 
 ## `jazz imessage`

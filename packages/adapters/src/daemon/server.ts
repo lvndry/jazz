@@ -21,6 +21,7 @@
  * neighbours are other local accounts and the operator's own open tabs.
  */
 
+import { isAbsolute } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
@@ -450,6 +451,16 @@ async function createGoalRoute(
       400,
     );
   }
+  const workingDirectory = body["workingDirectory"];
+  if (typeof workingDirectory !== "string" || !isAbsolute(workingDirectory)) {
+    return json(
+      {
+        ok: false,
+        error: "workingDirectory, the absolute directory the goal works in, is required",
+      },
+      400,
+    );
+  }
   const plan = body["plan"];
   if (!isRecord(plan)) {
     return json({ ok: false, error: "a proposed plan is required" }, 400);
@@ -467,6 +478,7 @@ async function createGoalRoute(
       const record = yield* store.create(
         newProposedGoal({
           agentId,
+          workingDirectory,
           sourceConversationId: conversationId,
           request: requestText,
           plan: parsedDraft.plan,

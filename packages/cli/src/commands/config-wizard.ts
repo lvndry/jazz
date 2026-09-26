@@ -4,7 +4,7 @@
  */
 
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import {
   isLocalServerProvider,
   LOCAL_SERVER_PROVIDERS,

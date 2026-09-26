@@ -33,6 +33,7 @@ export interface RunRecordingInput {
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
+  readonly workingDirectory?: string;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -108,10 +109,9 @@ export function withRunRecording<E, R>(
     };
 
     const moveTo = (state: RunState, includeMetrics = true) =>
-      store.transition(input.runId, state).pipe(
-        Effect.flatMap((updated) => store.save(includeMetrics ? withCost(updated) : updated)),
-        Effect.ignore,
-      );
+      store
+        .transition(input.runId, state, includeMetrics ? withCost : undefined)
+        .pipe(Effect.ignore);
 
     // A resumed run already has a record, and `resumeRun` has already claimed it by moving
     // it to `working`. Creating a second one here would leave the original parked forever
@@ -130,6 +130,9 @@ export function withRunRecording<E, R>(
             ? { autoApprovedTools: input.autoApprovedTools }
             : {}),
           ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+          ...(input.workingDirectory !== undefined
+            ? { workingDirectory: input.workingDirectory }
+            : {}),
         }),
       );
       yield* moveTo(

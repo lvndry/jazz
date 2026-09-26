@@ -19,7 +19,7 @@ import type { MCPTool } from "@/core/types/mcp";
 import { toError } from "@/core/utils/errors";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { buildResourceTools, registerMCPServerTools, type MCPToolDependencies } from "./mcp-tools";
+import { buildResourceTools, registerMCPServerTools, type MCPToolDependencies } from "./mcp";
 import { mcpToolCategory } from "./tool-categories";
 
 /**

@@ -7,8 +7,9 @@
  * approval it needs is already answered.
  */
 
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
@@ -150,6 +151,26 @@ export function resumeRun(options: ResumeRunOptions) {
       return yield* Effect.fail(
         new RunNotResumableError(options.runId, "its pending input has a different kind"),
       );
+    }
+
+    if (record.workingDirectory !== undefined) {
+      const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+      if (Option.isSome(fileSystemContext)) {
+        yield* fileSystemContext.value
+          .setCwd(
+            { agentId: record.agentId, conversationId: record.conversationId },
+            record.workingDirectory,
+          )
+          .pipe(
+            Effect.mapError(
+              () =>
+                new RunNotResumableError(
+                  options.runId,
+                  `the directory it worked in, ${record.workingDirectory}, is gone`,
+                ),
+            ),
+          );
+      }
     }
 
     const response: AgentResponse = yield* AgentRunner.run({

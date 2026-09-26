@@ -29,7 +29,7 @@ import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { PersonaToolProfile } from "@/core/types/persona";
-import { PROPOSE_GOAL_TOOL_NAME } from "./goal-tools";
+import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
 /**

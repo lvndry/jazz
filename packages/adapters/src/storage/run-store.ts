@@ -106,14 +106,18 @@ export class InMemoryRunStore implements RunStore {
     return Effect.sync(() => this.records.get(runId));
   }
 
-  transition(runId: RunId, next: RunState): Effect.Effect<RunRecord, Error> {
+  transition(
+    runId: RunId,
+    next: RunState,
+    alongside: (record: RunRecord) => RunRecord = (record) => record,
+  ): Effect.Effect<RunRecord, Error> {
     return Effect.try({
       try: () => {
         const existing = this.records.get(runId);
         if (existing === undefined) {
           throw new Error(`No run with id "${runId}".`);
         }
-        const updated = withState(existing, next, this.clock());
+        const updated = alongside(withState(existing, next, this.clock()));
         this.records.set(runId, updated);
         return updated;
       },
@@ -235,7 +239,11 @@ export class FileRunStore implements RunStore {
     );
   }
 
-  transition(runId: RunId, next: RunState): Effect.Effect<RunRecord, Error> {
+  transition(
+    runId: RunId,
+    next: RunState,
+    alongside: (record: RunRecord) => RunRecord = (record) => record,
+  ): Effect.Effect<RunRecord, Error> {
     return this.withRunLock(
       runId,
       Effect.gen(this, function* () {
@@ -244,7 +252,7 @@ export class FileRunStore implements RunStore {
           return yield* Effect.fail(new Error(`No run with id "${runId}".`));
         }
         const updated = yield* Effect.try({
-          try: () => withState(existing, next, this.clock()),
+          try: () => alongside(withState(existing, next, this.clock())),
           catch: toError,
         });
         yield* Effect.tryPromise({

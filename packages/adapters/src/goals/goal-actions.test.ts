@@ -73,6 +73,7 @@ describe("goal planning spend", () => {
       goals,
       activateGoal({
         agent: LOCAL_AGENT,
+        workingDirectory: "/work/importer",
         request: "Fix the header test",
         plan: proposal.plan,
         spend: proposal.spend,
@@ -94,6 +95,7 @@ describe("goal planning spend", () => {
       goals,
       activateGoal({
         agent: LOCAL_AGENT,
+        workingDirectory: "/work/importer",
         request: "Fix the header test",
         plan: testGoalPlan(),
         spend: { totalTokens: 5_000, startedAt: Date.now() },
@@ -163,6 +165,7 @@ describe("activating a goal", () => {
       goals,
       activateGoal({
         agent: LOCAL_AGENT,
+        workingDirectory: "/work/importer",
         request: "Fix the header test",
         plan: proposal.plan,
         spend: proposal.spend,

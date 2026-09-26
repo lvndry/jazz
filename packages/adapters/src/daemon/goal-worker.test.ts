@@ -12,6 +12,10 @@ import type { RunState } from "@jazz/core/agent/run/run-state";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
+import {
+  FileSystemContextServiceTag,
+  type FileSystemContextService,
+} from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -57,6 +61,13 @@ function harness(repair?: string): Harness {
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(LoggerServiceTag, silentLogger),
+    Layer.succeed(FileSystemContextServiceTag, {
+      setCwd: (key: { conversationId?: string }, directory: string) =>
+        Effect.sync(() => {
+          placedIn.push({ conversationId: key.conversationId ?? "", directory });
+        }),
+      getCwd: () => Effect.succeed("/work/importer"),
+    } as unknown as FileSystemContextService),
     NodeFileSystem.layer,
   ) as Layer.Layer<never>;
   return { goals, runs, layer, prompts: [] };
@@ -163,7 +174,30 @@ async function current(test: Harness): Promise<GoalRecord> {
   return goal;
 }
 
+/** Where the worker put each conversation before running it. */
+const placedIn: { conversationId: string; directory: string }[] = [];
+
 describe("runDueGoals", () => {
+  /**
+   * The regression: a cycle ran in whatever directory the daemon started from, so a goal
+   * accepted in one project read and changed another.
+   */
+  it("runs every cycle in the directory the goal works in", async () => {
+    placedIn.length = 0;
+    const test = harness();
+    await run(test, test.goals.create(testGoal({ workingDirectory: "/work/other-project" })));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(placedIn).toContainEqual({
+      conversationId: "goal-chat",
+      directory: "/work/other-project",
+    });
+  });
+
   it("runs a due cycle, checks its evidence, and completes the goal with the run's spend", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));
@@ -585,6 +619,36 @@ describe("answering a goal's parked run", () => {
 
     expect(seen[0]?.offersGoalProposals).toBeUndefined();
     expect(seen[0]?.maxIterations).toBe(24);
+  });
+
+  /**
+   * The regression: a daemon tick during a resume in another process saw the cycle still
+   * owned by the daemon, found it not in flight there, and settled it before the resumed run's
+   * spend was saved, recording zero tokens. The resuming process now owns the cycle while it
+   * works, so a daemon checks that process instead. (Both sides share one process in a test,
+   * so the handover itself is what is checked.)
+   */
+  it("hands the cycle to the process resuming it", async () => {
+    const test = harness();
+    const runId = await parkedGoal(test);
+    let ownerWhileResuming: { pid: number; startedAt?: number } | undefined;
+    const runner = resumedRunner(test, COMPLETE, async () => {
+      ownerWhileResuming = (await current(test)).cycle?.owner;
+    });
+    try {
+      await run(
+        test,
+        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+      );
+    } finally {
+      runner.mockRestore();
+    }
+
+    expect(ownerWhileResuming).toMatchObject({ pid: process.pid });
+    expect(ownerWhileResuming?.startedAt).toBeDefined();
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("completed");
+    expect(goal.usage.totalTokens).toBe(1_200);
   });
 
   /** The regression: a pause while the answered run worked was dropped and cycles went on. */

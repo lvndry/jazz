@@ -246,6 +246,7 @@ function makeLayers(
     Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
     Layer.succeed(FileSystemContextServiceTag, {
       getCwd: () => Effect.succeed(os.tmpdir()),
+      setCwd: () => Effect.void,
     } as unknown as FileSystemContextService),
   );
 }

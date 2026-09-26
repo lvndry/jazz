@@ -284,6 +284,76 @@ describe("executeAgentLoop", () => {
     expect(requests).toEqual([[{ role: "user", content: "hello" }]]);
   });
 
+  /**
+   * The regression: the text-only fence went up after the whole batch ran, so a write asked
+   * for alongside the proposal executed before the user accepted anything.
+   */
+  it("runs nothing proposed in the same batch as a goal proposal", async () => {
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed({
+          completion:
+            calls === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [
+                    {
+                      id: "call_1",
+                      type: "function" as const,
+                      function: { name: "propose_goal", arguments: "{}" },
+                    },
+                    {
+                      id: "call_2",
+                      type: "function" as const,
+                      function: { name: "write_file", arguments: "{}" },
+                    },
+                  ],
+                }
+              : { id: "c2", model: "gpt-4", content: "Proposed; accept it to start." },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const executed: string[] = [];
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(
+      (toolCalls: readonly { id: string; function: { name: string } }[]) => {
+        executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
+        return Effect.succeed(
+          toolCalls.map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            result: { state: "proposed" },
+            success: true,
+          })),
+        );
+      },
+    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(executed).toEqual(["propose_goal"]);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
   it("after a goal proposal is saved, asks for text only and drops tool calls returned anyway", async () => {
     const toolsAllowedPerCall: boolean[] = [];
     const strategy: CompletionStrategy = {
