@@ -5,23 +5,15 @@ import { settleCycle, type CycleEnd } from "./goal-reconcile";
 import { parseGoalRecord, type GoalRecord } from "./goal-record";
 import { canTransitionGoal, type GoalState } from "./goal-state";
 import { addSpend, extendBudget, reachedLimit, remainingCaps } from "./goal-usage";
+import { testGoalPlan, testStoredGoal } from "./test-fixtures";
 
 const RUN_ID = "run-1";
 
 function goal(overrides: Partial<GoalRecord> = {}): GoalRecord {
-  return {
-    goalId: "goal-1",
-    ownerInstanceId: "owner",
-    agentId: "agent",
-    conversationId: "goal-chat",
-    request: "Make the importer handle CSV headers",
-    plan: {
-      revision: 1,
+  return testStoredGoal({
+    plan: testGoalPlan({
       objective: "Importer handles CSV headers",
       successCriteria: ["Header test passes", "Docs mention headers"],
-      constraints: [],
-      assumptions: [],
-      feasibility: { assessment: "plausible", rationale: "Small change." },
       steps: [
         { id: "fix", objective: "Fix parser", successCriteria: ["Test passes"], state: "pending" },
         {
@@ -31,10 +23,7 @@ function goal(overrides: Partial<GoalRecord> = {}): GoalRecord {
           state: "pending",
         },
       ],
-      verification: ["bun test"],
-    },
-    approvedPlanRevision: 1,
-    state: { kind: "active" },
+    }),
     budget: { maxCycles: 5, maxTokens: 10_000, maxDurationMs: 60_000, maxCostUSD: 1 },
     usage: {
       cycles: 1,
@@ -45,11 +34,9 @@ function goal(overrides: Partial<GoalRecord> = {}): GoalRecord {
     },
     cycle: { runId: RUN_ID, owner: { pid: 1, host: "host" } },
     latestRunId: RUN_ID,
-    createdAt: "2026-09-26T00:00:00.000Z",
-    updatedAt: "2026-09-26T00:00:00.000Z",
     version: 3,
     ...overrides,
-  };
+  });
 }
 
 const SPEND = { totalTokens: 500, costUSD: 0.05, activeDurationMs: 2_000 };

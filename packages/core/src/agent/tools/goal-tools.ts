@@ -8,32 +8,32 @@
  * daemon start working through it. Plan acceptance is the user's decision and is never
  * implied by the approval policy.
  */
-import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { z } from "zod";
-import { getGoalOwnerInstanceId } from "@/core/agent/goal/goal-owner";
-import type { GoalPlan } from "@/core/agent/goal/goal-record";
-import { DEFAULT_GOAL_BUDGET } from "@/core/agent/goal/goal-usage";
+import {
+  boundedText,
+  DRAFT_ITEM_CHARS,
+  DRAFT_MAX_LIST_ITEMS,
+  FEASIBILITY_DESCRIPTION,
+  feasibilityDraftFields,
+  newProposedGoal,
+  planDraftFields,
+  type GoalPlan,
+} from "@/core/agent/goal/goal-record";
 import { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { generateConversationId } from "@/core/utils/conversation-id";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 export const PROPOSE_GOAL_TOOL_NAME = "propose_goal";
 
-const text = (description: string) => z.string().min(1).max(500).describe(description);
+const text = (description: string) => boundedText(DRAFT_ITEM_CHARS).describe(description);
 
 const proposeGoalParameters = z
   .object({
-    objective: z.string().min(1).max(1000).describe("The outcome the user wants, in one sentence."),
-    successCriteria: z
-      .array(text("One criterion."))
-      .min(1)
-      .max(8)
-      .describe(
-        "Checks that together mean the goal is done, each one something a command or tool can print when it holds (a test run, a file's content, a check that echoes a confirmation).",
-      ),
+    objective: planDraftFields.objective,
+    successCriteria: planDraftFields.successCriteria,
     steps: z
       .array(
         z
@@ -44,22 +44,10 @@ const proposeGoalParameters = z
           .strict(),
       )
       .min(1)
-      .max(8)
+      .max(DRAFT_MAX_LIST_ITEMS)
       .describe("Intermediate milestones, in order, each with how you will know it is done."),
-    constraints: z
-      .array(text("One constraint."))
-      .max(8)
-      .optional()
-      .describe("What must not change or be done."),
-    feasibility: z
-      .object({
-        assessment: z
-          .enum(["plausible", "uncertain", "unlikely"])
-          .describe("plausible, uncertain, or unlikely."),
-        rationale: z.string().min(1).max(1000).describe("Why, from what you have seen."),
-      })
-      .strict()
-      .describe("Whether the objective looks achievable from what you have seen, and why."),
+    constraints: planDraftFields.constraints.optional(),
+    feasibility: z.object(feasibilityDraftFields).strict().describe(FEASIBILITY_DESCRIPTION),
   })
   .strict();
 
@@ -109,23 +97,14 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
           [...(context.conversationMessages ?? [])]
             .reverse()
             .find((message) => message.role === "user")?.content ?? args.objective;
-        const now = new Date().toISOString();
-        const goal = yield* store.create({
-          goalId: randomUUID(),
-          ownerInstanceId: getGoalOwnerInstanceId(),
-          agentId: context.agentId,
-          ...(context.conversationId !== undefined
-            ? { sourceConversationId: context.conversationId }
-            : {}),
-          conversationId: generateConversationId("goal"),
-          request,
-          plan: planFromProposal(args),
-          state: { kind: "proposed" },
-          budget: DEFAULT_GOAL_BUDGET,
-          usage: { cycles: 0, totalTokens: 0, costKnown: true, costUSD: 0, activeDurationMs: 0 },
-          createdAt: now,
-          updatedAt: now,
-        });
+        const goal = yield* store.create(
+          newProposedGoal({
+            agentId: context.agentId,
+            sourceConversationId: context.conversationId,
+            request,
+            plan: planFromProposal(args),
+          }),
+        );
         return {
           success: true,
           result: {
@@ -139,7 +118,7 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
           Effect.succeed({
             success: false,
             result: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: toError(error).message,
           } satisfies ToolExecutionResult),
         ),
       ),

@@ -7,48 +7,43 @@
  */
 
 import { z } from "zod";
-import type { GoalPlan } from "./goal-record";
+import { extractJsonObject } from "@/core/utils/json";
+import {
+  boundedText,
+  DRAFT_ITEM_CHARS,
+  DRAFT_MAX_LIST_ITEMS,
+  feasibilityDraftFields,
+  planDraftFields,
+  type GoalPlan,
+} from "./goal-record";
 
 export const goalDraftSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("question"),
-    questions: z.array(z.string().min(1).max(500)).min(1).max(3),
+    questions: z.array(boundedText(DRAFT_ITEM_CHARS)).min(1).max(3),
   }),
   z.object({
     kind: z.literal("plan"),
-    objective: z.string().min(1).max(1000),
-    successCriteria: z.array(z.string().min(1).max(500)).min(1).max(8),
-    constraints: z.array(z.string().min(1).max(500)).max(8),
-    assumptions: z.array(z.string().min(1).max(500)).max(8),
-    feasibility: z.object({
-      assessment: z.enum(["plausible", "uncertain", "unlikely"]),
-      rationale: z.string().min(1).max(1000),
-    }),
+    ...planDraftFields,
+    assumptions: z.array(boundedText(DRAFT_ITEM_CHARS)).max(DRAFT_MAX_LIST_ITEMS),
+    feasibility: z.object(feasibilityDraftFields),
     steps: z
       .array(
         z.object({
           id: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
-          objective: z.string().min(1).max(500),
-          successCriteria: z.array(z.string().min(1).max(500)).min(1).max(5),
+          objective: boundedText(DRAFT_ITEM_CHARS),
+          successCriteria: z.array(boundedText(DRAFT_ITEM_CHARS)).min(1).max(5),
         }),
       )
       .min(1)
-      .max(8),
-    verification: z.array(z.string().min(1).max(500)).min(1).max(8),
+      .max(DRAFT_MAX_LIST_ITEMS),
+    verification: z.array(boundedText(DRAFT_ITEM_CHARS)).min(1).max(DRAFT_MAX_LIST_ITEMS),
   }),
 ]);
 
 export type GoalDraft =
   | { readonly kind: "question"; readonly questions: readonly string[] }
   | { readonly kind: "plan"; readonly plan: GoalPlan };
-
-function parseJson(content: string): unknown {
-  const trimmed = content.trim();
-  const unfenced = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")
-    : trimmed;
-  return JSON.parse(unfenced) as unknown;
-}
 
 /** Longest request and discovery notes the planner sees; longer ones are cut, not rejected. */
 const MAX_PLANNED_REQUEST_CHARS = 8_000;
@@ -80,7 +75,7 @@ export function goalPlanningPrompt(request: string, readOnlyFindings?: string): 
 export function parseGoalDraft(content: string): GoalDraft | undefined {
   let parsed: unknown;
   try {
-    parsed = parseJson(content);
+    parsed = extractJsonObject(content, "kind");
   } catch {
     return undefined;
   }

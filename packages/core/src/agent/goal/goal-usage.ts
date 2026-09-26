@@ -7,7 +7,7 @@
  */
 
 import type { RunRecord } from "@/core/agent/run/run-record";
-import type { GoalBudget, GoalRecord, GoalUsage } from "./goal-record";
+import type { GoalBudget, GoalLimit, GoalRecord, GoalUsage } from "./goal-record";
 
 /**
  * Every model call resends the conversation, so tokens grow with iterations rather than with
@@ -21,8 +21,6 @@ export const DEFAULT_GOAL_BUDGET: GoalBudget = {
   maxDurationMs: 2 * 60 * 60 * 1000,
   maxCostUSD: 5,
 };
-
-export type GoalLimit = "cycles" | "tokens" | "cost" | "duration";
 
 export interface RunSpend {
   readonly totalTokens: number;

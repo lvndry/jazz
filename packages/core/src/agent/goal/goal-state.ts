@@ -7,6 +7,8 @@
  * goal.
  */
 
+import type { GoalLimit } from "./goal-record";
+
 export type GoalState =
   | { readonly kind: "proposed" }
   /** Eligible for a cycle; one is running exactly when the record has an open `cycle`. */
@@ -14,10 +16,7 @@ export type GoalState =
   | { readonly kind: "awaiting-input"; readonly reason: "question" | "approval" }
   | { readonly kind: "paused" }
   | { readonly kind: "stopping" }
-  | {
-      readonly kind: "budget-limited";
-      readonly limit: "cycles" | "tokens" | "cost" | "duration";
-    }
+  | { readonly kind: "budget-limited"; readonly limit: GoalLimit }
   | {
       readonly kind: "review-required";
       readonly reason: string;
@@ -34,6 +33,19 @@ const TERMINAL_KINDS = new Set<GoalStateKind>(["completed", "failed", "canceled"
 
 export function isTerminalGoal(state: GoalState): boolean {
   return TERMINAL_KINDS.has(state.kind);
+}
+
+/** States in which a goal holds its cycle claim, and with it its conversation's one active slot. */
+export const CLAIMED_GOAL_STATES = [
+  "active",
+  "awaiting-input",
+  "stopping",
+] as const satisfies readonly GoalStateKind[];
+
+const CLAIMED_KINDS = new Set<GoalStateKind>(CLAIMED_GOAL_STATES);
+
+export function isGoalClaimed(state: GoalState): boolean {
+  return CLAIMED_KINDS.has(state.kind);
 }
 
 const ALLOWED_TRANSITIONS: Readonly<Record<GoalStateKind, readonly GoalStateKind[]>> = {

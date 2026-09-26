@@ -1,20 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import {
-  extractDisposition,
   goalEvaluationRepairMessages,
   goalEvaluationSchemaForPlan,
   quoteAppears,
   toolOutputTexts,
   validateGoalEvaluation,
 } from "./goal-evaluation";
-import type { GoalPlan } from "./goal-record";
+import { testGoalPlan } from "./test-fixtures";
 
-const plan: GoalPlan = {
-  revision: 1,
+const plan = testGoalPlan({
   objective: "Improve the evaluation report",
   successCriteria: ["Paired results are reported", "Every sample is auditable"],
-  constraints: [],
-  assumptions: [],
   feasibility: { assessment: "plausible", rationale: "The runner already writes reports." },
   steps: [
     {
@@ -25,7 +21,7 @@ const plan: GoalPlan = {
     },
   ],
   verification: ["Inspect the generated JSON"],
-};
+});
 
 describe("validateGoalEvaluation", () => {
   it("restricts repaired step IDs to the accepted plan revision", () => {
@@ -190,17 +186,6 @@ describe("reading a live cycle's answer", () => {
     ]);
 
     expect(result.kind).toBe("valid");
-  });
-
-  it("finds the last disposition in prose or a fenced block and rejects answers with none", () => {
-    expect(extractDisposition('Done.\n```json\n{"status":"blocked","summary":"x"}\n```')).toEqual({
-      status: "blocked",
-      summary: "x",
-    });
-    expect(
-      extractDisposition('I used {braces} here. {"status":"question","question":"Which?"}'),
-    ).toEqual({ status: "question", question: "Which?" });
-    expect(() => extractDisposition("All done, everything works.")).toThrow();
   });
 
   it("exposes JSON tool results' string values and ignores the model's own writes", () => {

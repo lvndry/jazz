@@ -4,15 +4,17 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { decidePause } from "@jazz/core/agent/goal/goal-controls";
-import type { GoalRecord, GoalRecordInput } from "@jazz/core/agent/goal/goal-record";
+import type { GoalRecord } from "@jazz/core/agent/goal/goal-record";
+import { testGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
 import type { RunState } from "@jazz/core/agent/run/run-state";
+import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
-import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
@@ -25,49 +27,12 @@ import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 const GOAL_ID = "goal-1";
 const AGENT_ID = "agent-1";
 
-function acceptedGoal(overrides: Partial<GoalRecordInput> = {}): GoalRecordInput {
-  return {
-    goalId: GOAL_ID,
-    ownerInstanceId: "owner",
-    agentId: AGENT_ID,
-    sourceConversationId: "chat",
-    conversationId: "goal-chat",
-    request: "Make the header test pass",
-    plan: {
-      revision: 1,
-      objective: "Header test passes",
-      successCriteria: ["The header test passes"],
-      constraints: [],
-      assumptions: [],
-      feasibility: { assessment: "plausible", rationale: "Small change." },
-      steps: [
-        { id: "fix", objective: "Fix parser", successCriteria: ["Test passes"], state: "pending" },
-      ],
-      verification: ["bun test"],
-    },
-    approvedPlanRevision: 1,
-    state: { kind: "active" },
-    budget: { maxCycles: 5, maxTokens: 100_000, maxDurationMs: 600_000 },
-    usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: false },
-    createdAt: "2026-09-26T00:00:00.000Z",
-    updatedAt: "2026-09-26T00:00:00.000Z",
-    ...overrides,
-  };
-}
-
 interface Harness {
   goals: InMemoryGoalStore;
   runs: InMemoryRunStore;
   layer: Layer.Layer<never>;
   prompts: AgentRunnerOptions[];
 }
-
-const silentLogger = {
-  debug: () => Effect.void,
-  info: () => Effect.void,
-  warn: () => Effect.void,
-  error: () => Effect.void,
-} as unknown as LoggerService;
 
 function harness(repair?: string): Harness {
   const goals = new InMemoryGoalStore();
@@ -201,7 +166,7 @@ async function current(test: Harness): Promise<GoalRecord> {
 describe("runDueGoals", () => {
   it("runs a due cycle, checks its evidence, and completes the goal with the run's spend", async () => {
     const test = harness();
-    await run(test, test.goals.create(acceptedGoal()));
+    await run(test, test.goals.create(testGoal()));
     const runner = scriptRunner(test, COMPLETE);
     try {
       await tick(test);
@@ -221,7 +186,7 @@ describe("runDueGoals", () => {
 
   it("records step progress on continue and feeds it to the next cycle", async () => {
     const test = harness();
-    await run(test, test.goals.create(acceptedGoal()));
+    await run(test, test.goals.create(testGoal()));
     const runner = scriptRunner(test, CONTINUE);
     try {
       await tick(test);
@@ -246,7 +211,7 @@ describe("runDueGoals", () => {
       evidence: [{ criterion: 1, quote: "all 12 tests passed" }],
     });
     const test = harness(fabricated);
-    await run(test, test.goals.create(acceptedGoal()));
+    await run(test, test.goals.create(testGoal()));
     const runner = scriptRunner(test, "I fixed it and everything works now!");
     try {
       await tick(test);
@@ -263,7 +228,7 @@ describe("runDueGoals", () => {
 
   it("parks on an approval, then a failed resume settles the cycle with its spend", async () => {
     const test = harness();
-    await run(test, test.goals.create(acceptedGoal()));
+    await run(test, test.goals.create(testGoal()));
     const pending = {
       kind: "tool-approval" as const,
       request: {
@@ -317,7 +282,7 @@ describe("runDueGoals", () => {
     await run(
       test,
       test.goals.create(
-        acceptedGoal({
+        testGoal({
           cycle: {
             runId: "run-dead",
             owner: { pid: 999_999_999, host: hostname() },
@@ -367,7 +332,7 @@ describe("runDueGoals", () => {
     await run(
       test,
       test.goals.create(
-        acceptedGoal({
+        testGoal({
           cycle: { runId: "run-submitted", owner },
           latestRunId: "run-submitted",
           usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },
@@ -387,7 +352,7 @@ describe("runDueGoals", () => {
     await run(
       test,
       test.goals.create(
-        acceptedGoal({
+        testGoal({
           usage: { cycles: 5, totalTokens: 0, activeDurationMs: 0, costKnown: false },
         }),
       ),
@@ -422,7 +387,7 @@ async function parkedGoal(test: Harness): Promise<string> {
   await run(
     test,
     test.goals.create(
-      acceptedGoal({
+      testGoal({
         state: { kind: "awaiting-input", reason: "approval" },
         cycle: { runId, owner: { pid: process.pid, host: hostname() } },
         latestRunId: runId,
@@ -543,7 +508,7 @@ describe("resumeGoalAwareRun", () => {
     await run(
       test,
       test.goals.create(
-        acceptedGoal({
+        testGoal({
           state: { kind: "paused" },
           cycle: {
             runId: "run-parked",

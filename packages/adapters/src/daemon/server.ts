@@ -21,14 +21,11 @@
  * neighbours are other local accounts and the operator's own open tabs.
  */
 
-import { randomUUID } from "node:crypto";
 import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { decideAccept, decideControl, latestRunView } from "@jazz/core/agent/goal/goal-controls";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
-import { DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
+import { newProposedGoal } from "@jazz/core/agent/goal/goal-record";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
@@ -79,7 +76,9 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
@@ -91,10 +90,16 @@ import {
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
-import { resumeGoalAwareRun, settleStoppingGoal } from "@jazz/adapters/daemon/goal-worker";
+import { resumeGoalAwareRun } from "@jazz/adapters/daemon/goal-worker";
 import {
-  loadConversation,
-  saveConversation,
+  controlGoal,
+  getOwnedGoal,
+  listOwnedGoals,
+  type GoalAction,
+} from "@jazz/adapters/goals/goal-actions";
+import {
+  loadConversationOrNull,
+  saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
 
 export const DEFAULT_DAEMON_PORT = 4747;
@@ -309,7 +314,7 @@ export function makeHandler(
   const agentWriteBody = async (request: Request): Promise<AgentWriteBody | Response> => {
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
-    const problem = configBodyProblem(body.config);
+    const problem = configBodyProblem(body["config"]);
     return problem === undefined ? body : json({ ok: false, error: problem }, 400);
   };
 
@@ -423,24 +428,15 @@ async function createGoalRoute(
   request: Request,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
-  const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
-  if (raw instanceof Response) {
-    return raw;
+  const body = await readJsonBody(request);
+  if (body instanceof Response) {
+    return body;
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return json({ ok: false, error: "body must be JSON" }, 400);
-  }
-  if (!isPlainObject(value)) {
-    return json({ ok: false, error: "body must be an object" }, 400);
-  }
-  const agentId = typeof value["agentId"] === "string" ? value["agentId"].trim() : "";
-  const requestText = typeof value["request"] === "string" ? value["request"].trim() : "";
+  const agentId = typeof body["agentId"] === "string" ? body["agentId"].trim() : "";
+  const requestText = typeof body["request"] === "string" ? body["request"].trim() : "";
   const conversationId =
-    typeof value["conversationId"] === "string" && value["conversationId"].trim().length > 0
-      ? value["conversationId"].trim()
+    typeof body["conversationId"] === "string" && body["conversationId"].trim().length > 0
+      ? body["conversationId"].trim()
       : generateConversationId("goal");
   if (
     agentId.length === 0 ||
@@ -453,10 +449,11 @@ async function createGoalRoute(
       400,
     );
   }
-  if (!isPlainObject(value["plan"])) {
+  const plan = body["plan"];
+  if (!isRecord(plan)) {
     return json({ ok: false, error: "a proposed plan is required" }, 400);
   }
-  const { revision: _revision, ...planBody } = value["plan"];
+  const { revision: _revision, ...planBody } = plan;
   const parsedDraft = parseGoalDraft(JSON.stringify({ kind: "plan", ...planBody }));
   if (parsedDraft?.kind !== "plan") {
     return json({ ok: false, error: "plan is malformed or exceeds its limits" }, 400);
@@ -466,124 +463,75 @@ async function createGoalRoute(
       const agents = yield* AgentServiceTag;
       const store = yield* GoalStoreTag;
       yield* agents.getAgent(agentId);
-      const now = new Date().toISOString();
-      const record = yield* store.create({
-        goalId: randomUUID(),
-        ownerInstanceId: getGoalOwnerInstanceId(),
-        agentId,
-        sourceConversationId: conversationId,
-        conversationId: generateConversationId("goal"),
-        request: requestText,
-        plan: parsedDraft.plan,
-        state: { kind: "proposed" },
-        budget: DEFAULT_GOAL_BUDGET,
-        usage: { cycles: 0, totalTokens: 0, costUSD: 0, costKnown: true, activeDurationMs: 0 },
-        createdAt: now,
-        updatedAt: now,
-      });
+      const record = yield* store.create(
+        newProposedGoal({
+          agentId,
+          sourceConversationId: conversationId,
+          request: requestText,
+          plan: parsedDraft.plan,
+        }),
+      );
       return json({ ok: true, goal: record }, 201);
     }).pipe(
       Effect.catchAll((error) =>
-        Effect.succeed(
-          json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400),
-        ),
+        Effect.succeed(json({ ok: false, error: toError(error).message }, 400)),
       ),
     ),
   );
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function listGoals() {
-  return Effect.gen(function* () {
-    const store = yield* GoalStoreTag;
-    const goals = yield* store.list({ ownerInstanceId: getGoalOwnerInstanceId() });
-    return json({ ok: true, goals });
-  });
+  return Effect.map(listOwnedGoals(), (goals) => json({ ok: true, goals }));
 }
 
 function showGoal(goalId: string) {
-  return Effect.gen(function* () {
-    const store = yield* GoalStoreTag;
-    const goal = yield* store.get(goalId);
-    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
-      return json({ ok: false, error: "no such goal" }, 404);
-    }
-    return json({ ok: true, goal });
-  });
+  return Effect.map(getOwnedGoal(goalId), (goal) =>
+    goal === undefined ? json({ ok: false, error: "no such goal" }, 404) : json({ ok: true, goal }),
+  );
 }
 
-type GoalControl = "accept" | "pause" | "resume" | "cancel";
+/** Largest control body: a version, a plan revision, and a short note. */
+const MAX_GOAL_CONTROL_PAYLOAD_LENGTH = 4096;
 
+/**
+ * Apply a goal action for an HTTP client. The client names the version it last read, so an
+ * action decided on a stale view is refused instead of applied to a goal that moved on.
+ */
 async function goalControlRoute(
   request: Request,
   goalId: string,
-  operation: GoalControl,
+  action: Exclude<GoalAction, "decline">,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
-  const raw = await readBody(request, 4096);
-  if (raw instanceof Response) {
-    return raw;
+  const body = await readJsonBody(request, MAX_GOAL_CONTROL_PAYLOAD_LENGTH);
+  if (body instanceof Response) {
+    return body;
   }
-  let body: unknown;
-  try {
-    body = raw.length > 0 ? JSON.parse(raw) : {};
-  } catch {
-    return json({ ok: false, error: "body must be JSON" }, 400);
-  }
-  if (!isPlainObject(body) || !Number.isSafeInteger(body["version"])) {
+  const version = body["version"];
+  if (typeof version !== "number" || !Number.isSafeInteger(version)) {
     return json({ ok: false, error: "current goal version is required" }, 400);
   }
   return runEffect(
-    Effect.gen(function* () {
-      const store = yield* GoalStoreTag;
-      const runs = yield* RunStoreTag;
-      const goal = yield* store.get(goalId);
-      if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
-        return json({ ok: false, error: "no such goal" }, 404);
-      }
-      if (goal.version !== body["version"]) {
-        return json({ ok: false, error: "goal changed; refresh and retry" }, 409);
-      }
-      if (operation === "accept") {
-        const active = yield* store.list({
-          ownerInstanceId: goal.ownerInstanceId,
-          ...(goal.sourceConversationId !== undefined
-            ? { sourceConversationId: goal.sourceConversationId }
-            : {}),
-          states: ["active", "awaiting-input", "stopping"],
-        });
-        if (active.length > 0) {
-          return json({ ok: false, error: "this conversation already has an active goal" }, 409);
+    Effect.map(
+      controlGoal(goalId, action, {
+        expectedVersion: version,
+        ...(action === "accept" ? { planRevision: Number(body["planRevision"]) } : {}),
+        ...(typeof body["note"] === "string" ? { guidance: body["note"] } : {}),
+      }),
+      (outcome) => {
+        if (outcome.kind === "refused") {
+          return json(
+            { ok: false, error: outcome.reason },
+            outcome.cause === "missing" ? 404 : 409,
+          );
         }
-      }
-      const latest = goal.latestRunId === undefined ? undefined : yield* runs.get(goal.latestRunId);
-      const decision =
-        operation === "accept"
-          ? decideAccept(goal, Number(body["planRevision"]))
-          : decideControl(
-              goal,
-              operation,
-              latest === undefined ? undefined : latestRunView(latest),
-              typeof body["note"] === "string" ? body["note"] : undefined,
-            );
-      if (decision.kind === "refused") {
-        return json({ ok: false, error: decision.reason }, 409);
-      }
-      const next = decision.next;
-      const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.either);
-      if (saved._tag === "Left") {
-        return json({ ok: false, error: saved.left.message }, 409);
-      }
-      yield* settleStoppingGoal(saved.right.goalId);
-      return json({
-        ok: true,
-        goal: (yield* store.get(saved.right.goalId)) ?? saved.right,
-        ...(decision.note !== undefined ? { note: decision.note } : {}),
-      });
-    }),
+        return json({
+          ok: true,
+          goal: outcome.goal,
+          ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+        });
+      },
+    ),
   );
 }
 
@@ -925,9 +873,12 @@ interface AgentWriteBody {
   readonly config?: unknown;
 }
 
-/** An operator body, parsed, or the response to send instead. */
-async function readJsonBody(request: Request): Promise<AgentWriteBody | Response> {
-  const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
+/** An operator body, parsed as a JSON object (empty reads as `{}`), or the response to send instead. */
+async function readJsonBody(
+  request: Request,
+  limit = MAX_OPERATOR_PAYLOAD_LENGTH,
+): Promise<Record<string, unknown> | Response> {
+  const raw = await readBody(request, limit);
   if (raw instanceof Response) {
     return raw;
   }
@@ -938,7 +889,7 @@ async function readJsonBody(request: Request): Promise<AgentWriteBody | Response
   } catch {
     return json({ ok: false, error: "body must be JSON" }, 400);
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (!isRecord(parsed)) {
     return json({ ok: false, error: "body must be a JSON object" }, 400);
   }
   return parsed;
@@ -1209,9 +1160,7 @@ function fireWebhook(
     // without its past, and refusing to answer a webhook because an old log is unreadable
     // trades a degraded turn for no turn at all.
     const priorRecord = threaded
-      ? yield* loadConversation(webhook.agentId, conversationId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
-        )
+      ? yield* loadConversationOrNull(webhook.agentId, conversationId)
       : null;
 
     const options = yield* webhookRunOptions({
@@ -1230,13 +1179,11 @@ function fireWebhook(
     const response = yield* AgentRunner.run(options);
 
     if (threaded) {
-      const now = new Date().toISOString();
-      yield* saveConversation({
+      yield* saveRunTranscript({
         agentId: webhook.agentId,
         conversationId,
-        title: priorRecord?.title ?? `webhook: ${webhook.name}`,
-        startedAt: priorRecord?.startedAt ?? now,
-        endedAt: now,
+        prior: priorRecord,
+        fallbackTitle: `webhook: ${webhook.name}`,
         messages: response.messages ?? priorRecord?.messages ?? [],
       }).pipe(
         Effect.catchAll((error) =>
@@ -1281,10 +1228,7 @@ function fireWebhook(
             error: String(error),
           });
         }
-        return json(
-          { ok: false, error: error instanceof Error ? error.message : String(error) },
-          500,
-        );
+        return json({ ok: false, error: toError(error).message }, 500);
       }),
     ),
   ) as Effect.Effect<Response, unknown, AgentService | FileSystem.FileSystem>;
@@ -1324,9 +1268,7 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
     }
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.succeed(
-        json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500),
-      ),
+      Effect.succeed(json({ ok: false, error: toError(error).message }, 500)),
     ),
   );
 }
@@ -1356,7 +1298,7 @@ function answerA2A(
         json({
           jsonrpc: "2.0",
           id: null,
-          error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+          error: { code: -32603, message: toError(error).message },
         }),
       ),
     ),
@@ -1400,10 +1342,7 @@ function startRun(
         if (logger._tag === "Some") {
           yield* logger.value.warn("Daemon run failed", { error: String(error) });
         }
-        return json(
-          { ok: false, error: error instanceof Error ? error.message : String(error) },
-          500,
-        );
+        return json({ ok: false, error: toError(error).message }, 500);
       }),
     ),
   ) as Effect.Effect<Response, unknown, AgentService>;
@@ -1513,7 +1452,7 @@ function agentErrorResponse(error: unknown): Response {
   if (error instanceof StorageNotFoundError || error instanceof AgentNotFoundError) {
     return json({ ok: false, error: "agent not found" }, 404);
   }
-  return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  return json({ ok: false, error: toError(error).message }, 500);
 }
 
 /**
@@ -1526,7 +1465,7 @@ function agentErrorResponse(error: unknown): Response {
  */
 function configBodyProblem(config: unknown): string | undefined {
   if (config === undefined) return undefined;
-  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+  if (!isRecord(config)) {
     return "config must be a JSON object";
   }
   if ("llmApiKeys" in config) {
@@ -1612,7 +1551,7 @@ function listModels(provider: ProviderName, role?: CompanionRole) {
         json(
           {
             ok: false,
-            error: `Could not list models for ${provider}: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Could not list models for ${provider}: ${toError(error).message}`,
             suggestion: "Name the model directly — the catalogue is unavailable, not the model.",
           },
           502,
@@ -1756,7 +1695,7 @@ function personaErrorResponse(error: unknown): Response {
   return json(
     {
       ok: false,
-      error: `Could not write the persona: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Could not write the persona: ${toError(error).message}`,
     },
     500,
   );
@@ -1843,7 +1782,7 @@ function listPersonas() {
         json(
           {
             ok: false,
-            error: `Could not list personas: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Could not list personas: ${toError(error).message}`,
           },
           500,
         ),
@@ -2041,7 +1980,7 @@ function answerRun(
               },
               202,
             )
-          : json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 409),
+          : json({ ok: false, error: toError(error).message }, 409),
       ),
     ),
   );

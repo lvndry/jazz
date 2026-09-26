@@ -8,6 +8,7 @@ import {
   goalEvaluationSchema,
   goalEvaluationSchemaForPlan,
 } from "@jazz/core/agent/goal/goal-evaluation";
+import { testGoalPlan } from "@jazz/core/agent/goal/test-fixtures";
 import type { ProviderName } from "@jazz/core/constants/models";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -402,23 +403,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
   it("applies a goal disposition schema through the configured vLLM provider", async () => {
     let requestBody: Record<string, unknown> | undefined;
-    const plan = {
-      revision: 1,
-      objective: "Improve evals",
-      successCriteria: ["The inventory is verified"],
-      constraints: [],
-      assumptions: [],
-      feasibility: { assessment: "plausible" as const, rationale: "The eval tree is present." },
-      steps: [
-        {
-          id: "inventory",
-          objective: "Map current evals",
-          successCriteria: ["The inventory is verified"],
-          state: "pending" as const,
-        },
-      ],
-      verification: ["Read the inventory file"],
-    };
+    const plan = testGoalPlan();
     globalThis.fetch = (async (_input, init) => {
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return new Response(

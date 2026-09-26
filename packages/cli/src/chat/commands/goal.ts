@@ -3,28 +3,24 @@
  *
  * Broad requests are converted into a tool-free, schema-checked plan proposal. Jazz asks for
  * explicit plan acceptance before activating the durable record; the daemon then owns cycles.
- * The planning and controls themselves live in `goals/goal-actions`, shared with `jazz goal`.
+ * The planning and controls themselves live in `@jazz/adapters/goals/goal-actions`, shared with
+ * `jazz goal` and the daemon.
  */
 
+import {
+  activateGoal,
+  controlGoal,
+  listOwnedGoals,
+  proposedGoals,
+  proposeGoal,
+} from "@jazz/adapters/goals/goal-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
-import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { Effect } from "effect";
-import {
-  activateGoal,
-  applyGoalControl,
-  decideProposedGoal,
-  describeGoal,
-  describePlan,
-  proposedGoals,
-  proposeGoal,
-} from "@/cli/goals/goal-actions";
+import { describeGoal, describePlan } from "@/cli/goals/describe-goal";
 import type { CommandContext } from "./types";
-
-export { describeGoal };
 
 /**
  * After a chat turn, ask about each goal the agent proposed in it: show the plan and start it
@@ -41,7 +37,7 @@ export function offerProposedGoals(conversationId: string) {
         "Start this goal? Jazz keeps working on it across runs while `jazz daemon` is running.",
         false,
       );
-      const outcome = yield* decideProposedGoal(goal.goalId, accepted === true);
+      const outcome = yield* controlGoal(goal.goalId, accepted === true ? "accept" : "decline");
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
       } else if (accepted === true) {
@@ -50,7 +46,7 @@ export function offerProposedGoals(conversationId: string) {
         yield* terminal.info("Proposal declined; the goal was not started.");
       }
     }
-  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }
 
 function draftGoal(context: CommandContext, request: string) {
@@ -128,11 +124,7 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
   if (command === "list") {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
-      const store = yield* GoalStoreTag;
-      const goals = yield* store.list({
-        ownerInstanceId: getGoalOwnerInstanceId(),
-        sourceConversationId: context.conversationId,
-      });
+      const goals = yield* listOwnedGoals({ sourceConversationId: context.conversationId });
       if (goals.length === 0) {
         yield* terminal.info("No goals in this conversation.");
       }
@@ -152,17 +144,17 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
         yield* terminal.warn(`Usage: /goal ${command} <goal-id>`);
         return { shouldContinue: true };
       }
-      const outcome = yield* decideProposedGoal(goalId, command === "accept");
+      const outcome = yield* controlGoal(goalId, command);
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
       } else {
         yield* terminal.success(`Goal ${goalId}: ${outcome.goal.state.kind}.`);
       }
       return { shouldContinue: true };
-    }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+    }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
   }
   if (command === "pause" || command === "resume" || command === "cancel") {
-    return controlGoal(command, rest[0], rest.slice(1).join(" ")).pipe(
+    return runGoalControl(command, rest[0], rest.slice(1).join(" ")).pipe(
       Effect.as({ shouldContinue: true }),
     );
   }
@@ -177,14 +169,14 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
   return draftGoal(context, request).pipe(Effect.as({ shouldContinue: true }));
 }
 
-function controlGoal(control: GoalControl, goalId: string | undefined, guidance: string) {
+function runGoalControl(control: GoalControl, goalId: string | undefined, guidance: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     if (goalId === undefined) {
       yield* terminal.warn(`Usage: /goal ${control} <goal-id>`);
       return;
     }
-    const outcome = yield* applyGoalControl(control, goalId, guidance);
+    const outcome = yield* controlGoal(goalId, control, { guidance });
     if (outcome.kind === "refused") {
       yield* terminal.warn(outcome.reason);
       return;

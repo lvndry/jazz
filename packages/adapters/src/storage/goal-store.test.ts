@@ -1,42 +1,14 @@
 import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { GoalRecord } from "@jazz/core/agent/goal/goal-record";
+import type { GoalRecordInput } from "@jazz/core/agent/goal/goal-record";
+import { testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { FileGoalStore, InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 
-function proposedGoal(goalId: string): Omit<GoalRecord, "version"> {
-  return {
-    goalId,
-    ownerInstanceId: "owner-a",
-    agentId: "agent-a",
-    sourceConversationId: "chat-a",
-    conversationId: `execution-${goalId}`,
-    request: "Improve the evaluation pipeline",
-    plan: {
-      revision: 1,
-      objective: "Improve the evaluation pipeline",
-      successCriteria: ["Reports include paired outcomes"],
-      constraints: ["Preserve distinct existing tasks"],
-      assumptions: [],
-      feasibility: { assessment: "plausible", rationale: "The runner can be extended." },
-      steps: [
-        {
-          id: "inventory",
-          objective: "Inventory current evaluations",
-          successCriteria: ["An inventory exists"],
-          state: "pending",
-        },
-      ],
-      verification: ["Run the focused evaluation and inspect its report"],
-    },
-    state: { kind: "proposed" },
-    budget: { maxCycles: 4, maxTokens: 20_000, maxDurationMs: 60_000 },
-    usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: false },
-    createdAt: "2026-09-25T00:00:00.000Z",
-    updatedAt: "2026-09-25T00:00:00.000Z",
-  };
+function proposedGoal(goalId: string): GoalRecordInput {
+  return testProposedGoal({ goalId, conversationId: `execution-${goalId}` });
 }
 
 describe("InMemoryGoalStore", () => {

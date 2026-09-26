@@ -18,6 +18,7 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
+import type { ChatMessage } from "@jazz/core/types/message";
 import { withLock, toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
@@ -118,4 +119,51 @@ export function loadConversation(
   dir?: string,
 ): Effect.Effect<Conversation | null, Error, FileSystem.FileSystem> {
   return readConversationLog(agentId, conversationId, dir);
+}
+
+/**
+ * One conversation, or null when there is no log for it or the log cannot be read. For a
+ * caller about to run a turn: the run is still valid without its past, so an unreadable log
+ * degrades the turn instead of refusing it.
+ */
+export function loadConversationOrNull(
+  agentId: string,
+  conversationId: string,
+  dir?: string,
+): Effect.Effect<Conversation | null, never, FileSystem.FileSystem> {
+  return loadConversation(agentId, conversationId, dir).pipe(
+    Effect.catchAll(() => Effect.succeed(null)),
+  );
+}
+
+/** Longest title a run names a new conversation with. */
+const MAX_RUN_TITLE_CHARS = 80;
+
+/**
+ * Save the transcript a run produced into its conversation. `prior` is the conversation as it
+ * was loaded for the run: its title and start time are kept, and a new conversation is named
+ * with `fallbackTitle`.
+ */
+export function saveRunTranscript(
+  options: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly prior: Conversation | null;
+    readonly fallbackTitle: string;
+    readonly messages: readonly ChatMessage[];
+  },
+  dir?: string,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  const now = new Date().toISOString();
+  return saveConversation(
+    {
+      agentId: options.agentId,
+      conversationId: options.conversationId,
+      title: options.prior?.title ?? options.fallbackTitle.slice(0, MAX_RUN_TITLE_CHARS),
+      startedAt: options.prior?.startedAt ?? now,
+      endedAt: now,
+      messages: [...options.messages],
+    },
+    dir,
+  );
 }

@@ -7,10 +7,17 @@
  * ownership, aggregate budgets, and completion state across runs and client disconnects.
  */
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { generateConversationId } from "@/core/utils/conversation-id";
+import { getGoalOwnerInstanceId } from "./goal-owner";
 import type { GoalState } from "./goal-state";
+import { DEFAULT_GOAL_BUDGET } from "./goal-usage";
 
 export type GoalId = string;
+
+/** Goal ids become file names, so they are limited to a path-safe alphabet. */
+export const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export type GoalStepState = "pending" | "active" | "completed" | "blocked";
 
@@ -21,6 +28,13 @@ export interface GoalPlanStep {
   readonly state: GoalStepState;
 }
 
+export const feasibilityAssessmentSchema = z.enum(["plausible", "uncertain", "unlikely"]);
+
+export const goalLimitSchema = z.enum(["cycles", "tokens", "cost", "duration"]);
+
+/** The cap a budget-limited goal reached. */
+export type GoalLimit = z.infer<typeof goalLimitSchema>;
+
 export interface GoalPlan {
   readonly revision: number;
   readonly objective: string;
@@ -28,7 +42,7 @@ export interface GoalPlan {
   readonly constraints: readonly string[];
   readonly assumptions: readonly string[];
   readonly feasibility: {
-    readonly assessment: "plausible" | "uncertain" | "unlikely";
+    readonly assessment: z.infer<typeof feasibilityAssessmentSchema>;
     readonly rationale: string;
   };
   readonly steps: readonly GoalPlanStep[];
@@ -133,6 +147,87 @@ export function asInput(goal: GoalRecord): GoalRecordInput {
   return rest;
 }
 
+/** What a goal has spent before any cycle runs. */
+export const NO_GOAL_USAGE: GoalUsage = {
+  cycles: 0,
+  totalTokens: 0,
+  costUSD: 0,
+  costKnown: true,
+  activeDurationMs: 0,
+};
+
+/**
+ * A new goal awaiting the user's acceptance, owned by this installation and running in its
+ * own private conversation. `sourceConversationId` is the chat that proposed it, which scopes
+ * the one-active-goal-per-conversation rule.
+ */
+export function newProposedGoal(options: {
+  readonly agentId: string;
+  readonly sourceConversationId: string | undefined;
+  readonly request: string;
+  readonly plan: GoalPlan;
+  readonly budget?: GoalBudget;
+  readonly usage?: GoalUsage;
+}): GoalRecordInput {
+  const now = new Date().toISOString();
+  return {
+    goalId: randomUUID(),
+    ownerInstanceId: getGoalOwnerInstanceId(),
+    agentId: options.agentId,
+    ...(options.sourceConversationId !== undefined
+      ? { sourceConversationId: options.sourceConversationId }
+      : {}),
+    conversationId: generateConversationId("goal"),
+    request: options.request,
+    plan: options.plan,
+    state: { kind: "proposed" },
+    budget: options.budget ?? DEFAULT_GOAL_BUDGET,
+    usage: options.usage ?? NO_GOAL_USAGE,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/** A drafted plan's text: non-empty and bounded, so a runaway draft is rejected, not stored. */
+export function boundedText(maxChars: number) {
+  return z.string().min(1).max(maxChars);
+}
+
+/** Longest criterion, constraint, or step a draft may carry. */
+export const DRAFT_ITEM_CHARS = 500;
+const DRAFT_PARAGRAPH_CHARS = 1000;
+/** Most criteria, constraints, or steps a draft may carry. */
+export const DRAFT_MAX_LIST_ITEMS = 8;
+
+/**
+ * The plan fields every draft shares, whether the planner or the agent's `propose_goal`
+ * wrote it. Each is described because a tool's parameters are advertised to the model.
+ */
+export const planDraftFields = {
+  objective: boundedText(DRAFT_PARAGRAPH_CHARS).describe(
+    "The outcome the user wants, in one sentence.",
+  ),
+  successCriteria: z
+    .array(boundedText(DRAFT_ITEM_CHARS).describe("One criterion."))
+    .min(1)
+    .max(DRAFT_MAX_LIST_ITEMS)
+    .describe(
+      "Checks that together mean the goal is done, each one something a command or tool can print when it holds (a test run, a file's content, a check that echoes a confirmation).",
+    ),
+  constraints: z
+    .array(boundedText(DRAFT_ITEM_CHARS).describe("One constraint."))
+    .max(DRAFT_MAX_LIST_ITEMS)
+    .describe("What must not change or be done."),
+};
+
+export const feasibilityDraftFields = {
+  assessment: feasibilityAssessmentSchema.describe("plausible, uncertain, or unlikely."),
+  rationale: boundedText(DRAFT_PARAGRAPH_CHARS).describe("Why, from what you have seen."),
+};
+
+export const FEASIBILITY_DESCRIPTION =
+  "Whether the objective looks achievable from what you have seen, and why.";
+
 const nonEmpty = z.string().min(1);
 const nonNegativeInteger = z.number().int().nonnegative();
 const positiveInteger = z.number().int().positive();
@@ -143,10 +238,7 @@ const goalStateSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("awaiting-input"), reason: z.enum(["question", "approval"]) }),
   z.object({ kind: z.literal("paused") }),
   z.object({ kind: z.literal("stopping") }),
-  z.object({
-    kind: z.literal("budget-limited"),
-    limit: z.enum(["cycles", "tokens", "cost", "duration"]),
-  }),
+  z.object({ kind: z.literal("budget-limited"), limit: goalLimitSchema }),
   z.object({
     kind: z.literal("review-required"),
     reason: z.string(),
@@ -163,10 +255,7 @@ const planSchema = z.object({
   successCriteria: z.array(z.string()),
   constraints: z.array(z.string()),
   assumptions: z.array(z.string()),
-  feasibility: z.object({
-    assessment: z.enum(["plausible", "uncertain", "unlikely"]),
-    rationale: z.string(),
-  }),
+  feasibility: z.object({ assessment: feasibilityAssessmentSchema, rationale: z.string() }),
   steps: z.array(
     z.object({
       id: nonEmpty,
@@ -208,7 +297,7 @@ const APPROVAL_REQUIRED_STATES = new Set([
 
 export const goalRecordSchema = z
   .object({
-    goalId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+    goalId: z.string().regex(GOAL_ID_PATTERN),
     ownerInstanceId: nonEmpty,
     agentId: nonEmpty,
     sourceConversationId: z.string().optional(),

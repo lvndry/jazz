@@ -7,40 +7,27 @@
  * 2 the request needs answers before a plan can be drafted.
  */
 
+import {
+  activateGoal,
+  controlGoal,
+  getOwnedGoal,
+  listOwnedGoals,
+  proposeGoal,
+  type GoalProposal,
+} from "@jazz/adapters/goals/goal-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
-import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import {
-  activateGoal,
-  applyGoalControl,
-  decideProposedGoal,
-  describeGoal,
-  describePlan,
-  proposeGoal,
-  type GoalProposal,
-} from "@/cli/goals/goal-actions";
-
-function emit(json: boolean, envelope: Record<string, unknown>, text: string): void {
-  process.stdout.write(json ? `${JSON.stringify(envelope)}\n` : `${text}\n`);
-}
-
-function fail(json: boolean, error: string, exitCode = 1): void {
-  if (json) {
-    process.stdout.write(`${JSON.stringify({ ok: false, error })}\n`);
-  } else {
-    process.stderr.write(`${error}\n`);
-  }
-  process.exitCode = exitCode;
-}
+import { describeGoal, describePlan } from "@/cli/goals/describe-goal";
+import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 function reportProposal(json: boolean, proposal: Exclude<GoalProposal, { kind: "failed" }>): void {
   if (proposal.kind === "questions") {
-    emit(
+    emitEnvelope(
       json,
       { ok: true, kind: "questions", questions: proposal.questions },
       [
@@ -51,7 +38,7 @@ function reportProposal(json: boolean, proposal: Exclude<GoalProposal, { kind: "
     process.exitCode = 2;
     return;
   }
-  emit(
+  emitEnvelope(
     json,
     { ok: true, kind: "plan", plan: proposal.plan },
     `Goal proposal\n\n${describePlan(proposal.plan)}`,
@@ -75,13 +62,13 @@ export function draftGoalCommand(options: DraftGoalOptions) {
       inspect: options.inspect,
     });
     if (proposal.kind === "failed") {
-      fail(options.json, proposal.reason);
+      failEnvelope(options.json, proposal.reason);
       return;
     }
     reportProposal(options.json, proposal);
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.sync(() => fail(options.json, error instanceof Error ? error.message : String(error))),
+      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
     ),
   );
 }
@@ -102,7 +89,7 @@ export function startGoalCommand(options: StartGoalOptions) {
       inspect: options.inspect,
     });
     if (proposal.kind === "failed") {
-      fail(options.json, proposal.reason);
+      failEnvelope(options.json, proposal.reason);
       return;
     }
     if (proposal.kind === "questions" || !options.yes) {
@@ -121,17 +108,17 @@ export function startGoalCommand(options: StartGoalOptions) {
       budget: options.budget,
     });
     if (activation.kind === "refused") {
-      fail(options.json, activation.reason);
+      failEnvelope(options.json, activation.reason);
       return;
     }
-    emit(
+    emitEnvelope(
       options.json,
       { ok: true, kind: "started", goal: activation.goal },
       `${describePlan(proposal.plan)}\n\nGoal ${activation.goal.goalId} started. It advances while \`jazz daemon\` is running.`,
     );
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.sync(() => fail(options.json, error instanceof Error ? error.message : String(error))),
+      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
     ),
     Effect.provide(makeFileGoalStoreLayer()),
   );
@@ -139,9 +126,8 @@ export function startGoalCommand(options: StartGoalOptions) {
 
 export function listGoalsCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
-    const store = yield* GoalStoreTag;
-    const goals = yield* store.list({ ownerInstanceId: getGoalOwnerInstanceId() });
-    emit(
+    const goals = yield* listOwnedGoals();
+    emitEnvelope(
       options.json,
       { ok: true, goals },
       goals.length === 0 ? "No goals." : goals.flatMap((goal) => describeGoal(goal)).join("\n"),
@@ -151,13 +137,12 @@ export function listGoalsCommand(options: { readonly json: boolean }) {
 
 export function showGoalCommand(options: { readonly id: string; readonly json: boolean }) {
   return Effect.gen(function* () {
-    const store = yield* GoalStoreTag;
-    const goal = yield* store.get(options.id);
-    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
-      fail(options.json, `No goal with id "${options.id}".`);
+    const goal = yield* getOwnedGoal(options.id);
+    if (goal === undefined) {
+      failEnvelope(options.json, `No goal with id "${options.id}".`);
       return;
     }
-    emit(
+    emitEnvelope(
       options.json,
       { ok: true, goal },
       [...describeGoal(goal), "", describePlan(goal.plan)].join("\n"),
@@ -172,19 +157,19 @@ export function decideProposedGoalCommand(options: {
   readonly json: boolean;
 }) {
   return Effect.gen(function* () {
-    const outcome = yield* decideProposedGoal(options.id, options.accept);
+    const outcome = yield* controlGoal(options.id, options.accept ? "accept" : "decline");
     if (outcome.kind === "refused") {
-      fail(options.json, outcome.reason);
+      failEnvelope(options.json, outcome.reason);
       return;
     }
-    emit(
+    emitEnvelope(
       options.json,
       { ok: true, goal: outcome.goal },
       options.accept
         ? `Goal ${options.id} started. It advances while \`jazz daemon\` is running.`
         : `Goal ${options.id} declined.`,
     );
-  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }
 
 export function controlGoalCommand(options: {
@@ -194,12 +179,14 @@ export function controlGoalCommand(options: {
   readonly json: boolean;
 }) {
   return Effect.gen(function* () {
-    const outcome = yield* applyGoalControl(options.control, options.id, options.note);
+    const outcome = yield* controlGoal(options.id, options.control, {
+      ...(options.note !== undefined ? { guidance: options.note } : {}),
+    });
     if (outcome.kind === "refused") {
-      fail(options.json, outcome.reason);
+      failEnvelope(options.json, outcome.reason);
       return;
     }
-    emit(
+    emitEnvelope(
       options.json,
       {
         ok: true,
