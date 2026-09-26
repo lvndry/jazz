@@ -7,6 +7,18 @@
 export type ProcessEnvRecord = Record<string, string | undefined>;
 
 /**
+ * Set on every process Jazz starts for an agent, so a command can tell that the agent, not the
+ * user, ran it. Decisions that are the user's alone (accepting a goal) refuse when it is set.
+ * An agent that strips it on purpose defeats it; it catches the ordinary case, not a hostile one.
+ */
+export const AGENT_PROCESS_ENV = "JAZZ_AGENT_PROCESS";
+
+/** Whether this process was started by a Jazz agent's tool. */
+export function isAgentStartedProcess(): boolean {
+  return process.env[AGENT_PROCESS_ENV] === "1";
+}
+
+/**
  * Var names that match the sensitive-name scrub by coincidence but never
  * hold a secret value themselves — a directory path, not a credential. The
  * scrub matches on substring, so `PASSWORD_STORE_DIR` (the standard `pass`
@@ -50,6 +62,7 @@ export function createSanitizedEnv(
     XDG_RUNTIME_DIR: process.env["XDG_RUNTIME_DIR"],
     GIT_PAGER: process.env["GIT_PAGER"] ?? "cat",
     GIT_TERMINAL_PROMPT: "0",
+    [AGENT_PROCESS_ENV]: "1",
     ...overrides,
   };
 

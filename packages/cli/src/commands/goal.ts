@@ -26,6 +26,7 @@ import {
   isApprovalPolicyLevel,
   type ApprovalPolicyLevel,
 } from "@jazz/core/types/tools";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
@@ -109,8 +110,19 @@ function grantedPolicy(
 }
 
 /** Draft a plan and, with `--yes`, accept it as an active goal for the daemon to run. */
+/**
+ * Accepting a goal is the user's decision, so a command an agent ran through a tool refuses
+ * to accept one: it would turn one approved shell call into lasting, unattended authority.
+ */
+const AGENT_ACCEPT_REFUSAL =
+  "Accepting a goal is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
+
 export function startGoalCommand(options: StartGoalOptions) {
   return Effect.gen(function* () {
+    if (options.yes && isAgentStartedProcess()) {
+      failEnvelope(options.json, AGENT_ACCEPT_REFUSAL);
+      return;
+    }
     const granted = grantedPolicy(options.approvalPolicy);
     if (granted.kind === "invalid") {
       failEnvelope(options.json, granted.reason);
@@ -194,6 +206,10 @@ export function decideProposedGoalCommand(options: {
   readonly approvalPolicy?: string;
 }) {
   return Effect.gen(function* () {
+    if (options.accept && isAgentStartedProcess()) {
+      failEnvelope(options.json, AGENT_ACCEPT_REFUSAL);
+      return;
+    }
     const granted = grantedPolicy(options.approvalPolicy);
     if (granted.kind === "invalid") {
       failEnvelope(options.json, granted.reason);

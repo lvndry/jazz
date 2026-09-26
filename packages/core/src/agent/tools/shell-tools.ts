@@ -152,6 +152,12 @@ type ForbiddenRule = {
 };
 
 export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
+  // Accepting a goal grants it authority to keep working unattended; that is the user's call.
+  {
+    pattern: /\bjazz\s+goal\s+(?:accept\b|start\b[^\n]*--yes\b)/,
+    reason:
+      "accepting a goal (`jazz goal accept`, `jazz goal start --yes`) is the user's decision, not an agent's",
+  },
   // File-system destruction (rm with any -r/-f flag combination, root paths,
   // home, or wildcards)
   {

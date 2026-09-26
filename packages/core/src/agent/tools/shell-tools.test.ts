@@ -5,7 +5,11 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
-import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell-tools";
+import {
+  createShellCommandTools,
+  EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+  matchForbiddenCommand,
+} from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -552,4 +556,15 @@ describe("Shell Tools", () => {
       rmSync(pidFile, { force: true });
     }
   }, 30_000);
+});
+
+describe("accepting a goal from a shell command", () => {
+  it("is blocked, since accepting grants the goal lasting authority", () => {
+    expect(matchForbiddenCommand("jazz goal accept 1234")).not.toBeNull();
+    expect(
+      matchForbiddenCommand("cd x && jazz goal start --agent me --yes 'do it'"),
+    ).not.toBeNull();
+    expect(matchForbiddenCommand("jazz goal start --agent me 'just draft it'")).toBeNull();
+    expect(matchForbiddenCommand("jazz goal list")).toBeNull();
+  });
 });
