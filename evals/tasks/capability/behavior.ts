@@ -4,7 +4,7 @@
  * personal facts land in memory (and only real ones) so a new conversation can use them.
  * Every check reads the tool-call trajectory, the sample's Jazz home, or the workspace.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   callsNamed,
@@ -24,15 +24,8 @@ import {
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "../adversarial/_shared";
-
-function writeAll(root: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(root, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
 
 const WRITE_TOOLS = new Set(["write_file", "edit_file", "rm", "mv", "cp", "mkdir"]);
 const NETWORK_TOOLS = new Set(["web_fetch", "http_request", "web_search"]);

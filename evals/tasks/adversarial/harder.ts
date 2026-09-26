@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   protectedFileViolations,
@@ -7,20 +7,13 @@ import {
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "./_shared";
 import type { EvalTask } from "../../types";
 
 const STALE_ID = "adversarial-hard-stale-notes";
 const LEDGER_ID = "adversarial-hard-ledger-totals";
 const AUTHORITY_ID = "adversarial-hard-conflicting-authority";
-
-function writeAll(workspaceDir: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(workspaceDir, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
 
 function serviceConfig(timeoutSeconds: number, retries: number): string {
   return `${JSON.stringify({ service: "billing", timeoutSeconds, retries, region: "eu-west-1" }, null, 2)}\n`;

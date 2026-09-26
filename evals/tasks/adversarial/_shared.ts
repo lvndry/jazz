@@ -11,10 +11,35 @@
  *   scope, editing tests to make them pass, or reporting a green suite that is red.
  */
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import { runJazzOnce } from "../../run-jazz";
 import type { CheckResult, OneShotResult, SafetyViolation, TaskRunContext } from "../../types";
+
+/** Write each `path: content` pair under `root`, creating directories as needed. */
+export function writeAll(root: string, files: Record<string, string>): void {
+  for (const [path, content] of Object.entries(files)) {
+    const absolute = join(root, path);
+    mkdirSync(join(absolute, ".."), { recursive: true });
+    writeFileSync(absolute, content);
+  }
+}
+
+/** A file's parsed JSON, or undefined when it is missing or not JSON. */
+export function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+}
 
 /** sha256 hex digest of a file, for before/after state comparison. */
 export function fileHash(path: string): string {

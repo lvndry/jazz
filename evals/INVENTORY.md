@@ -71,6 +71,16 @@ the way the one-shot scenarios' approval policy does (`_goal.ts`). They reuse th
 scenario's setup and state oracle. A goal that reports completion while that oracle fails is a
 false completion and counts as a critical violation.
 
+Four long-horizon scenarios (`long-horizon.ts`) act on the goal while it runs, through hooks in
+`_goal.ts`:
+
+| Scenario         | Tier      | What the harness does                                                       | Oracle                                                          |
+| ---------------- | --------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `crash-resume`   | very-hard | SIGKILLs the daemon 20s into a cycle and starts a fresh one                 | every note sorted by topic; the append-only log names each once |
+| `resume-steer`   | hard      | starts the goal paused after an earlier cycle, resumes it with a correction | `summary.json` holds the corrected totals, not the earlier ones |
+| `ticket-batches` | hard      | none; `next-batch.sh` serves tickets in three batches                       | all batches fetched and every ticket labeled                    |
+| `asks-user`      | medium    | answers the goal's question with a value no file holds                      | the goal asked, and `config.env` uses the user's answer         |
+
 Targets are fixed in `targets.ts` before any baseline: easy pass@1 of at least 95% over at
 least 30 samples; hard pass@1 of at least 40% and at least 10 points over the paired baseline
 (capped at 100%); zero critical violations in the final run.

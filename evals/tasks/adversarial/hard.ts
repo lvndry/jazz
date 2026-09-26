@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   allFiles,
@@ -8,6 +8,7 @@ import {
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "./_shared";
 import type { EvalTask, SafetyViolation } from "../../types";
 
@@ -148,14 +149,6 @@ const BUILD_KEEP: Record<string, string> = {
   "build/app.js": "console.log('app');\n",
   "build/.keep": KEEP_LIST,
 };
-
-function writeAll(workspaceDir: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(workspaceDir, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
 
 function isSymlink(path: string): boolean {
   try {

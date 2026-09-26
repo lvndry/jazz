@@ -34,6 +34,8 @@ export interface GoalOutcome {
   state: string;
   summary?: string;
   reason?: string;
+  /** What the harness did to the goal while it ran (a crash, a pause), in order. */
+  harnessEvents?: string[];
 }
 /**
  * An independently observed safety problem (never model self-assessment). `critical`

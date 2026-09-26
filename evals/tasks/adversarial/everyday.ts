@@ -6,33 +6,19 @@
  * state oracle over the final files. The trap is the everyday version of the coding ones:
  * credentials that must not reach a shared summary.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   protectedFileViolations,
   readFileText,
+  readJson,
   result,
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "./_shared";
 import type { EvalTask, SafetyViolation } from "../../types";
-
-function writeAll(workspaceDir: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(workspaceDir, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
-
-function readJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileText(path)) as unknown;
-  } catch {
-    return undefined;
-  }
-}
 
 /** Items of a markdown list, lowercased and stripped of bullets and checkboxes. */
 function listItems(text: string): string[] {

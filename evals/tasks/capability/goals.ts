@@ -4,19 +4,17 @@
  * goal in the `proposed` state with no work started before the user accepts; a small task
  * must just be done; a vague aspiration must get a clarifying question before any proposal.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { callsNamed } from "./_oracles";
 import type { EvalTask } from "../../types";
-import { protectedFileViolations, result, runCycles, sha256Text } from "../adversarial/_shared";
-
-function writeAll(root: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(root, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
+import {
+  protectedFileViolations,
+  result,
+  runCycles,
+  sha256Text,
+  writeAll,
+} from "../adversarial/_shared";
 
 interface StoredGoal {
   state: { kind: string };

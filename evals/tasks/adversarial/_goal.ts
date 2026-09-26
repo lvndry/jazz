@@ -12,7 +12,11 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
-import type { GoalPlan, GoalRecordInput } from "../../../packages/core/src/agent/goal/goal-record";
+import type {
+  GoalBudget,
+  GoalPlan,
+  GoalRecordInput,
+} from "../../../packages/core/src/agent/goal/goal-record";
 import { MAIN_TS } from "../../run-jazz";
 import { sandboxedArgv } from "../../sandbox";
 import type { GoalOutcome, OneShotResult, TaskRunContext } from "../../types";
@@ -33,8 +37,26 @@ const STOPPED_STATES = new Set([
 
 const QUESTION_ANSWER = "Use your best judgment within the accepted plan.";
 
+/** What a scenario can do to a running goal from its `onPoll` hook. */
+export interface GoalHarness {
+  /** SIGKILL the daemon, as a crash would, and start a fresh one on the same home. */
+  readonly crashAndRestart: () => Promise<void>;
+  /** Pause or resume the goal through the daemon's control route, as `jazz goal` does. */
+  readonly control: (operation: "pause" | "resume", note?: string) => Promise<boolean>;
+  /** Record something the harness did, reported in the outcome for the check to read. */
+  readonly note: (event: string) => void;
+}
+
 export interface GoalScenario {
   readonly request: string;
+  /** Overrides on the eval's default budget, e.g. short cycles to force several of them. */
+  readonly budget?: Partial<GoalBudget>;
+  /** Start from a later point in the goal's life: a paused goal with earlier progress. */
+  readonly initial?: Pick<GoalRecordInput, "state" | "lastProgress" | "usage">;
+  /** The user's reply to any question the goal asks; a fixed deferral when absent. */
+  readonly answer?: string;
+  /** Called on every poll with the goal as the daemon reports it. */
+  readonly onPoll?: (goal: GoalView, harness: GoalHarness) => Promise<void>;
   readonly plan: Omit<GoalPlan, "revision" | "steps"> & {
     readonly steps: readonly {
       readonly id: string;
@@ -58,7 +80,8 @@ function freePort(): number {
   return port;
 }
 
-interface GoalView {
+export interface GoalView {
+  readonly version: number;
   readonly state: { readonly kind: string; readonly reason?: string; readonly summary?: string };
   readonly cycle?: { readonly runId: string };
   readonly usage: {
@@ -90,8 +113,14 @@ export async function runGoal(
     },
     approvedPlanRevision: 1,
     state: { kind: "active" },
-    budget: { maxCycles: 6, maxTokens: 3_000_000, maxDurationMs: 20 * 60 * 1000 },
+    budget: {
+      maxCycles: 6,
+      maxTokens: 3_000_000,
+      maxDurationMs: 20 * 60 * 1000,
+      ...scenario.budget,
+    },
     usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: true, costUSD: 0 },
+    ...scenario.initial,
     createdAt: now,
     updatedAt: now,
   };
@@ -110,26 +139,29 @@ export async function runGoal(
   const base = `http://127.0.0.1:${port}`;
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const startedAt = performance.now();
-  const daemon = Bun.spawn(
-    sandboxedArgv(
-      [process.execPath, MAIN_TS, "daemon", "--foreground", "--port", String(port)],
-      context.environment,
-    ),
-    {
-      cwd: context.workspaceDir,
-      env: {
-        ...process.env,
-        ...context.environment,
-        JAZZ_HOME: context.jazzHome,
-        JAZZ_DAEMON_TOKEN: token,
-        JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS),
-        JAZZ_WEB_CASSETTE: context.cassettePath,
-        JAZZ_WEB_MODE: "replay",
+  const startDaemon = () =>
+    Bun.spawn(
+      sandboxedArgv(
+        [process.execPath, MAIN_TS, "daemon", "--foreground", "--port", String(port)],
+        context.environment,
+      ),
+      {
+        cwd: context.workspaceDir,
+        env: {
+          ...process.env,
+          ...context.environment,
+          JAZZ_HOME: context.jazzHome,
+          JAZZ_DAEMON_TOKEN: token,
+          JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS),
+          JAZZ_WEB_CASSETTE: context.cassettePath,
+          JAZZ_WEB_MODE: "replay",
+        },
+        stdout: "ignore",
+        stderr: "ignore",
       },
-      stdout: "ignore",
-      stderr: "ignore",
-    },
-  );
+    );
+  let daemon = startDaemon();
+  const events: string[] = [];
 
   const fetchGoal = async (): Promise<GoalView | undefined> => {
     try {
@@ -143,34 +175,71 @@ export async function runGoal(
     }
   };
 
-  let last: GoalView | undefined;
-  let timedOut = false;
-  try {
+  const waitForDaemon = async (): Promise<GoalView> => {
     const upBy = Date.now() + DAEMON_STARTUP_MS;
-    while ((last = await fetchGoal()) === undefined) {
+    for (;;) {
+      const view = await fetchGoal();
+      if (view !== undefined) {
+        return view;
+      }
       if (Date.now() > upBy) {
         throw new Error("the goal daemon did not come up");
       }
       await Bun.sleep(POLL_INTERVAL_MS / 4);
     }
+  };
+
+  let last: GoalView | undefined;
+  const harness: GoalHarness = {
+    crashAndRestart: async () => {
+      daemon.kill("SIGKILL");
+      await daemon.exited;
+      daemon = startDaemon();
+      last = await waitForDaemon();
+    },
+    control: async (operation, note) => {
+      const current = (await fetchGoal()) ?? last;
+      const response = await fetch(`${base}/goals/${goalId}/${operation}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          version: current?.version,
+          ...(note !== undefined ? { note } : {}),
+        }),
+      }).catch(() => undefined);
+      return response?.ok === true;
+    },
+    note: (event) => {
+      events.push(event);
+    },
+  };
+  let timedOut = false;
+  try {
+    last = await waitForDaemon();
     const deadline = Date.now() + GOAL_DEADLINE_MS;
     for (;;) {
       last = (await fetchGoal()) ?? last;
       if (STOPPED_STATES.has(last.state.kind)) {
         break;
       }
+      await scenario.onPoll?.(last, harness);
       if (Date.now() > deadline) {
         timedOut = true;
         break;
       }
       if (last.state.kind === "awaiting-input" && last.cycle !== undefined) {
         const body =
-          last.state.reason === "question" ? { response: QUESTION_ANSWER } : { approved: true };
-        await fetch(`${base}/runs/${last.cycle.runId}/answer`, {
+          last.state.reason === "question"
+            ? { response: scenario.answer ?? QUESTION_ANSWER }
+            : { approved: true };
+        const answered = await fetch(`${base}/runs/${last.cycle.runId}/answer`, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
         }).catch(() => undefined);
+        if (answered?.ok === true && last.state.reason === "question") {
+          events.push("answered a question");
+        }
         continue;
       }
       await Bun.sleep(POLL_INTERVAL_MS);
@@ -190,6 +259,7 @@ export async function runGoal(
     state: timedOut ? "timed-out" : last.state.kind,
     ...(last.state.summary !== undefined ? { summary: last.state.summary } : {}),
     ...(last.state.reason !== undefined ? { reason: last.state.reason } : {}),
+    ...(events.length > 0 ? { harnessEvents: events } : {}),
   };
   return {
     ok: true,

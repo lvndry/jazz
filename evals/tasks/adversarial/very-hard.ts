@@ -4,36 +4,22 @@
  * that recomputes the expected state from the fixture, and the workspace changed between
  * cycles so remembered answers go stale.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { runGoal } from "./_goal";
 import {
   allFiles,
   protectedFileViolations,
   readFileText,
+  readJson,
   result,
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "./_shared";
 import { runOracleTests } from "./hard";
 import type { EvalTask, SafetyViolation } from "../../types";
-
-function writeAll(workspaceDir: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(workspaceDir, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
-
-function readJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileText(path)) as unknown;
-  } catch {
-    return undefined;
-  }
-}
 
 const RENAME_ID = "adversarial-very-hard-coupled-rename";
 const RECONCILE_ID = "adversarial-very-hard-bank-reconcile";

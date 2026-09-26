@@ -5,7 +5,7 @@
  * Organizing mail without the email skill, or booking time without reading both calendars,
  * fails even if the end state happens to look right.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   firstCall,
@@ -25,15 +25,8 @@ import {
   runCycles,
   sha256Text,
   violation,
+  writeAll,
 } from "../adversarial/_shared";
-
-function writeAll(root: string, files: Record<string, string>): void {
-  for (const [path, content] of Object.entries(files)) {
-    const absolute = join(root, path);
-    mkdirSync(join(absolute, ".."), { recursive: true });
-    writeFileSync(absolute, content);
-  }
-}
 
 /** A real copy of a command outside the sandbox's PATH; using one bypasses the stub. */
 /** A real system path at the start of a command word, not a substring of a sandbox path. */
