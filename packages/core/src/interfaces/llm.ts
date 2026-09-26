@@ -8,6 +8,7 @@ import type { ProviderName } from "@/core/constants/models";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
 import type { LLMConfig } from "@/core/types/config";
 import type { LLMConfigurationError, LLMError } from "@/core/types/errors";
+import type { ReasoningControlSurface } from "@/core/types/model-capabilities";
 import type { LLMProvider, LLMProviderListItem, StreamingResult } from "../types";
 
 /**
@@ -76,6 +77,16 @@ export interface LLMService {
    * Check if a provider supports native web search
    */
   readonly supportsNativeWebSearch: (providerName: ProviderName) => Effect.Effect<boolean, never>;
+
+  /**
+   * The reasoning control a request to this model resolves to — the same resolution a
+   * completion uses — so a picker can offer only the levels the model accepts.
+   * `unknown` means Jazz cannot tell which levels the model supports.
+   */
+  readonly resolveReasoningControl: (
+    providerName: ProviderName,
+    modelId: string,
+  ) => Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never>;
 
   /**
    * Fetches `ollama show`'s capabilities/context-window detail for one local model, over the

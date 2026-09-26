@@ -14,7 +14,7 @@ import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { PluginToolInfo } from "@/core/types/plugin";
-import { adaptPluginToolToJazz } from "./plugin-tools";
+import { adaptPluginToolToJazz } from "./plugin";
 import { pluginToolCategory } from "./tool-categories";
 
 /** Tool names registered per plugin, so a later run can retire ones a plugin no longer declares. */

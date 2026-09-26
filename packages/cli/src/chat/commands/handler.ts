@@ -25,9 +25,9 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
-import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell-tools";
+import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -62,6 +62,7 @@ import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-serv
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
+import { clampReasoningSelection } from "@jazz/core/types/model-capabilities";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
@@ -80,11 +81,13 @@ import {
   prepareDetachTransfer,
 } from "@/cli/detach/orchestrator";
 import {
-  CLI_REASONING_EFFORTS,
+  describeReasoningAdjustment,
   isCliReasoningValue,
   promptForReasoningSelection,
+  reasoningChoicesFor,
   reasoningSelectionFromCliValue,
   reasoningSelectionToCliValue,
+  type CliReasoningValue,
 } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { store } from "@/cli/ui/store";
@@ -1381,10 +1384,8 @@ function handleReasoningCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   args: string[],
-): Effect.Effect<CommandResult, never, never> {
-  const validValues = [...CLI_REASONING_EFFORTS, "disable"] as const;
-
-  const applyValue = (value: (typeof validValues)[number]): CommandResult => {
+): Effect.Effect<CommandResult, never, LLMService> {
+  const applyValue = (value: CliReasoningValue): CommandResult => {
     // Session-only: override the in-memory agent config without persisting it.
     const newAgent = {
       ...agent,
@@ -1394,25 +1395,45 @@ function handleReasoningCommand(
   };
 
   return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const control = yield* llmService.resolveReasoningControl(
+      agent.config.llmProvider,
+      agent.config.llmModel,
+    );
+    const modelLabel = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+    const supported = reasoningChoicesFor(control, agent.config.reasoning);
+
     if (args.length > 0) {
       const value = args[0] ?? "";
       if (args.length !== 1 || !isCliReasoningValue(value)) {
-        yield* terminal.error(`Invalid reasoning level. Use: ${validValues.join(", ")}`);
+        yield* terminal.error(`Invalid reasoning level. Use: ${supported.join(", ")}`);
         yield* terminal.log("");
         return { shouldContinue: true };
       }
-      yield* terminal.success(`Reasoning set to: ${value} (this session only)`);
+      const adjustment = describeReasoningAdjustment(value, control);
+      const effective = reasoningSelectionToCliValue(clampReasoningSelection(value, control));
+      if (adjustment) {
+        yield* terminal.warn(`${modelLabel}: ${adjustment}.`);
+      } else if (control.kind === "unsupported" && value !== "disable") {
+        yield* terminal.warn(`${modelLabel} does not reason, so this level has no effect.`);
+      }
+      yield* terminal.success(`Reasoning set to: ${effective} (this session only)`);
       yield* terminal.log("");
-      return applyValue(value);
+      return applyValue(effective);
+    }
+
+    if (control.kind === "unsupported") {
+      yield* terminal.info(`${modelLabel} does not reason, so there is no level to set.`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
     }
 
     if (terminal.isInteractive) {
       const selected = yield* Effect.promise(() =>
-        promptForReasoningSelection(
-          terminal,
-          agent.config.reasoning,
-          "Set reasoning effort for this session:",
-        ),
+        promptForReasoningSelection(terminal, agent.config.reasoning, {
+          prompt: "Set reasoning effort for this session:",
+          control,
+        }),
       );
       if (!selected) {
         yield* terminal.log("");
@@ -1424,11 +1445,16 @@ function handleReasoningCommand(
       return applyValue(value);
     }
 
+    const adjustment = describeReasoningAdjustment(agent.config.reasoning, control);
+    const current = reasoningSelectionToCliValue(agent.config.reasoning);
     yield* terminal.log(fmt.heading("Reasoning Effort (this session)"));
     yield* terminal.log(
-      fmt.keyValueCompact("Current", reasoningSelectionToCliValue(agent.config.reasoning)),
+      fmt.keyValueCompact("Current", adjustment ? `${current} (${adjustment})` : current),
     );
-    yield* terminal.info(`Levels: ${validValues.join(", ")}`);
+    yield* terminal.info(`Levels: ${supported.join(", ")}`);
+    if (control.kind === "unknown") {
+      yield* terminal.info(`Jazz cannot confirm which of these ${modelLabel} accepts.`);
+    }
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });

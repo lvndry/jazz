@@ -25,7 +25,7 @@ describe("parseConfigFile", () => {
               reasoning: {
                 kind: "toggle",
                 transport: "ollama.chat.think",
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: false,
             },
@@ -34,9 +34,9 @@ describe("parseConfigFile", () => {
             "Qwen/Qwen3-8B": {
               reasoning: {
                 kind: "effort",
-                transport: "vllm.chat.reasoning-effort",
+                transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -44,9 +44,9 @@ describe("parseConfigFile", () => {
             "Qwen/Qwen3-8B": {
               reasoning: {
                 kind: "effort",
-                transport: "sglang.chat.reasoning-effort",
+                transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -236,7 +236,7 @@ describe("parseConfigFile", () => {
                 minimumBudgetTokens: 1024,
                 maximumBudgetTokens: 8192,
                 efforts: ["low", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: true,
             },
@@ -245,10 +245,10 @@ describe("parseConfigFile", () => {
             "Qwen3-32B": {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 256,
                 maximumBudgetTokens: 32768,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -262,6 +262,79 @@ describe("parseConfigFile", () => {
     );
   });
 
+  it("describes an invalid transport by the control kind the entry declares", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "bogus",
+                efforts: ["high"],
+                canDisableReasoning: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues[0]).toMatchObject({
+      path: "llm.capabilityOverrides.vllm.model.reasoning.transport",
+      expected: "openai.responses.reasoning-effort or openai-compatible.chat.reasoning-effort",
+      actual: "bogus",
+    });
+  });
+
+  it("rejects the old canDisable field name", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "openai-compatible.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining(["llm.capabilityOverrides.vllm.model.reasoning.canDisable"]),
+    );
+  });
+
+  it("rejects the retired vendor-named transports", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "vllm.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisableReasoning: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toContain(
+      "llm.capabilityOverrides.vllm.model.reasoning.transport",
+    );
+  });
+
   it("strips unsafe or unsupported capability override controls", () => {
     const { config, issues } = parseConfigFile({
       llm: {
@@ -272,7 +345,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "arbitrary.request.body",
                 efforts: ["high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -298,10 +371,10 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
                 maximumBudgetTokens: 1024,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -316,9 +389,9 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -364,6 +437,23 @@ describe("parseConfigFile", () => {
     parseConfigFile(contents);
 
     expect(contents).toEqual(snapshot);
+  });
+});
+
+describe("config issue paths", () => {
+  it("quote a key containing dots so the printed path can be pasted into config set", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          nvidia: { "deepseek-ai/deepseek-v4.1-flash": { supportsTools: "yes" } },
+        },
+      },
+    });
+
+    expect(issues[0]?.path).toBe(
+      'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+    );
+    expect(resolveConfigPath(issues[0]!.path)).toEqual({ known: true, structured: false });
   });
 });
 
@@ -428,6 +518,23 @@ describe("resolveConfigPath", () => {
     expect(resolveConfigPath("mcpServers.any-server.enabled")).toEqual({
       known: true,
       structured: false,
+    });
+  });
+
+  it("addresses a key containing dots through a quoted segment", () => {
+    expect(
+      resolveConfigPath(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+      ),
+    ).toEqual({ known: true, structured: false });
+    expect(
+      parseConfigInput(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+        "true",
+      ),
+    ).toEqual({ ok: true, value: true });
+    expect(resolveConfigPath('llm.capabilityOverrides.nvidia."unterminated')).toEqual({
+      known: false,
     });
   });
 
@@ -563,11 +670,11 @@ describe("checkConfigWrite", () => {
   it("still reports a bad field under a dotted server name", () => {
     expect(checkConfigWrite("mcpServers.my.server", { command: "npx" })).toEqual({
       ok: false,
-      problem: 'mcpServers.my.server expected no key named "command"',
+      problem: 'mcpServers."my.server" expected no key named "command"',
     });
     expect(checkConfigWrite("mcpServers.my.server", { enabled: "yes" })).toEqual({
       ok: false,
-      problem: "mcpServers.my.server.enabled expected true or false",
+      problem: 'mcpServers."my.server".enabled expected true or false',
     });
   });
 

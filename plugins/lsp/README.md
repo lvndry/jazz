@@ -8,17 +8,16 @@ code actions, rename, and formatting when the server supports them.
 
 ## Enable the plugin
 
-From the Jazz repository root:
+Install the published plugin directly from your terminal. No repository clone or build is needed:
 
 ```sh
-bun run plugin:pack plugins/lsp
-jazz plugin add plugins/lsp/release/catalog-entry.json
+jazz plugin add com.jazz.plugins.lsp
 jazz plugin inspect com.jazz.plugins.lsp
 jazz plugin trust com.jazz.plugins.lsp
 jazz plugin enable com.jazz.plugins.lsp --agent default
 ```
 
-Replace `default` with your agent ID, or omit `--agent` to enable it for every agent. The
+Replace `default` with your agent name or ID, or omit `--agent` to enable it for every agent. The
 language-server executable is installed separately; Jazz does not bundle one.
 
 ## Add a language

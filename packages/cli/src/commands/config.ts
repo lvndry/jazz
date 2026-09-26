@@ -1,10 +1,11 @@
 import { envVarForSecretPath, isSecretPath } from "@jazz/adapters/secrets/registry";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
+import { splitConfigPath } from "@jazz/core/utils/config-path";
 import {
   type ConfigValueKind,
   parseConfigInput,
@@ -64,7 +65,7 @@ export function getConfigCommand(
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
 
-    const parts = key.split(".");
+    const parts = splitConfigPath(key) ?? [];
     let value: unknown = config;
 
     for (const part of parts) {
@@ -160,29 +161,40 @@ export function setConfigCommand(
     const configService = yield* AgentConfigServiceTag;
 
     // Intelligent handling for provider keys
+    const segments = splitConfigPath(key) ?? [];
+    const llmProvider =
+      segments[0] === "llm" && AVAILABLE_PROVIDERS.includes(segments[1] as ProviderName)
+        ? (segments[1] as ProviderName)
+        : undefined;
+    const webSearchProvider =
+      segments[0] === "web_search" && WEB_SEARCH_PROVIDERS.some((p) => p.value === segments[1])
+        ? segments[1]
+        : undefined;
     let targetKey = key;
     if (AVAILABLE_PROVIDERS.includes(key as ProviderName)) {
       targetKey = `llm.${key}.api_key`;
-    } else if (
-      key.startsWith("llm.") &&
-      AVAILABLE_PROVIDERS.includes(key.split(".")[1] as ProviderName) &&
-      key.split(".").length === 2
-    ) {
+    } else if (llmProvider !== undefined && segments.length === 2) {
       targetKey = `${key}.api_key`;
     } else if (WEB_SEARCH_PROVIDERS.some((p) => p.value === key)) {
       targetKey = `web_search.${key}.api_key`;
-    } else if (
-      key.startsWith("web_search.") &&
-      WEB_SEARCH_PROVIDERS.some((p) => p.value === key.split(".")[1]) &&
-      key.split(".").length === 2
-    ) {
+    } else if (webSearchProvider !== undefined && segments.length === 2) {
       targetKey = `${key}.api_key`;
     }
+    const targetSegments = splitConfigPath(targetKey) ?? [];
+    const isProviderApiKey =
+      targetSegments.length === 3 &&
+      targetSegments[2] === "api_key" &&
+      ((targetSegments[0] === "llm" &&
+        AVAILABLE_PROVIDERS.includes(targetSegments[1] as ProviderName)) ||
+        (targetSegments[0] === "web_search" &&
+          WEB_SEARCH_PROVIDERS.some((p) => p.value === targetSegments[1])));
+    const promptsForApiKey = (root: "llm" | "web_search"): boolean =>
+      key === root || (isProviderApiKey && targetSegments[0] === root);
 
     if (value === undefined) {
-      if (key === "llm" || targetKey.startsWith("llm.")) {
+      if (promptsForApiKey("llm")) {
         const provider =
-          targetKey.split(".")[1] ||
+          targetSegments[1] ||
           (yield* terminal.select<ProviderName>("Select LLM provider:", {
             choices: sortProvidersForPicker(AVAILABLE_PROVIDERS).map((provider) => ({
               name: provider,
@@ -218,9 +230,9 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "web_search" || targetKey.startsWith("web_search.")) {
+      if (promptsForApiKey("web_search")) {
         const provider =
-          targetKey.split(".")[1] ||
+          targetSegments[1] ||
           (yield* terminal.select<string>("Select web search provider:", {
             choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value })),
           }));
@@ -234,7 +246,7 @@ export function setConfigCommand(
         return;
       }
 
-      if (key === "logging" || targetKey.startsWith("logging.")) {
+      if (key === "logging" || key === "logging.level") {
         const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
           choices: ["debug", "info", "warn", "error"],
         });

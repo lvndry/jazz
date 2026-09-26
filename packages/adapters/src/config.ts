@@ -25,6 +25,7 @@ import type {
   StorageConfig,
   WebSearchConfig,
 } from "@jazz/core/types/index";
+import { splitConfigPath } from "@jazz/core/utils/config-path";
 import {
   checkConfigWrite,
   formatConfigIssues,
@@ -1237,12 +1238,13 @@ export function removeAgentsMcpServer(
  * - "name" -> obj.name
  * - "storage.type" -> obj.storage.type
  * - "logging.level" -> obj.logging.level
+ * - 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash"' -> a quoted segment keeps its dots
  *
  * This allows flexible access to both simple and deeply nested properties
  * using the same interface, commonly used in configuration management.
  */
 function deepGet(obj: object, path: string): unknown {
-  const parts = path.split(".").filter(Boolean);
+  const parts = splitConfigPath(path) ?? [];
   let cur: unknown = obj;
   for (const part of parts) {
     if (cur && typeof cur === "object" && part in (cur as Record<string, unknown>)) {
@@ -1267,7 +1269,7 @@ function isBlankSecret(value: unknown): boolean {
  * and take every configured entry with it.
  */
 function structuralHomeFor(config: AppConfig, path: string): boolean {
-  const root = path.split(".").filter(Boolean)[0];
+  const root = splitConfigPath(path)?.[0];
   if (root === undefined) return false;
   return !Array.isArray((config as unknown as Record<string, unknown>)[root]);
 }
@@ -1278,7 +1280,7 @@ function structuralHomeFor(config: AppConfig, path: string): boolean {
  * orphaned `llm.openai: {}` behind in the written config.
  */
 function deepDelete(obj: Record<string, unknown>, path: string): void {
-  const parts = path.split(".").filter(Boolean);
+  const parts = splitConfigPath(path) ?? [];
   if (parts.length === 0) return;
 
   const chain: Record<string, unknown>[] = [obj];
@@ -1308,7 +1310,10 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
  * so a caller can tell the difference between stored and quietly lost.
  */
 function deepSet(obj: object, path: string, value: unknown): boolean {
-  const parts = path.split(".").filter(Boolean);
+  const parts = splitConfigPath(path);
+  if (parts === undefined || parts.length === 0) {
+    return false;
+  }
   let cur: Record<string, unknown> = obj as Record<string, unknown>;
   for (let i = 0; i < parts.length; i++) {
     const key = parts[i] as string;

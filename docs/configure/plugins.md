@@ -64,6 +64,10 @@ jazz plugin enable com.example.router --agent default
 jazz plugin enable com.example.router
 ```
 
+If a lifecycle command names a plugin that is not installed, Jazz shows an installation command,
+for example `jazz plugin add com.jazz.plugins.lsp`. Install it first, then inspect, trust, and enable
+it; the error does not install or enable anything automatically.
+
 `jazz plugin add owner/repo` downloads the repository tarball over HTTPS — no local `git` — extracts
 it, and hashes the source tree; that hash is the digest you trust. A local directory holding a
 `jazz-plugin.json` installs the same way (`jazz plugin add ./my-plugin`). A curated catalog id, an

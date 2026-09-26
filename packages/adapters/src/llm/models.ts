@@ -7,6 +7,7 @@ import {
 import type { ProviderName } from "@jazz/core/constants/models";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import type { LLMConfig } from "@jazz/core/types/config";
+import { CHATGPT_CODEX_BASE_URL } from "./chatgpt/transport";
 
 /**
  * This type represents how models are fetched for each provider.
@@ -23,7 +24,13 @@ export type ModelSource =
        */
       catalogId?: string;
     }
-  | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
+  | {
+      type: "dynamic";
+      endpointPath: string;
+      defaultBaseUrl?: string;
+      /** models.dev provider id for metadata enrichment, when it differs from Jazz's name. */
+      catalogId?: string;
+    };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/api";
 export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
@@ -34,6 +41,11 @@ export const DEFAULT_SGLANG_BASE_URL = "http://127.0.0.1:30000/v1";
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   anthropic: { type: "models-dev" },
   openai: { type: "models-dev" },
+  chatgpt: {
+    type: "dynamic",
+    endpointPath: "/models",
+    defaultBaseUrl: CHATGPT_CODEX_BASE_URL,
+  },
   gemini: { type: "models-dev", catalogId: "google" },
   xai: { type: "models-dev" },
   openrouter: {
@@ -53,6 +65,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     type: "dynamic",
     endpointPath: "/v1/accounts/fireworks/models?pageSize=200",
     defaultBaseUrl: "https://api.fireworks.ai",
+    catalogId: "fireworks-ai",
   },
   groq: {
     type: "dynamic",
@@ -62,6 +75,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   minimax: { type: "models-dev" },
   mistral: { type: "models-dev" },
   moonshotai: { type: "models-dev" },
+  nvidia: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://integrate.api.nvidia.com",
+  },
   ollama: { type: "dynamic", endpointPath: "/tags", defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL },
   llamacpp: {
     type: "dynamic",

@@ -86,6 +86,7 @@ export interface Segment {
   readonly italic?: boolean;
   readonly underline?: boolean;
   readonly strikethrough?: boolean;
+  readonly link?: string;
 }
 
 interface InlineMarks {
@@ -101,7 +102,8 @@ function sameInlineStyle(previous: Segment, current: Segment): boolean {
     previous.bold === current.bold &&
     previous.italic === current.italic &&
     previous.underline === current.underline &&
-    previous.strikethrough === current.strikethrough
+    previous.strikethrough === current.strikethrough &&
+    previous.link === current.link
   );
 }
 
@@ -303,13 +305,17 @@ function findUnderscoreItalicClose(text: string, from: number): number {
 function matchLink(
   text: string,
   index: number,
-): { readonly label: string; readonly end: number } | undefined {
+): { readonly label: string; readonly url: string; readonly end: number } | undefined {
   if (text[index] !== "[") return undefined;
   const close = text.indexOf("]", index + 1);
   if (close === -1 || text[close + 1] !== "(") return undefined;
   const urlEnd = text.indexOf(")", close + 2);
   if (urlEnd === -1) return undefined;
-  return { label: text.slice(index + 1, close), end: urlEnd + 1 };
+  return {
+    label: text.slice(index + 1, close),
+    url: text.slice(close + 2, urlEnd).trim(),
+    end: urlEnd + 1,
+  };
 }
 
 function matchWrapped(
@@ -384,7 +390,13 @@ function parseInline(text: string, fg: string, glyphs: GlyphSet, marks: InlineMa
     const link = matchLink(text, index);
     if (link !== undefined) {
       flushPlain();
-      if (link.label.length > 0) segments.push({ text: link.label, fg: THEME.link });
+      if (link.label.length > 0) {
+        segments.push({
+          text: link.label,
+          fg: THEME.link,
+          ...(link.url.length > 0 ? { link: link.url } : {}),
+        });
+      }
       index = link.end;
       continue;
     }
@@ -917,7 +929,16 @@ function agentRows(
   };
 
   const items = parseProse(block.markdown, glyphs);
-  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+  // Models often open a text block with newlines after a tool call; a leading blank row would strand the marker on an empty line.
+  let firstItem = 0;
+  let endItem = items.length;
+  while (firstItem < endItem && items[firstItem]?.kind === "blank") {
+    firstItem += 1;
+  }
+  while (endItem > firstItem && items[endItem - 1]?.kind === "blank") {
+    endItem -= 1;
+  }
+  for (let itemIndex = firstItem; itemIndex < endItem; itemIndex += 1) {
     const item = items[itemIndex];
     if (item === undefined) continue;
     const key = `${block.id}:${String(itemIndex)}`;
@@ -1391,14 +1412,27 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
     <text style={{ wrapMode: "none", truncate: true }}>
       {segments.map((segment, index) => {
         const attributes = segmentAttributes(segment);
+        const key = `${String(index)}:${segment.text}`;
+        const style = {
+          fg: segment.fg,
+          // OpenTUI text nodes honour `attributes`, not `bold`/`italic` booleans.
+          ...(attributes === 0 ? {} : { attributes }),
+        };
+        if (segment.link !== undefined) {
+          return (
+            <a
+              key={key}
+              href={segment.link}
+              style={style}
+            >
+              {segment.text}
+            </a>
+          );
+        }
         return (
           <span
-            key={`${String(index)}:${segment.text}`}
-            style={{
-              fg: segment.fg,
-              // OpenTUI text nodes honour `attributes`, not `bold`/`italic` booleans.
-              ...(attributes === 0 ? {} : { attributes }),
-            }}
+            key={key}
+            style={style}
           >
             {segment.text}
           </span>

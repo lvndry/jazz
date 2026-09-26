@@ -5,6 +5,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
+import { PluginNotInstalledError } from "@jazz/core/types/errors";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { PluginModuleLoader } from "./module-loader";
@@ -47,6 +48,25 @@ async function packageFixture(
 }
 
 describe("PluginRegistryServiceImpl", () => {
+  test("reports missing plugins consistently without installing or enabling them", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-missing-"));
+    try {
+      const registry = new PluginRegistryServiceImpl({ pluginDirectory: root });
+      const id = "com.jazz.plugins.lsp";
+      for (const operation of [
+        () => registry.inspect(id),
+        () => registry.enable(id),
+        () => registry.trust(id, "a".repeat(64)),
+      ]) {
+        await expect(operation()).rejects.toBeInstanceOf(PluginNotInstalledError);
+        await expect(operation()).rejects.toMatchObject({ pluginId: id });
+      }
+      expect((await registry.stateStore.read()).plugins).toEqual({});
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("requires digest-bound trust and consent before per-agent enablement", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-lifecycle-"));
     const fixture = await packageFixture(

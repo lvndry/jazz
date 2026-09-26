@@ -28,6 +28,7 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   minimax: "MINIMAX_API_KEY",
   mistral: "MISTRAL_API_KEY",
   moonshotai: "MOONSHOT_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
   ollama: "OLLAMA_API_KEY",
   openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
@@ -55,9 +56,13 @@ const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
  * provider reads when jazz passes no explicit key. But Google's own docs, its CLI, and most
  * other tooling use `GEMINI_API_KEY`, so somebody who exports that has done nothing wrong and
  * should not have to discover a second name for the same secret.
+ *
+ * `NVIDIA_API_KEY` is what NVIDIA's own docs use; `NIM_API_KEY` is what the AI SDK's NIM
+ * guide exports.
  */
 export const LLM_PROVIDER_ENV_VAR_ALIASES: Readonly<Record<string, readonly string[]>> = {
   gemini: ["GEMINI_API_KEY"],
+  nvidia: ["NIM_API_KEY"],
 };
 
 /** Every environment variable that can supply this provider's key, canonical first. */

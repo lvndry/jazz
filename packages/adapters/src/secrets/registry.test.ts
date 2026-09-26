@@ -115,6 +115,16 @@ describe("provider key aliases", () => {
     expect(secretValueFromEnv("llm.openai.api_key", { OPENAI_API_KEY: "sk" })).toBe("sk");
   });
 
+  it("accepts NIM_API_KEY as well as the canonical NVIDIA variable", () => {
+    expect(llmProviderApiKeyFromEnv("nvidia", { NIM_API_KEY: "from-alias" })).toBe("from-alias");
+    expect(
+      llmProviderApiKeyFromEnv("nvidia", { NVIDIA_API_KEY: "canonical", NIM_API_KEY: "alias" }),
+    ).toBe("canonical");
+    expect(secretValueFromEnv("llm.nvidia.api_key", { NIM_API_KEY: "from-alias" })).toBe(
+      "from-alias",
+    );
+  });
+
   it("leaves providers without an alias alone", () => {
     expect(llmProviderEnvVars("openai")).toEqual(["OPENAI_API_KEY"]);
     expect(llmProviderEnvVars("gemini")).toEqual([

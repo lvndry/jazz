@@ -40,6 +40,7 @@ import {
 } from "@jazz/core/types/attachment";
 import type { LLMConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { uploadFile } from "ai";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 
@@ -70,7 +71,8 @@ export type ResolvedAttachments = ReadonlyMap<string, ResolvedAttachment>;
  */
 function resolveFilesApi(providerName: ProviderName, llmConfig?: LLMConfig): unknown {
   const normalized = providerName.toLowerCase();
-  const apiKey = llmConfig?.[providerName]?.api_key ?? llmProviderApiKeyFromEnv(providerName);
+  const apiKey =
+    configuredProviderApiKey(llmConfig, providerName) ?? llmProviderApiKeyFromEnv(providerName);
 
   if (normalized === "openai") {
     return apiKey ? createOpenAI({ apiKey }) : openai;

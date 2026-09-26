@@ -1,4 +1,4 @@
-import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp-tools";
+import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
   BUILTIN_TOOL_CATEGORIES,
@@ -649,11 +649,13 @@ export async function promptForAgentInfo(
       // STEP 3: Reasoning Effort (optional, only for reasoning models)
       // ═══════════════════════════════════════════════════════════════════════
       case "reasoning": {
-        const result = await promptForReasoningSelection(
-          terminal,
-          state.reasoning,
-          `What reasoning effort level would you like? ${hint}`,
+        const control = await Effect.runPromise(
+          llmService.resolveReasoningControl(state.llmProvider!, state.llmModel!),
         );
+        const result = await promptForReasoningSelection(terminal, state.reasoning, {
+          prompt: `What reasoning effort level would you like? ${hint}`,
+          control,
+        });
 
         if (result === undefined) {
           state.step =
