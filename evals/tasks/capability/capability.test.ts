@@ -383,6 +383,7 @@ describe("goal routing scenarios", () => {
         ownerInstanceId: getGoalOwnerInstanceId(sandbox.jazzHome),
         agentId: AGENT,
         conversationId: "goal-proposed",
+        workingDirectory: "/work/recipes",
         request: "Get every recipe into the format.",
         plan: {
           revision: 1,

@@ -1020,6 +1020,7 @@ export class AgentRunner {
             ...(options.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
+            workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
           },
           execute,
         );

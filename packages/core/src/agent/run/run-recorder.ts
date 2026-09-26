@@ -33,6 +33,7 @@ export interface RunRecordingInput {
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
+  readonly workingDirectory?: string;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -130,6 +131,9 @@ export function withRunRecording<E, R>(
             ? { autoApprovedTools: input.autoApprovedTools }
             : {}),
           ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+          ...(input.workingDirectory !== undefined
+            ? { workingDirectory: input.workingDirectory }
+            : {}),
         }),
       );
       yield* moveTo(

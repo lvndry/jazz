@@ -148,6 +148,7 @@ export function startGoalCommand(options: StartGoalOptions) {
     }
     const activation = yield* activateGoal({
       agent,
+      workingDirectory: process.cwd(),
       request: options.request,
       plan: proposal.plan,
       spend: proposal.spend,

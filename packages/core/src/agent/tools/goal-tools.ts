@@ -8,7 +8,7 @@
  * daemon start working through it. Plan acceptance is the user's decision and is never
  * implied by the approval policy.
  */
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { z } from "zod";
 import {
   boundedText,
@@ -20,6 +20,7 @@ import {
   planDraftFields,
   type GoalPlan,
 } from "@/core/agent/goal/goal-record";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -97,9 +98,19 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
           [...(context.conversationMessages ?? [])]
             .reverse()
             .find((message) => message.role === "user")?.content ?? args.objective;
+        const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+        const workingDirectory = Option.isSome(fileSystemContext)
+          ? yield* fileSystemContext.value.getCwd({
+              agentId: context.agentId,
+              ...(context.conversationId !== undefined
+                ? { conversationId: context.conversationId }
+                : {}),
+            })
+          : process.cwd();
         const goal = yield* store.create(
           newProposedGoal({
             agentId: context.agentId,
+            workingDirectory,
             sourceConversationId: context.conversationId,
             request,
             plan: planFromProposal(args),

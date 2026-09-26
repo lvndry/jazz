@@ -140,6 +140,7 @@ export async function runGoal(
     agentId: context.agentId,
     sourceConversationId: `eval-${context.runId}`,
     conversationId: `goal-${context.runId}`,
+    workingDirectory: context.workspaceDir,
     request: scenario.request,
     plan: {
       ...scenario.plan,

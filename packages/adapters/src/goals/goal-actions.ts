@@ -210,6 +210,8 @@ export function activateGoal(options: {
   readonly request: string;
   readonly plan: GoalPlan;
   readonly spend: PlanningSpend;
+  /** Absolute directory the goal works in. */
+  readonly workingDirectory: string;
   readonly sourceConversationId?: string;
   readonly budget?: Partial<GoalBudget>;
   /** The authority the user grants with the acceptance. */
@@ -232,6 +234,7 @@ export function activateGoal(options: {
     const proposed = yield* store.create(
       newProposedGoal({
         agentId: options.agent.id,
+        workingDirectory: options.workingDirectory,
         sourceConversationId: options.sourceConversationId,
         request: options.request,
         plan: options.plan,

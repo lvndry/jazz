@@ -17,6 +17,7 @@ import {
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
+import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import {
   APPROVAL_POLICY_LEVELS,
@@ -123,8 +124,14 @@ function draftGoal(context: CommandContext, request: string) {
       yield* terminal.info("Proposal declined; no goal was activated.");
       return;
     }
+    const fileSystemContext = yield* FileSystemContextServiceTag;
+    const workingDirectory = yield* fileSystemContext.getCwd({
+      agentId: context.agent.id,
+      conversationId: context.conversationId,
+    });
     const activation = yield* activateGoal({
       agent: context.agent,
+      workingDirectory,
       request,
       plan: proposal.plan,
       spend: proposal.spend,

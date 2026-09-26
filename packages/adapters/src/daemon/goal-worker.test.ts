@@ -12,6 +12,10 @@ import type { RunState } from "@jazz/core/agent/run/run-state";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
+import {
+  FileSystemContextServiceTag,
+  type FileSystemContextService,
+} from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -57,6 +61,13 @@ function harness(repair?: string): Harness {
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(LoggerServiceTag, silentLogger),
+    Layer.succeed(FileSystemContextServiceTag, {
+      setCwd: (key: { conversationId?: string }, directory: string) =>
+        Effect.sync(() => {
+          placedIn.push({ conversationId: key.conversationId ?? "", directory });
+        }),
+      getCwd: () => Effect.succeed("/work/importer"),
+    } as unknown as FileSystemContextService),
     NodeFileSystem.layer,
   ) as Layer.Layer<never>;
   return { goals, runs, layer, prompts: [] };
@@ -163,7 +174,30 @@ async function current(test: Harness): Promise<GoalRecord> {
   return goal;
 }
 
+/** Where the worker put each conversation before running it. */
+const placedIn: { conversationId: string; directory: string }[] = [];
+
 describe("runDueGoals", () => {
+  /**
+   * The regression: a cycle ran in whatever directory the daemon started from, so a goal
+   * accepted in one project read and changed another.
+   */
+  it("runs every cycle in the directory the goal works in", async () => {
+    placedIn.length = 0;
+    const test = harness();
+    await run(test, test.goals.create(testGoal({ workingDirectory: "/work/other-project" })));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(placedIn).toContainEqual({
+      conversationId: "goal-chat",
+      directory: "/work/other-project",
+    });
+  });
+
   it("runs a due cycle, checks its evidence, and completes the goal with the run's spend", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));

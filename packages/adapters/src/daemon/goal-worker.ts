@@ -43,6 +43,7 @@ import { priceOneOffCall } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -395,6 +396,21 @@ function claimCycle(goal: GoalRecord) {
 
 function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps) {
   return Effect.gen(function* () {
+    const fileSystemContext = yield* FileSystemContextServiceTag;
+    const placed = yield* fileSystemContext
+      .setCwd({ agentId: goal.agentId, conversationId: goal.conversationId }, goal.workingDirectory)
+      .pipe(Effect.either);
+    if (placed._tag === "Left") {
+      yield* writeGoal(
+        goal,
+        settleCycle(goal, {
+          run: { kind: "missing" },
+          unchecked: `The goal's directory, ${goal.workingDirectory}, is gone or unreadable, so no cycle ran there.`,
+        }),
+        "stop a cycle whose working directory is gone",
+      );
+      return;
+    }
     const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
     const outcome = yield* runToOutcome(
       AgentRunner.run({
