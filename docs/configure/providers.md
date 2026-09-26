@@ -89,7 +89,7 @@ export NVIDIA_API_KEY="nvapi-..."
 jazz agent create
 ```
 
-Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder; `"canDisableReasoning": false` keeps Jazz from sending `"none"`, which the model is not documented to accept, so `disable` runs at `low` instead:
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder: NIM accepts `low`, `high`, `max` and `none` for it and rejects `medium`, so Jazz runs a `medium` agent at `low`:
 
 ```json
 {
@@ -101,7 +101,7 @@ Jazz sends no reasoning control to NIM by default, so each model reasons the way
             "kind": "effort",
             "transport": "openai-compatible.chat.reasoning-effort",
             "efforts": ["low", "high", "max"],
-            "canDisableReasoning": false
+            "canDisableReasoning": true
           }
         }
       }
@@ -215,7 +215,7 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-A hosted provider answers well inside two minutes. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+Most hosted providers answer well inside two minutes, but NVIDIA NIM can queue a request for over three minutes before its first token. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000
