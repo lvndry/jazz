@@ -1168,3 +1168,15 @@ describe("wrap cache", () => {
     }
   });
 });
+
+describe("transcript links", () => {
+  it("carries a markdown link's target on its span", () => {
+    const segments = inlineSegments(
+      "read [the guide](https://example.com/guide) first",
+      THEME.secondary,
+    );
+    const label = segments.find((segment) => segment.text === "the guide");
+    expect(label).toMatchObject({ fg: THEME.link, link: "https://example.com/guide" });
+    expect(segments.filter((segment) => segment.link !== undefined)).toHaveLength(1);
+  });
+});

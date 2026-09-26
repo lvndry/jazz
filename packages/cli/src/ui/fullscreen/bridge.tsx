@@ -20,7 +20,7 @@ import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
+import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
 import packageJson from "../../../../../package.json";
 import type { ActivityState, TodoSnapshotItem } from "../activity-state";
@@ -632,6 +632,15 @@ function plainOf(message: unknown): string {
 }
 
 /**
+ * Agent prose is re-parsed as markdown by the transcript, so its terminal
+ * hyperlinks go back to `[label](url)` before the strip — stripped as escapes,
+ * the label survives and the URL it pointed to is gone.
+ */
+function agentMarkdownOf(text: string): string {
+  return stripAnsiCodes(terminalHyperlinksToMarkdown(text));
+}
+
+/**
  * Output entries become blocks. Consecutive stream chunks are one agent turn
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
@@ -695,7 +704,8 @@ export function blocksFrom(
     }
 
     const plainText = entry.meta?.["plainText"];
-    const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
+    const source = typeof plainText === "string" ? plainText : textOf(entry.message);
+    const text = stripAnsiCodes(source);
     if (text.trim().length === 0) continue;
 
     if (entry.type === "user") {
@@ -727,12 +737,13 @@ export function blocksFrom(
       continue;
     }
     if (entry.type === "streamContent") {
+      const markdown = agentMarkdownOf(source);
       const last = blocks.at(-1);
       if (last?.kind === "agent") {
-        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${text}` };
+        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${markdown}` };
         continue;
       }
-      blocks.push({ id, seq: seq++, kind: "agent", markdown: text });
+      blocks.push({ id, seq: seq++, kind: "agent", markdown });
       continue;
     }
 
@@ -741,12 +752,13 @@ export function blocksFrom(
   }
 
   // The turn still being written, appended live so prose streams in place.
-  if (streaming.trim().length > 0) {
+  const streamingMarkdown = agentMarkdownOf(streaming);
+  if (streamingMarkdown.trim().length > 0) {
     blocks.push({
       id: "streaming",
       seq: seq++,
       kind: "agent",
-      markdown: streaming,
+      markdown: streamingMarkdown,
       streaming: true,
     });
   }
@@ -997,7 +1009,7 @@ export function FullscreenBridge(): React.ReactNode {
   const promptSlice = usePromptSlice();
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
-  const streaming = stripAnsiCodes(output.streaming);
+  const streaming = output.streaming;
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
