@@ -551,13 +551,14 @@ export function runShellCommand(input: {
       // No `timeout` option: it races the one below, and when Node's wins it kills with
       // SIGTERM and reaches `close` with a null code — reported as exit 0, so a command that
       // ran out of time came back looking like it succeeded.
+      // No `uid`/`gid` either, even our own: with them Bun often finds a fast command already
+      // exited before it watches it, and reports that exit inside spawn(), before any listener
+      // is attached, so `close` never fires and the call hangs until its timeout.
       child = spawn(shellBinary, shellArgs, {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         env: input.env,
         detached: false,
-        uid: process.getuid ? process.getuid() : undefined,
-        gid: process.getgid ? process.getgid() : undefined,
       });
     } catch (spawnError) {
       finish(Effect.fail(spawnError instanceof Error ? spawnError : new Error(String(spawnError))));
