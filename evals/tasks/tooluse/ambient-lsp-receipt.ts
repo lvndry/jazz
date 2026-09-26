@@ -119,7 +119,7 @@ export const tasks: EvalTask[] = [
         timeoutMs: context.timeoutMs,
         runId: context.runId,
         jazzHome: context.jazzHome,
-        environment: { JAZZ_LSP_CONFIG: configPath },
+        environment: { ...context.environment, JAZZ_LSP_CONFIG: configPath },
       });
       if (isVariant && !sawReceiptDiagnostic(logPath))
         throw new Error("Ambient LSP never opened receipt.ts or published its diagnostic");

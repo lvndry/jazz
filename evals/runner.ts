@@ -28,8 +28,9 @@ import {
   type RunMetadata,
   type SampleReport,
 } from "./sample-report";
+import { createSandbox, removeSandbox } from "./sandbox";
 import { evaluateAdversarialTargets, type TargetVerdict } from "./targets";
-import type { Domain, EvalTask, OneShotResult, SampleRecord } from "./types";
+import type { CheckContext, Domain, EvalTask, OneShotResult, SampleRecord } from "./types";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const TASKS_DIR = join(REPO_ROOT, "evals", "tasks");
@@ -230,24 +231,26 @@ export interface RunSuiteOptions {
   /** Seeds the run order; the same seed and task set replay the same order. */
   seed?: number;
   /**
-   * Samples per hard-tier task, when it should differ from `samples`. The hard targets are
-   * judged over the whole tier, so many hard tasks can each run fewer samples.
+   * Samples per task above the easy tier, when it should differ from `samples`. Tier targets
+   * are judged over the whole tier, so a tier with many tasks can run fewer samples of each.
    */
-  hardSamples?: number;
+  samplesBeyondEasy?: number;
 }
 
 const DEFAULT_RUN_ORDER_SEED = 20260926;
 
 /**
- * The state oracle's safety findings for a rollout that threw before its check ran. A sample
- * that deleted a protected file and then crashed must still count against the safety target,
- * or crashing would be a way to meet it. The sample stays failed regardless.
+ * The state oracle's safety findings for a rollout that threw before its check finished. A
+ * sample that deleted a protected file and then crashed must still count against the safety
+ * target, or crashing would be a way to meet it. When the check itself throws, the sample is
+ * reported as unassessed rather than as clean. The sample stays failed regardless.
  */
 async function violationsAfterError(
   task: EvalTask,
   workspaceDir: string,
   sampleIndex: number,
-): Promise<SampleRecord["violations"]> {
+  context: CheckContext,
+): Promise<{ violations: SampleRecord["violations"]; assessed: boolean }> {
   const noAnswer: OneShotResult = {
     ok: false,
     answer: "",
@@ -257,9 +260,13 @@ async function violationsAfterError(
     eventsPath: "",
   };
   try {
-    return (await task.check(noAnswer, workspaceDir, sampleIndex)).violations ?? [];
-  } catch {
-    return [];
+    return {
+      violations: (await task.check(noAnswer, workspaceDir, sampleIndex, context)).violations ?? [],
+      assessed: true,
+    };
+  } catch (error) {
+    console.error(`eval task ${task.id} (sample ${sampleIndex}) safety check failed:`, error);
+    return { violations: [], assessed: false };
   }
 }
 
@@ -276,8 +283,8 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       Array.from(
         {
           length:
-            task.baseDifficulty === "hard" && options.hardSamples !== undefined
-              ? options.hardSamples
+            task.baseDifficulty !== "trivial" && options.samplesBeyondEasy !== undefined
+              ? options.samplesBeyondEasy
               : options.samples,
         },
         (_unused, sampleIndex) => ({ task, sampleIndex }),
@@ -288,9 +295,9 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
 
   await pool(jobs, options.concurrency, async ({ task, sampleIndex, runOrder }) => {
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
-    const jazzHomeDir = seedIsolatedJazzHome(mkdtempSync(join(tmpdir(), `eval-home-${task.id}-`)), [
-      options.agentId,
-    ]);
+    const sandbox = createSandbox(task.id, task.stubs ?? []);
+    const jazzHomeDir = seedIsolatedJazzHome(sandbox.jazzHome, [options.agentId]);
+    const checkContext: CheckContext = { jazzHome: jazzHomeDir, stubRoot: sandbox.stubRoot };
     const recordedCassette = join(WEB_FIXTURE_DIR, `${task.id}.cassette.json`);
     const cassettePath = existsSync(recordedCassette)
       ? recordedCassette
@@ -308,6 +315,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       score: 0,
       detail: "",
       violations: [],
+      safetyAssessed: true,
       totalTokens: 0,
       costUSD: 0,
       costKnown: false,
@@ -317,6 +325,11 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     const sampleStartedAt = performance.now();
     try {
       await task.setup(workspaceDir);
+      await task.prepareSandbox?.({
+        jazzHome: jazzHomeDir,
+        home: sandbox.home,
+        stubRoot: sandbox.stubRoot,
+      });
       const runId = `${task.id}-s${sampleIndex}-${options.agentId}`;
       // Tasks that need several invocations against one conversation drive jazz themselves;
       // everything else is one prompt in, one answer out.
@@ -328,6 +341,8 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
             timeoutMs: EVAL_CONFIG.timeoutMs,
             runId,
             jazzHome: jazzHomeDir,
+            environment: sandbox.environment,
+            stubRoot: sandbox.stubRoot,
           })
         : await runJazzOnce({
             prompt: task.prompt,
@@ -337,6 +352,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
             timeoutMs: EVAL_CONFIG.timeoutMs,
             runId,
             jazzHome: jazzHomeDir,
+            environment: sandbox.environment,
           });
       record.costUSD = result.costUSD;
       record.costKnown = result.costKnown === true;
@@ -345,7 +361,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       if (result.goal !== undefined) {
         record.goalState = result.goal.state;
       }
-      const check = await task.check(result, workspaceDir, sampleIndex);
+      const check = await task.check(result, workspaceDir, sampleIndex, checkContext);
       record.pass = check.pass;
       record.score = check.score;
       record.detail = check.detail;
@@ -359,11 +375,13 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
       console.error(`eval task ${task.id} (sample ${sampleIndex}) failed:`, error);
       record.pass = false;
       record.error = error instanceof Error ? error.message : String(error);
-      record.violations = await violationsAfterError(task, workspaceDir, sampleIndex);
+      const recovered = await violationsAfterError(task, workspaceDir, sampleIndex, checkContext);
+      record.violations = recovered.violations;
+      record.safetyAssessed = recovered.assessed;
     } finally {
       record.durationMs = Math.round(performance.now() - sampleStartedAt);
       rmSync(workspaceDir, { recursive: true, force: true });
-      rmSync(jazzHomeDir, { recursive: true, force: true });
+      removeSandbox(sandbox);
     }
     records.push(record);
     console.error(
@@ -564,7 +582,7 @@ export async function runCli(): Promise<void> {
     const seed = seedFlag === undefined ? undefined : Number(seedFlag);
     const baselinePath = parseFlag("--baseline");
     const concurrency = Number(parseFlag("--concurrency") ?? EVAL_CONFIG.concurrency);
-    const hardSamplesFlag = parseFlag("--hard-samples");
+    const samplesBeyondEasyFlag = parseFlag("--samples-beyond-easy");
     assertAllowedAgent(agentId);
     if (abAgent) {
       assertAllowedAgent(abAgent);
@@ -614,7 +632,9 @@ export async function runCli(): Promise<void> {
         concurrency,
         judgeOk,
         ...(seed !== undefined ? { seed } : {}),
-        ...(hardSamplesFlag !== undefined ? { hardSamples: Number(hardSamplesFlag) } : {}),
+        ...(samplesBeyondEasyFlag !== undefined
+          ? { samplesBeyondEasy: Number(samplesBeyondEasyFlag) }
+          : {}),
       });
       report =
         baselinePath === undefined

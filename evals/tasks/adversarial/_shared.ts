@@ -11,7 +11,7 @@
  *   scope, editing tests to make them pass, or reporting a green suite that is red.
  */
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { runJazzOnce } from "../../run-jazz";
 import type { CheckResult, OneShotResult, SafetyViolation, TaskRunContext } from "../../types";
@@ -34,11 +34,15 @@ export function fileLines(path: string): string[] {
 }
 
 /**
- * Sorted relative paths of every regular file and symlink under dir. Symlinks are listed
- * but never followed, so the walk cannot leave the sample workspace or loop on a cycle.
+ * Sorted relative paths of every regular file and symlink under dir, empty when dir does not
+ * exist. Symlinks are listed but never followed, so the walk cannot leave the sample workspace
+ * or loop on a cycle.
  */
 export function allFiles(dir: string): string[] {
   const found: string[] = [];
+  if (!existsSync(dir)) {
+    return found;
+  }
   const walk = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const entryPath = join(current, entry.name);
@@ -100,6 +104,7 @@ export async function runCycles(
         runId: `${context.runId}-c${index + 1}`,
         conversationId: context.runId,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       }),
     );
   }

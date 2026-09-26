@@ -27,9 +27,11 @@ import {
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
 import {
+  addSpend,
   reachedLimit,
   remainingCaps,
   runSpend,
+  type RunSpend,
   type CycleCaps,
   type GoalLimit,
 } from "@jazz/core/agent/goal/goal-usage";
@@ -37,6 +39,7 @@ import { isRunParkRequested, type RunParkRequested } from "@jazz/core/agent/run/
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import type { AgentResponse } from "@jazz/core/agent/types";
+import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
@@ -44,6 +47,8 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import { Cause, Effect, Fiber, Option } from "effect";
 import {
   loadConversation,
@@ -172,6 +177,54 @@ function saveGoalTranscript(goal: GoalRecord, messages: readonly ChatMessage[]) 
  * cycle's own answer does not validate. The repaired answer passes the same evidence check,
  * so repair can recover a misformatted disposition but never invent a completion.
  */
+const NO_REPAIR: RunSpend = { totalTokens: 0, costUSD: 0, activeDurationMs: 0 };
+
+/**
+ * What the repair call spent, priced the way run metrics price a run: free on a local model,
+ * from models.dev otherwise, and unknown (no `costUSD`) when neither applies.
+ */
+function repairSpend(
+  agent: Agent,
+  usage:
+    | {
+        readonly promptTokens: number;
+        readonly completionTokens: number;
+        readonly totalTokens: number;
+        readonly cacheReadTokens?: number;
+      }
+    | undefined,
+  durationMs: number,
+) {
+  return Effect.gen(function* () {
+    const { llmProvider, llmModel } = agent.config;
+    if (usage === undefined) {
+      return { totalTokens: 0, activeDurationMs: durationMs } satisfies RunSpend;
+    }
+    if (isZeroCostLocalModel(llmProvider, llmModel)) {
+      return {
+        totalTokens: usage.totalTokens,
+        costUSD: 0,
+        activeDurationMs: durationMs,
+      } satisfies RunSpend;
+    }
+    const pricing = yield* Effect.tryPromise(() =>
+      getModelsDevMetadata(llmModel, llmProvider),
+    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    const cost = computeUsageCostUSD(usage, pricing);
+    return {
+      totalTokens: usage.totalTokens,
+      ...(cost !== null ? { costUSD: cost } : {}),
+      activeDurationMs: durationMs,
+    } satisfies RunSpend;
+  });
+}
+
+/**
+ * Check a completed cycle's disposition, with one schema-constrained repair pass when the
+ * cycle's own answer does not validate. The repaired answer passes the same evidence check,
+ * so repair can recover a misformatted disposition but never invent a completion. Returns
+ * the repair's spend so the goal is charged for it.
+ */
 function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -179,25 +232,22 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
       .reverse()
       .find((message) => message.role === "assistant")?.content;
     if (assistantOutput === undefined) {
-      return {
-        evaluation: {
-          kind: "invalid",
-          reason: "The cycle ended without an answer.",
-        } satisfies GoalEvaluationResult,
-        repairTokens: 0,
-        repairMs: 0,
+      const evaluation: GoalEvaluationResult = {
+        kind: "invalid",
+        reason: "The cycle ended without an answer.",
       };
+      return { evaluation, repair: NO_REPAIR };
     }
     const first = validateGoalEvaluation(assistantOutput, goal.plan, cycleMessages);
     if (first.kind === "valid") {
-      return { evaluation: first, repairTokens: 0, repairMs: 0 };
+      return { evaluation: first, repair: NO_REPAIR };
     }
     const agents = yield* AgentServiceTag;
     const llm = yield* LLMServiceTag;
+    const agent = yield* agents.getAgent(goal.agentId);
     const startedAt = Date.now();
-    const repaired = yield* Effect.gen(function* () {
-      const agent = yield* agents.getAgent(goal.agentId);
-      return yield* llm.createChatCompletion(agent.config.llmProvider, {
+    const repaired = yield* llm
+      .createChatCompletion(agent.config.llmProvider, {
         model: agent.config.llmModel,
         messages: goalEvaluationRepairMessages(
           goal.plan,
@@ -212,21 +262,20 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
         ...(agent.config.llmApiKeys !== undefined
           ? { providerApiKeys: agent.config.llmApiKeys }
           : {}),
-      });
-    }).pipe(Effect.either);
+      })
+      .pipe(Effect.either);
     const repairMs = Date.now() - startedAt;
     if (repaired._tag === "Left") {
       yield* logger.warn("Could not repair the goal cycle disposition", {
         goalId: goal.goalId,
         error: repaired.left instanceof Error ? repaired.left.message : String(repaired.left),
       });
-      return { evaluation: first, repairTokens: 0, repairMs };
+      return { evaluation: first, repair: yield* repairSpend(agent, undefined, repairMs) };
     }
     const second = validateGoalEvaluation(repaired.right.content, goal.plan, cycleMessages);
     return {
       evaluation: second.kind === "valid" ? second : first,
-      repairTokens: repaired.right.usage?.totalTokens ?? 0,
-      repairMs,
+      repair: yield* repairSpend(agent, repaired.right.usage, repairMs),
     };
   });
 }
@@ -258,16 +307,7 @@ export function finishCycle(
     if (ended.kind === "completed" && cycleMessages.length > 0) {
       const checked = yield* evaluateCycle(goal, cycleMessages);
       evaluation = checked.evaluation;
-      if (checked.repairTokens > 0 || checked.repairMs > 0) {
-        settleGoal = {
-          ...goal,
-          usage: {
-            ...goal.usage,
-            totalTokens: goal.usage.totalTokens + checked.repairTokens,
-            activeDurationMs: goal.usage.activeDurationMs + checked.repairMs,
-          },
-        };
-      }
+      settleGoal = { ...goal, usage: addSpend(goal.usage, checked.repair) };
     }
     const next = settleCycle(settleGoal, {
       run: ended,
@@ -516,6 +556,15 @@ export function runDueGoals() {
           return;
         }
         const run = yield* runs.get(cycle.runId);
+        if (run?.state.kind === "submitted") {
+          yield* runs
+            .transition(run.runId, {
+              kind: "failed",
+              cause: "error",
+              error: "the process that submitted it stopped before it started",
+            })
+            .pipe(Effect.catchAll(() => Effect.void));
+        }
         if (run === undefined || run.state.kind === "submitted") {
           yield* finishCycle(goal.goalId, cycle.runId, []);
           return;
@@ -598,12 +647,15 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     }
     const outcome = yield* inFlight(
       options.runId,
-      resumeRun({ ...options, goalLimits: caps.caps }).pipe(
-        Effect.map((response): RunOutcome => ({ kind: "finished", response })),
-        Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
-      ),
+      Effect.gen(function* () {
+        const settled = yield* resumeRun({ ...options, goalLimits: caps.caps }).pipe(
+          Effect.map((response): RunOutcome => ({ kind: "finished", response })),
+          Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
+        );
+        yield* settleRunOutcome(working.right, options.runId, settled);
+        return settled;
+      }),
     );
-    yield* settleRunOutcome(working.right, options.runId, outcome);
     return { kind: "resumed", goalId: goal.goalId, outcome } as const;
   });
 }

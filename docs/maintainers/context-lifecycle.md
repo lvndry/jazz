@@ -468,6 +468,14 @@ Two things read it back:
 - **Compaction itself** is told what work state already holds, so the summary covers what
   the transcript adds instead of restating the plan.
 
+The transcript can also go stale without any compaction: between two runs on one conversation
+(a user coming back, the next goal cycle) the files it read may change. `read_file` results
+carry a snapshot of the file they read, so a new run compares each file's latest snapshot in
+the history with the file on disk and, when any differ or are gone, adds a line to its input
+naming them ([`changed-since-read`](../../packages/core/src/agent/context/changed-since-read.ts)).
+A file the agent itself wrote after reading it is left out, since its new contents are no news
+to the model. Only `read_file` reads are tracked; a file seen through a shell command is not.
+
 Todos carry a `verifiedBy` field alongside their status, and the prompt asks for it
 whenever something is marked completed. An agent that marks its own work complete on the
 strength of having written it turns the record into a confident lie for whoever picks the

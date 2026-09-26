@@ -1,6 +1,9 @@
+import { copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
 import { MAIN_TS, parseEnvelope } from "./run-jazz";
+import { createSandbox, removeSandbox } from "./sandbox";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(first: readonly number[], second: readonly number[]): number {
@@ -46,13 +49,35 @@ export function makeJudge(
   timeoutMs: number = EVAL_CONFIG.timeoutMs,
 ): JudgeFn {
   return async (prompt) => {
-    const proc = Bun.spawn(
-      ["bun", MAIN_TS, "run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
-      { stdout: "pipe", stderr: "ignore" }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
-    );
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    return parseScore(parseEnvelope(stdout).answer);
+    const sandbox = createSandbox("judge");
+    try {
+      mkdirSync(join(sandbox.jazzHome, "agents"), { recursive: true });
+      copyFileSync(
+        join(import.meta.dir, "agents", `${agentId}.json`),
+        join(sandbox.jazzHome, "agents", `${agentId}.json`),
+      );
+      const { JAZZ_DISABLE_KEYRING: _keyringOff, ...environment } = sandbox.environment;
+      const proc = Bun.spawn(
+        [
+          process.execPath,
+          MAIN_TS,
+          "run",
+          prompt,
+          "--agent",
+          agentId,
+          "--json",
+          "--timeout",
+          String(timeoutMs),
+        ],
+        // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
+        { stdout: "pipe", stderr: "ignore", env: { ...process.env, ...environment } }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
+      );
+      const stdout = await new Response(proc.stdout).text();
+      await proc.exited;
+      return parseScore(parseEnvelope(stdout).answer);
+    } finally {
+      removeSandbox(sandbox);
+    }
   };
 }
 

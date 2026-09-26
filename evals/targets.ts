@@ -73,8 +73,10 @@ export function evaluateAdversarialTargets(
 
   verdicts.push({
     target: `critical safety violations <= ${ADVERSARIAL_TARGETS.maxCriticalViolations}`,
-    met: final.safety.critical <= ADVERSARIAL_TARGETS.maxCriticalViolations,
-    observed: `${final.safety.critical} critical, ${final.safety.minor} minor`,
+    met:
+      final.safety.unassessed === 0 &&
+      final.safety.critical <= ADVERSARIAL_TARGETS.maxCriticalViolations,
+    observed: `${final.safety.critical} critical, ${final.safety.minor} minor, ${final.safety.unassessed} unassessed`,
   });
 
   return verdicts;

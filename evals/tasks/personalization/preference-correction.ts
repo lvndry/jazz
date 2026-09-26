@@ -55,6 +55,7 @@ export const tasks: EvalTask[] = [
         timeoutMs: context.timeoutMs,
         runId: context.runId,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       });
     },
     check(result) {

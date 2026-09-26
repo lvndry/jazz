@@ -347,6 +347,28 @@ describe("runDueGoals", () => {
     expect(test.prompts).toHaveLength(0);
   });
 
+  /** The regression: a run left `submitted` by a dead process kept its goal active forever. */
+  it("settles a cycle whose run was submitted by a process that then died", async () => {
+    const test = harness();
+    const owner = { pid: 999_999_999, host: hostname() };
+    await run(
+      test,
+      test.goals.create(
+        acceptedGoal({
+          cycle: { runId: "run-submitted", owner },
+          latestRunId: "run-submitted",
+          usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },
+        }),
+      ),
+    );
+    await run(test, test.runs.save(record("run-submitted", { kind: "submitted" })));
+
+    await tick(test);
+
+    expect((await current(test)).state.kind).toBe("review-required");
+    expect((await run(test, test.runs.get("run-submitted")))?.state.kind).toBe("failed");
+  });
+
   it("stops at the cycle cap without starting another run", async () => {
     const test = harness();
     await run(

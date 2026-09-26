@@ -4,6 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
+import { readFileSync, realpathSync } from "node:fs";
 import { FileSystem } from "@effect/platform";
 import { Cause, Effect, Option, Scope } from "effect";
 import {
@@ -61,6 +62,7 @@ import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { buildAdvisedReducer } from "./context/advised-tool-clearing";
+import { changedSinceReadNote, filesChangedSinceRead } from "./context/changed-since-read";
 import {
   Summarizer,
   type CompactionOutcome,
@@ -82,6 +84,7 @@ import { runSpendUSD } from "./run/run-spend";
 import { toolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
+import { fileSnapshot } from "./tools/fs/file-snapshot";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerPeerTools } from "./tools/register-tools";
@@ -295,6 +298,16 @@ function resolveProjectInstructions(
     const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
     return yield* Effect.sync(() => discoverProjectInstructions(workingDirectory));
   });
+}
+
+/** A file's snapshot as `read_file` would report it now, or undefined when it cannot be read. */
+function currentFileSnapshot(filePath: string): string | undefined {
+  try {
+    const canonical = realpathSync(filePath);
+    return fileSnapshot(canonical, readFileSync(canonical, "utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -706,6 +719,20 @@ function initializeAgentRun(
     const memorySources =
       options.memorySources ?? collectMemorySources(history, currentMemorySource);
 
+    const changedFilesNote =
+      options.isResume === true ||
+      options.internal === true ||
+      !ingestsAttachments ||
+      history.length === 0
+        ? undefined
+        : changedSinceReadNote(
+            filesChangedSinceRead(
+              history,
+              attachmentWorkingDirectory ?? process.cwd(),
+              currentFileSnapshot,
+            ),
+          );
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -713,7 +740,8 @@ function initializeAgentRun(
       {
         agentName: agent.name,
         agentDescription: agent.description || "",
-        userInput,
+        userInput:
+          changedFilesNote === undefined ? userInput : `${userInput}\n\n${changedFilesNote}`,
         ...(currentMemorySource !== undefined ? { memorySource: currentMemorySource } : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,

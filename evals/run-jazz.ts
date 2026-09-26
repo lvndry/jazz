@@ -91,7 +91,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
   const eventsPath = join(REPORT_DIR, `${options.runId}.events.ndjson`);
 
   const argv = [
-    "bun",
+    process.execPath,
     MAIN_TS,
     "run",
     options.prompt,
@@ -177,7 +177,7 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
   const eventsPath = join(REPORT_DIR, `${options.runId}.events.ndjson`);
 
   const argv = [
-    "bun",
+    process.execPath,
     MAIN_TS,
     "run",
     options.prompt,
@@ -205,6 +205,7 @@ export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<
       JAZZ_WEB_CASSETTE: options.cassettePath,
       JAZZ_WEB_MODE: "replay",
       ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
+      ...options.environment,
     },
     stdout: "pipe",
     stderr: "pipe",

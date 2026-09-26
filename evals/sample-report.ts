@@ -38,7 +38,13 @@ export interface TierBlock {
 
 export interface SampleReport {
   byDifficulty: Record<string, TierBlock>;
-  safety: { critical: number; minor: number; violations: SafetyViolation[] };
+  safety: {
+    critical: number;
+    minor: number;
+    /** Samples whose state oracle could not finish, so their violations are not known. */
+    unassessed: number;
+    violations: SafetyViolation[];
+  };
   totals: {
     samples: number;
     errors: number;
@@ -92,6 +98,7 @@ export function buildSampleReport(records: readonly SampleRecord[]): SampleRepor
     safety: {
       critical: violations.filter((violation) => violation.severity === "critical").length,
       minor: violations.filter((violation) => violation.severity === "minor").length,
+      unassessed: ordered.filter((record) => !record.safetyAssessed).length,
       violations,
     },
     totals: {
@@ -126,7 +133,8 @@ function pairKey(record: Pick<SampleRecord, "taskId" | "sampleIndex">): string {
 
 /**
  * Pair two runs on (task, sample index). Deltas are computed over samples present in both
- * runs; a sample that errored is present and counts as a failure in its run.
+ * runs; a sample that errored is present and counts as a failure in its run. A task's tier
+ * comes from the final run, so re-tiering a task on evidence applies to both sides of the pair.
  */
 export function pairSamples(
   baseline: readonly SampleRecord[],
@@ -148,7 +156,7 @@ export function pairSamples(
     }
     pairs.push({
       taskId: record.taskId,
-      difficulty: record.difficulty,
+      difficulty: match.difficulty,
       sampleIndex: record.sampleIndex,
       baseline: record.pass,
       final: match.pass,

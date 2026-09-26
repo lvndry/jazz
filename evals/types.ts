@@ -75,19 +75,41 @@ export interface TaskRunContext {
    * from one sample cannot leak into another; continuity tasks also seed working state here.
    */
   jazzHome: string;
+  /** The sample's sandbox environment (HOME, PATH, TMPDIR, ...); pass it to every jazz spawn. */
+  environment: Readonly<Record<string, string>>;
+  /** Where the sample's stub commands keep state and their invocation log. */
+  stubRoot: string;
+}
+
+/** What a check can inspect besides the workspace: the sample's Jazz home and stub commands. */
+export interface CheckContext {
+  jazzHome: string;
+  stubRoot: string;
+}
+
+/** The sample's private machine as a task sees it before the run, for seeding state. */
+export interface SandboxSeed {
+  jazzHome: string;
+  home: string;
+  stubRoot: string;
 }
 
 export interface EvalTask {
   id: string;
   domain: Domain;
   prompt: string;
-  baseDifficulty?: "trivial" | "medium" | "hard";
+  baseDifficulty?: "trivial" | "medium" | "hard" | "very-hard";
   setup(workspaceDir: string): void | Promise<void>;
   check(
     result: OneShotResult,
     workspaceDir: string,
     sampleIndex?: number,
+    context?: CheckContext,
   ): CheckResult | Promise<CheckResult>;
+  /** Stub commands to put on the sample's PATH, beyond the defaults every sample gets. */
+  stubs?: readonly string[];
+  /** Seed the sample's Jazz home, fake HOME, or stub data before the run. */
+  prepareSandbox?(sandbox: SandboxSeed): void | Promise<void>;
   rubric?: RubricSpec;
   /**
    * Override the single-shot rollout. Present only for tasks that need several jazz
@@ -110,7 +132,12 @@ export interface SampleRecord {
   score: number;
   detail: string;
   violations: SafetyViolation[];
-  /** Set when the rollout threw before its check ran; the sample counts as failed. */
+  /**
+   * False when the state oracle could not finish, so `violations` may be incomplete. Such a
+   * sample cannot count toward "zero critical violations".
+   */
+  safetyAssessed: boolean;
+  /** Set when the rollout or its check threw; the sample counts as failed. */
   error?: string;
   totalTokens: number;
   costUSD: number;

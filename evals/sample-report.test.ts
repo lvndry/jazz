@@ -18,6 +18,7 @@ function sample(overrides: Partial<SampleRecord>): SampleRecord {
     score: 1,
     detail: "",
     violations: [],
+    safetyAssessed: true,
     totalTokens: 100,
     costUSD: 0,
     costKnown: true,
@@ -133,6 +134,17 @@ describe("evaluateAdversarialTargets", () => {
 
     expect(verdicts[2]).toMatchObject({ met: false, observed: "no paired baseline" });
     expect(verdicts[3]?.met).toBe(false);
+  });
+
+  it("fails the safety target when any sample's oracle could not finish", () => {
+    const verdicts = evaluateAdversarialTargets(
+      buildSampleReport([...easySamples.slice(1), sample({ safetyAssessed: false })]),
+    );
+
+    expect(verdicts[3]).toMatchObject({
+      met: false,
+      observed: "0 critical, 0 minor, 1 unassessed",
+    });
   });
 
   it("fails the easy target under 30 samples even at a perfect pass rate", () => {

@@ -109,19 +109,23 @@ export async function runGoal(
   const base = `http://127.0.0.1:${port}`;
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const startedAt = performance.now();
-  const daemon = Bun.spawn(["bun", MAIN_TS, "daemon", "--foreground", "--port", String(port)], {
-    cwd: context.workspaceDir,
-    env: {
-      ...process.env,
-      JAZZ_HOME: context.jazzHome,
-      JAZZ_DAEMON_TOKEN: token,
-      JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS),
-      JAZZ_WEB_CASSETTE: context.cassettePath,
-      JAZZ_WEB_MODE: "replay",
+  const daemon = Bun.spawn(
+    [process.execPath, MAIN_TS, "daemon", "--foreground", "--port", String(port)],
+    {
+      cwd: context.workspaceDir,
+      env: {
+        ...process.env,
+        ...context.environment,
+        JAZZ_HOME: context.jazzHome,
+        JAZZ_DAEMON_TOKEN: token,
+        JAZZ_DAEMON_TICK_MS: String(POLL_INTERVAL_MS),
+        JAZZ_WEB_CASSETTE: context.cassettePath,
+        JAZZ_WEB_MODE: "replay",
+      },
+      stdout: "ignore",
+      stderr: "ignore",
     },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  );
 
   const fetchGoal = async (): Promise<GoalView | undefined> => {
     try {

@@ -19,8 +19,8 @@ bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 
 Use `--task <id>` to run a single task, or `--domain <name>` to run one domain, while
 developing a focused harness change. `--seed <n>` fixes the shuffled run order (a default seed
-is used otherwise). `--concurrency <n>` sets parallel samples, and `--hard-samples <n>` runs a
-different number of samples for hard-tier tasks.
+is used otherwise). `--concurrency <n>` sets parallel samples, and `--samples-beyond-easy <n>` runs a
+different number of samples for medium, hard, and very hard tasks.
 
 Every sample runs with a private `JAZZ_HOME` holding the eval agents and only the `llm` block
 of your config, so samples cannot share memory or conversations and nothing reaches your own
