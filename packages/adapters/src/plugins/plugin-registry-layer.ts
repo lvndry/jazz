@@ -5,6 +5,7 @@ import {
   type InstalledPluginRecord,
   type PluginRegistryService,
 } from "@jazz/core/interfaces/plugin-registry";
+import { PluginNotInstalledError } from "@jazz/core/types/errors";
 import { PluginRegistryError } from "@jazz/core/types/plugin";
 import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
@@ -119,7 +120,7 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
       }
       await this.lifecycle.stateStore.transact((state) => {
         const current = state.plugins[pluginId];
-        if (!current) throw new Error(`Plugin is not installed: ${pluginId}`);
+        if (!current) throw new PluginNotInstalledError({ pluginId });
         const digest = current.current.manifest.sha256;
         return {
           state: replace(state, pluginId, {
@@ -142,7 +143,7 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
       }
       await this.lifecycle.stateStore.transact((state) => {
         const current = state.plugins[pluginId];
-        if (!current) throw new Error(`Plugin is not installed: ${pluginId}`);
+        if (!current) throw new PluginNotInstalledError({ pluginId });
         return {
           state: replace(state, pluginId, {
             ...current,
