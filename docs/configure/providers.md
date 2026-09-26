@@ -1,5 +1,5 @@
 ---
-description: "Configure Jazz model providers including OpenAI, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, SGLang, Groq, and other supported APIs."
+description: "Configure Jazz model providers including OpenAI, a ChatGPT subscription, Anthropic, Gemini, OpenRouter, Ollama, llama.cpp, vLLM, SGLang, Groq, and other supported APIs."
 ---
 
 # Configure model providers
@@ -20,6 +20,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `alibaba`    | `ALIBABA_API_KEY`                                                 |
 | `anthropic`  | `ANTHROPIC_API_KEY`                                               |
 | `cerebras`   | `CEREBRAS_API_KEY`                                                |
+| `chatgpt`    | None: sign in with a ChatGPT plan (see below)                     |
 | `deepseek`   | `DEEPSEEK_API_KEY`                                                |
 | `fireworks`  | `FIREWORKS_API_KEY`                                               |
 | `gemini`     | `GOOGLE_GENERATIVE_AI_API_KEY`, or `GEMINI_API_KEY`               |
@@ -50,6 +51,21 @@ Jazz resolves a provider key in this order:
 The configuration wizard writes secrets to macOS Keychain or libsecret when available. On a host without a keyring it falls back to the protected Jazz secrets file. `jazz config show` redacts resolved secrets.
 
 For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llmApiKeys` exists.
+
+## ChatGPT subscription
+
+The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. OpenAI supports this for third-party agents. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
+
+Run `jazz config`, choose **LLM providers**, then **ChatGPT**, and pick how to sign in:
+
+- **Open a browser on this machine** opens OpenAI's sign-in page and receives the result on `localhost:1455`. Finish or cancel any Codex CLI sign-in first, because it uses the same port.
+- **Enter a code on another device** shows a code to enter at `auth.openai.com/codex/device` from any phone or laptop. Use this over SSH and on servers without a browser.
+
+Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in when you are not signed in yet.
+
+The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider. There is no environment variable for this provider, so CI and containers should use `openai` with an API key.
+
+To switch accounts or sign out, choose **ChatGPT** in `jazz config` again.
 
 ## OpenRouter for model portability
 

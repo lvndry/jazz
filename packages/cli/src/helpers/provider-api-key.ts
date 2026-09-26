@@ -1,6 +1,7 @@
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { Effect } from "effect";
+import { signInToChatGPT } from "@/cli/helpers/chatgpt-sign-in";
 import { configuredProviderNames } from "@/cli/ui/fullscreen/home-readiness";
 
 export type ProviderApiKeyPromptResult = "saved" | "already-set" | "skipped" | "cancelled";
@@ -10,6 +11,7 @@ export type ProviderApiKeyPromptResult = "saved" | "already-set" | "skipped" | "
  * `force` prompts even over a configured key, for when the provider rejected it.
  * Empty input is never persisted — that used to make `has()` report a key that
  * chat then sent as a blank Bearer token.
+ * ChatGPT has no API key; it runs the subscription sign-in instead.
  */
 export async function ensureProviderApiKey(options: {
   readonly configService: AgentConfigService;
@@ -23,6 +25,16 @@ export async function ensureProviderApiKey(options: {
   const config = await Effect.runPromise(options.configService.appConfig);
   if (!options.force && configuredProviderNames(config).includes(options.provider)) {
     return "already-set";
+  }
+
+  if (options.provider === "chatgpt") {
+    if (options.reason) {
+      await Effect.runPromise(options.terminal.warn(options.reason));
+    }
+    const signedIn = await Effect.runPromise(
+      signInToChatGPT(options.terminal, options.configService),
+    );
+    return signedIn ? "saved" : "cancelled";
   }
 
   await Effect.runPromise(

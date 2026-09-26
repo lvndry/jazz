@@ -26,6 +26,7 @@ import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type {
   AnthropicProviderConfig,
+  ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
   LLMConfig,
@@ -269,6 +270,12 @@ const llmShape = {
     } satisfies SchemaShape<AnthropicProviderConfig>)
     .exactOptional(),
   cerebras: apiKeyOnly,
+  chatgpt: z
+    .strictObject({
+      account_id: text.exactOptional(),
+      plan: text.exactOptional(),
+    } satisfies SchemaShape<ChatGPTProviderConfig>)
+    .exactOptional(),
   deepseek: apiKeyOnly,
   fireworks: apiKeyOnly,
   gemini: apiKeyOnly,

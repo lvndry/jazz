@@ -387,6 +387,11 @@ describe("AI SDK Service - Unit Tests", () => {
           if (!functionSection.includes(providerQuoted)) {
             missingProviders.push(provider);
           }
+        } else if (provider === "chatgpt") {
+          // ChatGPT signs in with OAuth, so it has no api_key to check.
+          if (!functionSection.includes("isChatGPTSignedIn(llmConfig)")) {
+            missingProviders.push(provider);
+          }
         } else {
           // For other providers, check for: llmConfig.{provider}?.api_key
           // Simple string search for the pattern
@@ -1645,6 +1650,35 @@ describe("toCoreMessages - reasoning replay", () => {
 
     const assistantContent = result[1]?.content as Array<{ type: string }>;
     expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+  });
+
+  it("replays OpenAI's encrypted reasoning between tool calls", () => {
+    const openaiReasoning = {
+      text: "",
+      provider: "openai",
+      providerOptions: { openai: { itemId: "rs_1", reasoningEncryptedContent: "encrypted" } },
+    };
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_parts: [openaiReasoning],
+          tool_calls: [
+            { id: "t1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
+        },
+      ],
+      "openai",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string; [key: string]: unknown }>;
+    expect(assistantContent[0]).toEqual({
+      type: "reasoning",
+      text: "",
+      providerOptions: openaiReasoning.providerOptions,
+    });
   });
 
   it("does not replay parts on assistant messages before the last user message", () => {
