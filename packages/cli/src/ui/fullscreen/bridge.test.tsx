@@ -496,6 +496,36 @@ describe("fullscreen bridge", () => {
     expect(opened).toContain("all conversations");
   });
 
+  /**
+   * The regression: while a slash command ran (the composer is not available then) or one of
+   * its prompts was open, Shift+Tab was dropped before it reached the mode toggle, so the
+   * safe/yolo switch seemed broken during /goal.
+   */
+  it("toggles the approval mode while a command's prompt is open or a command runs", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setModeIsYolo(false);
+
+    store.setPrompt({
+      type: "confirm",
+      message: "Start this goal?",
+      options: { defaultValue: false },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(true);
+
+    store.setPrompt(null);
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(false);
+
+    rendered.renderer.destroy();
+  });
+
   it("lists slash commands on / and runs the highlighted one with enter", async () => {
     let submitted: string | undefined;
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
