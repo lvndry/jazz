@@ -351,12 +351,10 @@ export class SkillsLive implements SkillService {
   }
 
   private scanLocalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
-    const cwd = process.cwd();
     return scanMarkdownIndex({
-      dir: cwd,
+      dir: path.join(process.cwd(), "skills"),
       fileName: "SKILL.md",
-      depth: 4,
-      dot: true,
+      depth: 3,
       parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "local"),
     });
   }

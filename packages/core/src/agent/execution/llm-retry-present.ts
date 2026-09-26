@@ -8,6 +8,19 @@ import {
   makeLLMRetrySchedule,
 } from "@/core/utils/llm-error";
 
+/** Keeps the retry notice on one terminal line while still naming the underlying failure. */
+const RETRY_NOTICE_DETAIL_MAX_CHARS = 160;
+
+function retryNoticeDetail(error: unknown): string {
+  const message =
+    error && typeof error === "object" && "message" in error ? String(error.message) : "";
+  const firstLine = message.split("\n")[0]?.trim() ?? "";
+  if (firstLine.length <= RETRY_NOTICE_DETAIL_MAX_CHARS) {
+    return firstLine;
+  }
+  return `${firstLine.slice(0, RETRY_NOTICE_DETAIL_MAX_CHARS - 1)}…`;
+}
+
 export type PresentStatusFn = (
   message: string,
   level: "info" | "success" | "warning" | "error" | "progress",
@@ -50,8 +63,9 @@ export function makeUserVisibleLlmRetrySchedule(
             // was never going to happen.
             if (attempt > maxRetries) return;
             const reason = describeRetryableLLMError(error);
+            const detail = retryNoticeDetail(error);
             yield* presentStatus(
-              `${agentName} hit a ${reason}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
+              `${agentName} hit a ${reason}${detail ? ` (${detail})` : ""}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
               "progress",
             );
           })
