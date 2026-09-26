@@ -196,7 +196,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const override = {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: false,
+        canDisableReasoning: false,
       } as const;
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
@@ -234,7 +234,7 @@ describe("AI SDK Service - Unit Tests", () => {
                   kind: "effort",
                   transport: "openai.responses.reasoning-effort",
                   efforts: ["low"],
-                  canDisable: true,
+                  canDisableReasoning: true,
                 },
               },
             },
@@ -1229,7 +1229,7 @@ describe("buildProviderOptions - ollama reasoning", () => {
           kind: "effort",
           transport: "openai.responses.reasoning-effort",
           efforts: ["low"],
-          canDisable: true,
+          canDisableReasoning: true,
         },
       ),
     ).toMatchObject({ openai: { reasoningEffort: "low" } });
@@ -1281,7 +1281,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
         kind: "effort",
         transport: "openai-compatible.chat.reasoning-effort",
         efforts: ["low", "medium", "high"],
-        canDisable: true,
+        canDisableReasoning: true,
       }),
     );
     expect(body["reasoning_effort"]).toBe("high");
@@ -1292,7 +1292,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
       buildProviderOptions("nvidia", nimOptions("disable"), {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: true,
+        canDisableReasoning: true,
       }),
     );
     expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: false });
@@ -1304,7 +1304,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
       buildProviderOptions("nvidia", nimOptions("disable"), {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: false,
+        canDisableReasoning: false,
       }),
     );
     expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: true });

@@ -10,13 +10,13 @@ const lowToHigh: ResolvedReasoningControl = {
   kind: "effort",
   transport: "openai-compatible.chat.reasoning-effort",
   efforts: ["low", "medium", "high"],
-  canDisable: true,
+  canDisableReasoning: true,
 };
 
 const toggle: ResolvedReasoningControl = {
   kind: "toggle",
   transport: "openai-compatible.chat.template-enable-thinking",
-  canDisable: true,
+  canDisableReasoning: true,
 };
 
 describe("reasoningChoicesFor", () => {
@@ -41,7 +41,7 @@ describe("reasoningChoicesFor", () => {
   });
 
   it("omits disable when the model cannot stop reasoning", () => {
-    expect(reasoningChoicesFor({ ...lowToHigh, canDisable: false })).toEqual([
+    expect(reasoningChoicesFor({ ...lowToHigh, canDisableReasoning: false })).toEqual([
       "low",
       "medium",
       "high",
@@ -84,10 +84,10 @@ describe("describeReasoningAdjustment", () => {
   });
 
   it("explains a disable the model cannot honor", () => {
-    expect(describeReasoningAdjustment("disable", { ...lowToHigh, canDisable: false })).toBe(
-      "this model cannot turn reasoning off; it runs at low",
-    );
-    expect(describeReasoningAdjustment("disable", { ...toggle, canDisable: false })).toBe(
+    expect(
+      describeReasoningAdjustment("disable", { ...lowToHigh, canDisableReasoning: false }),
+    ).toBe("this model cannot turn reasoning off; it runs at low");
+    expect(describeReasoningAdjustment("disable", { ...toggle, canDisableReasoning: false })).toBe(
       "this model cannot turn reasoning off; reasoning stays on",
     );
   });

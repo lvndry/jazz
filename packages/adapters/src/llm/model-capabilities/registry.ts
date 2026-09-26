@@ -45,7 +45,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
         reasoning: {
           kind: "effort",
           efforts: ["low", "medium", "high"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
       },
@@ -57,7 +57,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
         reasoning: {
           kind: "manual",
           minimumBudgetTokens: 1024,
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "anthropic.messages.extended-thinking",
         },
       },
@@ -67,7 +67,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
     default: {
       reasoning: {
         kind: "toggle",
-        canDisable: true,
+        canDisableReasoning: true,
         transport: "ollama.chat.think",
       },
     },
@@ -76,7 +76,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
     default: {
       reasoning: {
         kind: "toggle",
-        canDisable: true,
+        canDisableReasoning: true,
         transport: "openai-compatible.chat.template-enable-thinking",
       },
     },
@@ -86,7 +86,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
       reasoning: {
         kind: "effort",
         efforts: ["low", "medium", "high"],
-        canDisable: true,
+        canDisableReasoning: true,
         transport: "openai-compatible.chat.reasoning-effort",
       },
     },
@@ -96,7 +96,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
       reasoning: {
         kind: "effort",
         efforts: ["low", "medium", "high"],
-        canDisable: true,
+        canDisableReasoning: true,
         transport: "openai-compatible.chat.reasoning-effort",
       },
     },
