@@ -1,5 +1,5 @@
 ---
-description: "How Jazz stays provider-agnostic across 21 LLM providers, and what it does about the places providers genuinely differ."
+description: "How Jazz stays provider-agnostic across 22 LLM providers, and what it does about the places providers genuinely differ."
 ---
 
 # Providers & models
@@ -14,7 +14,7 @@ Source:
 
 ---
 
-## One port, 21 providers
+## One port, 22 providers
 
 `core/` defines an `LLMService` interface. `services/llm/ai-sdk-service.ts` is the only
 implementation, and it delegates to the Vercel AI SDK.

@@ -75,7 +75,11 @@ import { safeParseJson } from "@jazz/core/utils/json";
 import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import {
+  configuredProviderApiKey,
+  formatProviderDisplayName,
+  isChatGPTSignedIn,
+} from "@jazz/core/utils/provider-model";
 import { sanitize } from "@jazz/core/utils/string";
 import {
   createOpenRouter,
@@ -107,6 +111,11 @@ import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
+import {
+  CHATGPT_CODEX_BASE_URL,
+  CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
+  createChatGPTFetch,
+} from "./chatgpt";
 import { saveModelGeneratedFiles } from "./generated-files";
 import { resolveModelCapabilities } from "./model-capabilities/resolver";
 import {
@@ -263,7 +272,14 @@ function buildToolConfig(
   };
 }
 
-const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
+/**
+ * Providers whose reasoning must be sent back between tool calls within a turn. Anthropic
+ * requires its signed thinking blocks. OpenAI and ChatGPT continue from the previous reasoning
+ * item: by reference when the item is stored, or from its encrypted content when `store` is off,
+ * which is always the case for ChatGPT. Ollama and llama.cpp emit reasoning but cannot accept it
+ * back.
+ */
+const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic", "openai", "chatgpt"]);
 
 /**
  * File parts for a message's attachments, plus text notes for any that could not be sent.
@@ -595,7 +611,7 @@ interface XaiProviderWithTools {
  * Get provider-native web search tool if supported by the provider
  * Returns the tool instance or null if not supported
  */
-function getProviderNativeWebSearchTool(
+export function getProviderNativeWebSearchTool(
   providerName: ProviderName,
   logger?: LoggerService,
 ): ToolSet[string] | null {
@@ -603,7 +619,9 @@ function getProviderNativeWebSearchTool(
 
   try {
     switch (normalizedProvider) {
-      case "openai": {
+      // The ChatGPT backend serves the same hosted web search as the OpenAI API.
+      case "openai":
+      case "chatgpt": {
         const openaiWithTools = openai as typeof openai & {
           tools?: {
             webSearch?: (config?: {
@@ -739,6 +757,10 @@ function getConfiguredProviders(
       providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
       addedProviders.add("anthropic");
     }
+    if (isChatGPTSignedIn(llmConfig)) {
+      providers.push({ name: "chatgpt", apiKey: "" });
+      addedProviders.add("chatgpt");
+    }
     if (llmConfig.cerebras?.api_key) {
       providers.push({ name: "cerebras", apiKey: llmConfig.cerebras.api_key });
       addedProviders.add("cerebras");
@@ -840,13 +862,24 @@ function selectModel(
   let model: LanguageModel;
   const resolveApiKey = (provider: ProviderName): string | undefined => {
     const envVar = PROVIDER_ENV_VARS[provider];
-    return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+    return (
+      configuredProviderApiKey(llmConfig, provider) ?? (envVar ? process.env[envVar] : undefined)
+    );
   };
 
   switch (providerName) {
     case "openai": {
       const apiKey = resolveApiKey("openai");
       model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
+      break;
+    }
+    case "chatgpt": {
+      // The fetch replaces this placeholder with the signed-in account's OAuth token.
+      model = createOpenAI({
+        apiKey: "chatgpt-oauth",
+        baseURL: CHATGPT_CODEX_BASE_URL,
+        fetch: createChatGPTFetch(),
+      }).responses(modelId);
       break;
     }
     case "anthropic": {
@@ -1059,14 +1092,15 @@ export function buildProviderCacheFingerprint(
       const cfg = llmConfig[providerName];
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
     }
+    case "chatgpt":
+      return llmConfig.chatgpt?.account_id ?? "";
     case "anthropic": {
       const cfg = llmConfig.anthropic;
       const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
       return `${cfg?.api_key ?? ""}|${workspaceId}`;
     }
     default: {
-      const apiKey = llmConfig[providerName]?.api_key;
-      return apiKey ?? "";
+      return configuredProviderApiKey(llmConfig, providerName) ?? "";
     }
   }
 }
@@ -1217,6 +1251,25 @@ export function buildProviderOptions(
         };
       }
       return { openai: openaiOptions };
+    }
+    case "chatgpt": {
+      // The Codex backend stores nothing server-side, so reasoning carries across turns only
+      // as encrypted content.
+      const chatgptOptions: OpenAIResponsesProviderOptions = {
+        promptCacheKey: "conversation",
+        store: false,
+      };
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          openai: {
+            ...chatgptOptions,
+            reasoningEffort,
+            reasoningSummary: "auto",
+            include: ["reasoning.encrypted_content"],
+          } satisfies OpenAIResponsesProviderOptions,
+        };
+      }
+      return { openai: chatgptOptions };
     }
     case "anthropic": {
       if (reasoningEffort && reasoningEffort !== "disable") {
@@ -1494,7 +1547,7 @@ class AISDKService implements LLMService {
     }
 
     return listModelsForProvider(providerName, {
-      apiKey: this.config.llmConfig?.[providerName]?.api_key,
+      apiKey: configuredProviderApiKey(this.config.llmConfig, providerName),
       llmConfig: this.config.llmConfig,
     }).pipe(
       Effect.tap((models) =>
@@ -1538,8 +1591,17 @@ class AISDKService implements LLMService {
           supportedModels: models.map((model) => model),
           defaultModel: models[0]?.id ?? "",
           authenticate: () => {
-            const providerConfig = this.config.llmConfig?.[providerName];
-            const apiKey = providerConfig?.api_key;
+            if (providerName === "chatgpt") {
+              return isChatGPTSignedIn(this.config.llmConfig)
+                ? Effect.succeed(void 0)
+                : Effect.fail(
+                    new LLMAuthenticationError({
+                      provider: providerName,
+                      message: CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
+                    }),
+                  );
+            }
+            const apiKey = configuredProviderApiKey(this.config.llmConfig, providerName);
 
             if (!apiKey) {
               // User-run local servers need a key only when configured to require one.

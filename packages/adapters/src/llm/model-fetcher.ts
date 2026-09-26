@@ -19,6 +19,8 @@ import {
 import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
 import { gateway } from "ai";
 import { Effect } from "effect";
+import { ChatGPTSignInRequiredError } from "./chatgpt/credentials";
+import { fetchChatGPTModels } from "./chatgpt/transport";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { hasReasoningParser } from "./reasoning";
 
@@ -724,6 +726,23 @@ export function createModelFetcher(): ModelFetcherService {
 
           const modelsDevMap = await getModelsDevMap();
 
+          if (providerName === "chatgpt") {
+            // Plan-included models, so no models.dev lookup: its API pricing does not apply.
+            const models = await fetchChatGPTModels();
+            return models.map((model): ModelInfo => ({
+              id: model.id,
+              displayName: model.displayName,
+              contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+              supportsTools: true,
+              isReasoningModel: model.isReasoningModel,
+              ingestImage: model.ingestImage,
+              ingestPdf: false,
+              ingestAudio: false,
+              ingestVideo: false,
+              supportsTemperature: !model.isReasoningModel,
+            }));
+          }
+
           if (providerName === "ai_gateway") {
             const availableModels = await gateway.getAvailableModels();
             const extractor = LIST_EXTRACTORS["ai_gateway"]!;
@@ -778,6 +797,13 @@ export function createModelFetcher(): ModelFetcherService {
           return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
         },
         catch: (error) => {
+          if (error instanceof ChatGPTSignInRequiredError) {
+            return new LLMConfigurationError({
+              provider: providerName,
+              message: error.message,
+              reason: "unauthorized",
+            });
+          }
           if (error instanceof LocalServerUnauthorizedError) {
             return new LLMConfigurationError({
               provider: providerName,
