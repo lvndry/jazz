@@ -10,6 +10,7 @@
  */
 import { Effect, Option } from "effect";
 import { z } from "zod";
+import { chooseGoalName } from "@/core/agent/goal/goal-names";
 import {
   boundedText,
   DRAFT_ITEM_CHARS,
@@ -33,6 +34,7 @@ const text = (description: string) => boundedText(DRAFT_ITEM_CHARS).describe(des
 
 const proposeGoalParameters = z
   .object({
+    name: planDraftFields.name,
     objective: planDraftFields.objective,
     successCriteria: planDraftFields.successCriteria,
     steps: z
@@ -107,9 +109,11 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
                 : {}),
             })
           : process.cwd();
+        const name = yield* chooseGoalName(args.name);
         const goal = yield* store.create(
           newProposedGoal({
             agentId: context.agentId,
+            name,
             workingDirectory,
             sourceConversationId: context.conversationId,
             request,
@@ -120,6 +124,7 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
           success: true,
           result: {
             goalId: goal.goalId,
+            name,
             state: "proposed",
             next: "The user is asked to accept this plan after your reply. Summarize it briefly and stop; do not start the work in this turn.",
           },

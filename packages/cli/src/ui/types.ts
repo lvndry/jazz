@@ -41,6 +41,8 @@ export interface PromptOptions<T = unknown> {
   defaultSelected?: T | T[];
   /** When true, show command suggestions when input starts with "/" (chat prompt) */
   commandSuggestions?: boolean;
+  /** Present on a `select` that accepts typed text as its answer; submitting that text calls it. */
+  resolveTypedAnswer?: (text: string) => void;
   [key: string]: unknown;
 }
 

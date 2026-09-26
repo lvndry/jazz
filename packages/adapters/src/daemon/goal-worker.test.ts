@@ -23,7 +23,12 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
-import { resumeGoalAwareRun, runDueGoals } from "@jazz/adapters/daemon/goal-worker";
+import {
+  holdAttendance,
+  resumeGoalAwareRun,
+  runAttendedCycles,
+  runDueGoals,
+} from "@jazz/adapters/daemon/goal-worker";
 import { loadConversation } from "@jazz/adapters/history/conversation-history-service";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
@@ -705,5 +710,107 @@ describe("resumeGoalAwareRun", () => {
     );
 
     expect(result.kind).toBe("blocked");
+  });
+});
+
+const DEAD_CHAT = { pid: 999_999_999, host: hostname() };
+
+describe("a goal run in front of the user", () => {
+  it("runs its cycles here under the chat's live mode until it completes", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const runner = scriptRunner(test, COMPLETE);
+    const mode = () => "high-risk" as const;
+    let cycles = 0;
+    try {
+      const attended = await run(
+        test,
+        holdAttendance(
+          GOAL_ID,
+          runAttendedCycles(GOAL_ID, {
+            autoApprovePolicy: mode,
+            onCycle: () => Effect.sync(() => void cycles++),
+          }),
+        ),
+      );
+      expect(attended.kind).toBe("attended");
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("completed");
+    expect(cycles).toBe(1);
+    expect(test.prompts[0]?.autoApprovePolicy).toBe(mode);
+  });
+
+  it("pauses where the user stopped a cycle, keeping its spend", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const runner = spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
+      Effect.gen(function* () {
+        yield* test.runs.save(record(options.runId ?? "", { kind: "completed", content: "" }));
+        return {
+          content: "",
+          conversationId: "goal-chat",
+          messages: [],
+          interrupted: true,
+        } as unknown as AgentResponse;
+      })) as unknown as typeof AgentRunner.run);
+    try {
+      await run(
+        test,
+        holdAttendance(GOAL_ID, runAttendedCycles(GOAL_ID, { autoApprovePolicy: () => undefined })),
+      );
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("paused");
+    expect(goal.cycle).toBeUndefined();
+    expect(goal.attendedBy).toBeUndefined();
+    expect(goal.usage.totalTokens).toBe(1_200);
+  });
+
+  it("is left alone by the daemon while its chat lives", async () => {
+    const test = harness();
+    await run(
+      test,
+      test.goals.create(testGoal({ attendedBy: { pid: process.ppid, host: hostname() } })),
+    );
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts).toHaveLength(0);
+    expect((await current(test)).state.kind).toBe("active");
+  });
+
+  /** A chat that died never granted authority for running unattended, so nothing runs. */
+  it("is paused, not run, by the daemon once its chat died without handing it off", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal({ attendedBy: DEAD_CHAT })));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await current(test);
+    expect(test.prompts).toHaveLength(0);
+    expect(goal.state.kind).toBe("paused");
+    expect(goal.attendedBy).toBeUndefined();
+  });
+
+  it("refuses to attend a goal another live chat is running", async () => {
+    const test = harness();
+    await run(
+      test,
+      test.goals.create(testGoal({ attendedBy: { pid: process.ppid, host: hostname() } })),
+    );
+    const attended = await run(test, holdAttendance(GOAL_ID, Effect.succeed("ran")));
+    expect(attended.kind).toBe("attended-elsewhere");
   });
 });

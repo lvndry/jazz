@@ -6,6 +6,7 @@ describe("parseGoalDraft", () => {
     const draft = parseGoalDraft(
       JSON.stringify({
         kind: "plan",
+        name: "eval-reliability",
         objective: "Improve evaluation reliability",
         successCriteria: ["A paired report includes task-level outcomes"],
         constraints: ["Keep existing scenarios until ablated"],

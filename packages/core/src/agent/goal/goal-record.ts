@@ -23,6 +23,47 @@ export type GoalId = string;
 /** Goal ids become file names, so they are limited to a path-safe alphabet. */
 export const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
+/** A goal's handle: lowercase words joined by hyphens, like `detach-to-prod`. */
+export const GOAL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+){0,5}$/;
+const MAX_GOAL_NAME_CHARS = 40;
+/** Most hyphen-joined words `GOAL_NAME_PATTERN` allows. */
+const MAX_GOAL_NAME_WORDS = 6;
+/** The handle for a goal whose suggested name has nothing usable, such as no Latin letters. */
+const FALLBACK_GOAL_NAME = "goal";
+
+/**
+ * The agent's suggested name as a handle: lowercased, accents and punctuation dropped, words
+ * joined by hyphens, cut to the pattern's limits. `FALLBACK_GOAL_NAME` when nothing survives;
+ * `uniqueGoalName` then numbers repeats. Always matches `GOAL_NAME_PATTERN`.
+ */
+export function goalNameFrom(suggested: string | undefined): string {
+  const slug = (suggested ?? "")
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/[\s-]+/)
+    .filter((word) => word.length > 0)
+    .slice(0, MAX_GOAL_NAME_WORDS)
+    .join("-")
+    .slice(0, MAX_GOAL_NAME_CHARS)
+    .replace(/-+$/, "");
+  return GOAL_NAME_PATTERN.test(slug) ? slug : FALLBACK_GOAL_NAME;
+}
+
+/** `name`, or `name-2`, `name-3`, … : the first one no existing goal uses. */
+export function uniqueGoalName(name: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(name)) {
+    return name;
+  }
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${name.slice(0, MAX_GOAL_NAME_CHARS - String(suffix).length - 1)}-${String(suffix)}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
+}
+
 export type GoalStepState = "pending" | "active" | "completed" | "blocked";
 
 export interface GoalPlanStep {
@@ -95,6 +136,11 @@ export interface GoalEvidenceItem {
 
 export interface GoalRecord {
   readonly goalId: GoalId;
+  /**
+   * The handle people use for it (`detach-to-prod`), unique among this installation's goals.
+   * Absent only on goals created before goals had names; those show their short id.
+   */
+  readonly name?: string;
   /** Stable owner identity for the Jazz installation that schedules this goal. */
   readonly ownerInstanceId: string;
   readonly agentId: string;
@@ -123,6 +169,13 @@ export interface GoalRecord {
   readonly budget: GoalBudget;
   readonly usage: GoalUsage;
   readonly cycle?: GoalCycle;
+  /**
+   * The chat process running this goal's cycles in front of the user, asking its approvals
+   * inline. While it lives the daemon leaves the goal alone; when it dies without handing the
+   * goal off, the daemon pauses the goal rather than run it with authority nobody granted.
+   * Meaningless once the goal has finished, which can no longer be written to clear it.
+   */
+  readonly attendedBy?: ProcessOwner;
   /** The most recent cycle's run, kept after it is reconciled so it can be inspected. */
   readonly latestRunId?: string;
   /** Evidence that completed the goal, bound to the run and plan revision that produced it. */
@@ -178,6 +231,8 @@ export const NO_GOAL_USAGE: GoalUsage = {
  */
 export function newProposedGoal(options: {
   readonly agentId: string;
+  /** Already unique; see `uniqueGoalName`. */
+  readonly name: string;
   readonly workingDirectory: string;
   readonly sourceConversationId: string | undefined;
   readonly request: string;
@@ -188,6 +243,7 @@ export function newProposedGoal(options: {
   const now = new Date().toISOString();
   return {
     goalId: randomUUID(),
+    name: options.name,
     ownerInstanceId: getGoalOwnerInstanceId(),
     agentId: options.agentId,
     ...(options.sourceConversationId !== undefined
@@ -221,6 +277,13 @@ export const DRAFT_MAX_LIST_ITEMS = 8;
  * wrote it. Each is described because a tool's parameters are advertised to the model.
  */
 export const planDraftFields = {
+  name: z
+    .string()
+    .min(1)
+    .max(MAX_GOAL_NAME_CHARS)
+    .describe(
+      "A short handle for the goal, 2 to 4 lowercase words joined by hyphens, like detach-to-prod.",
+    ),
   objective: boundedText(DRAFT_PARAGRAPH_CHARS).describe(
     "The outcome the user wants, in one sentence.",
   ),
@@ -312,9 +375,16 @@ const APPROVAL_REQUIRED_STATES = new Set([
   "failed",
 ]);
 
+const processOwnerSchema = z.object({
+  pid: positiveInteger,
+  host: z.string(),
+  startedAt: z.number().int().nonnegative().optional(),
+});
+
 export const goalRecordSchema = z
   .object({
     goalId: z.string().regex(GOAL_ID_PATTERN),
+    name: z.string().regex(GOAL_NAME_PATTERN).max(MAX_GOAL_NAME_CHARS).optional(),
     ownerInstanceId: nonEmpty,
     agentId: nonEmpty,
     sourceConversationId: z.string().optional(),
@@ -336,14 +406,11 @@ export const goalRecordSchema = z
     cycle: z
       .object({
         runId: nonEmpty,
-        owner: z.object({
-          pid: positiveInteger,
-          host: z.string(),
-          startedAt: z.number().int().nonnegative().optional(),
-        }),
+        owner: processOwnerSchema,
         stopAfter: z.enum(["pause", "cancel"]).optional(),
       })
       .optional(),
+    attendedBy: processOwnerSchema.optional(),
     latestRunId: z.string().optional(),
     evidence: z
       .object({

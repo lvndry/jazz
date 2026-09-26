@@ -571,6 +571,7 @@ function finalizeRun(
 
     return {
       ...response,
+      ...(interrupted ? { interrupted: true } : {}),
       messages: currentMessages,
       usage: {
         promptTokens: runMetrics.totalPromptTokens,

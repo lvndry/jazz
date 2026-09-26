@@ -6,6 +6,7 @@ import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
 import {
   originalValueFromPicker,
   toPickerChoices,
+  TYPED_ANSWER_DESCRIPTION,
   usePicker,
   type PickerView,
 } from "../prompt-core";
@@ -19,6 +20,8 @@ interface SearchSelectProps<T = unknown> {
   readonly pageSize?: number;
   readonly placeholder?: string;
   readonly onSelect: (value: T) => void;
+  /** When set, the typed filter is offered as its own answer and submitting it calls this. */
+  readonly onTypedAnswer?: ((text: string) => void) | undefined;
   readonly onCancel?: () => void;
 }
 
@@ -32,19 +35,20 @@ export function SearchSelect<T = unknown>({
   pageSize = PICKER_WINDOW_SIZE,
   placeholder = "Type to search...",
   onSelect,
+  onTypedAnswer,
   onCancel,
 }: SearchSelectProps<T>): React.ReactElement {
   const choices = useMemo(() => toPickerChoices(options), [options]);
   const picker = usePicker({
     type: "search",
     choices,
+    allowCustom: onTypedAnswer !== undefined,
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
         const value = originalValueFromPicker(options, resolution.value);
         if (value !== undefined) onSelect(value);
       } else if (resolution.kind === "custom") {
-        const value = originalValueFromPicker(options, resolution.value);
-        if (value !== undefined) onSelect(value);
+        onTypedAnswer?.(resolution.value);
       }
     },
     onCancel,
@@ -89,8 +93,13 @@ export function SearchSelect<T = unknown>({
     }
   });
 
+  const typedAnswer = view.typedAnswer;
   const effectivePageSize = Math.max(1, Math.min(pageSize, view.rows.length || 1));
-  const windowStart = pickerWindowStart(view.cursor, view.rows.length, effectivePageSize);
+  const windowStart = pickerWindowStart(
+    Math.min(view.cursor, Math.max(0, view.rows.length - 1)),
+    view.rows.length,
+    effectivePageSize,
+  );
   const windowEndExclusive = Math.min(view.rows.length, windowStart + effectivePageSize);
   const hasMoreAbove = windowStart > 0;
   const hasMoreBelow = windowEndExclusive < view.rows.length;
@@ -125,7 +134,7 @@ export function SearchSelect<T = unknown>({
 
       {hasMoreAbove && <Text dimColor>↑ more</Text>}
 
-      {view.rows.length === 0 ? (
+      {view.rows.length === 0 && typedAnswer === undefined ? (
         <Text dimColor>(No matching options)</Text>
       ) : (
         view.rows.slice(windowStart, windowEndExclusive).map((row) => (
@@ -138,6 +147,24 @@ export function SearchSelect<T = unknown>({
       )}
 
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
+
+      {typedAnswer === undefined ? null : (
+        <Box flexDirection="row">
+          <Text
+            color={THEME.primary}
+            bold
+          >
+            {typedAnswer.active ? `${G.rail} ` : "  "}
+          </Text>
+          <Text
+            color={typedAnswer.active ? THEME.selected : THEME.secondary}
+            bold={typedAnswer.active}
+          >
+            {typedAnswer.text}
+          </Text>
+          <Text color={THEME.muted}>{`  ${TYPED_ANSWER_DESCRIPTION}`}</Text>
+        </Box>
+      )}
 
       <Box marginTop={1}>
         <Text dimColor>Type to filter · ↑/↓ navigate · Enter select · Esc cancel</Text>

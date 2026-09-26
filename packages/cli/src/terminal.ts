@@ -408,16 +408,26 @@ export class InkTerminalService implements TerminalService {
     options: {
       choices: readonly PromptChoiceInput<T>[];
       default?: T;
+      customAnswer?: (text: string) => T;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T | undefined>((resume) => {
       const choices = normalizeChoices(options.choices);
+      const customAnswer = options.customAnswer;
       store.setPrompt({
         type: "select",
         message,
         options: {
           choices,
           ...(options.default === undefined ? {} : { defaultSelected: options.default }),
+          ...(customAnswer === undefined
+            ? {}
+            : {
+                resolveTypedAnswer: (text: string) => {
+                  closePromptWithAnswer(message, text);
+                  resume(Effect.succeed(customAnswer(text)));
+                },
+              }),
         },
         resolve: (val: unknown) => {
           const choice = choices.find((c) => c.value === val);

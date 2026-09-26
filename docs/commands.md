@@ -238,26 +238,31 @@ by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wa
 ## `jazz goal`
 
 Goals are objectives Jazz keeps working toward across runs until verified evidence shows they
-are done. The daemon does the work: accepting or starting a goal launches `jazz daemon` in the
-background when none is serving this Jazz home. In chat, Jazz proposes one on its own when a
-request needs sustained work; these commands drive goals from a shell or a script.
+are done. Each goal has a short name, like `detach-to-prod`, that every command accepts in place
+of its id. In chat, a goal you accept runs in the chat, asking its approvals there; see
+[Goals in chat](#goals-in-chat). From a shell, the daemon does the work: accepting or starting a
+goal launches `jazz daemon` in the background when none is serving this Jazz home.
 
 ```bash
 jazz goal draft --agent assistant "Get every recipe into the new format until ./check.sh passes"
 jazz goal start --agent assistant --yes --max-cycles 20 --cycle-iterations 12 "…"
 jazz goal list
-jazz goal show <id>
-jazz goal accept <id> --approval-policy low-risk   # start a proposed goal; work begins now
-jazz goal decline <id>
-jazz goal pause <id>
-jazz goal resume <id> [note]    # the note answers its question or steers the next cycle
-jazz goal cancel <id>
+jazz goal show <goal>
+jazz goal accept <goal> --approval-policy low-risk   # start a proposed goal; work begins now
+jazz goal decline <goal>
+jazz goal approve <goal>             # allow the step it waits on
+jazz goal reject <goal> [why]        # refuse that step; the reason goes to the agent
+jazz goal answer <goal> <answer>     # answer its question
+jazz goal pause <goal>
+jazz goal resume <goal> [note]       # the note steers the next cycle
+jazz goal cancel <goal>
 ```
 
 `--approval-policy` on `accept` and `start` is what the goal may run while you are away without
 asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
 approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
-wait for you. In chat, accepting a proposal asks the same question.
+wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
+daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
 `start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it. Budget flags:
@@ -266,6 +271,19 @@ saved), `--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pri
 A read-only pass over the current directory informs the plan, as it would in chat; `--no-inspect`
 drafts from the request alone. With `--json` each command prints one JSON envelope.
 Exit codes: `0` done, `1` refused or failed, `2` the request needs answers before a plan.
+
+### Goals in chat
+
+`/goal <objective>` plans a goal; accepted, it runs in the conversation. Each cycle streams in
+front of you, approvals are asked inline under the chat's safe or yolo mode (Shift+Tab applies
+mid-cycle), and Esc stops the goal where it is. `/goal help` lists the commands; they mirror
+`jazz goal`, with `approve`, `reject`, `answer`, and `resume` carrying the goal on in the chat.
+
+Leaving a chat with a goal it paused asks whether Jazz should finish it in the background, and
+what it may do there without asking: reading only, low-risk changes, or everything. Anything
+above that waits for you. The next `jazz` then lists the conversation under **Resume
+conversation (N waiting for you)**, and opening it shows what the goal needs. A conversation
+runs one goal at a time; starting another offers to cancel the current one.
 
 ## `jazz imessage`
 

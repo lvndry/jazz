@@ -25,6 +25,7 @@ import { isAbsolute } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
 import { newProposedGoal } from "@jazz/core/agent/goal/goal-record";
@@ -466,7 +467,11 @@ async function createGoalRoute(
     return json({ ok: false, error: "a proposed plan is required" }, 400);
   }
   const { revision: _revision, ...planBody } = plan;
-  const parsedDraft = parseGoalDraft(JSON.stringify({ kind: "plan", ...planBody }));
+  const suggestedName =
+    typeof body["name"] === "string" && body["name"].trim().length > 0 ? body["name"] : "goal";
+  const parsedDraft = parseGoalDraft(
+    JSON.stringify({ kind: "plan", name: suggestedName, ...planBody }),
+  );
   if (parsedDraft?.kind !== "plan") {
     return json({ ok: false, error: "plan is malformed or exceeds its limits" }, 400);
   }
@@ -475,9 +480,13 @@ async function createGoalRoute(
       const agents = yield* AgentServiceTag;
       const store = yield* GoalStoreTag;
       yield* agents.getAgent(agentId);
+      const name = yield* chooseGoalName(
+        typeof body["name"] === "string" ? body["name"] : undefined,
+      );
       const record = yield* store.create(
         newProposedGoal({
           agentId,
+          name,
           workingDirectory,
           sourceConversationId: conversationId,
           request: requestText,

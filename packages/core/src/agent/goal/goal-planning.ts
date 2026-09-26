@@ -43,7 +43,7 @@ export const goalDraftSchema = z.discriminatedUnion("kind", [
 
 export type GoalDraft =
   | { readonly kind: "question"; readonly questions: readonly string[] }
-  | { readonly kind: "plan"; readonly plan: GoalPlan };
+  | { readonly kind: "plan"; readonly plan: GoalPlan; readonly name: string };
 
 /** Longest request and discovery notes the planner sees; longer ones are cut, not rejected. */
 const MAX_PLANNED_REQUEST_CHARS = 8_000;
@@ -91,9 +91,10 @@ export function parseGoalDraft(content: string): GoalDraft | undefined {
   if (stepIds.size !== result.data.steps.length) {
     return undefined;
   }
-  const { kind: _kind, ...draftedPlan } = result.data;
+  const { kind: _kind, name, ...draftedPlan } = result.data;
   return {
     kind: "plan",
+    name,
     plan: {
       revision: 1,
       ...draftedPlan,

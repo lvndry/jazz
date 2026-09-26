@@ -27,7 +27,7 @@ import {
   type GoalRecord,
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
-import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
+import { CLAIMED_GOAL_STATES, isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
 import {
   addSpend,
   reachedLimit,
@@ -50,7 +50,8 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
+import type { AutoApprovePolicy } from "@jazz/core/types/tools";
+import { currentProcessOwner, localOwnerStatus, type ProcessOwner } from "@jazz/core/utils/process";
 import { toError } from "@jazz/core/utils/storage";
 import { Cause, Effect, Fiber } from "effect";
 import {
@@ -394,7 +395,23 @@ function claimCycle(goal: GoalRecord) {
   });
 }
 
-function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps) {
+/**
+ * How a chat runs a goal's cycles in front of the user: with the chat's own approval mode,
+ * read live so a Shift+Tab switch applies mid-cycle, instead of the goal's unattended grant.
+ */
+export interface GoalAttendance {
+  readonly autoApprovePolicy: () => AutoApprovePolicy | undefined;
+  /** Told before each cycle starts, so the chat can say which one is running. */
+  readonly onCycle?: (goal: GoalRecord) => Effect.Effect<void>;
+}
+
+function runCycle(
+  goal: GoalRecord,
+  agent: Agent,
+  runId: string,
+  caps: CycleCaps,
+  attendance?: GoalAttendance,
+) {
   return Effect.gen(function* () {
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const placed = yield* fileSystemContext
@@ -409,7 +426,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
         }),
         "stop a cycle whose working directory is gone",
       );
-      return;
+      return "settled";
     }
     const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
     const outcome = yield* runToOutcome(
@@ -420,13 +437,166 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
         conversationId: goal.conversationId,
         maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
         ...caps,
-        ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
+        ...(attendance !== undefined
+          ? { autoApprovePolicy: attendance.autoApprovePolicy }
+          : goal.approvalPolicy !== undefined
+            ? { autoApprovePolicy: goal.approvalPolicy }
+            : {}),
         parkWhenUnattended: true,
         conversationHistory: [...(prior?.messages ?? [])],
       }),
     );
+    if (outcome.kind === "finished" && outcome.response.interrupted === true) {
+      yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? []);
+      return "interrupted";
+    }
     yield* settleRunOutcome(goal, runId, outcome);
+    return "settled";
   });
+}
+
+/**
+ * The user stopped a cycle running in front of them. Its work so far is kept and the goal is
+ * paused, so nothing carries on that they did not ask for; resuming continues from the
+ * transcript. A cancel already recorded on the cycle still wins.
+ */
+function settleInterruptedCycle(goal: GoalRecord, runId: string, messages: readonly ChatMessage[]) {
+  return Effect.gen(function* () {
+    const goals = yield* GoalStoreTag;
+    const runs = yield* RunStoreTag;
+    if (messages.length > 0) {
+      yield* saveGoalTranscript(goal, messages);
+    }
+    const current = yield* goals.get(goal.goalId);
+    const cycle = current?.cycle;
+    if (current === undefined || cycle?.runId !== runId) {
+      return;
+    }
+    const run = yield* runs.get(runId);
+    yield* writeGoal(
+      current,
+      settleCycle(
+        { ...current, cycle: { ...cycle, stopAfter: cycle.stopAfter ?? "pause" } },
+        { run: { kind: "interrupted", spend: run === undefined ? NO_REPAIR : runSpend(run) } },
+      ),
+      "pause where the user stopped it",
+    );
+  });
+}
+
+function isThisProcess(owner: ProcessOwner | undefined): boolean {
+  return owner !== undefined && owner.pid === process.pid && owner.host === hostname();
+}
+
+/** Attempts at a read-modify-write of a goal before giving up on concurrent writers. */
+const ATTENDANCE_WRITE_ATTEMPTS = 3;
+
+/** Write the goal's attendance, re-reading it after a concurrent write. */
+function writeAttendance(
+  goalId: string,
+  change: (goal: GoalRecord) => GoalRecordInput | undefined,
+) {
+  return Effect.gen(function* () {
+    const goals = yield* GoalStoreTag;
+    for (let attempt = 0; attempt < ATTENDANCE_WRITE_ATTEMPTS; attempt++) {
+      const goal = yield* goals.get(goalId);
+      const next = goal === undefined ? undefined : change(goal);
+      if (goal === undefined || next === undefined) {
+        return goal;
+      }
+      const saved = yield* goals.compareAndSet(goalId, goal.version, next).pipe(Effect.either);
+      if (saved._tag === "Right") {
+        return saved.right;
+      }
+    }
+    return yield* goals.get(goalId);
+  });
+}
+
+function withoutAttendance(goal: GoalRecord): GoalRecordInput {
+  const { attendedBy: _attendedBy, ...rest } = asInput(goal);
+  return rest;
+}
+
+/**
+ * Run `work` with this process attending the goal, so the daemon leaves it alone meanwhile.
+ * Attendance is released however `work` ends, including an interrupt, so the goal is never
+ * left marked as watched by a chat that stopped watching it. Refused while another live
+ * process attends it.
+ */
+export type Attended<A> =
+  { readonly kind: "attended"; readonly value: A } | { readonly kind: "attended-elsewhere" };
+
+export function holdAttendance<A, E, R>(goalId: string, work: Effect.Effect<A, E, R>) {
+  const owner = currentProcessOwner();
+  return Effect.acquireUseRelease(
+    writeAttendance(goalId, (goal) =>
+      isTerminalGoal(goal.state) ||
+      (goal.attendedBy !== undefined &&
+        !isThisProcess(goal.attendedBy) &&
+        localOwnerStatus(goal.attendedBy) === "alive")
+        ? undefined
+        : { ...asInput(goal), attendedBy: owner },
+    ),
+    (goal): Effect.Effect<Attended<A>, E, R> =>
+      goal === undefined || isTerminalGoal(goal.state) || isThisProcess(goal.attendedBy)
+        ? Effect.map(work, (value) => ({ kind: "attended", value }))
+        : Effect.succeed({ kind: "attended-elsewhere" }),
+    () =>
+      writeAttendance(goalId, (goal) =>
+        isThisProcess(goal.attendedBy) ? withoutAttendance(goal) : undefined,
+      ).pipe(Effect.ignore),
+  );
+}
+
+/**
+ * Run the goal's cycles here, one after another, until it stops being active: completed,
+ * waiting on the user, out of budget, paused, or stopped by the user mid-cycle. Call inside
+ * {@link holdAttendance}. Returns the goal as it was left.
+ */
+export function runAttendedCycles(goalId: string, attendance: GoalAttendance) {
+  return Effect.gen(function* () {
+    const goals = yield* GoalStoreTag;
+    for (;;) {
+      const goal = yield* goals.get(goalId);
+      if (goal === undefined || goal.state.kind !== "active" || goal.cycle !== undefined) {
+        return goal;
+      }
+      const claim = yield* claimCycle(goal);
+      if (claim === undefined) {
+        return yield* goals.get(goalId);
+      }
+      if (attendance.onCycle !== undefined) {
+        yield* attendance.onCycle(claim.goal);
+      }
+      const ending = yield* inFlight(
+        claim.runId,
+        runCycle(claim.goal, claim.agent, claim.runId, claim.caps, attendance),
+      );
+      if (ending === "interrupted") {
+        return yield* goals.get(goalId);
+      }
+    }
+  });
+}
+
+/**
+ * A goal whose attending chat died without handing it off. An active goal is paused, so the
+ * daemon never runs it with authority the user did not grant for running unattended; a goal
+ * in any other state only loses the stale mark.
+ */
+function releaseAbandonedAttendance(goal: GoalRecord) {
+  const released = withoutAttendance(goal);
+  if (goal.state.kind !== "active") {
+    return writeGoal(goal, released, "forget a chat that stopped attending it");
+  }
+  return writeGoal(
+    goal,
+    goal.cycle === undefined
+      ? { ...released, state: { kind: "paused" } }
+      : { ...released, state: { kind: "stopping" }, cycle: { ...goal.cycle, stopAfter: "pause" } },
+    "pause a goal whose chat stopped",
+  );
 }
 
 function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<AgentResponse>) {
@@ -509,6 +679,12 @@ export function runDueGoals() {
     const candidates = yield* goals.list({ states: CLAIMED_GOAL_STATES });
     for (const goal of candidates) {
       yield* Effect.gen(function* () {
+        if (goal.attendedBy !== undefined) {
+          if (localOwnerStatus(goal.attendedBy) === "gone") {
+            yield* releaseAbandonedAttendance(goal);
+          }
+          return;
+        }
         const cycle = goal.cycle;
         if (cycle === undefined) {
           if (goal.state.kind !== "active") {
@@ -521,6 +697,7 @@ export function runDueGoals() {
                 claim.runId,
                 runCycle(claim.goal, claim.agent, claim.runId, claim.caps),
               ).pipe(
+                Effect.asVoid,
                 Effect.catchAllCause((cause) =>
                   logger.warn("Goal cycle failed to settle", {
                     goalId: goal.goalId,

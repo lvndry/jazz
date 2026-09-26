@@ -66,7 +66,7 @@ import {
   setPluginCommands,
   setSkillCommands,
 } from "./chat/commands";
-import { offerProposedGoals } from "./chat/commands/goal";
+import { announceWaitingGoals, offerGoalHandoffs, offerProposedGoals } from "./chat/commands/goal";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -212,6 +212,9 @@ export class ChatServiceImpl implements ChatService {
       } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory);
       }
+      if (!ephemeral && conversationHistory.length > 0) {
+        yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+      }
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
@@ -315,6 +318,11 @@ export class ChatServiceImpl implements ChatService {
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+          yield* offerGoalHandoffs().pipe(
+            Effect.catchAll((error) =>
+              terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
+            ),
+          );
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
@@ -380,6 +388,7 @@ export class ChatServiceImpl implements ChatService {
               sessionStartedAt,
               lastUsedAgentId,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              currentAutoApprovePolicy: () => autoApprovePolicy,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -417,6 +426,9 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
+              if (!ephemeral) {
+                yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+              }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
               // Logs follow the conversation, so /new starts a new file rather than
               // appending the next conversation to the previous one's.
@@ -773,7 +785,7 @@ export class ChatServiceImpl implements ChatService {
           }
 
           if (!ephemeral) {
-            yield* offerProposedGoals(conversationId);
+            yield* offerProposedGoals(conversationId, () => autoApprovePolicy);
           }
 
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)
