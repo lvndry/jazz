@@ -7,10 +7,12 @@
  * reject records owned by a different Jazz installation. Use {@link getGoalOwnerInstanceId}
  * whenever a caller creates or scopes access to a locally owned goal.
  */
-import { createHash } from "node:crypto";
 import { hostname } from "node:os";
+import { resolve } from "node:path";
+import { sha256Hex } from "@/core/utils/hash";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 
-export function getGoalOwnerInstanceId(): string {
-  return createHash("sha256").update(`${hostname()}\0${getJazzHomeDirectory()}`).digest("hex");
+/** Defaults to this process's Jazz home; only a caller seeding another home passes one. */
+export function getGoalOwnerInstanceId(jazzHome: string = getJazzHomeDirectory()): string {
+  return sha256Hex(`${hostname()}\0${resolve(jazzHome)}`);
 }

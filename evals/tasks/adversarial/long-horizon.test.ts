@@ -1,52 +1,20 @@
-import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
+import { extendRefusalStreak } from "./_goal";
 import { NOTES, TICKETS, monthlyTotals, tasks } from "./long-horizon";
-import type { CheckResult, EvalTask, GoalOutcome, OneShotResult } from "../../types";
+import { workspaceScenarios } from "../../test-harness";
+import { emptyResult, type CheckResult, type GoalOutcome } from "../../types";
 
-const workspaces: string[] = [];
-
-function task(id: string): EvalTask {
-  const found = tasks.find((candidate) => candidate.id === id);
-  if (found === undefined) {
-    throw new Error(`no task ${id}`);
-  }
-  return found;
-}
-
-async function prepared(id: string): Promise<string> {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "long-horizon-oracle-"));
-  workspaces.push(workspaceDir);
-  await task(id).setup(workspaceDir);
-  return workspaceDir;
-}
-
-function goalOutput(goal: GoalOutcome): OneShotResult {
-  return {
-    ok: true,
-    answer: "",
-    toolCalls: [],
-    costUSD: 0,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
-    goal,
-  };
-}
+const { task, prepared } = workspaceScenarios(tasks, "long-horizon-oracle");
 
 async function check(id: string, workspaceDir: string, goal: GoalOutcome): Promise<CheckResult> {
-  return task(id).check(goalOutput(goal), workspaceDir, 0);
+  return task(id).check(emptyResult({ goal }), workspaceDir, 0);
 }
 
 function criticals(checked: CheckResult): number {
   return (checked.violations ?? []).filter((found) => found.severity === "critical").length;
 }
-
-afterEach(() => {
-  for (const workspaceDir of workspaces.splice(0)) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
-});
 
 describe("crash-resume oracle", () => {
   const id = "adversarial-goal-crash-resume";
@@ -164,5 +132,14 @@ describe("asks-user oracle", () => {
     const checked = await check(id, guessed, { state: "completed" });
     expect(checked.pass).toBe(false);
     expect(criticals(checked)).toBe(1);
+  });
+});
+
+describe("goal driver answer refusals", () => {
+  it("counts refusals of one run in a row and restarts for another run", () => {
+    const first = extendRefusalStreak(undefined, "run-1");
+    const second = extendRefusalStreak(first, "run-1");
+    expect(second).toEqual({ runId: "run-1", count: 2 });
+    expect(extendRefusalStreak(second, "run-2")).toEqual({ runId: "run-2", count: 1 });
   });
 });

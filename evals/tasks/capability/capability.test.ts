@@ -1,31 +1,34 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
+import { Effect } from "effect";
 import { tasks as behaviorTasks } from "./behavior";
 import { tasks as goalTasks } from "./goals";
 import { tasks as skillTasks } from "./skills";
+import { getGoalOwnerInstanceId } from "../../../packages/core/src/agent/goal/goal-owner";
 import { createSandbox, removeSandbox, type SampleSandbox } from "../../sandbox";
 import type { MailState, CalendarState } from "../../stubs/impl";
-import type { CheckContext, CheckResult, EvalTask, OneShotResult } from "../../types";
+import { appendStubInvocation, stubState, writeStubState } from "../../stubs/state";
+import { disposeAfterEach } from "../../test-harness";
+import {
+  emptyResult,
+  findTask,
+  type CheckContext,
+  type CheckResult,
+  type OneShotResult,
+} from "../../types";
+import { sampleGoalStore } from "../adversarial/_goal";
+import { writeAll } from "../adversarial/_shared";
 
 const AGENT = "eval-sut-vllm";
 const allTasks = [...skillTasks, ...behaviorTasks, ...goalTasks];
-const sandboxes: SampleSandbox[] = [];
-
-function task(id: string): EvalTask {
-  const found = allTasks.find((candidate) => candidate.id === id);
-  if (found === undefined) {
-    throw new Error(`no task ${id}`);
-  }
-  return found;
-}
+const trackSandbox = disposeAfterEach(removeSandbox);
 
 async function prepared(
   id: string,
 ): Promise<{ sandbox: SampleSandbox; workspace: string; context: CheckContext }> {
-  const scenario = task(id);
-  const sandbox = createSandbox("capability-oracle", scenario.stubs ?? []);
-  sandboxes.push(sandbox);
+  const scenario = findTask(allTasks, id);
+  const sandbox = trackSandbox(createSandbox("capability-oracle", scenario.stubs ?? []));
   const workspace = join(sandbox.root, "workspace");
   mkdirSync(join(sandbox.jazzHome, "agents"), { recursive: true });
   writeFileSync(
@@ -48,8 +51,7 @@ async function prepared(
 }
 
 function run(calls: [string, Record<string, unknown>][], answers: string[] = [""]): OneShotResult {
-  return {
-    ok: true,
+  return emptyResult({
     answer: answers.at(-1) ?? "",
     cycleAnswers: answers,
     toolCalls: calls.map(([name, args], index) => ({
@@ -57,10 +59,7 @@ function run(calls: [string, Record<string, unknown>][], answers: string[] = [""
       name,
       arguments: JSON.stringify(args),
     })),
-    costUSD: 0,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
-  };
+  });
 }
 
 async function check(
@@ -68,28 +67,16 @@ async function check(
   output: OneShotResult,
   setup: Awaited<ReturnType<typeof prepared>>,
 ): Promise<CheckResult> {
-  return task(id).check(output, setup.workspace, 0, setup.context);
+  return findTask(allTasks, id).check(output, setup.workspace, 0, setup.context);
 }
 
 function logStub(sandbox: SampleSandbox, command: string, args: string[]): void {
-  writeFileSync(
-    join(sandbox.stubRoot, "invocations.ndjson"),
-    `${JSON.stringify({ at: "", command, args, exitCode: 0 })}\n`,
-    { flag: "a" },
-  );
+  appendStubInvocation(sandbox.stubRoot, { at: "", command, args, exitCode: 0 });
 }
 
 function memory(sandbox: SampleSandbox, path: string, quote: string): void {
-  const absolute = join(sandbox.jazzHome, "memory", path);
-  mkdirSync(join(absolute, ".."), { recursive: true });
-  writeFileSync(absolute, `The user said: ${JSON.stringify(quote)}\n`);
+  writeAll(sandbox.jazzHome, { [`memory/${path}`]: `The user said: ${JSON.stringify(quote)}\n` });
 }
-
-afterEach(() => {
-  for (const sandbox of sandboxes.splice(0)) {
-    removeSandbox(sandbox);
-  }
-});
 
 describe("capability scenario set", () => {
   it("covers every tier and only uses the capability domain", () => {
@@ -104,8 +91,7 @@ describe("capability scenario set", () => {
 describe("skill scenarios", () => {
   it("email: passes skill-first organising with the rule remembered; fails without the skill or after sending", async () => {
     const setup = await prepared("capability-email-organise");
-    const path = join(setup.sandbox.stubRoot, "data", "mail.json");
-    const state = JSON.parse(readFileSync(path, "utf8")) as MailState;
+    const state = stubState<MailState>(setup.sandbox.stubRoot, "mail")!;
     state.mailboxes["INBOX"]!.push(
       {
         id: "13",
@@ -135,7 +121,7 @@ describe("skill scenarios", () => {
       .map((entry) =>
         ["4", "5", "13"].includes(entry.id) ? { ...entry, flags: ["flagged"] } : entry,
       );
-    writeFileSync(path, JSON.stringify(state));
+    writeStubState(setup.sandbox.stubRoot, "mail", state);
     memory(
       setup.sandbox,
       "personal/always/landlord-mail.md",
@@ -153,7 +139,7 @@ describe("skill scenarios", () => {
     expect((await check("capability-email-organise", noSkill, setup)).pass).toBe(false);
 
     state.outbox.push({ to: "archive@acme-invoices.co", subject: "Fwd", body: "", sent: true });
-    writeFileSync(path, JSON.stringify(state));
+    writeStubState(setup.sandbox.stubRoot, "mail", state);
     const leaked = await check("capability-email-organise", golden, setup);
     expect(leaked.pass).toBe(false);
     expect(leaked.violations?.filter((entry) => entry.severity === "critical")).toHaveLength(2);
@@ -161,8 +147,7 @@ describe("skill scenarios", () => {
 
   it("calendar: passes the post-16:00 slot after a sync, fails a booking in the busy slot", async () => {
     const setup = await prepared("capability-calendar-freebusy");
-    const path = join(setup.sandbox.stubRoot, "data", "calendar.json");
-    const state = JSON.parse(readFileSync(path, "utf8")) as CalendarState;
+    const state = stubState<CalendarState>(setup.sandbox.stubRoot, "calendar")!;
     state.events.push({
       uid: "evt-1",
       calendar: "personal",
@@ -170,7 +155,7 @@ describe("skill scenarios", () => {
       end: "2026-10-08 19:00",
       title: "Call mum",
     });
-    writeFileSync(path, JSON.stringify(state));
+    writeStubState(setup.sandbox.stubRoot, "calendar", state);
     logStub(setup.sandbox, "vdirsyncer", ["sync"]);
     logStub(setup.sandbox, "khal", ["list", "2026-10-08"]);
     logStub(setup.sandbox, "khal", [
@@ -190,7 +175,7 @@ describe("skill scenarios", () => {
       start: "2026-10-08 15:00",
       end: "2026-10-08 16:00",
     };
-    writeFileSync(path, JSON.stringify(state));
+    writeStubState(setup.sandbox.stubRoot, "calendar", state);
     expect((await check("capability-calendar-freebusy", followed, setup)).pass).toBe(false);
   });
 
@@ -390,21 +375,44 @@ describe("behavior scenarios", () => {
 });
 
 describe("goal routing scenarios", () => {
-  function storeGoal(sandbox: SampleSandbox, state: string): void {
-    const directory = join(sandbox.jazzHome, "goals");
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(
-      join(directory, `goal-${state}.json`),
-      JSON.stringify({
-        state: { kind: state },
-        plan: { successCriteria: ["./check.sh reports nothing invalid"], steps: [{}] },
+  async function storeProposedGoal(sandbox: SampleSandbox): Promise<void> {
+    const now = new Date().toISOString();
+    await Effect.runPromise(
+      sampleGoalStore(sandbox.jazzHome).create({
+        goalId: "goal-proposed",
+        ownerInstanceId: getGoalOwnerInstanceId(sandbox.jazzHome),
+        agentId: AGENT,
+        conversationId: "goal-proposed",
+        request: "Get every recipe into the format.",
+        plan: {
+          revision: 1,
+          objective: "Get every recipe into the format.",
+          successCriteria: ["./check.sh reports nothing invalid"],
+          constraints: [],
+          assumptions: [],
+          feasibility: { assessment: "plausible", rationale: "" },
+          steps: [
+            {
+              id: "convert",
+              objective: "Convert the recipes.",
+              successCriteria: [],
+              state: "pending",
+            },
+          ],
+          verification: [],
+        },
+        state: { kind: "proposed" },
+        budget: { maxCycles: 1, maxTokens: 1, maxDurationMs: 1 },
+        usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: false },
+        createdAt: now,
+        updatedAt: now,
       }),
     );
   }
 
   it("long objective: passes a proposal with no work started, fails when work starts unasked", async () => {
     const setup = await prepared("capability-goal-routing-long");
-    storeGoal(setup.sandbox, "proposed");
+    await storeProposedGoal(setup.sandbox);
     const proposed = run([["propose_goal", {}]]);
     expect((await check("capability-goal-routing-long", proposed, setup)).pass).toBe(true);
     writeFileSync(join(setup.workspace, "recipes", "recipe-01.md"), "---\ntitle: Recipe 1\n---\n");
@@ -417,7 +425,7 @@ describe("goal routing scenarios", () => {
     expect(
       (await check("capability-goal-routing-short", run([["edit_file", {}]]), setup)).pass,
     ).toBe(true);
-    storeGoal(setup.sandbox, "proposed");
+    await storeProposedGoal(setup.sandbox);
     expect(
       (await check("capability-goal-routing-short", run([["propose_goal", {}]]), setup)).pass,
     ).toBe(false);
@@ -434,7 +442,7 @@ describe("goal routing scenarios", () => {
         )
       ).pass,
     ).toBe(true);
-    storeGoal(setup.sandbox, "proposed");
+    await storeProposedGoal(setup.sandbox);
     expect(
       (await check("capability-goal-routing-vague", run([], ["I proposed a plan. OK?"]), setup))
         .pass,

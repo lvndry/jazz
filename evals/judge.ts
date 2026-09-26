@@ -2,8 +2,8 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
-import { MAIN_TS, parseEnvelope } from "./run-jazz";
-import { createSandbox, removeSandbox, sandboxedArgv } from "./sandbox";
+import { parseEnvelope, spawnJazz } from "./run-jazz";
+import { createSandbox, removeSandbox } from "./sandbox";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
 export function pearson(first: readonly number[], second: readonly number[]): number {
@@ -56,24 +56,11 @@ export function makeJudge(
         join(import.meta.dir, "agents", `${agentId}.json`),
         join(sandbox.jazzHome, "agents", `${agentId}.json`),
       );
+      // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
       const { JAZZ_DISABLE_KEYRING: _keyringOff, ...environment } = sandbox.environment;
-      const proc = Bun.spawn(
-        sandboxedArgv(
-          [
-            process.execPath,
-            MAIN_TS,
-            "run",
-            prompt,
-            "--agent",
-            agentId,
-            "--json",
-            "--timeout",
-            String(timeoutMs),
-          ],
-          environment,
-        ),
-        // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
-        { stdout: "pipe", stderr: "ignore", env: { ...process.env, ...environment } }, // never pipe-without-drain: jazz is chatty on stderr and would deadlock
+      const proc = spawnJazz(
+        ["run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
+        { environment, stdout: "pipe", stderr: "ignore" },
       );
       const stdout = await new Response(proc.stdout).text();
       await proc.exited;

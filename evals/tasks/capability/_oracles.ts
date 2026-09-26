@@ -3,11 +3,13 @@
  *
  * Trajectory checks read the envelope's `toolCalls` (every call the model made, with full
  * arguments, across all cycles; subagents' own calls are not in it). State checks read the
- * sample's Jazz home (memory, reminders, scratchpad, the memory recall log) and the stub
- * commands' state and invocation log. Nothing here asks the model how it did.
+ * sample's Jazz home (memory, reminders, scratchpad, the memory recall log); the stub commands'
+ * state and invocation log are read through `evals/stubs/state.ts`. Nothing here asks the
+ * model how it did.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { memoryEntries, readJsonLines, walkFiles, type MemoryEntry } from "../../files";
 import type { OneShotResult } from "../../types";
 
 export type ToolCall = OneShotResult["toolCalls"][number];
@@ -62,61 +64,6 @@ export function firstShellUse(result: OneShotResult, word: string): number {
   );
 }
 
-export interface StubInvocation {
-  at: string;
-  command: string;
-  args: string[];
-  exitCode: number;
-  note?: string;
-}
-
-export function stubInvocations(stubRoot: string): StubInvocation[] {
-  const path = join(stubRoot, "invocations.ndjson");
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as StubInvocation);
-}
-
-export function stubState<State>(stubRoot: string, tool: string): State | undefined {
-  const path = join(stubRoot, "data", `${tool}.json`);
-  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as State) : undefined;
-}
-
-function walk(directory: string): string[] {
-  if (!existsSync(directory)) {
-    return [];
-  }
-  const found: string[] = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      found.push(...walk(path));
-    } else if (entry.isFile() && !entry.name.startsWith(".")) {
-      found.push(path);
-    }
-  }
-  return found;
-}
-
-export interface MemoryEntry {
-  /** Path under `memory/`, e.g. `personal/when/food/partner-diet.md`. */
-  path: string;
-  content: string;
-}
-
-/** Every memory entry in the sample's home, sidecar files excluded. */
-export function memoryEntries(jazzHome: string): MemoryEntry[] {
-  const root = join(jazzHome, "memory");
-  return walk(root)
-    .filter((path) => path.endsWith(".md"))
-    .map((path) => ({ path: relative(root, path), content: readFileSync(path, "utf8") }));
-}
-
 export function memoryMentions(jazzHome: string, pattern: RegExp): MemoryEntry[] {
   return memoryEntries(jazzHome).filter((entry) => pattern.test(entry.content));
 }
@@ -129,15 +76,7 @@ export interface RecallObservation {
 }
 
 export function recallLog(jazzHome: string): RecallObservation[] {
-  const path = join(jazzHome, "memory-recall", "memory-recall.jsonl");
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readFileSync(path, "utf8")
-    .trim()
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as RecallObservation);
+  return readJsonLines<RecallObservation>(join(jazzHome, "memory-recall", "memory-recall.jsonl"));
 }
 
 export interface StoredReminder {
@@ -161,10 +100,17 @@ export function storedReminders(jazzHome: string, agentId: string): StoredRemind
 /** Files the agent keeps in its scratchpad, with their contents. */
 export function scratchpadFiles(jazzHome: string): MemoryEntry[] {
   const root = join(jazzHome, "workspace");
-  return walk(root).map((path) => ({
+  return walkFiles(root, { skipDotfiles: true }).map((path) => ({
     path: relative(root, path),
     content: readFileSync(path, "utf8"),
   }));
+}
+
+export function requireContext<Context>(context: Context | undefined): Context {
+  if (context === undefined) {
+    throw new Error("capability checks need the sample context");
+  }
+  return context;
 }
 
 export function isDirectory(path: string): boolean {

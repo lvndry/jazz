@@ -7,12 +7,14 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EVAL_CONFIG, isAllowedEvalModel } from "./config";
+import { readJsonLines } from "./files";
 import { makeJudge, calibrateJudge, type CalibrationRow } from "./judge";
 import {
   abDelta,
+  BOOTSTRAP_SEED,
   bootstrapCI,
   costNormalized,
   makeRng,
@@ -20,7 +22,7 @@ import {
   passAtK,
   passHatK,
 } from "./metrics";
-import { runJazzOnce } from "./run-jazz";
+import { reportFilePath, runJazzOnce } from "./run-jazz";
 import {
   buildSampleReport,
   pairSamples,
@@ -30,12 +32,19 @@ import {
 } from "./sample-report";
 import { createSandbox, removeSandbox } from "./sandbox";
 import { evaluateAdversarialTargets, type TargetVerdict } from "./targets";
-import type { CheckContext, Domain, EvalTask, OneShotResult, SampleRecord } from "./types";
+import {
+  emptyResult,
+  type CheckContext,
+  type Domain,
+  type EvalTask,
+  type SampleRecord,
+} from "./types";
+import { getJazzHomeDirectory } from "../packages/core/src/utils/paths";
+import { toError } from "../packages/core/src/utils/storage";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const TASKS_DIR = join(REPO_ROOT, "evals", "tasks");
 const WEB_FIXTURE_DIR = join(REPO_ROOT, "evals", "fixtures", "web");
-const REPORT_DIR = join(REPO_ROOT, "evals", "report");
 const CALIBRATION_PATH = join(REPO_ROOT, "evals", "judge", "calibration.jsonl");
 
 export interface PerTaskRollups {
@@ -78,11 +87,15 @@ function metricBlock(group: PerTaskRollups[]): MetricBlock {
     nTasks: group.length,
     passAt1: meanPassAt1,
     passAtK:
-      group.length === 0 ? 0 : group.filter((t) => passAtK(t.samples) === 1).length / group.length,
+      group.length === 0
+        ? 0
+        : group.filter((task) => passAtK(task.samples) === 1).length / group.length,
     passHatK:
-      group.length === 0 ? 0 : group.filter((t) => passHatK(t.samples) === 1).length / group.length,
+      group.length === 0
+        ? 0
+        : group.filter((task) => passHatK(task.samples) === 1).length / group.length,
     costNormalized: costNormalized(meanPassAt1, totalCost),
-    ci: bootstrapCI(perTaskMeans, makeRng(1234)),
+    ci: bootstrapCI(perTaskMeans, makeRng(BOOTSTRAP_SEED)),
   };
 }
 
@@ -124,16 +137,15 @@ async function pool<T>(
 
 const EVAL_AGENTS_DIR = join(import.meta.dir, "agents");
 
-function userJazzHome(): string {
-  return process.env["JAZZ_HOME"] ?? join(homedir(), ".jazz");
-}
-
 /**
  * Where the agent a sample runs as is defined: the checked-in eval agent when there is one,
  * else the user's own. The guardrail, the run metadata, and the isolated home all read this
  * same file, so what is checked is what runs.
  */
-export function resolveAgentConfigPath(agentId: string, jazzHome: string = userJazzHome()): string {
+export function resolveAgentConfigPath(
+  agentId: string,
+  jazzHome: string = getJazzHomeDirectory(),
+): string {
   const checkedIn = join(EVAL_AGENTS_DIR, `${agentId}.json`);
   return existsSync(checkedIn) ? checkedIn : join(jazzHome, "agents", `${agentId}.json`);
 }
@@ -153,7 +165,7 @@ export function resolveAgentConfigPath(agentId: string, jazzHome: string = userJ
 export function seedIsolatedJazzHome(
   homeDir: string,
   agentIds: readonly string[] = [],
-  sourceHome: string = userJazzHome(),
+  sourceHome: string = getJazzHomeDirectory(),
 ): string {
   const agentsDir = join(homeDir, "agents");
   mkdirSync(agentsDir, { recursive: true });
@@ -251,14 +263,7 @@ async function violationsAfterError(
   sampleIndex: number,
   context: CheckContext,
 ): Promise<{ violations: SampleRecord["violations"]; assessed: boolean }> {
-  const noAnswer: OneShotResult = {
-    ok: false,
-    answer: "",
-    toolCalls: [],
-    costUSD: 0,
-    tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    eventsPath: "",
-  };
+  const noAnswer = emptyResult({ ok: false });
   try {
     return {
       violations: (await task.check(noAnswer, workspaceDir, sampleIndex, context)).violations ?? [],
@@ -379,7 +384,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteRunReport
     } catch (error) {
       console.error(`eval task ${task.id} (sample ${sampleIndex}) failed:`, error);
       record.pass = false;
-      record.error = error instanceof Error ? error.message : String(error);
+      record.error = toError(error).message;
       const recovered = await violationsAfterError(task, workspaceDir, sampleIndex, checkContext);
       record.violations = recovered.violations;
       record.safetyAssessed = recovered.assessed;
@@ -512,16 +517,8 @@ async function loadTasks(): Promise<EvalTask[]> {
   return tasks;
 }
 
-async function loadCalibration(): Promise<CalibrationRow[]> {
-  if (!existsSync(CALIBRATION_PATH)) {
-    return [];
-  }
-  const text = await Bun.file(CALIBRATION_PATH).text();
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as CalibrationRow);
+function loadCalibration(): CalibrationRow[] {
+  return readJsonLines<CalibrationRow>(CALIBRATION_PATH);
 }
 
 /**
@@ -529,7 +526,10 @@ async function loadCalibration(): Promise<CalibrationRow[]> {
  * Checks the same agent file a sample runs as (`resolveAgentConfigPath`: the checked-in
  * eval agent, else the one in `jazzHome`) against isAllowedEvalModel.
  */
-export function assertAllowedAgent(agentId: string, jazzHome: string = userJazzHome()): void {
+export function assertAllowedAgent(
+  agentId: string,
+  jazzHome: string = getJazzHomeDirectory(),
+): void {
   const agentPath = resolveAgentConfigPath(agentId, jazzHome);
   let parsed: { config?: { llmProvider?: string; llmModel?: string } };
   try {
@@ -615,7 +615,7 @@ export async function runCli(): Promise<void> {
     let judgeOk = true;
     if (tasks.some((task) => task.rubric !== undefined)) {
       assertAllowedAgent(EVAL_CONFIG.judgeAgentId);
-      const calibration = await loadCalibration();
+      const calibration = loadCalibration();
       if (calibration.length > 0) {
         const { r, ok } = await calibrateJudge(makeJudge(), calibration);
         judgeOk = ok;
@@ -625,7 +625,6 @@ export async function runCli(): Promise<void> {
       }
     }
 
-    mkdirSync(REPORT_DIR, { recursive: true });
     const stamp = parseFlag("--stamp") ?? "run";
     let report: unknown;
     if (abAgent) {
@@ -647,7 +646,7 @@ export async function runCli(): Promise<void> {
           ? suite
           : { ...suite, comparison: compareReports(readReport(baselinePath), suite) };
     }
-    const outPath = join(REPORT_DIR, `${stamp}.json`);
+    const outPath = reportFilePath(`${stamp}.json`);
     writeFileSync(outPath, JSON.stringify(report, null, 2));
     console.error(`Report written to ${outPath}`);
     console.log(JSON.stringify(report, null, 2));

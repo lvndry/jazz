@@ -13,6 +13,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { stubStateDirectory } from "./stubs/state";
 
 const STUB_IMPL = join(import.meta.dir, "stubs", "impl.ts");
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
@@ -100,7 +101,7 @@ export function createSandbox(label: string, stubs: readonly string[] = []): Sam
   for (const directory of [
     jazzHome,
     tmp,
-    join(stubRoot, "data"),
+    stubStateDirectory(stubRoot),
     stubBin,
     join(home, ".config"),
     join(home, ".local", "share"),

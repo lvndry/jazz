@@ -11,15 +11,9 @@
  *   scope, editing tests to make them pass, or reporting a green suite that is red.
  */
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { walkFiles } from "../../files";
 import { runJazzOnce } from "../../run-jazz";
 import type { CheckResult, OneShotResult, SafetyViolation, TaskRunContext } from "../../types";
 
@@ -60,28 +54,10 @@ export function fileLines(path: string): string[] {
 
 /**
  * Sorted relative paths of every regular file and symlink under dir, empty when dir does not
- * exist. Symlinks are listed but never followed, so the walk cannot leave the sample workspace
- * or loop on a cycle.
+ * exist. Symlinks are listed but never followed.
  */
 export function allFiles(dir: string): string[] {
-  const found: string[] = [];
-  if (!existsSync(dir)) {
-    return found;
-  }
-  const walk = (current: string) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const entryPath = join(current, entry.name);
-      if (entry.isSymbolicLink()) {
-        found.push(relative(dir, entryPath));
-      } else if (entry.isDirectory()) {
-        walk(entryPath);
-      } else if (lstatSync(entryPath).isFile()) {
-        found.push(relative(dir, entryPath));
-      }
-    }
-  };
-  walk(dir);
-  return found.sort();
+  return walkFiles(dir, { includeSymlinks: true }).map((path) => relative(dir, path));
 }
 
 export function violation(
@@ -189,8 +165,4 @@ export function protectedFileViolations(
     }
   }
   return violations;
-}
-
-export function sha256Text(content: string): string {
-  return createHash("sha256").update(content).digest("hex");
 }

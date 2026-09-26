@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { readOption } from "./cli-options";
-import { runJazzOnce } from "./run-jazz";
+import { reportFilePath, runJazzOnce } from "./run-jazz";
 import { assertAllowedAgent } from "./runner";
 
 const CLASSIFICATIONS = [
@@ -259,10 +259,7 @@ if (
     ...scoreCalibration(rows),
     rows,
   };
-  const reportDir = join(import.meta.dir, "report");
-  mkdirSync(reportDir, { recursive: true });
-  const reportPath = join(
-    reportDir,
+  const reportPath = reportFilePath(
     `memory-judgment-calibration-${heldOut ? "heldout" : "development"}-${new Date().toISOString().replaceAll(":", "-")}.json`,
   );
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
