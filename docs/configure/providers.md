@@ -89,7 +89,7 @@ export NVIDIA_API_KEY="nvapi-..."
 jazz agent create
 ```
 
-Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder; `"canDisable": false` keeps Jazz from sending `"none"`, which the model is not documented to accept, so `disable` runs at `low` instead:
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder: NIM accepts `low`, `high`, `max` and `none` for it and rejects `medium`, so Jazz runs a `medium` agent at `low`:
 
 ```json
 {
@@ -101,7 +101,7 @@ Jazz sends no reasoning control to NIM by default, so each model reasons the way
             "kind": "effort",
             "transport": "openai-compatible.chat.reasoning-effort",
             "efforts": ["low", "high", "max"],
-            "canDisable": false
+            "canDisableReasoning": true
           }
         }
       }
@@ -187,7 +187,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
             "transport": "openai-compatible.chat.template-thinking-budget",
             "minimumBudgetTokens": 256,
             "maximumBudgetTokens": 32768,
-            "canDisable": true
+            "canDisableReasoning": true
           },
           "supportsTools": true
         }
@@ -197,7 +197,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 }
 ```
 
-Keys are exact server-facing model IDs. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
 Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
 
@@ -207,7 +207,7 @@ Transports name the request field Jazz sends, not a vendor. OpenAI-compatible pr
 | `openai-compatible.chat.template-enable-thinking` | `toggle` | `chat_template_kwargs.enable_thinking`                        |
 | `openai-compatible.chat.template-thinking-budget` | `budget` | `chat_template_kwargs.thinking_budget`, omitted when disabled |
 
-When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisable": false` becomes the lowest level, or keeps reasoning on for a toggle. The `/reasoning` picker and `jazz agent create`/`edit` offer only the levels the model's profile accepts; with no profile they offer every level. A typed `/reasoning <level>` or `jazz run --reasoning <level>` the model does not accept prints the level it runs at, and `jazz agent edit` shows it next to the saved level.
+When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisableReasoning": false` becomes the lowest level, or keeps reasoning on for a toggle. The `/reasoning` picker and `jazz agent create`/`edit` offer only the levels the model's profile accepts; with no profile they offer every level. A typed `/reasoning <level>` or `jazz run --reasoning <level>` the model does not accept prints the level it runs at, and `jazz agent edit` shows it next to the saved level.
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 
@@ -215,7 +215,7 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-A hosted provider answers well inside two minutes. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+Most hosted providers answer well inside two minutes, but NVIDIA NIM can queue a request for over three minutes before its first token. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000

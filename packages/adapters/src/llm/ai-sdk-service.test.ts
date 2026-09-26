@@ -20,7 +20,7 @@ import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { APICallError, generateText } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Cause, Effect, Exit, Layer, Stream } from "effect";
+import { Cause, Duration, Effect, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
@@ -196,7 +196,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const override = {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: false,
+        canDisableReasoning: false,
       } as const;
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
@@ -234,7 +234,7 @@ describe("AI SDK Service - Unit Tests", () => {
                   kind: "effort",
                   transport: "openai.responses.reasoning-effort",
                   efforts: ["low"],
-                  canDisable: true,
+                  canDisableReasoning: true,
                 },
               },
             },
@@ -270,6 +270,139 @@ describe("AI SDK Service - Unit Tests", () => {
           process.env["NIM_API_KEY"] = savedNim;
         }
       }
+    });
+
+    it("sends every provider's model request with its configured key and without Bun's fetch timeout", async () => {
+      const bunTimeoutByProvider = new Map<string, unknown>();
+      let currentProvider = "";
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST" && !bunTimeoutByProvider.has(currentProvider)) {
+          bunTimeoutByProvider.set(
+            currentProvider,
+            (init as RequestInit & { timeout?: boolean }).timeout,
+          );
+        }
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      const llmConfig = Object.fromEntries(
+        AVAILABLE_PROVIDERS.map((provider) => [provider, { api_key: "test-key" }]),
+      ) as LLMConfig;
+      // ChatGPT resolves a signed-in OAuth credential before any request is made.
+      const providers = AVAILABLE_PROVIDERS.filter((provider) => provider !== "chatgpt");
+      try {
+        for (const provider of providers) {
+          currentProvider = provider;
+          await Effect.runPromiseExit(
+            (
+              Effect.gen(function* () {
+                const llmService = yield* LLMServiceTag;
+                return yield* llmService.createChatCompletion(provider, {
+                  model: "test-model",
+                  messages: [{ role: "user", content: "hello" }],
+                });
+              }) as Effect.Effect<unknown, unknown, LLMService>
+            ).pipe(
+              Effect.provide(createAISDKServiceLayer()),
+              Effect.provide(createTestConfigLayer(llmConfig)),
+              Effect.provide(createLoggerLayer()),
+              Effect.provide(
+                NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+              ),
+            ) as Effect.Effect<unknown, unknown, never>,
+          );
+        }
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      const withBunTimeout = providers.filter(
+        (provider) => bunTimeoutByProvider.get(provider) !== false,
+      );
+      expect(withBunTimeout).toEqual([]);
+    });
+
+    it("aborts a non-streaming request when Jazz stops waiting on it", async () => {
+      let requestSignal: AbortSignal | undefined;
+      const original = globalThis.fetch;
+      globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+        }
+        requestSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        });
+      }) as typeof fetch;
+      try {
+        await Effect.runPromiseExit(
+          (
+            Effect.gen(function* () {
+              const llmService = yield* LLMServiceTag;
+              return yield* llmService.createChatCompletion("nvidia", {
+                model: "slow-model",
+                messages: [{ role: "user", content: "hello" }],
+              });
+            }) as Effect.Effect<unknown, unknown, LLMService>
+          ).pipe(
+            Effect.timeout(Duration.millis(200)),
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } })),
+            Effect.provide(createLoggerLayer()),
+            Effect.provide(
+              NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+            ),
+          ) as Effect.Effect<unknown, unknown, never>,
+        );
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      expect(requestSignal?.aborted).toBe(true);
+    });
+
+    it("keeps a provider stream error off stderr, leaving it to Jazz's own reporting", async () => {
+      const original = globalThis.fetch;
+      const originalConsoleError = console.error;
+      const consoleErrors: unknown[] = [];
+      console.error = (...args: unknown[]) => {
+        consoleErrors.push(args);
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        })) as unknown as typeof fetch;
+      try {
+        await Effect.runPromiseExit(
+          (
+            Effect.gen(function* () {
+              const llmService = yield* LLMServiceTag;
+              const result = yield* llmService.createStreamingChatCompletion("nvidia", {
+                model: "test-model",
+                messages: [{ role: "user", content: "hello" }],
+              });
+              yield* Stream.runDrain(result.stream).pipe(Effect.ignore);
+              return yield* result.response;
+            }) as Effect.Effect<unknown, unknown, LLMService>
+          ).pipe(
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } })),
+            Effect.provide(createLoggerLayer()),
+            Effect.provide(
+              NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+            ),
+          ) as Effect.Effect<unknown, unknown, never>,
+        );
+      } finally {
+        globalThis.fetch = original;
+        console.error = originalConsoleError;
+      }
+
+      expect(consoleErrors).toEqual([]);
     });
 
     it("sends NVIDIA NIM requests to the hosted endpoint with the bearer key", async () => {
@@ -1229,7 +1362,7 @@ describe("buildProviderOptions - ollama reasoning", () => {
           kind: "effort",
           transport: "openai.responses.reasoning-effort",
           efforts: ["low"],
-          canDisable: true,
+          canDisableReasoning: true,
         },
       ),
     ).toMatchObject({ openai: { reasoningEffort: "low" } });
@@ -1281,7 +1414,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
         kind: "effort",
         transport: "openai-compatible.chat.reasoning-effort",
         efforts: ["low", "medium", "high"],
-        canDisable: true,
+        canDisableReasoning: true,
       }),
     );
     expect(body["reasoning_effort"]).toBe("high");
@@ -1292,7 +1425,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
       buildProviderOptions("nvidia", nimOptions("disable"), {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: true,
+        canDisableReasoning: true,
       }),
     );
     expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: false });
@@ -1304,7 +1437,7 @@ describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
       buildProviderOptions("nvidia", nimOptions("disable"), {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: false,
+        canDisableReasoning: false,
       }),
     );
     expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: true });

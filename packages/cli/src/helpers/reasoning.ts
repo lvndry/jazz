@@ -61,7 +61,7 @@ export function reasoningChoicesFor(
   if (control.kind === "unsupported") {
     return ["disable"];
   }
-  const disable: readonly CliReasoningValue[] = control.canDisable ? ["disable"] : [];
+  const disable: readonly CliReasoningValue[] = control.canDisableReasoning ? ["disable"] : [];
   if (control.kind === "toggle") {
     const on = current && current !== "disable" ? current : TOGGLE_ON_EFFORT;
     return [on, ...disable];

@@ -71,6 +71,35 @@ describe("jazz config set", () => {
     expect(writes).toEqual([{ key: "llm.streamIdleTimeoutMs", value: 600000 }]);
   });
 
+  it("writes a model id containing dots through a quoted path segment", async () => {
+    const path = 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools';
+
+    const exit = await set(path, "true");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: path, value: true }]);
+  });
+
+  it("prompts for the value of a non-key llm setting instead of an API key", async () => {
+    askAnswer.value = "true";
+    const path = 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools';
+
+    const exit = await set(path);
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(ask).toHaveBeenCalledWith(`Enter value for ${path}:`, expect.anything());
+    expect(writes).toEqual([{ key: path, value: true }]);
+  });
+
+  it("prompts for logging.format itself rather than the logging level", async () => {
+    askAnswer.value = "json";
+
+    const exit = await set("logging.format");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "logging.format", value: "json" }]);
+  });
+
   it("stores a boolean setting as a boolean, so `!== false` checks see it", async () => {
     const exit = await set("output.collapseReasoning", "false");
 

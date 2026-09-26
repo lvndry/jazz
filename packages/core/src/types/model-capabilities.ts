@@ -79,14 +79,14 @@ export type ReasoningControlSurface =
   | {
       readonly kind: "toggle";
       readonly transport: "ollama.chat.think" | "openai-compatible.chat.template-enable-thinking";
-      readonly canDisable: boolean;
+      readonly canDisableReasoning: boolean;
     }
   | {
       readonly kind: "effort";
       readonly transport:
         "openai.responses.reasoning-effort" | "openai-compatible.chat.reasoning-effort";
       readonly efforts: readonly CapabilityReasoningEffort[];
-      readonly canDisable: boolean;
+      readonly canDisableReasoning: boolean;
     }
   | {
       readonly kind: "manual";
@@ -94,20 +94,20 @@ export type ReasoningControlSurface =
       readonly minimumBudgetTokens: number;
       readonly maximumBudgetTokens?: number;
       readonly efforts?: readonly CapabilityReasoningEffort[];
-      readonly canDisable: boolean;
+      readonly canDisableReasoning: boolean;
     }
   | {
       readonly kind: "adaptive";
       readonly transport: "anthropic.messages.adaptive-thinking";
       readonly efforts: readonly CapabilityReasoningEffort[];
-      readonly canDisable: boolean;
+      readonly canDisableReasoning: boolean;
     }
   | {
       readonly kind: "budget";
       readonly transport: "openai-compatible.chat.template-thinking-budget";
       readonly minimumBudgetTokens: number;
       readonly maximumBudgetTokens?: number;
-      readonly canDisable: boolean;
+      readonly canDisableReasoning: boolean;
     };
 
 /**
@@ -143,7 +143,7 @@ export function clampReasoningSelection(
       : CAPABILITY_REASONING_EFFORTS;
   const weakest = supported[0] ?? "minimal";
   if (selection === "disable") {
-    return control.canDisable ? "disable" : weakest;
+    return control.canDisableReasoning ? "disable" : weakest;
   }
   if (supported.includes(selection)) {
     return selection;

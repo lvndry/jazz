@@ -4,27 +4,23 @@
  * tool calls, attachments, and reasoning.
  */
 
-import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
+import { createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
-import { cerebras, createCerebras } from "@ai-sdk/cerebras";
-import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
-import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
+import { createCerebras } from "@ai-sdk/cerebras";
+import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createFireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
 import {
   createGoogleGenerativeAI,
   google,
   type GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
-import { groq } from "@ai-sdk/groq";
-import { createMistral, mistral } from "@ai-sdk/mistral";
-import {
-  createMoonshotAI,
-  moonshotai,
-  type MoonshotAILanguageModelOptions,
-} from "@ai-sdk/moonshotai";
+import { createGroq, groq } from "@ai-sdk/groq";
+import { createMistral } from "@ai-sdk/mistral";
+import { createMoonshotAI, type MoonshotAILanguageModelOptions } from "@ai-sdk/moonshotai";
 import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
-import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
+import { createTogetherAI } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
 import {
@@ -90,7 +86,7 @@ import {
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
 import {
-  gateway,
+  createGateway,
   generateText,
   stepCountIs,
   streamText,
@@ -110,8 +106,8 @@ import {
 import { Chunk, Duration, Effect, Layer, Option, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
-import { minimax } from "vercel-minimax-ai-provider";
-import { createZhipu, zhipu } from "zhipu-ai-provider";
+import { createMinimax } from "vercel-minimax-ai-provider";
+import { createZhipu } from "zhipu-ai-provider";
 import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
@@ -121,6 +117,7 @@ import {
   createChatGPTFetch,
 } from "./chatgpt";
 import { saveModelGeneratedFiles } from "./generated-files";
+import { llmFetch } from "./llm-fetch";
 import {
   resolveModelCapabilities,
   type ResolvedModelCapabilities,
@@ -878,7 +875,7 @@ function selectModel(
   switch (providerName) {
     case "openai": {
       const apiKey = resolveApiKey("openai");
-      model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
+      model = createOpenAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "chatgpt": {
@@ -886,7 +883,7 @@ function selectModel(
       model = createOpenAI({
         apiKey: "chatgpt-oauth",
         baseURL: CHATGPT_CODEX_BASE_URL,
-        fetch: createChatGPTFetch(),
+        fetch: createChatGPTFetch({ baseFetch: llmFetch }),
       }).responses(modelId);
       break;
     }
@@ -894,63 +891,61 @@ function selectModel(
       const apiKey = resolveApiKey("anthropic");
       const workspaceId =
         llmConfig?.anthropic?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"];
-      model =
-        apiKey || workspaceId
-          ? createAnthropic({
-              ...(apiKey ? { apiKey } : {}),
-              ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
-            })(modelId)
-          : anthropic(modelId);
+      model = createAnthropic({
+        ...(apiKey ? { apiKey } : {}),
+        ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
+        fetch: llmFetch,
+      })(modelId);
       break;
     }
     case "gemini": {
       const apiKey = resolveApiKey("gemini");
-      model = apiKey ? createGoogleGenerativeAI({ apiKey })(modelId) : google(modelId);
+      model = createGoogleGenerativeAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "mistral": {
       const apiKey = resolveApiKey("mistral");
-      model = apiKey ? createMistral({ apiKey })(modelId) : mistral(modelId);
+      model = createMistral({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "xai": {
       const apiKey = resolveApiKey("xai");
-      model = apiKey ? createXai({ apiKey })(modelId) : xai(modelId);
+      model = createXai({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "deepseek": {
       const apiKey = resolveApiKey("deepseek");
-      model = apiKey
-        ? createDeepSeek({ apiKey })(modelId)
-        : (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      model = createDeepSeek({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "moonshotai": {
       const apiKey = resolveApiKey("moonshotai");
-      model = apiKey ? createMoonshotAI({ apiKey })(modelId) : moonshotai(modelId);
+      model = createMoonshotAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
-    case "minimax":
-      model = minimax(modelId);
+    case "minimax": {
+      const apiKey = resolveApiKey("minimax");
+      model = createMinimax({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
+    }
     case "alibaba": {
       const apiKey = resolveApiKey("alibaba");
-      model = apiKey ? createAlibaba({ apiKey })(modelId) : alibaba(modelId);
+      model = createAlibaba({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "cerebras": {
       const apiKey = resolveApiKey("cerebras");
-      model = apiKey ? createCerebras({ apiKey })(modelId) : cerebras(modelId);
+      model = createCerebras({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "fireworks": {
       const apiKey = resolveApiKey("fireworks");
-      model = apiKey ? createFireworks({ apiKey })(modelId) : fireworks(modelId);
+      model = createFireworks({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "togetherai": {
       const apiKey = resolveApiKey("togetherai");
-      model = apiKey ? createTogetherAI({ apiKey })(modelId) : togetherai(modelId);
+      model = createTogetherAI({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "ollama": {
@@ -962,12 +957,8 @@ function selectModel(
         ? makeOllamaAuthorizedFetch(apiKey, keepAlive)
         : keepAlive
           ? makeOllamaKeepAliveFetch(keepAlive)
-          : undefined;
-      const ollamaInstance = createOllama({
-        baseURL,
-        headers,
-        ...(fetchImpl ? { fetch: fetchImpl } : {}),
-      });
+          : llmFetch;
+      const ollamaInstance = createOllama({ baseURL, headers, fetch: fetchImpl });
       model = ollamaInstance(modelId);
       break;
     }
@@ -982,6 +973,7 @@ function selectModel(
         baseURL,
         includeUsage: true,
         ...(headers ? { headers } : {}),
+        fetch: llmFetch,
       });
       model = localServer(modelId);
       break;
@@ -997,6 +989,7 @@ function selectModel(
         ...(apiKey ? { apiKey } : {}),
         compatibility: "strict",
         headers,
+        fetch: llmFetch,
       };
 
       const openrouter = (
@@ -1014,6 +1007,7 @@ function selectModel(
         baseURL: "https://api.orcarouter.ai/v1",
         includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        fetch: llmFetch,
       });
       model = orcarouter(modelId);
       break;
@@ -1025,21 +1019,24 @@ function selectModel(
         baseURL: "https://integrate.api.nvidia.com/v1",
         includeUsage: true,
         ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        fetch: llmFetch,
       });
       model = nvidia(modelId);
       break;
     }
     case "ai_gateway": {
-      model = gateway(modelId);
+      const apiKey = resolveApiKey("ai_gateway");
+      model = createGateway({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "groq": {
-      model = groq(modelId);
+      const apiKey = resolveApiKey("groq");
+      model = createGroq({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     case "zhipuai": {
       const apiKey = resolveApiKey("zhipuai");
-      model = apiKey ? createZhipu({ apiKey })(modelId) : zhipu(modelId);
+      model = createZhipu({ ...(apiKey ? { apiKey } : {}), fetch: llmFetch })(modelId);
       break;
     }
     default:
@@ -1056,7 +1053,7 @@ export function makeOllamaAuthorizedFetch(
   apiKey: string,
   keepAlive?: string,
 ): typeof globalThis.fetch {
-  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
+  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : llmFetch;
   // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
@@ -1083,14 +1080,14 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
             (parsedBody as Record<string, unknown>)["keep_alive"] === undefined
           ) {
             (parsedBody as Record<string, unknown>)["keep_alive"] = keepAlive;
-            return fetch(input, { ...init, body: JSON.stringify(parsedBody) });
+            return llmFetch(input, { ...init, body: JSON.stringify(parsedBody) });
           }
         } catch {
           // Non-JSON body — forward unchanged.
         }
       }
     }
-    return fetch(input, init);
+    return llmFetch(input, init);
   }) as typeof globalThis.fetch;
 }
 
@@ -1858,7 +1855,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
     return Effect.tryPromise({
-      try: async () => {
+      try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
         const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
           this.config.llmConfig,
@@ -1939,6 +1936,7 @@ class AISDKService implements LLMService {
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
+          abortSignal: signal,
           stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
         });
         Effect.runFork(
@@ -2272,6 +2270,16 @@ class AISDKService implements LLMService {
                     ...(providerOptions ? { providerOptions } : {}),
                     abortSignal: abortController.signal,
                     stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                    // The stream carries the error to the processor, which reports and retries
+                    // it; without this the SDK also dumps the raw error object to stderr.
+                    onError: ({ error }) => {
+                      Effect.runFork(
+                        this.logger.debug(
+                          "Provider stream error",
+                          safeLLMErrorMetadata(error, providerName, "stream"),
+                        ),
+                      );
+                    },
                   });
                   const result = streamTextResult;
 

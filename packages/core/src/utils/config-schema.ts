@@ -56,6 +56,7 @@ import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output
 import type { PeerConfig } from "@/core/types/peer";
 import type { StreamingConfig } from "@/core/types/streaming";
 import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
+import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 
 /**
  * `T` with every property optional, all the way down. A file is a partial override, so this is what
@@ -135,7 +136,7 @@ const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
   transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const effortReasoningSchema = z.strictObject({
@@ -145,7 +146,7 @@ const effortReasoningSchema = z.strictObject({
     "openai-compatible.chat.reasoning-effort",
   ]),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const manualReasoningSchema = z
@@ -155,7 +156,7 @@ const manualReasoningSchema = z
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     efforts: capabilityReasoningEfforts.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
@@ -174,7 +175,7 @@ const adaptiveReasoningSchema = z.strictObject({
   kind: z.literal("adaptive"),
   transport: z.literal("anthropic.messages.adaptive-thinking"),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const budgetReasoningSchema = z
@@ -183,7 +184,7 @@ const budgetReasoningSchema = z
     transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
@@ -524,8 +525,12 @@ function schemaAt(path: Path, value?: unknown): z.ZodType | undefined {
 export function formatConfigPath(path: Path): string {
   let out = "";
   for (const segment of path) {
-    if (typeof segment === "number") out += `[${segment}]`;
-    else out += out === "" ? String(segment) : `.${String(segment)}`;
+    if (typeof segment === "number") {
+      out += `[${segment}]`;
+      continue;
+    }
+    const key = joinConfigPath([String(segment)]);
+    out += out === "" ? key : `.${key}`;
   }
   return out;
 }
@@ -795,10 +800,8 @@ export type ConfigPathResolution =
   | { readonly known: false; readonly suggestion?: string };
 
 function parsePath(path: string): readonly string[] | undefined {
-  const segments = path.split(".");
-  return segments.every((segment) => segment !== "" && !unsafePathSegments.has(segment))
-    ? segments
-    : undefined;
+  const segments = splitConfigPath(path);
+  return segments?.every((segment) => !unsafePathSegments.has(segment)) ? segments : undefined;
 }
 
 const MCP_SERVERS = "mcpServers";
@@ -841,7 +844,7 @@ function suggestPath(segments: readonly string[]): string | undefined {
     const guess = closestKey(segment, knownKeysAt(prefix));
     if (guess === undefined) return undefined;
     const suggested = [...prefix, guess, ...segments.slice(depth + 1)];
-    return schemaAt(suggested) === undefined ? undefined : suggested.join(".");
+    return schemaAt(suggested) === undefined ? undefined : joinConfigPath(suggested);
   }
   return undefined;
 }
@@ -915,7 +918,7 @@ export function parseConfigInput(path: string, raw: string): ConfigInput {
   }
   if (resolution.structured) return { ok: false, reason: "structured" };
 
-  const schema = schemaAt(path.split(".")) as z.ZodType;
+  const schema = schemaAt(parsePath(path) ?? []) as z.ZodType;
   for (const reading of readings(raw)) {
     if (schema.safeParse(reading).success) return { ok: true, value: reading };
   }
