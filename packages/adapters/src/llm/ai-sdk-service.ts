@@ -611,7 +611,7 @@ interface XaiProviderWithTools {
  * Get provider-native web search tool if supported by the provider
  * Returns the tool instance or null if not supported
  */
-function getProviderNativeWebSearchTool(
+export function getProviderNativeWebSearchTool(
   providerName: ProviderName,
   logger?: LoggerService,
 ): ToolSet[string] | null {
@@ -619,7 +619,9 @@ function getProviderNativeWebSearchTool(
 
   try {
     switch (normalizedProvider) {
-      case "openai": {
+      // The ChatGPT backend serves the same hosted web search as the OpenAI API.
+      case "openai":
+      case "chatgpt": {
         const openaiWithTools = openai as typeof openai & {
           tools?: {
             webSearch?: (config?: {

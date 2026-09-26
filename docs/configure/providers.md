@@ -61,7 +61,7 @@ Run `jazz config`, choose **LLM providers**, then **ChatGPT**, and pick how to s
 
 Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in when you are not signed in yet.
 
-The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. There is no environment variable for this provider, so CI and containers should use `openai` with an API key.
+The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider. There is no environment variable for this provider, so CI and containers should use `openai` with an API key.
 
 To switch accounts or sign out, choose **ChatGPT** in `jazz config` again.
 

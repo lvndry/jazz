@@ -1,7 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, jsonSchema, streamText } from "ai";
 import { describe, expect, it } from "bun:test";
-import { toCoreMessages } from "../ai-sdk-service";
+import { getProviderNativeWebSearchTool, toCoreMessages } from "../ai-sdk-service";
 import { extractReasoningParts } from "../reasoning-parts";
 import type { ChatGPTCredential } from "./oauth";
 import {
@@ -294,6 +294,23 @@ describe("AI SDK through the ChatGPT fetch", () => {
     expect(sent.body["store"]).toBe(false);
     expect(sent.body["instructions"]).toBe("You are Jazz.");
     expect(sent.body["max_output_tokens"]).toBeUndefined();
+  });
+
+  it("offers OpenAI's hosted web search", async () => {
+    const backend = fakeBackend(() => sseResponse(streamEvents));
+    const webSearch = getProviderNativeWebSearchTool("chatgpt");
+    expect(webSearch).not.toBeNull();
+
+    await generateText({
+      model: codexModel(backend.fetch),
+      prompt: "What happened in the news today?",
+      tools: { web_search: webSearch! },
+    });
+
+    expect(backend.requests[0]!.body["tools"]).toEqual([
+      { type: "web_search", external_web_access: true, search_context_size: "high" },
+    ]);
+    expect(backend.requests[0]!.body["include"]).toEqual(["web_search_call.action.sources"]);
   });
 
   it("streams text deltas", async () => {
