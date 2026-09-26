@@ -82,6 +82,7 @@ import {
   isChatGPTSignedIn,
 } from "@jazz/core/utils/provider-model";
 import { sanitize } from "@jazz/core/utils/string";
+import { compactToolJsonSchema } from "@jazz/core/utils/tool-json-schema";
 import {
   createOpenRouter,
   openrouter as openrouterDefaultInstance,
@@ -97,12 +98,14 @@ import {
   tool,
   type LanguageModel,
   type FilePart,
+  type JSONSchema7,
   type ModelMessage,
   type SystemModelMessage,
   type ToolCallPart,
   type ToolModelMessage,
   type ToolSet,
   type TypedToolCall,
+  zodSchema,
 } from "ai";
 import { Chunk, Duration, Effect, Layer, Option, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
@@ -1474,43 +1477,58 @@ export function buildProviderOptions(
 }
 
 /**
- * Build the AI SDK `inputSchema` for one tool.
+ * Build the AI SDK `inputSchema` for one tool, compacted by {@link compactToolJsonSchema}
+ * since it is resent on every request.
  *
- * A raw MCP `jsonSchema` passes through unchanged. A Zod schema whose top level is a
- * union (e.g. `z.discriminatedUnion`, used by tools like `manage_memory` whose
+ * A raw MCP `jsonSchema` passes through otherwise unchanged. A Zod schema whose top level
+ * is a union (e.g. `z.discriminatedUnion`, used by tools like `manage_memory` whose
  * argument shape depends on a `command` field) converts to `{ oneOf: [...] }` with no
- * top-level `type`, which providers like Anthropic reject outright — every other Zod
- * schema already converts safely through the AI SDK's own handling, so only this case
- * needs a manual conversion patched with a `type`.
+ * top-level `type`, which providers like Anthropic reject outright, so it is converted
+ * manually and patched with a `type`. Every other Zod schema goes through the AI SDK's
+ * own `zodSchema` conversion and keeps its validator.
  */
 export function buildToolInputSchema(toolDef: {
   function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
 }) {
-  if (toolDef.function.jsonSchema !== undefined) {
-    return jsonSchema(toolDef.function.jsonSchema);
+  const advertisedJsonSchema = toolDef.function.jsonSchema;
+  if (advertisedJsonSchema !== undefined) {
+    return jsonSchema(() => compactToolJsonSchema(advertisedJsonSchema) as JSONSchema7);
   }
   if (toolDef.function.parameters instanceof z.ZodUnion) {
     return jsonSchema(
-      ensureObjectSchemaType(
-        z.toJSONSchema(toolDef.function.parameters) as Record<string, unknown>,
-      ),
+      compactToolJsonSchema(
+        ensureObjectSchemaType(
+          z.toJSONSchema(toolDef.function.parameters) as Record<string, unknown>,
+        ),
+      ) as JSONSchema7,
     );
   }
-  return toolDef.function.parameters;
+  const converted = zodSchema(toolDef.function.parameters);
+  return jsonSchema(
+    () => {
+      const convertedJsonSchema = converted.jsonSchema;
+      return isPromiseLike(convertedJsonSchema)
+        ? convertedJsonSchema.then((resolved) => compactToolJsonSchema(resolved) as JSONSchema7)
+        : (compactToolJsonSchema(convertedJsonSchema) as JSONSchema7);
+    },
+    converted.validate !== undefined ? { validate: converted.validate } : {},
+  );
+}
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 function schemaCharCount(toolDef: {
   function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
 }): number {
-  if (toolDef.function.jsonSchema !== undefined) {
-    try {
-      return JSON.stringify(toolDef.function.jsonSchema).length;
-    } catch {
-      return 0;
-    }
-  }
   try {
-    return JSON.stringify(z.toJSONSchema(toolDef.function.parameters)).length;
+    const advertised = buildToolInputSchema(toolDef).jsonSchema;
+    return isPromiseLike(advertised) ? 0 : JSON.stringify(advertised).length;
   } catch {
     return 0;
   }
