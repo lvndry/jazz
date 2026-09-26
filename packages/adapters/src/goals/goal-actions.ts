@@ -16,7 +16,6 @@ import {
   type GoalControl,
 } from "@jazz/core/agent/goal/goal-controls";
 import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import {
   goalDraftSchema,
   goalPlanningPrompt,
@@ -45,9 +44,16 @@ import type { Agent } from "@jazz/core/types";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
+import { findByNameOrIdPrefix } from "@jazz/core/utils/handle";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import type { ProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
-import { resumeGoalAwareRun, settleStoppingGoal } from "@/adapters/daemon/goal-worker";
+import { resumeGoalRun, settleStoppingGoal } from "@/adapters/daemon/goal-worker";
+import {
+  pendingRunInput,
+  runAnswerOutcome,
+  type RunAnswer,
+} from "@/adapters/daemon/resume-owned-run";
 
 /**
  * The read-only feasibility pass before a proposal: a few tool rounds, then report. Every
@@ -85,9 +91,6 @@ export type GoalProposal =
     }
   | { readonly kind: "failed"; readonly reason: string };
 
-/** Shortest id prefix accepted in place of a whole goal id. */
-const MIN_GOAL_ID_PREFIX = 4;
-
 /**
  * A goal this installation owns, by its name, its id, or a prefix of its id that names only
  * one goal, so whatever a listing shows can be typed back. Undefined for a missing or foreign
@@ -96,53 +99,28 @@ const MIN_GOAL_ID_PREFIX = 4;
 export function getOwnedGoal(handle: string) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
-    const owner = getGoalOwnerInstanceId();
+    const owner = getJazzInstanceId();
     const exact = yield* store.get(handle);
     if (exact !== undefined) {
       return exact.ownerInstanceId === owner ? exact : undefined;
     }
     const owned = yield* store.list({ ownerInstanceId: owner });
-    const named = owned.find((goal) => goal.name === handle);
-    if (named !== undefined || handle.length < MIN_GOAL_ID_PREFIX) {
-      return named;
-    }
-    const matches = owned.filter((goal) => goal.goalId.startsWith(handle));
-    return matches.length === 1 ? matches[0] : undefined;
+    return findByNameOrIdPrefix(owned, handle, (goal) => goal.goalId);
   });
 }
 
 /** What a goal waiting on the user is waiting for: the approval it asks for, or its question. */
 export function pendingGoalInput(goal: GoalRecord) {
-  return Effect.gen(function* () {
-    if (goal.state.kind !== "awaiting-input" || goal.cycle === undefined) {
-      return undefined;
-    }
-    const runs = yield* RunStoreTag;
-    const run = yield* runs.get(goal.cycle.runId);
-    if (run?.state.kind !== "input-required") {
-      return undefined;
-    }
-    const pending = run.state.pending;
-    const described =
-      pending.kind === "tool-approval"
-        ? pending.request.message
-        : pending.kind === "question"
-          ? pending.request.question
-          : "a file to be picked";
-    return { kind: pending.kind, runId: run.runId, described } as const;
-  });
+  return goal.state.kind !== "awaiting-input" || goal.cycle === undefined
+    ? Effect.succeed(undefined)
+    : pendingRunInput(goal.cycle.runId);
 }
-
-export type GoalAnswer =
-  | { readonly kind: "approve" }
-  | { readonly kind: "reject"; readonly note?: string }
-  | { readonly kind: "answer"; readonly response: string };
 
 /**
  * Answer what a goal is waiting on. The rest of its cycle runs in the calling process, so from
  * chat it runs in front of the user, and settles the goal however it ends.
  */
-export function answerGoal(goalId: string, answer: GoalAnswer) {
+export function answerGoal(goalId: string, answer: RunAnswer) {
   return Effect.gen(function* () {
     const goal = yield* getOwnedGoal(goalId);
     if (goal === undefined) {
@@ -152,31 +130,14 @@ export function answerGoal(goalId: string, answer: GoalAnswer) {
     if (pending === undefined) {
       return { kind: "refused", reason: "It is not waiting for an answer from you." } as const;
     }
-    const wantsApproval = pending.kind === "tool-approval";
-    if (wantsApproval !== (answer.kind !== "answer")) {
-      return {
-        kind: "refused",
-        reason: wantsApproval
-          ? "It is waiting for an approval, not an answer: approve or reject it."
-          : "It is waiting for an answer to its question, not an approval.",
-      } as const;
+    const fitted = runAnswerOutcome(pending, answer);
+    if (fitted.kind === "mismatch") {
+      return { kind: "refused", reason: fitted.reason } as const;
     }
-    const resumed = yield* resumeGoalAwareRun({
-      runId: pending.runId,
-      outcome:
-        answer.kind === "answer"
-          ? { kind: "question", value: { kind: "answered", response: answer.response } }
-          : {
-              kind: "approval",
-              value:
-                answer.kind === "approve"
-                  ? { approved: true }
-                  : {
-                      approved: false,
-                      ...(answer.note !== undefined ? { userMessage: answer.note } : {}),
-                    },
-            },
-    });
+    const resumed = yield* resumeGoalRun({ runId: pending.runId, outcome: fitted.outcome });
+    if (resumed === undefined) {
+      return { kind: "refused", reason: "Its waiting run is no longer part of the goal." } as const;
+    }
     if (resumed.kind === "blocked") {
       return { kind: "refused", reason: resumed.reason } as const;
     }
@@ -189,7 +150,7 @@ export function listOwnedGoals(
   filter: Omit<Parameters<GoalStore["list"]>[0], "ownerInstanceId"> = {},
 ) {
   return Effect.flatMap(GoalStoreTag, (store) =>
-    store.list({ ...filter, ownerInstanceId: getGoalOwnerInstanceId() }),
+    store.list({ ...filter, ownerInstanceId: getJazzInstanceId() }),
   );
 }
 

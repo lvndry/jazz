@@ -6,8 +6,9 @@
  * it has exited. These commands are how a person finds it and answers it.
  */
 
-import { resumeGoalAwareRun } from "@jazz/adapters/daemon/goal-worker";
+import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
+import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
@@ -162,12 +163,12 @@ export function answerRunCommand(options: {
     if (grantsSomething(outcome) && isAgentStartedProcess()) {
       return yield* fail(AGENT_ANSWER_REFUSAL);
     }
-    const result = yield* resumeGoalAwareRun({ runId: options.runId, outcome });
+    const result = yield* resumeOwnedRun({ runId: options.runId, outcome });
     if (result.kind === "blocked") {
       return yield* fail(result.reason);
     }
     const settled =
-      result.kind === "not-goal"
+      result.kind === "unowned"
         ? { kind: "finished" as const, response: result.response }
         : result.outcome;
     if (settled.kind === "parked") {
@@ -185,6 +186,7 @@ export function answerRunCommand(options: {
     Effect.catchAll((error) => fail(getErrorMessage(error))),
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
   );
 }
 

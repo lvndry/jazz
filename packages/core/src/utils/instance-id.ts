@@ -1,12 +1,11 @@
 /**
- * @fileoverview Stable ownership identity for durable goals.
+ * @fileoverview This Jazz installation's identity, which owns its durable goals and loops.
  *
- * Goal records are created by the interactive CLI and advanced by the daemon, often in
+ * Goal and loop records are created by the interactive CLI and advanced by the daemon, often in
  * different processes. Both read one installation id from the Jazz home, so they list and
- * control the same records, while goal APIs reject records owned by a different installation.
+ * control the same records, while the APIs reject records owned by a different installation.
  * The id is random and stored once per home: it survives a hostname change, which a derived
- * id would not, and it says nothing about the machine or its paths. Use
- * {@link getGoalOwnerInstanceId} whenever a caller creates or scopes access to a local goal.
+ * id would not, and it says nothing about the machine or its paths.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,7 +26,7 @@ function readInstanceId(path: string): string | undefined {
 }
 
 /** Defaults to this process's Jazz home; only a caller seeding another home passes one. */
-export function getGoalOwnerInstanceId(jazzHome: string = getJazzHomeDirectory()): string {
+export function getJazzInstanceId(jazzHome: string = getJazzHomeDirectory()): string {
   const home = resolve(jazzHome);
   const cached = idsByHome.get(home);
   if (cached !== undefined) {

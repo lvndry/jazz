@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { tasks as behaviorTasks } from "./behavior";
 import { tasks as goalTasks } from "./goals";
 import { tasks as skillTasks } from "./skills";
-import { getGoalOwnerInstanceId } from "../../../packages/core/src/agent/goal/goal-owner";
+import { getJazzInstanceId } from "../../../packages/core/src/utils/instance-id";
 import { createSandbox, removeSandbox, type SampleSandbox } from "../../sandbox";
 import type { MailState, CalendarState } from "../../stubs/impl";
 import { appendStubInvocation, stubState, writeStubState } from "../../stubs/state";
@@ -380,7 +380,7 @@ describe("goal routing scenarios", () => {
     await Effect.runPromise(
       sampleGoalStore(sandbox.jazzHome).create({
         goalId: "goal-proposed",
-        ownerInstanceId: getGoalOwnerInstanceId(sandbox.jazzHome),
+        ownerInstanceId: getJazzInstanceId(sandbox.jazzHome),
         agentId: AGENT,
         conversationId: "goal-proposed",
         workingDirectory: "/work/recipes",

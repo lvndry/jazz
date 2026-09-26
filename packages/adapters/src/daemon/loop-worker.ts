@@ -10,7 +10,6 @@
 
 import { randomUUID } from "node:crypto";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import {
   claimLoopRun,
   endLoopRequest,
@@ -18,6 +17,7 @@ import {
   loopRunCaps,
   loopRunPrompt,
   settleLoopRun,
+  stopAtLimit,
   type LoopRunEnd,
 } from "@jazz/core/agent/loop/loop-lifecycle";
 import {
@@ -25,19 +25,23 @@ import {
   type LoopRecord,
   type LoopRecordInput,
 } from "@jazz/core/agent/loop/loop-record";
-import { runToOutcome } from "@jazz/core/agent/run/park-signal";
+import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
+import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import { runSpend } from "@jazz/core/agent/run/run-spend";
+import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
 import {
   loadConversationOrNull,
   saveRunTranscript,
+  type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
 import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
@@ -83,7 +87,6 @@ function spendOf(runId: string) {
 function runLoop(loop: LoopRecord, runId: string) {
   return Effect.gen(function* () {
     const agents = yield* AgentServiceTag;
-    const logger = yield* LoggerServiceTag;
     const agent = yield* agents.getAgent(loop.agentId).pipe(Effect.either);
     if (agent._tag === "Left") {
       yield* settle(loop.loopId, runId, {
@@ -103,6 +106,14 @@ function runLoop(loop: LoopRecord, runId: string) {
       });
       return;
     }
+    const caps = loopRunCaps(loop);
+    if (caps.kind === "limit") {
+      yield* settle(loop.loopId, runId, {
+        outcome: "failed",
+        text: `Its ${caps.limit} budget was used up before the run started.`,
+      });
+      return;
+    }
     const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
     const outcome = yield* runToOutcome(
       AgentRunner.run({
@@ -112,12 +123,28 @@ function runLoop(loop: LoopRecord, runId: string) {
         conversationId: loop.conversationId,
         conversationHistory: [...(prior?.messages ?? [])],
         maxIterations: loop.budget.maxIterationsPerRun,
-        ...loopRunCaps(loop),
+        ...caps.caps,
         ...(loop.approvalPolicy !== undefined ? { autoApprovePolicy: loop.approvalPolicy } : {}),
         parkWhenUnattended: true,
         inLoop: true,
       }),
     );
+    yield* finishLoopRun(loop, runId, prior, outcome);
+  });
+}
+
+/**
+ * Fold a run's outcome into its loop: nothing yet when it parked, its error when it failed, and
+ * when it finished, its transcript saved to the loop's conversation and any `end_loop` it made.
+ */
+function finishLoopRun(
+  loop: LoopRecord,
+  runId: string,
+  prior: Conversation | null,
+  outcome: RunOutcome<AgentResponse>,
+) {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
     if (outcome.kind === "parked") {
       return;
     }
@@ -134,7 +161,7 @@ function runLoop(loop: LoopRecord, runId: string) {
       agentId: loop.agentId,
       conversationId: loop.conversationId,
       prior,
-      fallbackTitle: `loop: ${loop.prompt}`,
+      fallbackTitle: `loop: ${loop.name}`,
       messages,
     }).pipe(
       Effect.catchAll((error) =>
@@ -194,6 +221,9 @@ function settleClaim(loop: LoopRecord) {
     const spend = runSpend(run);
     switch (run.state.kind) {
       case "input-required":
+        if (claim.stopAfter !== undefined) {
+          yield* dropParkedRun(loop, run.runId);
+        }
         return;
       case "working":
         yield* runs
@@ -226,6 +256,59 @@ function settleClaim(loop: LoopRecord) {
   });
 }
 
+/** Cancel a loop's parked run and settle the loop without it, counting what it spent. */
+function dropParkedRun(loop: LoopRecord, runId: string) {
+  return Effect.gen(function* () {
+    const runs = yield* RunStoreTag;
+    yield* runs
+      .transition(runId, { kind: "canceled", at: "parked" })
+      .pipe(Effect.catchAll(() => Effect.void));
+    yield* settle(loop.loopId, runId, { outcome: "canceled", ...(yield* spendOrNothing(runId)) });
+  });
+}
+
+/**
+ * Answer a parked run that belongs to a loop and fold the result into the loop, under what the
+ * loop's budget has left. Undefined when no loop owns the run; `resumeOwnedRun` is what answer
+ * surfaces call.
+ */
+export function resumeLoopRun(options: ResumeRunOptions) {
+  return Effect.gen(function* () {
+    const loops = yield* LoopStoreTag;
+    const runs = yield* RunStoreTag;
+    const active = yield* loops.list({ ownerInstanceId: getJazzInstanceId(), states: ["active"] });
+    const loop = active.find((candidate) => candidate.run?.runId === options.runId);
+    if (loop === undefined) {
+      return undefined;
+    }
+    if (loop.run?.stopAfter !== undefined) {
+      return {
+        kind: "blocked",
+        reason: `Loop ${loop.name} was asked to ${loop.run.stopAfter}; its waiting run is dropped instead of answered.`,
+      } as const;
+    }
+    const run = yield* runs.get(options.runId);
+    const caps = loopRunCaps(loop, run === undefined ? undefined : runSpend(run));
+    if (caps.kind === "limit") {
+      yield* dropParkedRun(loop, options.runId);
+      return {
+        kind: "blocked",
+        reason: `Loop ${loop.name} reached its ${caps.limit} budget while waiting, so its run was dropped; \`jazz loop resume ${loop.name}\` extends the budget.`,
+      } as const;
+    }
+    const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
+    const outcome = yield* inFlight(
+      options.runId,
+      Effect.gen(function* () {
+        const settled = yield* runToOutcome(resumeRun({ ...options, ...caps.caps, inLoop: true }));
+        yield* finishLoopRun(loop, options.runId, prior, settled);
+        return settled;
+      }),
+    );
+    return { kind: "resumed", owner: { loopId: loop.loopId }, outcome } as const;
+  });
+}
+
 /**
  * One daemon tick for loops: settle claims whose runs have moved on, then start every loop that
  * is due. Started runs run on their own fibers, returned for callers that want to wait on them.
@@ -236,7 +319,7 @@ export function runDueLoops() {
     const logger = yield* LoggerServiceTag;
     const started: Fiber.RuntimeFiber<void, never>[] = [];
     const candidates = yield* loops.list({
-      ownerInstanceId: getGoalOwnerInstanceId(),
+      ownerInstanceId: getJazzInstanceId(),
       states: ["active"],
     });
     const now = new Date();
@@ -246,6 +329,11 @@ export function runDueLoops() {
         continue;
       }
       if (!isLoopDue(loop, now)) {
+        continue;
+      }
+      const stopped = stopAtLimit(loop);
+      if (stopped !== undefined) {
+        yield* writeLoop(loop, stopped, "stop it at a limit it reached");
         continue;
       }
       const runId = randomUUID();

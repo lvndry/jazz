@@ -4,7 +4,13 @@
  * surface that controls loops.
  */
 
-import { addRunSpend, type RunSpend } from "@/core/agent/run/run-spend";
+import {
+  addRunSpend,
+  extendSpendBudget,
+  remainingSpendCaps,
+  spendLimitReached,
+  type RunSpend,
+} from "@/core/agent/run/run-spend";
 import { isValidCronExpression, nextCronRun } from "@/core/utils/cron";
 import type { ProcessOwner } from "@/core/utils/process";
 import { parseDurationMs } from "@/core/utils/time";
@@ -19,6 +25,7 @@ import {
   type LoopRecord,
   type LoopRecordInput,
   type LoopSchedule,
+  type LoopState,
 } from "./loop-record";
 
 /** Longest start of a run's answer or error kept on the loop for a listing. */
@@ -34,6 +41,14 @@ export function nextRunAfter(schedule: LoopSchedule, after: Date): Date | undefi
     : nextCronRun(schedule.expression, after, schedule.timezone);
 }
 
+/**
+ * When a new loop first runs: an interval loop right away, a cron loop at its first scheduled
+ * time, so `0 9 * * mon` started on a Thursday waits for Monday.
+ */
+export function firstRunAt(schedule: LoopSchedule, now: Date): Date | undefined {
+  return schedule.kind === "every" ? now : nextRunAfter(schedule, now);
+}
+
 export function isLoopDue(loop: LoopRecord, now: Date): boolean {
   return (
     loop.state.kind === "active" &&
@@ -47,41 +62,39 @@ export function loopLimitReached(
   loop: Pick<LoopRecord, "budget" | "usage">,
 ): LoopLimit | undefined {
   const { budget, usage } = loop;
-  if (budget.maxRuns !== undefined && usage.runs >= budget.maxRuns) {
-    return "runs";
-  }
-  if (usage.totalTokens >= budget.maxTokens) {
-    return "tokens";
-  }
-  if (usage.activeDurationMs >= budget.maxDurationMs) {
-    return "duration";
-  }
-  if (
-    budget.maxCostUSD !== undefined &&
-    usage.costKnown &&
-    (usage.costUSD ?? 0) >= budget.maxCostUSD
-  ) {
-    return "cost";
-  }
-  return undefined;
+  return budget.maxRuns !== undefined && usage.runs >= budget.maxRuns
+    ? "runs"
+    : spendLimitReached(budget, usage);
 }
 
-/** What one run may still spend, from what the loop has left. */
-export function loopRunCaps(loop: Pick<LoopRecord, "budget" | "usage">): {
-  readonly maxTokens: number;
-  readonly maxDurationMs: number;
-  readonly maxCostUSD?: number;
-} {
-  const { budget, usage } = loop;
-  const maxCostUSD =
-    budget.maxCostUSD !== undefined && usage.costKnown
-      ? budget.maxCostUSD - (usage.costUSD ?? 0)
-      : undefined;
-  return {
-    maxTokens: Math.max(1, budget.maxTokens - usage.totalTokens),
-    maxDurationMs: Math.max(1, budget.maxDurationMs - usage.activeDurationMs),
-    ...(maxCostUSD !== undefined ? { maxCostUSD: Math.max(0, maxCostUSD) } : {}),
-  };
+/**
+ * What one run may still spend, from what the loop has left after `inFlight`, the spend of a
+ * parked run about to resume that is not folded into the loop yet.
+ */
+export function loopRunCaps(loop: Pick<LoopRecord, "budget" | "usage">, inFlight?: RunSpend) {
+  return remainingSpendCaps(loop.budget, loop.usage, inFlight);
+}
+
+/**
+ * The state a loop takes once `limit` is reached: its run limit ends it for good, a spend cap
+ * waits for the user to extend the budget.
+ */
+function limitState(loop: Pick<LoopRecord, "budget">, limit: LoopLimit): LoopState {
+  return limit === "runs"
+    ? {
+        kind: "completed",
+        reason: `It ran the ${String(loop.budget.maxRuns)} times it was allowed.`,
+      }
+    : { kind: "budget-limited", limit };
+}
+
+/**
+ * The loop stopped at a cap it reached while no run was in flight, such as a budget lowered by
+ * hand; undefined while it may start another run.
+ */
+export function stopAtLimit(loop: LoopRecord): LoopRecordInput | undefined {
+  const limit = loopLimitReached(loop);
+  return limit === undefined ? undefined : { ...withoutRun(loop), state: limitState(loop, limit) };
 }
 
 /** The loop with a run claimed: counted, and marked in flight so no other run starts. */
@@ -164,17 +177,8 @@ export function settleLoopRun(loop: LoopRecord, end: LoopRunEnd, now: Date): Loo
     return { ...withNext, state: { kind: "paused" } };
   }
   const limit = loopLimitReached(withNext);
-  if (limit === "runs") {
-    return {
-      ...withNext,
-      state: {
-        kind: "completed",
-        reason: `It ran the ${String(loop.budget.maxRuns)} times it was allowed.`,
-      },
-    };
-  }
   if (limit !== undefined) {
-    return { ...withNext, state: { kind: "budget-limited", limit } };
+    return { ...withNext, state: limitState(loop, limit) };
   }
   if (failures >= MAX_CONSECUTIVE_LOOP_FAILURES) {
     return {
@@ -202,19 +206,7 @@ function extendLoopBudget(loop: LoopRecord): LoopBudget {
     ...(budget.maxRuns !== undefined
       ? { maxRuns: Math.max(budget.maxRuns, usage.runs + budget.maxRuns) }
       : {}),
-    maxTokens: Math.max(budget.maxTokens, usage.totalTokens + DEFAULT_LOOP_BUDGET.maxTokens),
-    maxDurationMs: Math.max(
-      budget.maxDurationMs,
-      usage.activeDurationMs + DEFAULT_LOOP_BUDGET.maxDurationMs,
-    ),
-    ...(budget.maxCostUSD !== undefined
-      ? {
-          maxCostUSD: Math.max(
-            budget.maxCostUSD,
-            (usage.costUSD ?? 0) + (DEFAULT_LOOP_BUDGET.maxCostUSD ?? 0),
-          ),
-        }
-      : {}),
+    ...extendSpendBudget(budget, usage, DEFAULT_LOOP_BUDGET),
   };
 }
 
@@ -236,7 +228,7 @@ export function decideLoopControl(
         ? {
             kind: "write",
             next: { ...withoutRun(loop), run: { ...run, stopAfter: "pause" } },
-            note: "The run in flight finishes first.",
+            note: "The run in progress finishes first; if it is waiting on you, it is dropped instead.",
           }
         : { kind: "write", next: { ...withoutRun(loop), state: { kind: "paused" } } };
     case "cancel":
@@ -244,7 +236,7 @@ export function decideLoopControl(
         ? {
             kind: "write",
             next: { ...withoutRun(loop), run: { ...run, stopAfter: "cancel" } },
-            note: "The run in flight finishes first; nothing runs after it.",
+            note: "The run in progress finishes first, or is dropped if it is waiting on you; nothing runs after it.",
           }
         : { kind: "write", next: { ...withoutRun(loop), state: { kind: "canceled" } } };
     case "resume": {

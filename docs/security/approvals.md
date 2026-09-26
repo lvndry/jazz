@@ -14,8 +14,10 @@ without asking. Denying a tool is a wall; an approval policy is a door with a lo
 ## Risk levels and policies
 
 Every tool declares a risk level. One dial decides which levels run unattended:
-`--approval-policy` on a run, `autoApprove` in a workflow, or the policy granted when accepting a
-goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat asks as you accept).
+`--approval-policy` on a run, `autoApprove` in a workflow, the policy granted when accepting a
+goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat asks as you accept),
+or the one granted when starting a loop (`jazz loop start --approval-policy <tier>`, or the
+question `/loop` asks).
 
 | Policy      | Runs without asking                                                     |
 | ----------- | ----------------------------------------------------------------------- |

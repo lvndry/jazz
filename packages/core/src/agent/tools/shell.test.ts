@@ -569,12 +569,27 @@ describe("accepting a goal from a shell command", () => {
   });
 });
 
+describe("starting a loop from a shell command", () => {
+  it("is blocked for start and resume, which grant the loop lasting authority", () => {
+    expect(
+      matchForbiddenCommand("jazz loop start --agent me --every 10m 'check the deploy'"),
+    ).not.toBeNull();
+    expect(matchForbiddenCommand("cd x && jazz loop resume deploy-watch")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop pause deploy-watch")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop cancel deploy-watch")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop list")).toBeNull();
+  });
+});
+
 describe("answering a parked run from a shell command", () => {
   it("is blocked for approvals and answers, which would grant the agent its own step", () => {
     expect(matchForbiddenCommand("jazz runs approve fe995143")).not.toBeNull();
     expect(matchForbiddenCommand("jazz goal approve detach-to-prod")).not.toBeNull();
     expect(matchForbiddenCommand("jazz goal answer detach-to-prod yes")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop approve deploy-watch")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop answer deploy-watch yes")).not.toBeNull();
     expect(matchForbiddenCommand("jazz goal reject detach-to-prod too risky")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop reject deploy-watch")).toBeNull();
     expect(matchForbiddenCommand("jazz runs show fe995143")).toBeNull();
   });
 });

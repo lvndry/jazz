@@ -1,4 +1,3 @@
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { testGoal, testGoalPlan, testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
@@ -8,6 +7,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
@@ -121,7 +121,7 @@ describe("controlGoal", () => {
     const goals = new InMemoryGoalStore();
     const proposed = await run(
       goals,
-      goals.create(testProposedGoal({ ownerInstanceId: getGoalOwnerInstanceId() })),
+      goals.create(testProposedGoal({ ownerInstanceId: getJazzInstanceId() })),
     );
 
     const missing = await run(goals, controlGoal("no-such-goal", "accept"));
@@ -188,7 +188,7 @@ describe("naming and running goals", () => {
 
   it("finds a goal by its name as well as its id", async () => {
     const goals = new InMemoryGoalStore();
-    const owner = getGoalOwnerInstanceId();
+    const owner = getJazzInstanceId();
     await run(goals, goals.create(testGoal({ ownerInstanceId: owner, name: "detach-to-prod" })));
     expect((await run(goals, getOwnedGoal("detach-to-prod")))?.goalId).toBe("goal-1");
     expect((await run(goals, getOwnedGoal("goal-")))?.goalId).toBe("goal-1");
@@ -197,7 +197,7 @@ describe("naming and running goals", () => {
 
   it("names the goal already under way when a second would start in the same chat", async () => {
     const goals = new InMemoryGoalStore();
-    const owner = getGoalOwnerInstanceId();
+    const owner = getJazzInstanceId();
     await run(goals, goals.create(testGoal({ ownerInstanceId: owner, name: "first-goal" })));
     await run(
       goals,
@@ -213,7 +213,7 @@ describe("naming and running goals", () => {
 
   it("marks an accepted goal as run by the chat, and a handoff as run by the daemon with its grant", async () => {
     const goals = new InMemoryGoalStore();
-    const owner = getGoalOwnerInstanceId();
+    const owner = getJazzInstanceId();
     await run(goals, goals.create(testProposedGoal({ ownerInstanceId: owner })));
     const accepted = await run(goals, controlGoal("goal-1", "accept", { attendedBy: CHAT }));
     expect(accepted.kind === "applied" && accepted.goal.attendedBy).toEqual(CHAT);

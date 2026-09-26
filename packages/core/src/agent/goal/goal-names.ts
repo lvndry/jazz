@@ -5,17 +5,20 @@
 
 import { Effect } from "effect";
 import { GoalStoreTag } from "@/core/interfaces/goal-store";
-import { getGoalOwnerInstanceId } from "./goal-owner";
-import { goalNameFrom, uniqueGoalName } from "./goal-record";
+import { handleFrom, uniqueHandle } from "@/core/utils/handle";
+import { getJazzInstanceId } from "@/core/utils/instance-id";
+
+/** The name of a goal whose suggested name has nothing usable. */
+const FALLBACK_GOAL_NAME = "goal";
 
 export function chooseGoalName(suggested: string | undefined) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
     const taken = new Set(
-      (yield* store.list({ ownerInstanceId: getGoalOwnerInstanceId() }))
+      (yield* store.list({ ownerInstanceId: getJazzInstanceId() }))
         .map((goal) => goal.name)
         .filter((name): name is string => name !== undefined),
     );
-    return uniqueGoalName(goalNameFrom(suggested), taken);
+    return uniqueHandle(handleFrom(suggested, FALLBACK_GOAL_NAME), taken);
   });
 }

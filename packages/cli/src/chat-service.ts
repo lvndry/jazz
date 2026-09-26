@@ -67,6 +67,7 @@ import {
   setSkillCommands,
 } from "./chat/commands";
 import { announceWaitingGoals, offerGoalHandoffs, offerProposedGoals } from "./chat/commands/goal";
+import { announceWaitingLoops } from "./chat/commands/loop";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -214,6 +215,7 @@ export class ChatServiceImpl implements ChatService {
       }
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+        yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
       }
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
@@ -429,6 +431,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId = commandResult.newConversationId;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+                yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
               }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
               // Logs follow the conversation, so /new starts a new file rather than

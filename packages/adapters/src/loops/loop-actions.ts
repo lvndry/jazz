@@ -6,8 +6,13 @@
  * approval policy given here.
  */
 
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
-import { decideLoopControl, type LoopControl } from "@jazz/core/agent/loop/loop-lifecycle";
+import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import {
+  decideLoopControl,
+  firstRunAt,
+  type LoopControl,
+} from "@jazz/core/agent/loop/loop-lifecycle";
+import { chooseLoopName } from "@jazz/core/agent/loop/loop-names";
 import {
   newLoop,
   type LoopBudget,
@@ -15,16 +20,32 @@ import {
   type LoopSchedule,
   type LoopStateKind,
 } from "@jazz/core/agent/loop/loop-record";
-import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
+import { findByNameOrIdPrefix } from "@jazz/core/utils/handle";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { Effect } from "effect";
+import { resumeLoopRun } from "@/adapters/daemon/loop-worker";
+import {
+  pendingRunInput,
+  runAnswerOutcome,
+  type RunAnswer,
+} from "@/adapters/daemon/resume-owned-run";
 
-export function getOwnedLoop(loopId: string) {
+/**
+ * A loop this installation owns, by its id, its name, or a prefix of its id that names only one
+ * loop. Undefined for a missing or foreign loop.
+ */
+export function getOwnedLoop(handle: string) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
-    const loop = yield* loops.get(loopId);
-    return loop?.ownerInstanceId === getGoalOwnerInstanceId() ? loop : undefined;
+    const owner = getJazzInstanceId();
+    const exact = yield* loops.get(handle);
+    if (exact !== undefined) {
+      return exact.ownerInstanceId === owner ? exact : undefined;
+    }
+    const owned = yield* loops.list({ ownerInstanceId: owner });
+    return findByNameOrIdPrefix(owned, handle, (loop) => loop.loopId);
   });
 }
 
@@ -36,7 +57,7 @@ export function listOwnedLoops(
 ) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
-    return yield* loops.list({ ...filter, ownerInstanceId: getGoalOwnerInstanceId() });
+    return yield* loops.list({ ...filter, ownerInstanceId: getJazzInstanceId() });
   });
 }
 
@@ -44,9 +65,12 @@ export type StartLoopOutcome =
   | { readonly kind: "started"; readonly loop: LoopRecord }
   | { readonly kind: "refused"; readonly reason: string };
 
-/** Start a loop whose first run is due now. */
+/** Start a loop: an interval loop runs right away, a cron loop at its first scheduled time. */
 export function startLoop(options: {
+  /** The agent's id or name. */
   readonly agentId: string;
+  /** What to call it; named after the start of its prompt when absent. */
+  readonly name?: string;
   readonly prompt: string;
   readonly schedule: LoopSchedule;
   readonly workingDirectory: string;
@@ -55,9 +79,8 @@ export function startLoop(options: {
   readonly budget?: Partial<LoopBudget>;
 }) {
   return Effect.gen(function* () {
-    const agents = yield* AgentServiceTag;
     const loops = yield* LoopStoreTag;
-    const agent = yield* agents.getAgent(options.agentId).pipe(Effect.either);
+    const agent = yield* getAgentByIdentifier(options.agentId).pipe(Effect.either);
     if (agent._tag === "Left") {
       const refused: StartLoopOutcome = {
         kind: "refused",
@@ -65,14 +88,27 @@ export function startLoop(options: {
       };
       return refused;
     }
+    const firstRun = firstRunAt(options.schedule, new Date());
+    if (firstRun === undefined) {
+      const refused: StartLoopOutcome = {
+        kind: "refused",
+        reason: "Its schedule never fires.",
+      };
+      return refused;
+    }
+    const name = yield* chooseLoopName({
+      prompt: options.prompt,
+      ...(options.name !== undefined ? { name: options.name } : {}),
+    });
     const created = yield* loops
       .create(
         newLoop({
           agentId: agent.right.id,
+          name,
           prompt: options.prompt,
           schedule: options.schedule,
           workingDirectory: options.workingDirectory,
-          firstRunAt: new Date(),
+          firstRunAt: firstRun,
           ...(options.sourceConversationId !== undefined
             ? { sourceConversationId: options.sourceConversationId }
             : {}),
@@ -104,18 +140,18 @@ export type LoopControlOutcome =
  * when the loop changed since the caller read it.
  */
 export function controlLoop(
-  loopId: string,
+  handle: string,
   control: LoopControl,
   options: { readonly expectedVersion?: number } = {},
 ) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
-    const loop = yield* getOwnedLoop(loopId);
+    const loop = yield* getOwnedLoop(handle);
     if (loop === undefined) {
       const missing: LoopControlOutcome = {
         kind: "refused",
         cause: "missing",
-        reason: `No loop with id "${loopId}".`,
+        reason: `No loop "${handle}".`,
       };
       return missing;
     }
@@ -123,7 +159,7 @@ export function controlLoop(
       const changed: LoopControlOutcome = {
         kind: "refused",
         cause: "changed",
-        reason: `Loop ${loopId} changed; refresh and retry.`,
+        reason: `Loop ${loop.name} changed; refresh and retry.`,
       };
       return changed;
     }
@@ -144,7 +180,7 @@ export function controlLoop(
         ? {
             kind: "refused",
             cause: "refused",
-            reason: `Could not update loop ${loopId}: ${saved.left.message}`,
+            reason: `Could not update loop ${loop.name}: ${saved.left.message}`,
           }
         : {
             kind: "applied",
@@ -152,5 +188,57 @@ export function controlLoop(
             ...(decision.note !== undefined ? { note: decision.note } : {}),
           };
     return outcome;
+  });
+}
+
+/** What a loop's run waits on from the user, or undefined when nothing is waiting. */
+export function pendingLoopInput(loop: LoopRecord) {
+  return loop.run === undefined ? Effect.succeed(undefined) : pendingRunInput(loop.run.runId);
+}
+
+/**
+ * Answer what a loop's run is waiting on. The rest of the run happens in the calling process and
+ * is folded into the loop however it ends.
+ */
+export function answerLoop(handle: string, answer: RunAnswer) {
+  return Effect.gen(function* () {
+    const loop = yield* getOwnedLoop(handle);
+    if (loop === undefined) {
+      return { kind: "refused", reason: `No loop "${handle}".` } as const;
+    }
+    const pending = yield* pendingLoopInput(loop);
+    if (pending === undefined) {
+      return { kind: "refused", reason: "It is not waiting for an answer from you." } as const;
+    }
+    const fitted = runAnswerOutcome(pending, answer);
+    if (fitted.kind === "mismatch") {
+      return { kind: "refused", reason: fitted.reason } as const;
+    }
+    const resumed = yield* resumeLoopRun({ runId: pending.runId, outcome: fitted.outcome });
+    if (resumed === undefined) {
+      return { kind: "refused", reason: "Its waiting run is no longer part of the loop." } as const;
+    }
+    if (resumed.kind === "blocked") {
+      return { kind: "refused", reason: resumed.reason } as const;
+    }
+    return { kind: "answered", loop: (yield* getOwnedLoop(loop.loopId)) ?? loop } as const;
+  });
+}
+
+/**
+ * Loops that can go no further until the user acts: stopped after failures, out of budget, or
+ * with a run waiting on an approval or answer.
+ */
+export function loopsWaitingOnUser(filter: { readonly sourceConversationId?: string } = {}) {
+  return Effect.gen(function* () {
+    const loops = yield* listOwnedLoops({
+      ...filter,
+      states: ["active", "failed", "budget-limited"],
+    });
+    return yield* Effect.filter(loops, (loop) =>
+      loop.state.kind === "active"
+        ? Effect.map(pendingLoopInput(loop), (pending) => pending !== undefined)
+        : Effect.succeed(true),
+    );
   });
 }

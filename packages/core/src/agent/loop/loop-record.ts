@@ -14,8 +14,9 @@ import { z } from "zod";
 import type { SpendTotals } from "@/core/agent/run/run-spend";
 import { APPROVAL_POLICY_LEVELS, type ApprovalPolicyLevel } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
+import { HANDLE_PATTERN, MAX_HANDLE_CHARS } from "@/core/utils/handle";
+import { getJazzInstanceId } from "@/core/utils/instance-id";
 import type { ProcessOwner } from "@/core/utils/process";
-import { getGoalOwnerInstanceId } from "../goal/goal-owner";
 
 /**
  * The shortest interval a loop may run at. The daemon ticks every few seconds, and a prompt
@@ -104,6 +105,8 @@ export interface LoopLastRun {
 
 export interface LoopRecord {
   readonly loopId: string;
+  /** The handle people type to refer to it, unique among this installation's loops. */
+  readonly name: string;
   /** The Jazz installation that runs it; a daemon for another home never touches it. */
   readonly ownerInstanceId: string;
   readonly agentId: string;
@@ -166,6 +169,7 @@ const ownerSchema = z.object({
 export const loopRecordSchema = z
   .object({
     loopId: z.string().regex(LOOP_ID_PATTERN),
+    name: z.string().regex(HANDLE_PATTERN).max(MAX_HANDLE_CHARS),
     ownerInstanceId: nonEmpty,
     agentId: nonEmpty,
     conversationId: nonEmpty,
@@ -245,6 +249,8 @@ export function isTerminalLoop(state: LoopState): boolean {
 /** A new, active loop whose first run is due at `firstRunAt`. */
 export function newLoop(options: {
   readonly agentId: string;
+  /** Already unique; see `chooseLoopName`. */
+  readonly name: string;
   readonly prompt: string;
   readonly schedule: LoopSchedule;
   readonly workingDirectory: string;
@@ -256,7 +262,8 @@ export function newLoop(options: {
   const now = new Date().toISOString();
   return {
     loopId: randomUUID(),
-    ownerInstanceId: getGoalOwnerInstanceId(),
+    name: options.name,
+    ownerInstanceId: getJazzInstanceId(),
     agentId: options.agentId,
     conversationId: generateConversationId("loop"),
     ...(options.sourceConversationId !== undefined

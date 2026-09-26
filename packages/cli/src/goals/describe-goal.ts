@@ -3,6 +3,7 @@
  * one block per goal, in plain words, ending with what the user can do next on that surface.
  */
 
+import type { PendingRunInput } from "@jazz/adapters/daemon/resume-owned-run";
 import { pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import type { GoalPlan, GoalRecord } from "@jazz/core/agent/goal/goal-record";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
@@ -24,11 +25,8 @@ export function goalHandle(goal: Pick<GoalRecord, "goalId" | "name">): string {
   return goal.name ?? shortGoalId(goal.goalId);
 }
 
-/** What the goal is waiting on when it waits for the user (see `pendingGoalInput`). */
-export interface PendingGoalInput {
-  readonly kind: "tool-approval" | "question" | "file-picker";
-  readonly described: string;
-}
+/** What the goal is waiting on when it waits for the user (see `pendingRunInput`). */
+export type PendingGoalInput = Pick<PendingRunInput, "kind" | "described">;
 
 /** The goal's state as a person would say it. */
 export function goalStatus(goal: GoalRecord, pending?: PendingGoalInput): string {

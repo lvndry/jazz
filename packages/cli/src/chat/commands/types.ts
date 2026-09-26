@@ -39,6 +39,7 @@ export type CommandType =
   | "shell"
   | "limit"
   | "goal"
+  | "loop"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"

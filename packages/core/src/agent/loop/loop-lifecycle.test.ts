@@ -2,10 +2,12 @@ import { describe, expect, it } from "bun:test";
 import {
   claimLoopRun,
   decideLoopControl,
+  firstRunAt,
   isLoopDue,
   loopRunCaps,
   nextRunAfter,
   settleLoopRun,
+  stopAtLimit,
 } from "./loop-lifecycle";
 import { parseLoopRecord, type LoopRecord } from "./loop-record";
 
@@ -16,6 +18,7 @@ const SPEND = { totalTokens: 1_000, costUSD: 0.01, activeDurationMs: 2_000 };
 function loop(overrides: Partial<LoopRecord> = {}): LoopRecord {
   return {
     loopId: "loop-1",
+    name: "deploy-watch",
     ownerInstanceId: "owner",
     agentId: "agent-1",
     conversationId: "loop-chat",
@@ -75,7 +78,53 @@ describe("when a loop runs", () => {
           },
         }),
       ),
-    ).toEqual({ maxTokens: 10_000, maxDurationMs: 3_600_000, maxCostUSD: 0.6 });
+    ).toEqual({
+      kind: "caps",
+      caps: { maxTokens: 10_000, maxDurationMs: 3_600_000, maxCostUSD: 0.6 },
+    });
+  });
+
+  it("counts a parked run's spend against what a resumed run may use", () => {
+    expect(
+      loopRunCaps(
+        loop({
+          usage: { runs: 1, totalTokens: 60_000, costKnown: true, costUSD: 0, activeDurationMs: 0 },
+        }),
+        { totalTokens: 40_000, activeDurationMs: 0 },
+      ),
+    ).toEqual({ kind: "limit", limit: "tokens" });
+  });
+
+  it("runs an interval loop right away and a cron loop at its first scheduled time", () => {
+    expect(firstRunAt({ kind: "every", everyMs: 600_000 }, NOW)).toEqual(NOW);
+    expect(
+      firstRunAt({ kind: "cron", expression: "0 9 * * mon", timezone: "UTC" }, NOW)?.toISOString(),
+    ).toBe("2026-09-28T09:00:00.000Z");
+  });
+
+  it("stops a due loop at a limit it reached with no run in flight", () => {
+    expect(stopAtLimit(loop())).toBeUndefined();
+    expect(
+      stopAtLimit(
+        loop({
+          usage: {
+            runs: 2,
+            totalTokens: 100_000,
+            costKnown: true,
+            costUSD: 0,
+            activeDurationMs: 0,
+          },
+        }),
+      )?.state,
+    ).toEqual({ kind: "budget-limited", limit: "tokens" });
+    expect(
+      stopAtLimit(
+        loop({
+          budget: { ...loop().budget, maxRuns: 2 },
+          usage: { runs: 2, totalTokens: 0, costKnown: true, costUSD: 0, activeDurationMs: 0 },
+        }),
+      )?.state.kind,
+    ).toBe("completed");
   });
 });
 

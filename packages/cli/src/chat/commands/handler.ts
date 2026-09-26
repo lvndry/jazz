@@ -100,6 +100,7 @@ import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { CHAT_COMMANDS } from "./constants";
 import { handleGoalCommand } from "./goal";
+import { handleLoopCommand } from "./loop";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -159,6 +160,8 @@ export function handleSpecialCommand(
 
       case "goal":
         return yield* handleGoalCommand(context, command.args);
+      case "loop":
+        return yield* handleLoopCommand(context, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);

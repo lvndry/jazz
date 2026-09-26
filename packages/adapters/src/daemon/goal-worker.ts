@@ -26,16 +26,16 @@ import {
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
 import { CLAIMED_GOAL_STATES, isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
-import {
-  addSpend,
-  reachedLimit,
-  remainingCaps,
-  type CycleCaps,
-} from "@jazz/core/agent/goal/goal-usage";
+import { addSpend, reachedLimit, remainingCaps } from "@jazz/core/agent/goal/goal-usage";
 import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
-import { priceOneOffCall, runSpend, type RunSpend } from "@jazz/core/agent/run/run-spend";
+import {
+  priceOneOffCall,
+  runSpend,
+  type RunSpend,
+  type SpendBudget,
+} from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
@@ -374,7 +374,7 @@ function runCycle(
   goal: GoalRecord,
   agent: Agent,
   runId: string,
-  caps: CycleCaps,
+  caps: SpendBudget,
   attendance?: GoalAttendance,
 ) {
   return Effect.gen(function* () {
@@ -723,12 +723,12 @@ export function runDueGoals() {
 }
 
 /**
- * Answer a parked run, and when it belongs to a goal, settle the goal's cycle with the
- * result: finished, parked again on another approval, or failed. The goal is active again
- * while the answered run works, so a pause or cancel in that window is recorded on the
- * cycle instead of being lost. Every surface that answers runs uses this.
+ * Answer a parked run that is a goal's cycle, and settle the cycle with the result: finished,
+ * parked again on another approval, or failed. The goal is active again while the answered run
+ * works, so a pause or cancel in that window is recorded on the cycle instead of being lost.
+ * Undefined when no goal owns the run; `resumeOwnedRun` is what answer surfaces call.
  */
-export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">) {
+export function resumeGoalRun(options: ResumeRunOptions) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
@@ -737,8 +737,7 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     });
     const goal = candidates.find((candidate) => candidate.cycle?.runId === options.runId);
     if (goal === undefined) {
-      const response = yield* resumeRun(options);
-      return { kind: "not-goal", response } as const;
+      return undefined;
     }
     if (goal.state.kind === "paused") {
       return {
@@ -780,12 +779,12 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, goalLimits: caps.caps }));
+        const settled = yield* runToOutcome(resumeRun({ ...options, ...caps.caps }));
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),
     );
-    return { kind: "resumed", goalId: goal.goalId, outcome } as const;
+    return { kind: "resumed", owner: { goalId: goal.goalId }, outcome } as const;
   });
 }
 
