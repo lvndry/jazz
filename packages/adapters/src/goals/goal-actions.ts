@@ -38,7 +38,7 @@ import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { settleStoppingGoal } from "@/adapters/daemon/goal-worker";
 
