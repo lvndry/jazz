@@ -9,9 +9,11 @@
 
 import { hostname } from "node:os";
 import { Effect } from "effect";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
 import type { RunId } from "./run-state";
@@ -42,6 +44,17 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /** Preserve an unattended caller's authority ceiling across the park. */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
+  readonly maxCostUSD?: number;
+  readonly maxDurationMs?: number;
+  readonly maxIterations?: number;
+  readonly withholdInteractiveTools?: boolean;
+  /**
+   * Provider keys for this resumed segment only, layered over the agent's own. A long-lived
+   * host process resolves them per segment so a key stored after it started still applies.
+   */
+  readonly providerApiKeys?: Partial<Record<ProviderName, string>>;
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -70,13 +83,23 @@ export function resumeRun(options: ResumeRunOptions) {
     }
 
     const { snapshot, pending } = record.state;
-    const agent = yield* agentService
+    const storedAgent = yield* agentService
       .getAgent(record.agentId)
       .pipe(
         Effect.mapError(
           () => new RunNotResumableError(options.runId, `its agent ${record.agentId} is gone`),
         ),
       );
+    const agent =
+      options.providerApiKeys === undefined
+        ? storedAgent
+        : {
+            ...storedAgent,
+            config: {
+              ...storedAgent.config,
+              llmApiKeys: { ...storedAgent.config.llmApiKeys, ...options.providerApiKeys },
+            },
+          };
 
     // Claimed before the work starts: two approvals racing on the same parked run would
     // otherwise both replay the tool, and the transition table rejects the second.
@@ -157,6 +180,15 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
+      ...(options.autoApprovePolicy !== undefined
+        ? { autoApprovePolicy: options.autoApprovePolicy }
+        : {}),
+      ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
+      ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
+      ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
+      ...(options.withholdInteractiveTools !== undefined
+        ? { withholdInteractiveTools: options.withholdInteractiveTools }
+        : {}),
       ...(options.autoApprovedTools !== undefined
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),

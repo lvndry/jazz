@@ -13,6 +13,7 @@ export type CommandType =
   | "memory"
   | "new"
   | "fork"
+  | "detach"
   | "help"
   | "clear"
   | "tools"
@@ -109,6 +110,8 @@ export interface CommandContext {
   agent: Agent;
   conversationId: string;
   conversationHistory: ChatMessage[];
+  /** A queued command may have later messages that must not be abandoned on handoff. */
+  queuedAfterCommand?: boolean;
   /** Accumulated input/output tokens for this session (reset on /new). */
   sessionUsage: SessionUsage;
   /** Number of turns sent to the agent this conversation (reset on /new, for /limit). */

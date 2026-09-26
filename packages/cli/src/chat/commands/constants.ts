@@ -27,6 +27,11 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "exit", description: "Exit the chat" },
   { name: "export", description: "Export the conversation to a markdown file", usage: "[path]" },
   { name: "fork", description: "Fork conversation into a new branch (keeps full history)" },
+  {
+    name: "detach",
+    description: "Continue this conversation on a remote SSH host after this turn",
+    usage: "<host>",
+  },
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   {
     name: "memory",
