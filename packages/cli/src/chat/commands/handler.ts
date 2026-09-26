@@ -28,9 +28,9 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
-import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell-tools";
+import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";

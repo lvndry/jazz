@@ -12,7 +12,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
-import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal-tools";
+import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";

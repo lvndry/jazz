@@ -14,10 +14,7 @@ import { buildKeyFromContext } from "../context-utils";
 export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe("Directory to change to. Absolute or relative to the current working directory."),
+      path: z.string().min(1).describe("Absolute or relative to cwd."),
     })
     .strict();
 
@@ -27,7 +24,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     name: "cd",
     disclosure: "internal",
     description:
-      "Change this session's working directory. Relative paths in later tool calls (read_file, grep, find, execute_command) resolve from the new directory until you call cd again. Prefer passing path on the tool you are about to use instead of changing directory first.",
+      "Change the session working directory for later tool calls. For a single call, pass the path to that tool instead.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: makeZodValidator(parameters),

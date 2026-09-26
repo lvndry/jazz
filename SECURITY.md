@@ -90,8 +90,8 @@ Quoting the implementation directly, because it matters:
 Its job is catching an _accident_ from a confused model. Do not treat it as a boundary against
 a hostile one. If you need a real boundary, use [container isolation](#harden-the-host).
 Implementation and the documented set of known bypasses:
-[`shell-tools.ts`](packages/core/src/agent/tools/shell-tools.ts),
-[`shell-tools.security.test.ts`](packages/core/src/agent/tools/shell-tools.security.test.ts).
+[`shell.ts`](packages/core/src/agent/tools/shell.ts),
+[`shell.security.test.ts`](packages/core/src/agent/tools/shell.security.test.ts).
 
 **Environment sanitization.** Shell commands run with variables matching
 `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed

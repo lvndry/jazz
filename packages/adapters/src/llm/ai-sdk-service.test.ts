@@ -1822,11 +1822,37 @@ describe("buildToolInputSchema", () => {
     expect(schemaOf(inputSchema)).toEqual(raw);
   });
 
-  it("leaves a plain object Zod schema for the AI SDK to convert itself", () => {
-    const parameters = z.object({ x: z.string() });
-    const inputSchema = buildToolInputSchema({ function: { parameters } });
+  it("strips $schema from a raw MCP jsonSchema", () => {
+    const inputSchema = buildToolInputSchema({
+      function: {
+        parameters: z.object({}),
+        jsonSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object" },
+      },
+    });
 
-    expect(inputSchema).toBe(parameters);
+    expect(schemaOf(inputSchema)).toEqual({ type: "object" });
+  });
+
+  it("converts a plain object Zod schema the way the AI SDK does, minus the noise keywords", () => {
+    const parameters = z.object({ count: z.number().int().describe("How many.") });
+    const schema = schemaOf(buildToolInputSchema({ function: { parameters } }));
+
+    expect(schema).toEqual({
+      type: "object",
+      properties: { count: { type: "integer", description: "How many." } },
+      required: ["count"],
+      additionalProperties: false,
+    });
+  });
+
+  it("keeps Zod validation for a plain object schema", async () => {
+    const { validate } = buildToolInputSchema({
+      function: { parameters: z.object({ x: z.string() }) },
+    });
+
+    expect(validate).toBeDefined();
+    expect((await validate?.({ x: "ok" }))?.success).toBe(true);
+    expect((await validate?.({ x: 1 }))?.success).toBe(false);
   });
 
   it("flattens a top-level discriminated union, which Anthropic rejects both for a missing type and for the oneOf keyword itself", () => {

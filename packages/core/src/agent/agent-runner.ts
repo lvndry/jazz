@@ -81,7 +81,7 @@ import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
 import { runToolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
-import { registerCustomToolsForAgent } from "./tools/custom-tools";
+import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerPeerTools } from "./tools/register-tools";

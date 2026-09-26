@@ -11,7 +11,7 @@
 
 import * as os from "node:os";
 import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
-import { runShellCommand } from "@jazz/core/agent/tools/shell-tools";
+import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import {
   DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
