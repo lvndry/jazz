@@ -140,8 +140,11 @@ test("local handoff preserves Git state and conversation through a queued remote
       )?.messages,
     ).toEqual(completedMessages);
   } finally {
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     await fs.rm(todo, { force: true });
     await fs.rm(root, { recursive: true, force: true });
   }

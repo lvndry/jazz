@@ -399,6 +399,7 @@ const hostShape = {
     .string()
     .regex(/^\/(?:[a-zA-Z0-9._-]+\/?)+$/)
     .refine((value) => value.split("/").every((part) => part !== ".." && part !== ".")),
+  allowFileSecrets: z.boolean().exactOptional(),
 } satisfies SchemaShape<HostProfile>;
 
 const webhookShape = {

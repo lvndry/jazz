@@ -7,8 +7,11 @@ describe("remote secret import", () => {
   const previous = process.env["JAZZ_DISABLE_KEYRING"];
 
   afterEach(() => {
-    if (previous === undefined) delete process.env["JAZZ_DISABLE_KEYRING"];
-    else process.env["JAZZ_DISABLE_KEYRING"] = previous;
+    if (previous === undefined) {
+      delete process.env["JAZZ_DISABLE_KEYRING"];
+    } else {
+      process.env["JAZZ_DISABLE_KEYRING"] = previous;
+    }
   });
 
   it("refuses disabled secret storage before consuming stdin", async () => {

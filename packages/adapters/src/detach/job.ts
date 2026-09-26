@@ -11,16 +11,26 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
+import {
+  buildWorkStatePreamble,
+  isWorkStatePreamble,
+} from "@jazz/core/agent/context/work-state-preamble";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun } from "@jazz/core/agent/run/resume";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
+import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import type { Agent } from "@jazz/core/types/agent";
+import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
+import { appendDetachEvent, DetachEventRecorder, recordingPresentationService } from "./events";
 import { loadConversation, saveConversation } from "../history/conversation-history-service";
+import { detectKeyringBackend, keyringGet } from "../secrets/keyring";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
+const MAX_MESSAGE_CHARS = 20_000;
+const CANCEL_POLL_MS = 1_000;
 
 export interface EnqueueDetachedJobInput {
   readonly handoffId: string;
@@ -47,8 +57,26 @@ export type DetachedJobStatus =
       readonly pid: number;
       readonly host: string;
     }
+  | { readonly kind: "message-pending"; readonly text: string }
+  | {
+      readonly kind: "message-running";
+      readonly text: string;
+      readonly pid: number;
+      readonly host: string;
+    }
   | { readonly kind: "completed"; readonly answer: string }
-  | { readonly kind: "failed"; readonly error: string };
+  | { readonly kind: "failed"; readonly error: string }
+  /** Handed back to the source machine by `jazz detach reclaim`; this host never runs it again. */
+  | { readonly kind: "released" };
+
+const ACTIVE_KINDS: ReadonlySet<DetachedJobStatus["kind"]> = new Set([
+  "pending",
+  "running",
+  "answer-pending",
+  "answer-running",
+  "message-pending",
+  "message-running",
+]);
 
 export interface DetachedJobRecord {
   readonly version: 1;
@@ -69,8 +97,14 @@ function directory(): string {
 }
 
 function jobPath(id: string): string {
-  if (!ID.test(id)) throw new Error("Invalid detach handoff ID");
+  if (!ID.test(id)) {
+    throw new Error("Invalid detach handoff ID");
+  }
   return path.join(directory(), `${id}.json`);
+}
+
+function cancelMarkerPath(id: string): string {
+  return `${jobPath(id)}.cancel`;
 }
 
 /** Short cross-process lock around compare-and-replace state changes. */
@@ -85,7 +119,9 @@ async function withJobLock<T>(id: string, operation: () => Promise<T>): Promise<
         await fs.rm(lock, { recursive: true, force: true });
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
       const stat = await fs.stat(lock).catch(() => undefined);
       if (stat && Date.now() - stat.mtimeMs > 30_000) {
         await fs.rm(lock, { recursive: true, force: true });
@@ -129,7 +165,9 @@ async function read(id: string): Promise<DetachedJobRecord | undefined> {
   try {
     raw = await fs.readFile(file, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
     throw error;
   }
   const parsed: unknown = JSON.parse(raw);
@@ -144,8 +182,9 @@ async function read(id: string): Promise<DetachedJobRecord | undefined> {
     (parsed as Partial<DetachedJobRecord>).spentDurationMs! < 0 ||
     !Number.isSafeInteger((parsed as Partial<DetachedJobRecord>).spentIterations) ||
     (parsed as Partial<DetachedJobRecord>).spentIterations! < 0
-  )
+  ) {
     throw new Error("Corrupt detach job record");
+  }
   return parsed as DetachedJobRecord;
 }
 
@@ -194,12 +233,17 @@ export function enqueueDetachedJob(input: EnqueueDetachedJobInput) {
       }
       try {
         await fs.link(temporary, jobPath(input.handoffId));
+        await appendDetachEvent(input.handoffId, { type: "user", text: input.continuation });
+        await appendDetachEvent(input.handoffId, { type: "status", state: "pending" });
         return record;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw error;
+        }
         const existing = await read(input.handoffId);
-        if (existing !== undefined && JSON.stringify(existing.input) === JSON.stringify(input))
+        if (existing !== undefined && JSON.stringify(existing.input) === JSON.stringify(input)) {
           return existing;
+        }
         throw new Error("Handoff ID already belongs to a different job", { cause: error });
       } finally {
         await fs.rm(temporary, { force: true });
@@ -247,24 +291,126 @@ export function queueDetachedAnswer(handoffId: string, approved: boolean) {
     try: () =>
       withJobLock(handoffId, async () => {
         const current = await read(handoffId);
-        if (current === undefined) throw new Error("Detached job does not exist");
+        if (current === undefined) {
+          throw new Error("Detached job does not exist");
+        }
         if (current.status.kind === "answer-pending" || current.status.kind === "answer-running") {
-          if (current.status.approved !== approved)
+          if (current.status.approved !== approved) {
             throw new Error("Conflicting answer to detached run");
+          }
           return current;
         }
         if (current.answered !== undefined) {
-          if (current.answered !== approved) throw new Error("Conflicting answer to detached run");
+          if (current.answered !== approved) {
+            throw new Error("Conflicting answer to detached run");
+          }
           return current;
         }
-        if (current.status.kind !== "parked")
+        if (current.status.kind !== "parked") {
           throw new Error("Detached job is not awaiting approval");
+        }
         await write({
           ...current,
           answered: approved,
           status: { kind: "answer-pending", runId: current.status.runId, approved },
           updatedAt: new Date().toISOString(),
         });
+        await appendDetachEvent(handoffId, {
+          type: "status",
+          state: "answer-pending",
+          detail: approved ? "approved" : "rejected",
+        });
+        return (await read(handoffId)) as DetachedJobRecord;
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+}
+
+/**
+ * Queue another turn on a finished conversation, as if the operator typed it in the chat.
+ * It spends from the same budget as the rest of the handoff.
+ */
+export function queueDetachedMessage(handoffId: string, text: string) {
+  return Effect.tryPromise({
+    try: () =>
+      withJobLock(handoffId, async () => {
+        const trimmed = text.trim();
+        if (trimmed.length === 0 || trimmed.length > MAX_MESSAGE_CHARS) {
+          throw new Error("Reply must be between 1 and 20000 characters");
+        }
+        const current = await read(handoffId);
+        if (current === undefined) {
+          throw new Error("Detached job does not exist");
+        }
+        if (current.status.kind !== "completed") {
+          throw new Error(`Detached run is ${current.status.kind}; replies need a finished turn`);
+        }
+        remainingDetachedBudgets(current);
+        await write({
+          ...current,
+          status: { kind: "message-pending", text: trimmed },
+          updatedAt: new Date().toISOString(),
+        });
+        await appendDetachEvent(handoffId, { type: "user", text: trimmed });
+        await appendDetachEvent(handoffId, { type: "status", state: "message-pending" });
+        return (await read(handoffId)) as DetachedJobRecord;
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+}
+
+/**
+ * Stop a detached run. Queued and parked work fails immediately; a turn that is already
+ * executing is interrupted by its worker, which polls for the marker this leaves behind.
+ */
+export function requestDetachedCancel(handoffId: string) {
+  return Effect.tryPromise({
+    try: () =>
+      withJobLock(handoffId, async () => {
+        const current = await read(handoffId);
+        if (current === undefined) {
+          throw new Error("Detached job does not exist");
+        }
+        const kind = current.status.kind;
+        if (kind === "running" || kind === "answer-running" || kind === "message-running") {
+          await fs.writeFile(cancelMarkerPath(handoffId), "", { mode: 0o600 });
+          return current;
+        }
+        if (kind === "pending" || kind === "answer-pending" || kind === "message-pending") {
+          await setStatus(current, { kind: "failed", error: "Cancelled by operator" });
+          return (await read(handoffId)) as DetachedJobRecord;
+        }
+        if (kind === "parked") {
+          await setStatus(current, { kind: "failed", error: "Cancelled by operator" });
+          return (await read(handoffId)) as DetachedJobRecord;
+        }
+        throw new Error(`Detached run is already ${kind}`);
+      }),
+    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+  });
+}
+
+/**
+ * Freeze a settled job so the source machine can take the conversation back. Idempotent:
+ * a reclaim that lost its connection after this point releases again and re-downloads.
+ */
+export function releaseDetachedJob(handoffId: string) {
+  return Effect.tryPromise({
+    try: () =>
+      withJobLock(handoffId, async () => {
+        const current = await read(handoffId);
+        if (current === undefined) {
+          throw new Error("Detached job does not exist");
+        }
+        if (current.status.kind === "released") {
+          return current;
+        }
+        if (ACTIVE_KINDS.has(current.status.kind)) {
+          throw new Error(
+            "Detached run is still working; wait for it or cancel it before reclaiming",
+          );
+        }
+        await setStatus(current, { kind: "released" });
         return (await read(handoffId)) as DetachedJobRecord;
       }),
     catch: (error) => (error instanceof Error ? error : new Error(String(error))),
@@ -274,24 +420,73 @@ export function queueDetachedAnswer(handoffId: string, approved: boolean) {
 async function claim(id: string): Promise<DetachedJobRecord | undefined> {
   return withJobLock(id, async () => {
     const current = await read(id);
-    if (current?.status.kind !== "pending" && current?.status.kind !== "answer-pending") {
+    if (current === undefined) {
       return undefined;
     }
-    const status: DetachedJobStatus =
-      current.status.kind === "pending"
-        ? { kind: "running", pid: process.pid, host: os.hostname() }
-        : { ...current.status, kind: "answer-running", pid: process.pid, host: os.hostname() };
+    const owner = { pid: process.pid, host: os.hostname() };
+    let status: DetachedJobStatus;
+    if (current.status.kind === "pending") {
+      status = { kind: "running", ...owner };
+    } else if (current.status.kind === "answer-pending") {
+      status = { ...current.status, kind: "answer-running", ...owner };
+    } else if (current.status.kind === "message-pending") {
+      status = { kind: "message-running", text: current.status.text, ...owner };
+    } else {
+      return undefined;
+    }
     const next: DetachedJobRecord = {
       ...current,
       status,
       updatedAt: new Date().toISOString(),
     };
     await write(next);
+    await appendDetachEvent(id, { type: "status", state: status.kind });
     return next;
   });
 }
 
-function runOne(record: DetachedJobRecord) {
+/** The transcript as persisted: the work-state preamble is rebuilt per turn, never stored. */
+function withoutPreamble(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) => !isWorkStatePreamble(message));
+}
+
+/** Model iterations a finished turn spent: one assistant message per LLM round trip. */
+function newAssistantTurns(priorLength: number, messages: readonly ChatMessage[] | undefined) {
+  return withoutPreamble(messages ?? [])
+    .slice(priorLength)
+    .filter((message) => message.role === "assistant").length;
+}
+
+/**
+ * The provider key as this host stores it right now. The daemon resolves config secrets once
+ * at startup, but a handoff imports its key over SSH afterwards, so each turn reads it fresh.
+ */
+function hostProviderKeys(agent: Agent) {
+  return Effect.gen(function* () {
+    const provider = agent.config.llmProvider;
+    const backend = yield* detectKeyringBackend();
+    const key = yield* keyringGet(backend, `llm.${provider}.api_key`);
+    return key === undefined || key.length === 0 ? {} : { [provider]: key };
+  });
+}
+
+function withHostProviderKeys(agent: Agent) {
+  return hostProviderKeys(agent).pipe(
+    Effect.map((keys) => ({
+      ...agent,
+      config: { ...agent.config, llmApiKeys: { ...agent.config.llmApiKeys, ...keys } },
+    })),
+  );
+}
+
+interface TurnLimits {
+  readonly maxCostUSD: number;
+  readonly maxDurationMs: number;
+  readonly maxIterations: number;
+}
+
+/** One agent turn on the imported conversation: the initial continuation or a later reply. */
+function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimits) {
   return Effect.gen(function* () {
     const input = record.input;
     const fsContext = yield* FileSystemContextServiceTag;
@@ -299,9 +494,13 @@ function runOne(record: DetachedJobRecord) {
       { agentId: input.agentId, conversationId: input.conversationId },
       input.workspaceRoot,
     );
-    const agent = yield* getAgentByIdentifier(input.agentId);
+    const agent = yield* getAgentByIdentifier(input.agentId).pipe(
+      Effect.flatMap(withHostProviderKeys),
+    );
     const prior = yield* loadConversation(input.agentId, input.conversationId);
-    if (prior === null) return yield* Effect.fail(new Error("Imported conversation is missing"));
+    if (prior === null) {
+      return yield* Effect.fail(new Error("Imported conversation is missing"));
+    }
     const preamble = yield* buildWorkStatePreamble(input.agentId, input.conversationId, {
       modelHint: { provider: agent.config.llmProvider, modelId: agent.config.llmModel },
     });
@@ -309,29 +508,34 @@ function runOne(record: DetachedJobRecord) {
       agent,
       conversationId: input.conversationId,
       conversationHistory: preamble === undefined ? prior.messages : [preamble, ...prior.messages],
-      userInput: input.continuation,
+      userInput,
       autoApprovePolicy: input.approvalPolicy,
-      maxCostUSD: input.maxCostUSD,
-      maxDurationMs: input.maxDurationMs,
-      maxIterations: input.maxIterations,
+      ...limits,
+      stream: true,
       withholdInteractiveTools: true,
       parkWhenUnattended: true,
     }).pipe(
       Effect.catchAll((error) => {
-        if (!isRunParkRequested(error) || error.messages === undefined) return Effect.fail(error);
+        if (!isRunParkRequested(error) || error.messages === undefined) {
+          return Effect.fail(error);
+        }
         return saveConversation({
           ...prior,
           endedAt: new Date().toISOString(),
-          messages: [...error.messages],
+          messages: withoutPreamble(error.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
       endedAt: new Date().toISOString(),
-      messages: response.messages ?? prior.messages,
+      messages: withoutPreamble(response.messages ?? prior.messages),
     });
-    return { content: response.content, costUSD: response.costUSD ?? 0 };
+    return {
+      content: response.content,
+      costUSD: response.costUSD ?? 0,
+      iterations: newAssistantTurns(prior.messages.length, response.messages),
+    };
   });
 }
 
@@ -373,30 +577,42 @@ function resumeOne(record: DetachedJobRecord) {
       input.workspaceRoot,
     );
     const prior = yield* loadConversation(input.agentId, input.conversationId);
-    if (prior === null) return yield* Effect.fail(new Error("Imported conversation is missing"));
+    if (prior === null) {
+      return yield* Effect.fail(new Error("Imported conversation is missing"));
+    }
     const remaining = yield* Effect.try(() => remainingDetachedBudgets(record));
+    const providerApiKeys = yield* getAgentByIdentifier(input.agentId).pipe(
+      Effect.flatMap(hostProviderKeys),
+    );
     const response = yield* resumeRun({
       runId: record.status.runId,
       outcome: { kind: "approval", value: { approved: record.status.approved } },
       autoApprovePolicy: input.approvalPolicy,
       ...remaining,
       withholdInteractiveTools: true,
+      providerApiKeys,
     }).pipe(
       Effect.catchAll((error) => {
-        if (!isRunParkRequested(error) || error.messages === undefined) return Effect.fail(error);
+        if (!isRunParkRequested(error) || error.messages === undefined) {
+          return Effect.fail(error);
+        }
         return saveConversation({
           ...prior,
           endedAt: new Date().toISOString(),
-          messages: [...error.messages],
+          messages: withoutPreamble(error.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
       endedAt: new Date().toISOString(),
-      messages: response.messages ?? prior.messages,
+      messages: withoutPreamble(response.messages ?? prior.messages),
     });
-    return { content: response.content, costUSD: response.costUSD ?? 0 };
+    return {
+      content: response.content,
+      costUSD: response.costUSD ?? 0,
+      iterations: newAssistantTurns(prior.messages.length, response.messages),
+    };
   });
 }
 
@@ -404,6 +620,8 @@ async function setStatus(
   record: DetachedJobRecord,
   status: DetachedJobStatus,
   spent?: { readonly costUSD: number; readonly durationMs: number; readonly iterations: number },
+  /** Shown to an attached operator: what a parked run is waiting on. */
+  detail?: string,
 ): Promise<void> {
   const next = {
     ...record,
@@ -416,9 +634,15 @@ async function setStatus(
   if (status.kind === "parked") {
     const { answered: _previousAnswer, ...rest } = next;
     await write(rest);
-    return;
+  } else {
+    await write(next);
   }
-  await write(next);
+  await appendDetachEvent(record.input.handoffId, {
+    type: "status",
+    state: status.kind,
+    ...(status.kind === "failed" ? { detail: status.error } : {}),
+    ...(detail !== undefined ? { detail } : {}),
+  });
 }
 
 /** Claim and run every pending job on a daemon tick. Never replay a running job. */
@@ -430,13 +654,20 @@ export function runDueDetachedJobs() {
       Effect.catchAll(() => Effect.succeed<string[]>([])),
     );
     for (const file of files) {
-      if (!/^[A-Za-z0-9_-]{1,128}\.json$/.test(file)) continue;
+      if (!/^[A-Za-z0-9_-]{1,128}\.json$/.test(file)) {
+        continue;
+      }
       const id = file.slice(0, -5);
       const existing = yield* Effect.tryPromise(() => read(id)).pipe(
         Effect.catchAll(() => Effect.succeed(undefined)),
       );
-      if (existing?.status.kind === "running" || existing?.status.kind === "answer-running")
+      if (
+        existing?.status.kind === "running" ||
+        existing?.status.kind === "answer-running" ||
+        existing?.status.kind === "message-running"
+      ) {
         continue;
+      }
       if (existing?.status.kind === "parked") {
         const run = yield* runStore.get(existing.status.runId);
         if (run === undefined) {
@@ -468,7 +699,9 @@ export function runDueDetachedJobs() {
       const record = yield* Effect.tryPromise(() => claim(id)).pipe(
         Effect.catchAll(() => Effect.succeed(undefined)),
       );
-      if (record === undefined) continue;
+      if (record === undefined) {
+        continue;
+      }
       yield* Effect.forkDaemon(executeClaimed(record));
     }
   });
@@ -481,11 +714,15 @@ export function recoverInterruptedDetachedJobs() {
       const files = await fs.readdir(directory()).catch(() => [] as string[]);
       let recovered = 0;
       for (const file of files) {
-        if (!/^[A-Za-z0-9_-]{1,128}\.json$/.test(file)) continue;
+        if (!/^[A-Za-z0-9_-]{1,128}\.json$/.test(file)) {
+          continue;
+        }
         const current = await read(file.slice(0, -5)).catch(() => undefined);
         if (
           current !== undefined &&
-          (current.status.kind === "running" || current.status.kind === "answer-running") &&
+          (current.status.kind === "running" ||
+            current.status.kind === "answer-running" ||
+            current.status.kind === "message-running") &&
           current.status.host === os.hostname() &&
           !processAlive(current.status.pid)
         ) {
@@ -511,12 +748,62 @@ function processAlive(pid: number): boolean {
   }
 }
 
+/** Resolve when the operator has asked to cancel this job; the race loser is interrupted. */
+function watchForCancel(handoffId: string) {
+  return Effect.gen(function* () {
+    for (;;) {
+      const requested = yield* Effect.promise(() =>
+        fs.stat(cancelMarkerPath(handoffId)).then(
+          () => true,
+          () => false,
+        ),
+      );
+      if (requested) {
+        return yield* Effect.fail(new Error("Cancelled by operator"));
+      }
+      yield* Effect.sleep(CANCEL_POLL_MS);
+    }
+  });
+}
+
+function turnFor(record: DetachedJobRecord) {
+  if (record.status.kind === "answer-running") {
+    return resumeOne(record);
+  }
+  if (record.status.kind === "message-running") {
+    const text = record.status.text;
+    return Effect.try(() => remainingDetachedBudgets(record)).pipe(
+      Effect.flatMap((remaining) => runTurn(record, text, remaining)),
+    );
+  }
+  const input = record.input;
+  return runTurn(record, input.continuation, {
+    maxCostUSD: input.maxCostUSD,
+    maxDurationMs: input.maxDurationMs,
+    maxIterations: input.maxIterations,
+  });
+}
+
 /** Detached fiber: the periodic daemon sweep must not wait for a whole LLM run. */
 function executeClaimed(record: DetachedJobRecord) {
   return Effect.gen(function* () {
-    const outcome = yield* (
-      record.status.kind === "answer-running" ? resumeOne(record) : runOne(record)
-    ).pipe(Effect.either);
+    const handoffId = record.input.handoffId;
+    const recorder = new DetachEventRecorder(handoffId);
+    const presentation = yield* PresentationServiceTag;
+    const outcome = yield* turnFor(record).pipe(
+      Effect.provideService(
+        PresentationServiceTag,
+        recordingPresentationService(presentation, recorder),
+      ),
+      Effect.raceFirst(watchForCancel(handoffId)),
+      Effect.either,
+    );
+    yield* Effect.promise(() => fs.rm(cancelMarkerPath(handoffId), { force: true }));
+    if (outcome._tag === "Right" && !recorder.sawText && outcome.right.content.length > 0) {
+      recorder.record({ type: "text", delta: outcome.right.content });
+      recorder.record({ type: "response_end" });
+    }
+    yield* Effect.promise(() => recorder.close());
     if (outcome._tag === "Right") {
       yield* Effect.tryPromise(() =>
         setStatus(
@@ -525,7 +812,7 @@ function executeClaimed(record: DetachedJobRecord) {
           {
             costUSD: outcome.right.costUSD,
             durationMs: Math.max(0, Date.now() - new Date(record.updatedAt).getTime()),
-            iterations: 0,
+            iterations: outcome.right.iterations,
           },
         ),
       );
@@ -542,6 +829,11 @@ function executeClaimed(record: DetachedJobRecord) {
       }
       const costUSD = outcome.left.costUSD;
       const iterations = outcome.left.iteration;
+      const run = yield* (yield* RunStoreTag).get(runId);
+      const pending =
+        run?.state.kind === "input-required" && run.state.pending.kind === "tool-approval"
+          ? `${run.state.pending.request.toolName}: ${run.state.pending.request.message}`
+          : undefined;
       yield* Effect.tryPromise(() =>
         setStatus(
           record,
@@ -551,6 +843,7 @@ function executeClaimed(record: DetachedJobRecord) {
             durationMs: Math.max(0, Date.now() - new Date(record.updatedAt).getTime()),
             iterations,
           },
+          pending,
         ),
       );
     } else {

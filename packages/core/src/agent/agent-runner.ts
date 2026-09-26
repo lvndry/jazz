@@ -927,9 +927,11 @@ export class AgentRunner {
     return Effect.scoped(
       Effect.gen(function* () {
         if (options.conversationId && options.internal !== true) {
-          yield* Effect.tryPromise(() =>
-            assertConversationWritable(options.agent.id, options.conversationId as string),
-          );
+          yield* Effect.tryPromise({
+            try: () =>
+              assertConversationWritable(options.agent.id, options.conversationId as string),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
         }
         // Get services
         const configService = yield* AgentConfigServiceTag;

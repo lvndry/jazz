@@ -34,12 +34,21 @@ describe("remote host SSH boundary", () => {
   });
 
   afterEach(() => {
-    if (oldPath === undefined) delete process.env["PATH"];
-    else process.env["PATH"] = oldPath;
-    if (oldCapture === undefined) delete process.env["JAZZ_TEST_CAPTURE"];
-    else process.env["JAZZ_TEST_CAPTURE"] = oldCapture;
-    if (oldResponse === undefined) delete process.env["JAZZ_TEST_RESPONSE"];
-    else process.env["JAZZ_TEST_RESPONSE"] = oldResponse;
+    if (oldPath === undefined) {
+      delete process.env["PATH"];
+    } else {
+      process.env["PATH"] = oldPath;
+    }
+    if (oldCapture === undefined) {
+      delete process.env["JAZZ_TEST_CAPTURE"];
+    } else {
+      process.env["JAZZ_TEST_CAPTURE"] = oldCapture;
+    }
+    if (oldResponse === undefined) {
+      delete process.env["JAZZ_TEST_RESPONSE"];
+    } else {
+      process.env["JAZZ_TEST_RESPONSE"] = oldResponse;
+    }
     rmSync(directory, { recursive: true, force: true });
   });
 

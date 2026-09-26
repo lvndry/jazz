@@ -12,6 +12,11 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Readable } from "node:stream";
 
+/**
+ * Helper protocol a remote Jazz must speak before a handoff starts. Bumped whenever a
+ * `jazz detach _*` helper is added or changes shape.
+ */
+export const DETACH_PROTOCOL = "jazz-detach-2";
 const MAGIC = "JAZZ-DETACH-1\n";
 const MAX_HEADER_BYTES = 8 * 1024;
 const MAX_FILES = 100_000;
@@ -36,7 +41,9 @@ function validRelativePath(value: string): boolean {
 async function* regularFiles(root: string, prefix = ""): AsyncGenerator<string> {
   for (const entry of await fs.readdir(path.join(root, prefix), { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (!validRelativePath(relative)) throw new Error("Unsafe detach bundle path");
+    if (!validRelativePath(relative)) {
+      throw new Error("Unsafe detach bundle path");
+    }
     if (entry.isDirectory()) {
       yield* regularFiles(root, relative);
     } else if (entry.isFile()) {
@@ -49,9 +56,13 @@ async function* regularFiles(root: string, prefix = ""): AsyncGenerator<string> 
 
 async function describeFile(filePath: string, relative: string): Promise<FileHeader> {
   const stat = await fs.lstat(filePath);
-  if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error(`Invalid bundle file: ${relative}`);
+  if (!stat.isFile() || stat.size > MAX_BYTES) {
+    throw new Error(`Invalid bundle file: ${relative}`);
+  }
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk as Buffer);
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk as Buffer);
+  }
   return { path: relative, size: stat.size, sha256: hash.digest("hex") };
 }
 
@@ -63,13 +74,19 @@ export function encodeDetachBundle(bundleDirectory: string): Readable {
       let count = 0;
       let total = 0;
       for await (const relative of regularFiles(bundleDirectory)) {
-        if (++count > MAX_FILES) throw new Error("Detach bundle has too many files");
+        if (++count > MAX_FILES) {
+          throw new Error("Detach bundle has too many files");
+        }
         const filePath = path.join(bundleDirectory, relative);
         const header = await describeFile(filePath, relative);
         total += header.size;
-        if (total > MAX_BYTES) throw new Error("Detach bundle is too large");
+        if (total > MAX_BYTES) {
+          throw new Error("Detach bundle is too large");
+        }
         yield Buffer.from(`${JSON.stringify(header)}\n`);
-        for await (const chunk of createReadStream(filePath)) yield chunk as Buffer;
+        for await (const chunk of createReadStream(filePath)) {
+          yield chunk as Buffer;
+        }
       }
       yield Buffer.from("END\n");
     })(),
@@ -85,9 +102,13 @@ class ByteReader {
   }
 
   private async refill(): Promise<void> {
-    if (this.pending.length > 0) return;
+    if (this.pending.length > 0) {
+      return;
+    }
     const next = await this.source.next();
-    if (next.done) throw new Error("Truncated detach bundle");
+    if (next.done) {
+      throw new Error("Truncated detach bundle");
+    }
     this.pending = Buffer.isBuffer(next.value) ? next.value : Buffer.from(next.value);
   }
 
@@ -98,11 +119,17 @@ class ByteReader {
       await this.refill();
       const newline = this.pending.indexOf(10);
       const take = newline < 0 ? this.pending.length : newline;
-      if (take > 0) chunks.push(this.pending.subarray(0, take));
+      if (take > 0) {
+        chunks.push(this.pending.subarray(0, take));
+      }
       length += take;
-      if (length > MAX_HEADER_BYTES) throw new Error("Detach bundle header is too large");
+      if (length > MAX_HEADER_BYTES) {
+        throw new Error("Detach bundle header is too large");
+      }
       this.pending = this.pending.subarray(take + (newline < 0 ? 0 : 1));
-      if (newline >= 0) return Buffer.concat(chunks).toString("utf8");
+      if (newline >= 0) {
+        return Buffer.concat(chunks).toString("utf8");
+      }
     }
   }
 
@@ -124,28 +151,36 @@ class ByteReader {
     } finally {
       await handle.close();
     }
-    if (hash.digest("hex") !== expectedHash) throw new Error("Detach bundle checksum mismatch");
+    if (hash.digest("hex") !== expectedHash) {
+      throw new Error("Detach bundle checksum mismatch");
+    }
   }
 }
 
 /** Receives a stream into an empty directory, rejecting unsafe or corrupted entries. */
 export async function receiveDetachBundle(stream: Readable, destination: string): Promise<void> {
   const reader = new ByteReader(stream);
-  if ((await reader.line()) !== MAGIC.trimEnd()) throw new Error("Invalid detach bundle header");
+  if ((await reader.line()) !== MAGIC.trimEnd()) {
+    throw new Error("Invalid detach bundle header");
+  }
   await fs.mkdir(destination, { recursive: false, mode: 0o700 });
   let count = 0;
   let total = 0;
   const seen = new Set<string>();
   for (;;) {
     const line = await reader.line();
-    if (line === "END") break;
+    if (line === "END") {
+      break;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(line);
     } catch {
       throw new Error("Invalid detach bundle entry");
     }
-    if (typeof parsed !== "object" || parsed === null) throw new Error("Invalid bundle entry");
+    if (typeof parsed !== "object" || parsed === null) {
+      throw new Error("Invalid bundle entry");
+    }
     const entry = parsed as Partial<FileHeader>;
     if (
       typeof entry.path !== "string" ||
@@ -167,5 +202,7 @@ export async function receiveDetachBundle(stream: Readable, destination: string)
     await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await reader.file(target, entry.size, entry.sha256);
   }
-  if (!seen.has("manifest.json")) throw new Error("Detach bundle has no manifest");
+  if (!seen.has("manifest.json")) {
+    throw new Error("Detach bundle has no manifest");
+  }
 }

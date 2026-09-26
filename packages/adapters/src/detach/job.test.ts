@@ -1,16 +1,21 @@
 /** Persistence and idempotency tests for the detached-run queue. */
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { detachEventLogPath } from "./events";
 import {
   enqueueDetachedJob,
   queueDetachedAnswer,
+  queueDetachedMessage,
   readDetachedJob,
   recoverInterruptedDetachedJobs,
+  releaseDetachedJob,
   remainingDetachedBudgets,
+  requestDetachedCancel,
+  type DetachedJobStatus,
   type EnqueueDetachedJobInput,
 } from "./job";
 
@@ -24,8 +29,11 @@ describe("detached job queue", () => {
   });
 
   afterEach(() => {
-    if (priorHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = priorHome;
+    if (priorHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = priorHome;
+    }
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -145,6 +153,81 @@ describe("detached job queue", () => {
     writeFileSync(file, JSON.stringify({ ...record, spentCostUSD: null }));
     await expect(Effect.runPromise(readDetachedJob("handoff-1"))).rejects.toThrow(
       "Corrupt detach job record",
+    );
+  });
+
+  function setStatus(status: DetachedJobStatus, extra: Record<string, unknown> = {}): void {
+    const file = join(home, "detach", "jobs", "handoff-1.json");
+    const record = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    writeFileSync(file, JSON.stringify({ ...record, ...extra, status }));
+  }
+
+  function loggedEvents(): { type: string; state?: string; text?: string }[] {
+    return readFileSync(detachEventLogPath("handoff-1"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; state?: string; text?: string });
+  }
+
+  it("logs the continuation as the first thing an attached terminal sees", async () => {
+    await Effect.runPromise(enqueueDetachedJob(input()));
+    expect(loggedEvents().map(({ type, state, text }) => ({ type, state, text }))).toEqual([
+      { type: "user", state: undefined, text: "Continue this task" },
+      { type: "status", state: "pending", text: undefined },
+    ]);
+  });
+
+  it("queues a reply only once the previous turn has finished", async () => {
+    await Effect.runPromise(enqueueDetachedJob(input()));
+    await expect(Effect.runPromise(queueDetachedMessage("handoff-1", "next"))).rejects.toThrow(
+      "finished turn",
+    );
+    setStatus({ kind: "completed", answer: "done" });
+    const queued = await Effect.runPromise(queueDetachedMessage("handoff-1", "  next step  "));
+    expect(queued.status).toEqual({ kind: "message-pending", text: "next step" });
+    expect(
+      loggedEvents().some((event) => event.type === "user" && event.text === "next step"),
+    ).toBe(true);
+  });
+
+  it("refuses a reply once the handoff budget is spent", async () => {
+    await Effect.runPromise(enqueueDetachedJob(input()));
+    setStatus({ kind: "completed", answer: "done" }, { spentCostUSD: 2 });
+    await expect(Effect.runPromise(queueDetachedMessage("handoff-1", "more"))).rejects.toThrow(
+      "exhausted",
+    );
+  });
+
+  it("fails queued work immediately and asks a running worker to stop", async () => {
+    await Effect.runPromise(enqueueDetachedJob(input()));
+    const cancelled = await Effect.runPromise(requestDetachedCancel("handoff-1"));
+    expect(cancelled.status).toEqual({ kind: "failed", error: "Cancelled by operator" });
+
+    setStatus({ kind: "running", pid: process.pid, host: hostname() });
+    const running = await Effect.runPromise(requestDetachedCancel("handoff-1"));
+    expect(running.status.kind).toBe("running");
+    expect(existsSync(join(home, "detach", "jobs", "handoff-1.json.cancel"))).toBe(true);
+
+    setStatus({ kind: "completed", answer: "done" });
+    await expect(Effect.runPromise(requestDetachedCancel("handoff-1"))).rejects.toThrow(
+      "already completed",
+    );
+  });
+
+  it("releases only settled work, idempotently, and never runs it again", async () => {
+    await Effect.runPromise(enqueueDetachedJob(input()));
+    await expect(Effect.runPromise(releaseDetachedJob("handoff-1"))).rejects.toThrow(
+      "still working",
+    );
+    setStatus({ kind: "completed", answer: "done" });
+    const released = await Effect.runPromise(releaseDetachedJob("handoff-1"));
+    expect(released.status).toEqual({ kind: "released" });
+    expect(await Effect.runPromise(releaseDetachedJob("handoff-1"))).toEqual(released);
+    await expect(Effect.runPromise(queueDetachedMessage("handoff-1", "more"))).rejects.toThrow(
+      "released",
+    );
+    await expect(Effect.runPromise(queueDetachedAnswer("handoff-1", true))).rejects.toThrow(
+      "not awaiting approval",
     );
   });
 });

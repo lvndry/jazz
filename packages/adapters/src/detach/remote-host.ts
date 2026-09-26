@@ -10,6 +10,7 @@ import { Transform, type Readable, type Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ProviderName } from "@jazz/core/constants/models";
 import type { HostProfile } from "@jazz/core/types/host";
+import { DETACH_PROTOCOL } from "./transfer-protocol";
 
 const SSH_OPTIONS = [
   "-T",
@@ -84,7 +85,9 @@ function ssh(
     const timeout = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     function append(current: string, data: Buffer): string {
       const next = current + data.toString("utf8");
-      if (next.length > MAX_OUTPUT_BYTES) child.kill("SIGKILL");
+      if (next.length > MAX_OUTPUT_BYTES) {
+        child.kill("SIGKILL");
+      }
       return next.slice(0, MAX_OUTPUT_BYTES);
     }
     child.stdout.on("data", (data: Buffer) => {
@@ -94,13 +97,17 @@ function ssh(
       stderr = append(stderr, data);
     });
     child.on("error", (error) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timeout);
       reject(error);
     });
     child.on("close", (code) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timeout);
       if (code !== 0) {
@@ -140,22 +147,27 @@ export async function probeRemoteHost(host: HostProfile): Promise<RemoteHostProb
     `printf '%s\\n' "$(uname -s)" "$(uname -m)" && ` +
     `if test -f /etc/alpine-release || test -f /lib/ld-musl-x86_64.so.1 || test -f /lib/ld-musl-aarch64.so.1; then echo musl; else echo glibc; fi && ` +
     `df -Pk '${host.workspacePath}' | tail -n 1 | awk '{print $4}' && ` +
-    `if command -v jazz >/dev/null 2>&1; then jazz --version; else echo absent; fi; ` +
+    `if test -x "$HOME/.local/bin/jazz"; then "$HOME/.local/bin/jazz" --version; else echo absent; fi; ` +
     `if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 3 http://127.0.0.1:4747/health >/dev/null 2>&1; then echo healthy; else echo absent; fi; ` +
     `if test -x "$HOME/.local/bin/jazz"; then echo local; else echo absent; fi`;
   const lines = (await ssh(host, command)).split("\n");
   const [osRaw, archRaw, libcRaw, kilobytesRaw, versionRaw, daemonRaw, localRaw] = lines;
-  if (osRaw !== "Linux" && osRaw !== "Darwin") throw new Error("Unsupported remote OS");
+  if (osRaw !== "Linux" && osRaw !== "Darwin") {
+    throw new Error("Unsupported remote OS");
+  }
   const arch =
     archRaw === "x86_64" || archRaw === "amd64"
       ? "x64"
       : archRaw === "arm64" || archRaw === "aarch64"
         ? "arm64"
         : undefined;
-  if (arch === undefined) throw new Error("Unsupported remote architecture");
+  if (arch === undefined) {
+    throw new Error("Unsupported remote architecture");
+  }
   const kilobytes = Number(kilobytesRaw);
-  if (!Number.isSafeInteger(kilobytes) || kilobytes < 0)
+  if (!Number.isSafeInteger(kilobytes) || kilobytes < 0) {
     throw new Error("Cannot determine remote free disk space");
+  }
   return {
     os: osRaw,
     arch,
@@ -176,8 +188,9 @@ export async function probeRemoteProvider(
   provider: ProviderName,
 ): Promise<void> {
   const origin = PROVIDER_ORIGINS[provider];
-  if (origin === undefined)
+  if (origin === undefined) {
     throw new Error(`Remote provider preflight is unsupported for ${provider}`);
+  }
   await ssh(host, `curl -sS -o /dev/null --connect-timeout 5 --max-time 10 -I '${origin}'`);
 }
 
@@ -192,7 +205,9 @@ export async function ensureRemoteJazz(host: HostProfile, requiredVersion: strin
   const version = requiredVersion.startsWith("v") ? requiredVersion : `v${requiredVersion}`;
   const probe = await probeRemoteHost(host);
   if (probe.jazzVersion?.replace(/^v/, "") === version.slice(1) && probe.localJazzPresent) {
-    if (!probe.daemonHealthy) await startRemoteDaemon(host);
+    if (!probe.daemonHealthy) {
+      await startRemoteDaemon(host);
+    }
     await verifyRemoteProtocol(host);
     return;
   }
@@ -224,15 +239,18 @@ mv "$tmp/jazz" "$HOME/.local/bin/jazz"
   if (result.replace(/^v/, "") !== version.slice(1)) {
     throw new Error("Remote Jazz version did not match the requested release");
   }
-  if (!(await probeRemoteHost(host)).daemonHealthy) await startRemoteDaemon(host);
+  if (!(await probeRemoteHost(host)).daemonHealthy) {
+    await startRemoteDaemon(host);
+  }
   await verifyRemoteProtocol(host);
 }
 
 /** A matching version string alone does not prove that this binary understands detach. */
 async function verifyRemoteProtocol(host: HostProfile): Promise<void> {
   const reply = await ssh(host, '"$HOME/.local/bin/jazz" detach _protocol');
-  if (reply !== "jazz-detach-1")
+  if (reply !== DETACH_PROTOCOL) {
     throw new Error("Remote Jazz does not support the detach protocol");
+  }
 }
 
 /** Start Jazz's loopback background daemon, then demand a healthy endpoint. */
@@ -254,48 +272,143 @@ export async function transferRemoteSecret(
   }
   const receipt = await ssh(
     host,
-    `"$HOME/.local/bin/jazz" hosts _import-secret '${secretPath}'`,
+    `"$HOME/.local/bin/jazz" hosts _import-secret '${secretPath}'${
+      host.allowFileSecrets === true ? " --allow-file-store" : ""
+    }`,
     value,
   );
-  if (receipt !== "stored") throw new Error("Remote secret import did not confirm storage");
+  if (receipt !== "stored") {
+    throw new Error("Remote secret import did not confirm storage");
+  }
+}
+
+const REQUEST_HELPERS = [
+  "_receive",
+  "_start",
+  "_status",
+  "_approve",
+  "_reject",
+  "_message",
+  "_cancel",
+] as const;
+type RequestHelper = (typeof REQUEST_HELPERS)[number];
+const DOWNLOAD_HELPERS = ["_pull", "_release"] as const;
+type DownloadHelper = (typeof DOWNLOAD_HELPERS)[number];
+
+function checkedRequestHelper(action: RequestHelper): RequestHelper {
+  if (!REQUEST_HELPERS.includes(action)) {
+    throw new Error("Invalid remote helper action");
+  }
+  return action;
 }
 
 /** Invoke a fixed detached-run helper; all dynamic data travels as JSON on stdin. */
 export function runRemoteHelper(
   host: HostProfile,
-  action: "_receive" | "_start" | "_status" | "_approve" | "_reject" | "_pull",
+  action: RequestHelper,
   stdin?: string,
 ): Promise<string> {
-  if (!["_receive", "_start", "_status", "_approve", "_reject", "_pull"].includes(action)) {
-    throw new Error("Invalid remote helper action");
-  }
-  return ssh(host, `"$HOME/.local/bin/jazz" detach ${action}`, stdin);
+  return ssh(host, `"$HOME/.local/bin/jazz" detach ${checkedRequestHelper(action)}`, stdin);
 }
 
 /** Stream a potentially large bundle to a fixed remote helper with backpressure. */
 export function runRemoteHelperStream(
   host: HostProfile,
-  action: "_receive" | "_start" | "_status" | "_approve" | "_reject" | "_pull",
+  action: RequestHelper,
   source: Readable,
 ): Promise<string> {
-  if (!["_receive", "_start", "_status", "_approve", "_reject", "_pull"].includes(action)) {
-    throw new Error("Invalid remote helper action");
+  return ssh(
+    host,
+    `"$HOME/.local/bin/jazz" detach ${checkedRequestHelper(action)}`,
+    source,
+    10 * 60_000,
+  );
+}
+
+export interface RemoteEventFollower {
+  /** Resolves when the SSH process exits; rejects on a nonzero exit that `stop` did not cause. */
+  readonly done: Promise<void>;
+  readonly stop: () => void;
+}
+
+/**
+ * Tail a handoff's event log over one long-lived SSH session. Lines are delivered as they
+ * arrive; blank heartbeat lines are dropped here. There is no timeout: the caller stops it.
+ */
+export function followRemoteEvents(
+  host: HostProfile,
+  handoffId: string,
+  sinceByte: number,
+  onLine: (line: string, byteLength: number) => void,
+): RemoteEventFollower {
+  checkedHost(host);
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(handoffId) || !Number.isSafeInteger(sinceByte)) {
+    throw new Error("Invalid remote event request");
   }
-  return ssh(host, `"$HOME/.local/bin/jazz" detach ${action}`, source, 10 * 60_000);
+  const child = spawn(
+    "ssh",
+    [...SSH_OPTIONS, "--", host.sshTarget, '"$HOME/.local/bin/jazz" detach _events'],
+    { stdio: ["pipe", "pipe", "pipe"], env: process.env },
+  );
+  let stopped = false;
+  let stderr = "";
+  let pending = Buffer.alloc(0);
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr = (stderr + chunk.toString("utf8")).slice(0, MAX_OUTPUT_BYTES);
+  });
+  child.stdout.on("data", (chunk: Buffer) => {
+    pending = Buffer.concat([pending, chunk]);
+    for (;;) {
+      const newline = pending.indexOf(0x0a);
+      if (newline < 0) {
+        break;
+      }
+      const line = pending.subarray(0, newline).toString("utf8");
+      pending = pending.subarray(newline + 1);
+      if (line.length > 0) {
+        onLine(line, newline + 1);
+      }
+    }
+  });
+  child.stdin.on("error", () => undefined);
+  child.stdin.end(JSON.stringify({ handoffId, sinceByte, follow: true }));
+  const done = new Promise<void>((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (stopped || code === 0) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `Remote event stream ended (${code ?? "signal"}): ${stderr.trim() || "no details"}`,
+          ),
+        );
+      }
+    });
+  });
+  return {
+    done,
+    stop: () => {
+      stopped = true;
+      child.kill("SIGTERM");
+    },
+  };
 }
 
 /** Stream a remote result bundle to a writable sink without buffering it in memory. */
 export async function downloadRemoteHelper(
   host: HostProfile,
-  action: "_pull",
+  action: DownloadHelper,
   stdinJson: string,
   destination: Writable,
 ): Promise<void> {
   checkedHost(host);
-  if (action !== "_pull" || stdinJson.length > 8192) throw new Error("Invalid remote pull request");
+  if (!DOWNLOAD_HELPERS.includes(action) || stdinJson.length > 8192) {
+    throw new Error("Invalid remote download request");
+  }
   const child = spawn(
     "ssh",
-    [...SSH_OPTIONS, "--", host.sshTarget, '"$HOME/.local/bin/jazz" detach _pull'],
+    [...SSH_OPTIONS, "--", host.sshTarget, `"$HOME/.local/bin/jazz" detach ${action}`],
     {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,

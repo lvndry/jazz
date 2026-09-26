@@ -72,7 +72,14 @@ describe("parseConfigFile", () => {
         },
       },
       peers: [{ name: "sam", url: "https://sam.example", disclosure: "public" }],
-      hosts: [{ name: "nightbox", sshTarget: "nightbox", workspacePath: "/home/jazz/work" }],
+      hosts: [
+        {
+          name: "nightbox",
+          sshTarget: "nightbox",
+          workspacePath: "/home/jazz/work",
+          allowFileSecrets: true,
+        },
+      ],
       webhooks: [{ name: "deploy", agentId: "default", promptTemplate: "{{payload}}" }],
       daemon: { token: "file-fallback" },
     };

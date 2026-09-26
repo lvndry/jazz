@@ -361,12 +361,9 @@ function handleDetachCommand(
     }
     const receipt = committed.right;
     yield* terminal.success(`Remote run ${receipt.state} on ${receipt.hostName}.`);
-    if (receipt.state === "parked") {
-      yield* terminal.warn(`It needs a decision: jazz detach status ${receipt.handoffId}`);
-    } else {
-      yield* terminal.log("You can close this terminal; the remote host owns the conversation.");
-    }
-    yield* terminal.log(`Check progress: jazz detach status ${receipt.handoffId}`);
+    yield* terminal.log("You can close this terminal; the remote host owns the conversation.");
+    yield* terminal.log(`Watch and reply: jazz detach attach ${receipt.handoffId}`);
+    yield* terminal.log(`Bring it back:   jazz detach reclaim ${receipt.handoffId}`);
     return { shouldContinue: false };
   });
 }

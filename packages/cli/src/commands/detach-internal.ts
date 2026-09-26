@@ -10,10 +10,15 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { readDetachEventLines } from "@jazz/adapters/detach/events";
 import {
   enqueueDetachedJob,
   queueDetachedAnswer,
+  queueDetachedMessage,
   readDetachedJob,
+  releaseDetachedJob,
+  requestDetachedCancel,
+  type DetachedJobRecord,
 } from "@jazz/adapters/detach/job";
 import {
   createDetachSnapshot,
@@ -26,6 +31,9 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 
 const ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const EVENT_POLL_MS = 250;
+/** An idle attach still writes periodically, so a vanished client surfaces as EPIPE and exits. */
+const EVENT_HEARTBEAT_MS = 15_000;
 
 function incomingDirectory(): string {
   return path.join(getJazzHomeDirectory(), "detach", "incoming");
@@ -35,14 +43,24 @@ async function readStdinJson(): Promise<unknown> {
   let data = "";
   for await (const chunk of process.stdin) {
     data += (chunk as Buffer).toString("utf8");
-    if (data.length > 64 * 1024) throw new Error("Detach request is too large");
+    if (data.length > 64 * 1024) {
+      throw new Error("Detach request is too large");
+    }
   }
   return JSON.parse(data) as unknown;
 }
 
 function parseId(value: unknown): string {
-  if (typeof value !== "string" || !ID.test(value)) throw new Error("Invalid handoff id");
+  if (typeof value !== "string" || !ID.test(value)) {
+    throw new Error("Invalid handoff id");
+  }
   return value;
+}
+
+function field(input: unknown, name: string): unknown {
+  return typeof input === "object" && input !== null
+    ? (input as Record<string, unknown>)[name]
+    : undefined;
 }
 
 /** Stage a verified file stream; retries with the same handoff id are idempotent. */
@@ -89,7 +107,9 @@ interface StartRequest {
 }
 
 function parseStartRequest(value: unknown): StartRequest {
-  if (typeof value !== "object" || value === null) throw new Error("Invalid detach start request");
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Invalid detach start request");
+  }
   const v = value as Record<string, unknown>;
   const handoffId = parseId(v["handoffId"]);
   const agentId = parseId(v["agentId"]);
@@ -107,7 +127,9 @@ function parseStartRequest(value: unknown): StartRequest {
   if (typeof continuation !== "string" || !continuation.trim() || continuation.length > 16_000) {
     throw new Error("Invalid continuation instruction");
   }
-  if (v["approvalPolicy"] !== "low-risk") throw new Error("Invalid detached approval policy");
+  if (v["approvalPolicy"] !== "low-risk") {
+    throw new Error("Invalid detached approval policy");
+  }
   for (const key of ["maxCostUSD", "maxDurationMs", "maxIterations"] as const) {
     const number = v[key];
     if (typeof number !== "number" || !Number.isFinite(number) || number <= 0) {
@@ -187,11 +209,16 @@ export async function detachedRunStatusCommand(): Promise<void> {
       : undefined,
   );
   const job = await Effect.runPromise(readDetachedJob(id));
-  if (!job) throw new Error("Unknown detached run");
+  if (!job) {
+    throw new Error("Unknown detached run");
+  }
   const state =
     job.status.kind === "pending"
       ? "preparing"
-      : job.status.kind === "answer-pending" || job.status.kind === "answer-running"
+      : job.status.kind === "answer-pending" ||
+          job.status.kind === "answer-running" ||
+          job.status.kind === "message-pending" ||
+          job.status.kind === "message-running"
         ? "running"
         : job.status.kind;
   let detail = job.status.kind === "failed" ? job.status.error : undefined;
@@ -230,18 +257,8 @@ export async function answerDetachedRunCommand(approved: boolean): Promise<void>
   );
 }
 
-/** Stream a completed remote workspace and conversation back for local conflict review. */
-export async function pullDetachedRunCommand(): Promise<void> {
-  const input = await readStdinJson();
-  const id = parseId(
-    typeof input === "object" && input !== null
-      ? (input as { handoffId?: unknown }).handoffId
-      : undefined,
-  );
-  const record = await Effect.runPromise(readDetachedJob(id));
-  if (!record || record.status.kind !== "completed") {
-    throw new Error("Only completed detached runs can be pulled");
-  }
+async function streamResultSnapshot(record: DetachedJobRecord): Promise<void> {
+  const id = record.input.handoffId;
   const directory = path.join(
     getJazzHomeDirectory(),
     "detach",
@@ -259,5 +276,97 @@ export async function pullDetachedRunCommand(): Promise<void> {
     await pipeline(encodeDetachBundle(directory), process.stdout);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Stream a completed remote workspace and conversation back for local conflict review. */
+export async function pullDetachedRunCommand(): Promise<void> {
+  const id = parseId(field(await readStdinJson(), "handoffId"));
+  const record = await Effect.runPromise(readDetachedJob(id));
+  if (!record || record.status.kind !== "completed") {
+    throw new Error("Only completed detached runs can be pulled");
+  }
+  await streamResultSnapshot(record);
+}
+
+/**
+ * Freeze the job so this host never runs it again, then stream the final state back.
+ * Retrying after a dropped connection releases idempotently and streams the same state.
+ */
+export async function releaseDetachedRunCommand(): Promise<void> {
+  const id = parseId(field(await readStdinJson(), "handoffId"));
+  const record = await Effect.runPromise(releaseDetachedJob(id));
+  await streamResultSnapshot(record);
+}
+
+/** Queue the operator's next message on a finished conversation. */
+export async function messageDetachedRunCommand(): Promise<void> {
+  const input = await readStdinJson();
+  const id = parseId(field(input, "handoffId"));
+  const text = field(input, "text");
+  if (typeof text !== "string") {
+    throw new Error("Invalid reply");
+  }
+  const record = await Effect.runPromise(queueDetachedMessage(id, text));
+  process.stdout.write(
+    JSON.stringify({ handoffId: id, accepted: true, state: record.status.kind }),
+  );
+}
+
+/** Ask the remote worker to stop this handoff's current or queued turn. */
+export async function cancelDetachedRunCommand(): Promise<void> {
+  const id = parseId(field(await readStdinJson(), "handoffId"));
+  const record = await Effect.runPromise(requestDetachedCancel(id));
+  process.stdout.write(
+    JSON.stringify({ handoffId: id, accepted: true, state: record.status.kind }),
+  );
+}
+
+/**
+ * Write the handoff's event log from a byte offset. With `follow`, keep tailing until the
+ * SSH client goes away; the client tracks offsets itself, so reconnecting loses nothing.
+ */
+export async function detachedRunEventsCommand(): Promise<void> {
+  const input = await readStdinJson();
+  const id = parseId(field(input, "handoffId"));
+  const sinceByte = field(input, "sinceByte");
+  if (typeof sinceByte !== "number" || !Number.isSafeInteger(sinceByte) || sinceByte < 0) {
+    throw new Error("Invalid event offset");
+  }
+  const follow = field(input, "follow") === true;
+  if (!(await Effect.runPromise(readDetachedJob(id)))) {
+    throw new Error("Unknown detached run");
+  }
+  let disconnected = false;
+  process.stdout.on("error", () => {
+    disconnected = true;
+  });
+  const write = (chunk: string) =>
+    new Promise<void>((resolve) => {
+      process.stdout.write(chunk, (error) => {
+        if (error) {
+          disconnected = true;
+        }
+        resolve();
+      });
+    });
+  let offset = sinceByte;
+  let lastWrite = Date.now();
+  while (!disconnected) {
+    const { lines, nextByte } = await readDetachEventLines(id, offset);
+    if (lines.length > 0) {
+      await write(`${lines.join("\n")}\n`);
+      offset = nextByte;
+      lastWrite = Date.now();
+      continue;
+    }
+    if (!follow) {
+      return;
+    }
+    if (Date.now() - lastWrite >= EVENT_HEARTBEAT_MS) {
+      await write("\n");
+      lastWrite = Date.now();
+    }
+    await new Promise((resolve) => setTimeout(resolve, EVENT_POLL_MS));
   }
 }

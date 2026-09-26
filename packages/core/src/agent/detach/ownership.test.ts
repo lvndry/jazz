@@ -2,7 +2,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { abortDetach, assertConversationWritable, commitDetach, prepareDetach } from "./ownership";
+import {
+  abortDetach,
+  assertConversationWritable,
+  commitDetach,
+  prepareDetach,
+  releaseDetach,
+} from "./ownership";
 
 let directory: string;
 let previousHome: string | undefined;
@@ -14,8 +20,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = previousHome;
+  if (previousHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = previousHome;
+  }
   await fs.rm(directory, { recursive: true, force: true });
 });
 
@@ -52,6 +61,27 @@ describe("conversation ownership", () => {
   test("rejects path-shaped identifiers", async () => {
     await expect(prepareDetach({ ...handoff, conversationId: "../other" })).rejects.toThrow(
       "Invalid",
+    );
+  });
+
+  test("reclaim lifts only a committed fence, and only for its own handoff", async () => {
+    await prepareDetach(handoff);
+    await expect(releaseDetach(handoff)).rejects.toThrow("committed");
+    await commitDetach(handoff);
+    await expect(releaseDetach({ ...handoff, handoffId: "other" })).rejects.toThrow("does not own");
+    await releaseDetach(handoff);
+    await expect(assertConversationWritable("agent", "conversation")).resolves.toBeUndefined();
+    await expect(releaseDetach(handoff)).resolves.toBeUndefined();
+  });
+
+  test("the handoff that holds the fence may still write through it", async () => {
+    await prepareDetach(handoff);
+    await commitDetach(handoff);
+    await expect(
+      assertConversationWritable("agent", "conversation", "handoff"),
+    ).resolves.toBeUndefined();
+    await expect(assertConversationWritable("agent", "conversation", "other")).rejects.toThrow(
+      "remote",
     );
   });
 });

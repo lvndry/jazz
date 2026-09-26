@@ -6,14 +6,15 @@
  * the local fence stays in place and status must reconcile by the same handoff id.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
+import { parseDetachEvent, type TimedDetachEvent } from "@jazz/adapters/detach/events";
 import {
   ensureRemoteJazz,
   downloadRemoteHelper,
+  followRemoteEvents,
   probeRemoteHost,
   probeRemoteProvider,
   runRemoteHelper,
@@ -21,6 +22,8 @@ import {
   transferRemoteSecret,
 } from "@jazz/adapters/detach/remote-host";
 import {
+  applyDetachResult,
+  compareDetachWorkspaces,
   createDetachSnapshot,
   verifyDetachSnapshot,
   type DetachManifest,
@@ -28,7 +31,12 @@ import {
 import { encodeDetachBundle, receiveDetachBundle } from "@jazz/adapters/detach/transfer-protocol";
 import { detectKeyringBackend, keyringGet } from "@jazz/adapters/secrets/keyring";
 import { llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
-import { abortDetach, commitDetach, prepareDetach } from "@jazz/core/agent/detach/ownership";
+import {
+  abortDetach,
+  commitDetach,
+  prepareDetach,
+  releaseDetach,
+} from "@jazz/core/agent/detach/ownership";
 import { isProviderName, type ProviderName } from "@jazz/core/constants/models";
 import type { HostProfile } from "@jazz/core/types/host";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -67,7 +75,15 @@ export interface DetachReceipt {
 export interface DetachStatus {
   readonly handoffId: string;
   readonly hostName: string;
-  readonly state: "preparing" | "running" | "parked" | "completed" | "failed" | "unknown";
+  readonly state:
+    | "preparing"
+    | "running"
+    | "parked"
+    | "completed"
+    | "failed"
+    | "released"
+    | "reclaimed"
+    | "unknown";
   readonly detail?: string;
   readonly approvalAvailable?: boolean;
 }
@@ -92,17 +108,39 @@ export class DetachCommitError extends Error {
   }
 }
 
-interface LocalTransferRecord {
+const LOCAL_TRANSFER_STATES = ["prepared", "preparing", "remote", "reclaimed"] as const;
+
+export interface LocalTransferRecord {
   readonly handoffId: string;
   readonly host: HostProfile;
   readonly agentId: string;
   readonly conversationId: string;
-  readonly state: "prepared" | "preparing" | "remote";
+  readonly state: (typeof LOCAL_TRANSFER_STATES)[number];
+}
+
+export interface DetachReclaimResult {
+  readonly handoffId: string;
+  readonly hostName: string;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly applied: boolean;
+  readonly changedPaths: readonly string[];
+  readonly conflicts: readonly string[];
+}
+
+function transfersDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "detach", "transfers");
 }
 
 function transferPath(id: string): string {
-  if (!ID.test(id)) throw new Error("Invalid handoff id");
-  return path.join(getJazzHomeDirectory(), "detach", "transfers", `${id}.json`);
+  if (!ID.test(id)) {
+    throw new Error("Invalid handoff id");
+  }
+  return path.join(transfersDirectory(), `${id}.json`);
+}
+
+function stagingPath(id: string): string {
+  return path.join(getJazzHomeDirectory(), "detach", "staging", id);
 }
 
 async function saveLocalTransfer(record: LocalTransferRecord): Promise<void> {
@@ -115,15 +153,16 @@ async function saveLocalTransfer(record: LocalTransferRecord): Promise<void> {
 
 async function loadLocalTransfer(handoffId: string): Promise<LocalTransferRecord> {
   const parsed: unknown = JSON.parse(await fs.readFile(transferPath(handoffId), "utf8"));
-  if (typeof parsed !== "object" || parsed === null)
+  if (typeof parsed !== "object" || parsed === null) {
     throw new Error("Invalid local handoff record");
+  }
   const value = parsed as Record<string, unknown>;
   const host = value["host"];
   if (
     value["handoffId"] !== handoffId ||
     typeof value["agentId"] !== "string" ||
     typeof value["conversationId"] !== "string" ||
-    !["prepared", "preparing", "remote"].includes(String(value["state"])) ||
+    !(LOCAL_TRANSFER_STATES as readonly string[]).includes(String(value["state"])) ||
     typeof host !== "object" ||
     host === null ||
     typeof (host as Record<string, unknown>)["name"] !== "string" ||
@@ -151,22 +190,32 @@ async function registeredHost(name: string): Promise<HostProfile> {
       candidate !== null &&
       (candidate as { name?: unknown }).name === name,
   );
-  if (typeof host !== "object" || host === null)
+  if (typeof host !== "object" || host === null) {
     throw new Error(`No registered host named ${name}`);
+  }
   const checked = host as Partial<HostProfile>;
   if (
     typeof checked.name !== "string" ||
     typeof checked.sshTarget !== "string" ||
-    typeof checked.workspacePath !== "string"
-  )
+    typeof checked.workspacePath !== "string" ||
+    (checked.allowFileSecrets !== undefined && typeof checked.allowFileSecrets !== "boolean")
+  ) {
     throw new Error("Invalid registered host");
-  return checked as HostProfile;
+  }
+  return {
+    name: checked.name,
+    sshTarget: checked.sshTarget,
+    workspacePath: checked.workspacePath,
+    ...(checked.allowFileSecrets === true ? { allowFileSecrets: true } : {}),
+  };
 }
 
 async function sourceProviderKey(
   agentId: string,
 ): Promise<{ path: string; provider: ProviderName; value: string }> {
-  if (!ID.test(agentId)) throw new Error("Invalid agent id");
+  if (!ID.test(agentId)) {
+    throw new Error("Invalid agent id");
+  }
   const agentFile = path.join(getJazzHomeDirectory(), "agents", `${agentId}.json`);
   const parsed: unknown = JSON.parse(await fs.readFile(agentFile, "utf8"));
   if (typeof parsed !== "object" || parsed === null || !("config" in parsed)) {
@@ -192,11 +241,19 @@ async function sourceProviderKey(
       ? fromAgent
       : (llmProviderApiKeyFromEnv(provider) ??
         (await Effect.runPromise(keyringGet(backend, secretPath))));
-  if (!value)
+  if (!value) {
     throw new Error(
       `No exportable ${provider} key found. Configure it on the remote host, then retry.`,
     );
+  }
   return { path: secretPath, provider, value };
+}
+
+async function agentUsesCustomTools(agentId: string): Promise<boolean> {
+  const agentFile = path.join(getJazzHomeDirectory(), "agents", `${agentId}.json`);
+  const parsed: unknown = JSON.parse(await fs.readFile(agentFile, "utf8"));
+  const customTools = (parsed as { config?: { customTools?: unknown } }).config?.customTools;
+  return Array.isArray(customTools) && customTools.length > 0;
 }
 
 /** Check host and assemble an exact snapshot for operator review. */
@@ -208,13 +265,15 @@ export async function prepareDetachTransfer(input: {
   readonly cwd: string;
   readonly continuation: string;
 }): Promise<DetachPreview> {
-  if (!input.continuation.trim()) throw new Error("A continuation instruction is required");
+  if (!input.continuation.trim()) {
+    throw new Error("A continuation instruction is required");
+  }
   const host = await registeredHost(input.hostName);
   const probe = await probeRemoteHost(host);
   const key = await sourceProviderKey(input.agentId);
   await probeRemoteProvider(host, key.provider);
   const handoffId = randomUUID();
-  const bundleDirectory = path.join(getJazzHomeDirectory(), "detach", "staging", handoffId);
+  const bundleDirectory = stagingPath(handoffId);
   const manifest = await createDetachSnapshot({
     agentId: input.agentId,
     conversationId: input.conversationId,
@@ -245,6 +304,9 @@ export async function prepareDetachTransfer(input: {
     credentialNames: [key.path],
     warnings: [
       "Remote work uses a low-risk approval policy; higher-risk actions will park for review.",
+      ...((await agentUsesCustomTools(input.agentId))
+        ? ["This agent's custom tools run their commands on the host, which must provide them."]
+        : []),
     ],
     approvalPolicy: "low-risk",
     maxCostUSD: DEFAULT_MAX_COST_USD,
@@ -326,6 +388,7 @@ export async function commitDetachTransfer(preview: DetachPreview): Promise<Deta
         conversationId: manifest.conversationId,
         handoffId,
       });
+      await cancelDetachTransfer(preview);
     }
     throw new DetachCommitError(
       error instanceof Error ? error.message : String(error),
@@ -346,6 +409,14 @@ export async function getDetachStatus(handoffId: string): Promise<DetachStatus> 
       detail: "Awaiting confirmation",
     };
   }
+  if (record.state === "reclaimed") {
+    return {
+      handoffId,
+      hostName: record.host.name,
+      state: "reclaimed",
+      detail: "The conversation is back on this machine.",
+    };
+  }
   try {
     const raw = await runRemoteHelper(record.host, "_status", JSON.stringify({ handoffId }));
     const value: unknown = JSON.parse(raw);
@@ -353,10 +424,15 @@ export async function getDetachStatus(handoffId: string): Promise<DetachStatus> 
       typeof value !== "object" ||
       value === null ||
       (value as { handoffId?: unknown }).handoffId !== handoffId
-    )
+    ) {
       throw new Error("Invalid remote status");
+    }
     const remote = value as { state?: unknown; detail?: unknown; approvalAvailable?: unknown };
-    if (!["preparing", "running", "parked", "completed", "failed"].includes(String(remote.state))) {
+    if (
+      !["preparing", "running", "parked", "completed", "failed", "released"].includes(
+        String(remote.state),
+      )
+    ) {
       throw new Error("Invalid remote state");
     }
     return {
@@ -384,7 +460,9 @@ export async function answerDetachedTransfer(
   approved: boolean,
 ): Promise<DetachStatus> {
   const record = await loadLocalTransfer(handoffId);
-  if (record.state !== "remote") throw new Error("This handoff is not remotely owned");
+  if (record.state !== "remote") {
+    throw new Error("This handoff is not remotely owned");
+  }
   const raw = await runRemoteHelper(
     record.host,
     approved ? "_approve" : "_reject",
@@ -402,21 +480,16 @@ export async function answerDetachedTransfer(
   return getDetachStatus(handoffId);
 }
 
-async function fileHash(file: string): Promise<string | undefined> {
-  const stat = await fs.lstat(file).catch(() => undefined);
-  if (!stat) return undefined;
-  if (!stat.isFile()) return "non-regular";
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest("hex");
-}
-
 /** Download a completed result to private staging and preview its changes without local writes. */
 export async function pullDetachedTransfer(handoffId: string): Promise<DetachPullPreview> {
   const record = await loadLocalTransfer(handoffId);
-  if (record.state !== "remote") throw new Error("This handoff is not remotely owned");
+  if (record.state !== "remote") {
+    throw new Error("This handoff is not remotely owned");
+  }
   const status = await getDetachStatus(handoffId);
-  if (status.state !== "completed") throw new Error("Only a completed remote run can be pulled");
+  if (status.state !== "completed") {
+    throw new Error("Only a completed remote run can be pulled");
+  }
   const destination = path.join(getJazzHomeDirectory(), "detach", "results", handoffId);
   if (await fs.lstat(destination).catch(() => undefined)) {
     throw new Error(
@@ -431,9 +504,7 @@ export async function pullDetachedTransfer(handoffId: string): Promise<DetachPul
       downloadRemoteHelper(record.host, "_pull", JSON.stringify({ handoffId }), source),
     ]);
     const result = await verifyDetachSnapshot(destination);
-    const initial = await verifyDetachSnapshot(
-      path.join(getJazzHomeDirectory(), "detach", "staging", handoffId),
-    );
+    const initial = await verifyDetachSnapshot(stagingPath(handoffId));
     if (
       result.handoffId !== handoffId ||
       initial.handoffId !== handoffId ||
@@ -442,23 +513,7 @@ export async function pullDetachedTransfer(handoffId: string): Promise<DetachPul
     ) {
       throw new Error("Result identity does not match the original handoff");
     }
-    const workspaceEntries = (manifest: DetachManifest): Map<string, string> =>
-      new Map(
-        manifest.entries
-          .filter((entry) => entry.kind === "workspace")
-          .map((entry) => [entry.relativePath.slice("workspace/".length), entry.sha256]),
-      );
-    const before = workspaceEntries(initial);
-    const after = workspaceEntries(result);
-    const paths = new Set([...before.keys(), ...after.keys()]);
-    const changedPaths = [...paths]
-      .filter((relative) => before.get(relative) !== after.get(relative))
-      .sort();
-    const conflicts: string[] = [];
-    for (const relative of changedPaths) {
-      const current = await fileHash(path.join(initial.workspaceRoot, relative));
-      if (current !== before.get(relative)) conflicts.push(relative);
-    }
+    const { changedPaths, conflicts } = await compareDetachWorkspaces(initial, result);
     return {
       handoffId,
       hostName: record.host.name,
@@ -471,4 +526,149 @@ export async function pullDetachedTransfer(handoffId: string): Promise<DetachPul
     await fs.rm(destination, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** Every handoff this machine started, newest first. */
+export async function listDetachTransfers(): Promise<readonly LocalTransferRecord[]> {
+  const names = await fs.readdir(transfersDirectory()).catch(() => [] as string[]);
+  const records: { record: LocalTransferRecord; modifiedMs: number }[] = [];
+  for (const name of names) {
+    const match = /^([a-zA-Z0-9_-]{1,128})\.json$/.exec(name);
+    if (match?.[1] === undefined) {
+      continue;
+    }
+    const record = await loadLocalTransfer(match[1]).catch(() => undefined);
+    if (record === undefined) {
+      continue;
+    }
+    const stat = await fs.stat(transferPath(match[1]));
+    records.push({ record, modifiedMs: stat.mtimeMs });
+  }
+  return records
+    .sort((left, right) => right.modifiedMs - left.modifiedMs)
+    .map(({ record }) => record);
+}
+
+async function remoteOwnedTransfer(handoffId: string): Promise<LocalTransferRecord> {
+  const record = await loadLocalTransfer(handoffId);
+  if (record.state === "reclaimed") {
+    throw new Error("This handoff was already reclaimed; the conversation is local again");
+  }
+  if (record.state !== "remote") {
+    throw new Error("This handoff is not remotely owned");
+  }
+  return record;
+}
+
+export interface DetachEventStream {
+  readonly done: Promise<void>;
+  readonly stop: () => void;
+}
+
+/**
+ * Stream a handoff's events from `sinceByte`, reporting the offset after each event so a
+ * caller can reconnect without replaying or skipping anything.
+ */
+export async function followDetachedEvents(
+  handoffId: string,
+  sinceByte: number,
+  onEvent: (event: TimedDetachEvent, nextByte: number) => void,
+): Promise<DetachEventStream> {
+  const record = await loadLocalTransfer(handoffId);
+  if (record.state !== "remote" && record.state !== "reclaimed") {
+    throw new Error("This handoff has not reached its host");
+  }
+  let offset = sinceByte;
+  return followRemoteEvents(record.host, handoffId, sinceByte, (line, byteLength) => {
+    offset += byteLength;
+    const event = parseDetachEvent(line);
+    if (event !== undefined) {
+      onEvent(event, offset);
+    }
+  });
+}
+
+function requireAcknowledgment(raw: string, handoffId: string): { readonly state?: string } {
+  const receipt: unknown = JSON.parse(raw);
+  if (
+    typeof receipt !== "object" ||
+    receipt === null ||
+    (receipt as { handoffId?: unknown }).handoffId !== handoffId ||
+    (receipt as { accepted?: unknown }).accepted !== true
+  ) {
+    throw new Error("Remote host did not acknowledge the request");
+  }
+  const state = (receipt as { state?: unknown }).state;
+  return typeof state === "string" ? { state } : {};
+}
+
+/** Send the operator's next message to a finished remote conversation. */
+export async function sendDetachedMessage(handoffId: string, text: string): Promise<void> {
+  const record = await remoteOwnedTransfer(handoffId);
+  const raw = await runRemoteHelper(record.host, "_message", JSON.stringify({ handoffId, text }));
+  requireAcknowledgment(raw, handoffId);
+}
+
+/** Cancel whatever the remote host is doing or has queued for this handoff. */
+export async function stopDetachedRun(handoffId: string): Promise<void> {
+  const record = await remoteOwnedTransfer(handoffId);
+  const raw = await runRemoteHelper(record.host, "_cancel", JSON.stringify({ handoffId }));
+  requireAcknowledgment(raw, handoffId);
+}
+
+/**
+ * Take a conversation back from its host. The remote job is frozen first, so it can never run
+ * again; then its final state is applied here and the local fence lifts. A failure part way
+ * leaves the conversation fenced, and rerunning reclaim picks up where it stopped.
+ */
+export async function reclaimDetachedTransfer(
+  handoffId: string,
+  options: { readonly overwriteConflicts: boolean },
+): Promise<DetachReclaimResult> {
+  const record = await remoteOwnedTransfer(handoffId);
+  const destination = path.join(
+    getJazzHomeDirectory(),
+    "detach",
+    "results",
+    `${handoffId}.reclaim`,
+  );
+  await fs.rm(destination, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+  const source = new PassThrough();
+  try {
+    await Promise.all([
+      receiveDetachBundle(source, destination),
+      downloadRemoteHelper(record.host, "_release", JSON.stringify({ handoffId }), source),
+    ]);
+  } catch (error) {
+    source.destroy();
+    await fs.rm(destination, { recursive: true, force: true });
+    throw error;
+  }
+  const outcome = await applyDetachResult({
+    initialDirectory: stagingPath(handoffId),
+    resultDirectory: destination,
+    overwriteConflicts: options.overwriteConflicts,
+  });
+  const result = {
+    handoffId,
+    hostName: record.host.name,
+    agentId: record.agentId,
+    conversationId: record.conversationId,
+    applied: outcome.applied,
+    changedPaths: outcome.changedPaths,
+    conflicts: outcome.conflicts,
+  };
+  if (!outcome.applied) {
+    return result;
+  }
+  await releaseDetach({
+    agentId: record.agentId,
+    conversationId: record.conversationId,
+    handoffId,
+  });
+  await saveLocalTransfer({ ...record, state: "reclaimed" });
+  await fs.rm(destination, { recursive: true, force: true });
+  await fs.rm(stagingPath(handoffId), { recursive: true, force: true });
+  return result;
 }

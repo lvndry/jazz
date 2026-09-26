@@ -10,4 +10,10 @@ export interface HostProfile {
   readonly name: string;
   readonly sshTarget: string;
   readonly workspacePath: string;
+  /**
+   * Let a host without an OS keyring keep handed-off provider keys in its
+   * `~/.jazz/secrets.json` (mode 600). Off by default, so a headless server without
+   * libsecret fails the handoff instead of writing keys to disk unasked.
+   */
+  readonly allowFileSecrets?: boolean;
 }

@@ -60,20 +60,27 @@ function ensureLockDirectory(lockPath: string): Effect.Effect<void, Error, FileS
 export function saveConversation(
   conversation: Conversation,
   dir?: string,
+  options?: { readonly fenceHeldBy?: string },
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
   const lockPath = agentConversationLockPath(conversation.agentId, dir);
+  const assertWritable = () =>
+    Effect.tryPromise({
+      try: () =>
+        assertConversationWritable(
+          conversation.agentId,
+          conversation.conversationId,
+          options?.fenceHeldBy,
+        ),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
   return Effect.gen(function* () {
-    yield* Effect.tryPromise(() =>
-      assertConversationWritable(conversation.agentId, conversation.conversationId),
-    );
+    yield* assertWritable();
     yield* ensureLockDirectory(lockPath);
 
     yield* withLock(
       lockPath,
       Effect.gen(function* () {
-        yield* Effect.tryPromise(() =>
-          assertConversationWritable(conversation.agentId, conversation.conversationId),
-        );
+        yield* assertWritable();
         yield* recordConversationTranscript(
           {
             agentId: conversation.agentId,
