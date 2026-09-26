@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 
 export interface ErrorDisplay {
   readonly title: string;

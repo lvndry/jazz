@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /**

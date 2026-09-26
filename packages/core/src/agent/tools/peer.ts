@@ -31,7 +31,7 @@ import {
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /** A peer that cannot answer within this is treated as unreachable rather than waited on. */

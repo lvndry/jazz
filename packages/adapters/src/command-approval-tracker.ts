@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
-import { writeFileStringAtomic, toError } from "@jazz/core/utils/storage";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 /**

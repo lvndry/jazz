@@ -14,7 +14,7 @@ import { memoryEntries, walkFiles } from "./files";
 import { reportFilePath, runJazzOnce } from "./run-jazz";
 import { assertAllowedAgent } from "./runner";
 import type { OneShotResult } from "./types";
-import { toError } from "../packages/core/src/utils/storage";
+import { toError } from "../packages/core/src/utils/errors";
 
 const DEFAULT_PERSONA_PATH = join(import.meta.dir, "..", "personas", "default", "PERSONA.md");
 const AGENT_ID = "eval-memory-journey";

@@ -5,7 +5,7 @@ import type { ReminderRecord, ReminderService } from "@/core/interfaces/reminder
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type ReminderToolDeps = ReminderService | FileSystem.FileSystem;

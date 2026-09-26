@@ -95,7 +95,7 @@ export const USER_INTERACTION_CATEGORY: ToolCategory = {
 };
 export const GOALS_CATEGORY: ToolCategory = {
   id: "goals",
-  displayName: "Goals",
+  displayName: "Goals and loops",
   loadTier: "eager",
 };
 export const COMPOSITION_CATEGORY: ToolCategory = {

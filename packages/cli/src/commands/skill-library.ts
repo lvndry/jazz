@@ -20,8 +20,8 @@ import type {
   RegistrySkillEntry,
   RegistrySkillMetadata,
 } from "@jazz/core/types/skill-registry";
+import { toError } from "@jazz/core/utils/errors";
 import { getGlobalSkillsDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import chalk from "chalk";
 import { Effect } from "effect";
 

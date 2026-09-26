@@ -23,8 +23,8 @@ import {
   rejectAttachmentReason,
 } from "@/core/types/attachment";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { probeMediaShape } from "@/core/utils/media-probe";
-import { toError } from "@/core/utils/storage";
 
 /**
  * Outcome of trying to attach a path.

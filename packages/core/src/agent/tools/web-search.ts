@@ -13,7 +13,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchProviderName } from "@/core/types/config";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";

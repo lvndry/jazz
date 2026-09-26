@@ -4,7 +4,7 @@ import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";

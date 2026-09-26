@@ -14,7 +14,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { attachMediaFile } from "./attach-media";
 import { fileSnapshot } from "./file-snapshot";

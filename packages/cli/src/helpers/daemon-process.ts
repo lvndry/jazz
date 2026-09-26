@@ -5,9 +5,9 @@
 
 import * as nodeFs from "node:fs/promises";
 import path from "node:path";
+import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { isProcessAlive } from "@jazz/core/utils/process";
-import { toError } from "@jazz/core/utils/storage";
 
 export function daemonPidPath(port: number): string {
   return path.join(getJazzHomeDirectory(), `daemon-${String(port)}.pid`);

@@ -4,7 +4,10 @@ import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
+import { loopsWaitingOnUser } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
+import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
@@ -16,9 +19,9 @@ import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { toError } from "@jazz/core/utils/errors";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { agentDetailFields } from "./agent-details";
@@ -94,8 +97,23 @@ export function wizardCommand() {
       }
 
       if (hasConversationHistory) {
-        const waiting = yield* conversationsWaitingOnUser().pipe(
+        const waiting = yield* Effect.all([
+          conversationsWaitingOnUser(),
+          loopsWaitingOnUser().pipe(
+            Effect.map(
+              (loops) =>
+                new Set(
+                  loops
+                    .map((loop) => loop.sourceConversationId)
+                    .filter((id): id is string => id !== undefined),
+                ),
+            ),
+          ),
+        ]).pipe(
+          Effect.map(([fromGoals, fromLoops]) => new Set([...fromGoals, ...fromLoops])),
           Effect.provide(makeFileGoalStoreLayer()),
+          Effect.provide(makeFileLoopStoreLayer()),
+          Effect.provide(makeFileRunStoreLayer()),
           Effect.catchAll(() => Effect.succeed(new Set<string>())),
         );
         menuOptions.push({

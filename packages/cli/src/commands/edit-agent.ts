@@ -38,11 +38,11 @@ import {
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { toError } from "@jazz/core/utils/errors";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
-import { toError } from "@jazz/core/utils/storage";
 import { toPascalCase } from "@jazz/core/utils/string";
 import { Effect } from "effect";
 import { Box, Text } from "ink";

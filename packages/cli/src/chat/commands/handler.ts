@@ -70,9 +70,9 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
+import { toError } from "@jazz/core/utils/errors";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { toError } from "@jazz/core/utils/storage";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
@@ -100,6 +100,7 @@ import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { CHAT_COMMANDS } from "./constants";
 import { handleGoalCommand } from "./goal";
+import { handleLoopCommand } from "./loop";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -159,6 +160,8 @@ export function handleSpecialCommand(
 
       case "goal":
         return yield* handleGoalCommand(context, command.args);
+      case "loop":
+        return yield* handleLoopCommand(context, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);

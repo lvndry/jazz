@@ -8,7 +8,7 @@
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 
 /**
  * Raised when a virtual path violates containment or syntax rules.

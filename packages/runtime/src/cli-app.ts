@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { GoalAnswer } from "@jazz/adapters/goals/goal-actions";
+import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
@@ -20,8 +20,8 @@ import {
 import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
+import { toError } from "@jazz/core/utils/errors";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
 
@@ -1853,7 +1853,7 @@ function registerGoalCommand(program: Command): void {
   }
 
   const answerAction =
-    (toAnswer: (text: string) => GoalAnswer) =>
+    (toAnswer: (text: string) => RunAnswer) =>
     (id: string, text: string[], options: { json?: boolean }) =>
       runCliAction(
         () =>
@@ -1907,6 +1907,186 @@ function registerGoalCommand(program: Command): void {
                 ...(note.length > 0 ? { note: note.join(" ") } : {}),
                 json: options.json === true,
               }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+  }
+}
+
+/** Register `jazz loop`: start, list, show, answer, and control loops from a shell. */
+function registerLoopCommand(program: Command): void {
+  const loopCommand = program
+    .command("loop")
+    .description(
+      "Rerun a prompt for an agent on a schedule until it ends (loops run while `jazz daemon` runs)",
+    );
+  const load = () => import("@jazz/cli/commands/loop");
+
+  loopCommand
+    .command("start <prompt...>")
+    .description("Start a loop; an interval loop runs right away, a cron loop at its first time")
+    .requiredOption("--agent <agentId>", "Agent ID or name that runs the prompt")
+    .requiredOption(
+      "--every <schedule>",
+      'How often: a duration like 10m or 1h30m (at least 1m), or a cron expression like "0 9 * * mon-fri"',
+    )
+    .option("--name <name>", "What to call the loop (default: the start of its prompt)")
+    .option(
+      "--tz <timezone>",
+      "IANA timezone a cron schedule and --until are read in (default: this machine's)",
+    )
+    .option(
+      "--until <when>",
+      "When the loop ends on its own: a duration like 8h, a clock time like 18:00, or 2026-10-01 09:00",
+    )
+    .option(
+      "--approval-policy <policy>",
+      "What a run may do without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, the run waits for approval. Default: read-only and low-risk tools.",
+    )
+    .option("--max-runs <n>", "Most runs before the loop completes", parsePositiveInt("--max-runs"))
+    .option(
+      "--run-iterations <n>",
+      "Iterations one run may take",
+      parsePositiveInt("--run-iterations"),
+    )
+    .option("--max-tokens <n>", "Token budget across all runs", parsePositiveInt("--max-tokens"))
+    .option(
+      "--max-minutes <n>",
+      "Active-time budget across all runs, in minutes",
+      parsePositiveInt("--max-minutes"),
+    )
+    .option(
+      "--max-cost-usd <amount>",
+      "Dollar budget across all runs (enforced when pricing is known)",
+      parsePositiveFloat("--max-cost-usd"),
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action(
+      (
+        prompt: string[],
+        options: {
+          agent: string;
+          every: string;
+          name?: string;
+          tz?: string;
+          until?: string;
+          approvalPolicy?: string;
+          maxRuns?: number;
+          runIterations?: number;
+          maxTokens?: number;
+          maxMinutes?: number;
+          maxCostUsd?: number;
+          json?: boolean;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.startLoopCommand({
+                agent: options.agent,
+                prompt: prompt.join(" "),
+                every: options.every,
+                ...(options.name !== undefined ? { name: options.name } : {}),
+                ...(options.tz !== undefined ? { timezone: options.tz } : {}),
+                ...(options.until !== undefined ? { until: options.until } : {}),
+                ...(options.approvalPolicy !== undefined
+                  ? { approvalPolicy: options.approvalPolicy }
+                  : {}),
+                budget: {
+                  ...(options.maxRuns !== undefined ? { maxRuns: options.maxRuns } : {}),
+                  ...(options.runIterations !== undefined
+                    ? { maxIterationsPerRun: options.runIterations }
+                    : {}),
+                  ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+                  ...(options.maxMinutes !== undefined
+                    ? { maxDurationMs: options.maxMinutes * 60_000 }
+                    : {}),
+                  ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
+                },
+                json: options.json === true,
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+    );
+
+  loopCommand
+    .command("list")
+    .description("List loops and what each last did")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.listLoopsCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  loopCommand
+    .command("show <loop>")
+    .description("Show one loop: schedule, state, usage, last run, and its conversation")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      runCliAction(
+        () => load().then((mod) => mod.showLoopCommand({ id, json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
+  const answerAction =
+    (toAnswer: (text: string) => RunAnswer) =>
+    (id: string, text: string[], options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.answerLoopCommand({
+              id,
+              answer: toAnswer(text.join(" ").trim()),
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      );
+  loopCommand
+    .command("approve <loop>")
+    .description("Allow the step a loop's run is waiting on; the rest of the run happens here")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      answerAction(() => ({ kind: "approve" }))(id, [], options),
+    );
+  loopCommand
+    .command("reject <loop> [why...]")
+    .description("Refuse the step a loop's run is waiting on; the reason goes to the agent")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((why) => ({ kind: "reject", ...(why.length > 0 ? { note: why } : {}) })));
+  loopCommand
+    .command("answer <loop> <answer...>")
+    .description("Answer the question a loop's run is waiting on")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((response) => ({ kind: "answer", response })));
+
+  for (const [control, description] of [
+    ["pause", "Stop starting runs; a run in progress finishes, one waiting on you is dropped"],
+    [
+      "resume",
+      "Resume a paused, stopped, or budget-limited loop (budget-limited gets one more default budget)",
+    ],
+    ["cancel", "End a loop for good; a run in progress finishes, one waiting on you is dropped"],
+  ] as const) {
+    loopCommand
+      .command(`${control} <loop>`)
+      .description(description)
+      .option("--json", "Emit a single JSON envelope")
+      .action((id: string, options: { json?: boolean }) =>
+        runCliAction(
+          () =>
+            load().then((mod) =>
+              mod.controlLoopCommand({ control, id, json: options.json === true }),
             ),
           cliRuntimeOptions(program),
           { skipUpdateCheck: options.json === true },
@@ -2662,6 +2842,7 @@ export function createCLIApp(): Command {
   registerUpdateCommand(program);
   registerDaemonCommand(program);
   registerGoalCommand(program);
+  registerLoopCommand(program);
   registerIMessageCommand(program);
   registerWhatsappCommand(program);
   registerWakeTriggerCommand(program);

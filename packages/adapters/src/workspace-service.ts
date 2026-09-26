@@ -23,13 +23,13 @@ import type {
   WorkspaceViewOutcome,
 } from "@jazz/core/interfaces/workspace-service";
 import { WorkspaceServiceTag } from "@jazz/core/interfaces/workspace-service";
+import { toError } from "@jazz/core/utils/errors";
 import { getWorkspaceDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
   requireValidAgentId,
   withLock,
   writeFileStringAtomic,
-  toError,
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";

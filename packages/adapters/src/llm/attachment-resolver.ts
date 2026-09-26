@@ -40,8 +40,8 @@ import {
 } from "@jazz/core/types/attachment";
 import type { LLMConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { toError } from "@jazz/core/utils/errors";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { uploadFile } from "ai";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 

@@ -44,13 +44,13 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
   isValidStorageKey,
   requireValidStorageKey,
-  toError,
   writeFileStringAtomic,
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";

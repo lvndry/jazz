@@ -26,9 +26,9 @@ import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
 import { newProposedGoal } from "@jazz/core/agent/goal/goal-record";
+import { parseLoopSchedule, type LoopControl } from "@jazz/core/agent/loop/loop-lifecycle";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
@@ -41,6 +41,7 @@ import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -80,10 +81,11 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/errors";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
@@ -95,7 +97,7 @@ import {
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
-import { resumeGoalAwareRun } from "@jazz/adapters/daemon/goal-worker";
+import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   controlGoal,
   getOwnedGoal,
@@ -106,6 +108,12 @@ import {
   loadConversationOrNull,
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
+import {
+  controlLoop,
+  getOwnedLoop,
+  listOwnedLoops,
+  startLoop,
+} from "@jazz/adapters/loops/loop-actions";
 
 /**
  * What the daemon's handlers need from the runtime.
@@ -120,6 +128,7 @@ export type DaemonRequirements =
   | PersonaService
   | RunStoreTag
   | GoalStoreTag
+  | LoopStoreTag
   | ToolRegistry
   | ToolRequirements
   // A threaded webhook reads its conversation before the run and writes it after, so the
@@ -327,7 +336,7 @@ export function makeHandler(
   // process is alive without holding a credential that can drive an agent. It is registered
   // before the token middleware and answers without calling `next`, so the middleware below
   // never runs for it.
-  app.get("/health", () => json({ ok: true, owner: getGoalOwnerInstanceId() }));
+  app.get("/health", () => json({ ok: true, owner: getJazzInstanceId() }));
 
   // Everything past this point is behind the token, *including a path that matches nothing*:
   // the wildcard is reached before Hono's 404, so an unauthenticated caller cannot map the
@@ -362,6 +371,15 @@ export function makeHandler(
   app.post("/goals/:goalId/cancel", (context) =>
     goalControlRoute(context.req.raw, context.req.param("goalId"), "cancel", runEffect),
   );
+
+  app.post("/loops", (context) => createLoopRoute(context.req.raw, runEffect));
+  app.get("/loops", () => runEffect(listLoops()));
+  app.get("/loops/:loop", (context) => runEffect(showLoop(context.req.param("loop"))));
+  for (const control of ["pause", "resume", "cancel"] as const) {
+    app.post(`/loops/:loop/${control}`, (context) =>
+      loopControlRoute(context.req.raw, context.req.param("loop"), control, runEffect),
+    );
+  }
 
   app.get("/agents", () => runEffect(listAgents()));
   app.post("/agents", async (context) => {
@@ -578,6 +596,138 @@ async function goalControlRoute(
           ...(outcome.note !== undefined ? { note: outcome.note } : {}),
         });
       },
+    ),
+  );
+}
+
+/** Largest loop prompt, matching what a loop record stores. */
+const MAX_LOOP_PROMPT_LENGTH = 4000;
+
+/**
+ * Start a loop for an HTTP client. The client holds the daemon token, which already lets it run
+ * any agent, so it may grant the loop an approval policy the way `jazz loop start` does.
+ */
+async function createLoopRoute(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const body = await readJsonBody(request);
+  if (body instanceof Response) {
+    return body;
+  }
+  const agentId = typeof body["agentId"] === "string" ? body["agentId"].trim() : "";
+  const prompt = typeof body["prompt"] === "string" ? body["prompt"].trim() : "";
+  if (agentId.length === 0 || prompt.length === 0 || prompt.length > MAX_LOOP_PROMPT_LENGTH) {
+    return json(
+      {
+        ok: false,
+        error: `agentId and a prompt of 1–${String(MAX_LOOP_PROMPT_LENGTH)} characters are required`,
+      },
+      400,
+    );
+  }
+  const workingDirectory = body["workingDirectory"];
+  if (typeof workingDirectory !== "string" || !isAbsolute(workingDirectory)) {
+    return json(
+      {
+        ok: false,
+        error: "workingDirectory, the absolute directory every run works in, is required",
+      },
+      400,
+    );
+  }
+  const every = body["every"];
+  const timezone = body["timezone"];
+  if (typeof every !== "string" || (timezone !== undefined && typeof timezone !== "string")) {
+    return json(
+      { ok: false, error: "every, a duration like 10m or a cron expression, is required" },
+      400,
+    );
+  }
+  const schedule = parseLoopSchedule(every, timezone ?? "UTC");
+  if (!schedule.ok) {
+    return json({ ok: false, error: schedule.reason }, 400);
+  }
+  const approvalPolicy = body["approvalPolicy"];
+  if (
+    approvalPolicy !== undefined &&
+    (typeof approvalPolicy !== "string" || !isApprovalPolicyLevel(approvalPolicy))
+  ) {
+    return json({ ok: false, error: "approvalPolicy is read-only, low-risk, or high-risk" }, 400);
+  }
+  const name = body["name"];
+  const maxRuns = body["maxRuns"];
+  if (
+    (name !== undefined && typeof name !== "string") ||
+    (maxRuns !== undefined &&
+      (typeof maxRuns !== "number" || !Number.isSafeInteger(maxRuns) || maxRuns <= 0))
+  ) {
+    return json({ ok: false, error: "name is a string and maxRuns a positive integer" }, 400);
+  }
+  return runEffect(
+    Effect.map(
+      startLoop({
+        agentId,
+        prompt,
+        schedule: schedule.schedule,
+        workingDirectory,
+        ...(typeof name === "string" ? { name } : {}),
+        ...(typeof approvalPolicy === "string" && isApprovalPolicyLevel(approvalPolicy)
+          ? { approvalPolicy }
+          : {}),
+        ...(typeof maxRuns === "number" ? { budget: { maxRuns } } : {}),
+        ...(typeof body["conversationId"] === "string"
+          ? { sourceConversationId: body["conversationId"] }
+          : {}),
+      }),
+      (outcome) =>
+        outcome.kind === "refused"
+          ? json({ ok: false, error: outcome.reason }, 400)
+          : json({ ok: true, loop: outcome.loop }, 201),
+    ),
+  );
+}
+
+function listLoops() {
+  return Effect.map(listOwnedLoops(), (loops) => json({ ok: true, loops }));
+}
+
+function showLoop(handle: string) {
+  return Effect.map(getOwnedLoop(handle), (loop) =>
+    loop === undefined ? json({ ok: false, error: "no such loop" }, 404) : json({ ok: true, loop }),
+  );
+}
+
+/** Largest loop control body: a version. */
+const MAX_LOOP_CONTROL_PAYLOAD_LENGTH = 256;
+
+/**
+ * Pause, resume, or cancel a loop for an HTTP client, which names the version it last read so a
+ * control decided on a stale view is refused.
+ */
+async function loopControlRoute(
+  request: Request,
+  handle: string,
+  control: LoopControl,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const body = await readJsonBody(request, MAX_LOOP_CONTROL_PAYLOAD_LENGTH);
+  if (body instanceof Response) {
+    return body;
+  }
+  const version = body["version"];
+  if (typeof version !== "number" || !Number.isSafeInteger(version)) {
+    return json({ ok: false, error: "current loop version is required" }, 400);
+  }
+  return runEffect(
+    Effect.map(controlLoop(handle, control, { expectedVersion: version }), (outcome) =>
+      outcome.kind === "refused"
+        ? json({ ok: false, error: outcome.reason }, outcome.cause === "missing" ? 404 : 409)
+        : json({
+            ok: true,
+            loop: outcome.loop,
+            ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+          }),
     ),
   );
 }
@@ -1989,11 +2139,11 @@ function answerRun(
               : { approved: false, ...(note ? { userMessage: note } : {}) },
           };
   return Effect.gen(function* () {
-    const result = yield* resumeGoalAwareRun({ runId, outcome });
+    const result = yield* resumeOwnedRun({ runId, outcome });
     if (result.kind === "blocked") {
       return json({ ok: false, error: result.reason }, 409);
     }
-    if (result.kind === "not-goal") {
+    if (result.kind === "unowned") {
       return json({ ok: true, runId, answer: result.response.content });
     }
     const settled = result.outcome;
@@ -2003,7 +2153,7 @@ function answerRun(
           ok: false,
           state: "input-required",
           runId,
-          goalId: result.goalId,
+          ...result.owner,
           expiresAt: settled.park.expiresAt,
           pending: describePendingInput(settled.park.pending),
         },
@@ -2011,9 +2161,9 @@ function answerRun(
       );
     }
     if (settled.kind === "failed") {
-      return json({ ok: false, runId, goalId: result.goalId, error: settled.error }, 500);
+      return json({ ok: false, runId, ...result.owner, error: settled.error }, 500);
     }
-    return json({ ok: true, runId, goalId: result.goalId, answer: settled.response.content });
+    return json({ ok: true, runId, ...result.owner, answer: settled.response.content });
   }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed(

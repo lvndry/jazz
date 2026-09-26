@@ -9,6 +9,7 @@
  */
 
 import { holdAttendance, runAttendedCycles } from "@jazz/adapters/daemon/goal-worker";
+import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   activateGoal,
   answerGoal,
@@ -18,7 +19,6 @@ import {
   pendingGoalInput,
   proposedGoals,
   proposeGoal,
-  type GoalAnswer,
 } from "@jazz/adapters/goals/goal-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
@@ -29,7 +29,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
-import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
+import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeGoal, describeGoalNow, describePlan, goalHandle } from "@/cli/goals/describe-goal";
 import { store } from "@/cli/ui/store";
 import type { CommandContext } from "./types";
@@ -292,7 +292,7 @@ function findGoal(handle: string | undefined, usage: string) {
 
 function answerHere(
   handle: string | undefined,
-  answer: (goal: GoalRecord) => GoalAnswer,
+  answer: (goal: GoalRecord) => RunAnswer,
   usage: string,
   mode: ChatApprovalMode,
 ) {
@@ -505,7 +505,9 @@ export function offerGoalHandoffs() {
           yield* terminal.warn(outcome.reason);
           continue;
         }
-        yield* terminal.success(describeGoalStart(handle, yield* ensureDaemonRunning()));
+        yield* terminal.success(
+          describeDaemonStart(`Goal ${handle}`, yield* ensureDaemonRunning()),
+        );
         yield* terminal.info(
           "When it needs you, `jazz` lists this conversation as waiting under Resume conversation.",
         );

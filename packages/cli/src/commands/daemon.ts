@@ -12,6 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
+import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
 import {
   isLoopback,
   makeA2AHandler,
@@ -46,15 +47,16 @@ import {
 } from "@jazz/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
+import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
-import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
@@ -404,6 +406,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
                 Effect.catchAll(reportFailure("trigger")),
               ),
               runDueGoals().pipe(Effect.asVoid, Effect.catchAll(reportFailure("goal"))),
+              runDueLoops().pipe(Effect.asVoid, Effect.catchAll(reportFailure("loop"))),
             ],
             { concurrency: "unbounded", discard: true },
           ) as Effect.Effect<void, unknown, DaemonRequirements>,
@@ -441,6 +444,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
     Effect.provide(OneShotPresentationServiceLayer),
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
   );
 }
 
@@ -679,7 +683,7 @@ export type DaemonAvailability =
 
 /**
  * Make sure the local daemon is serving, starting one in the background when none answers,
- * so accepting a goal starts its work instead of leaving it waiting for `jazz daemon`.
+ * so starting a goal or loop starts its work instead of leaving it waiting for `jazz daemon`.
  */
 export function ensureDaemonRunning() {
   return Effect.gen(function* () {
@@ -689,7 +693,7 @@ export function ensureDaemonRunning() {
     );
     if (owner !== undefined) {
       const found: DaemonAvailability =
-        owner === getGoalOwnerInstanceId()
+        owner === getJazzInstanceId()
           ? { kind: "running" }
           : { kind: "port-taken", port: options.port };
       return found;
@@ -703,21 +707,24 @@ export function ensureDaemonRunning() {
       probeDaemonOwner(options.host, options.port, RUNNING_DAEMON_PROBE_MS),
     );
     const availability: DaemonAvailability =
-      answering === getGoalOwnerInstanceId() ? started : { kind: "port-taken", port: options.port };
+      answering === getJazzInstanceId() ? started : { kind: "port-taken", port: options.port };
     return availability;
   });
 }
 
-/** What accepting a goal did, in one sentence, given whether a daemon is now working on it. */
-export function describeGoalStart(goalId: string, daemon: DaemonAvailability): string {
+/**
+ * What starting a goal or loop did, in one sentence, given whether a daemon is now working on
+ * it. `subject` names it, like `Goal detach-to-prod`.
+ */
+export function describeDaemonStart(subject: string, daemon: DaemonAvailability): string {
   switch (daemon.kind) {
     case "running":
-      return `Goal ${goalId} started; the daemon is working on it.`;
+      return `${subject} started; the daemon is working on it.`;
     case "started":
-      return `Goal ${goalId} started; launched the daemon in the background (pid ${String(daemon.pid)}) to work on it.`;
+      return `${subject} started; launched the daemon in the background (pid ${String(daemon.pid)}) to work on it.`;
     case "port-taken":
-      return `Goal ${goalId} accepted, but the daemon on port ${String(daemon.port)} is not serving this Jazz home (another home, or a daemon from an older Jazz); restart it with \`jazz daemon stop\` then \`jazz daemon\`, or run one for this home on another port.`;
+      return `${subject} is saved, but the daemon on port ${String(daemon.port)} is not serving this Jazz home (another home, or a daemon from an older Jazz); restart it with \`jazz daemon stop\` then \`jazz daemon\`, or run one for this home on another port.`;
     case "unavailable":
-      return `Goal ${goalId} accepted, but the daemon could not be started; run \`jazz daemon\` to begin the work.`;
+      return `${subject} is saved, but the daemon could not be started; run \`jazz daemon\` to begin the work.`;
   }
 }

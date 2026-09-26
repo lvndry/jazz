@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import {
   holdAttendance,
-  resumeGoalAwareRun,
+  resumeGoalRun,
   runAttendedCycles,
   runDueGoals,
 } from "@jazz/adapters/daemon/goal-worker";
@@ -585,9 +585,9 @@ describe("answering a goal's parked run", () => {
     try {
       const result = await run(
         test,
-        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+        resumeGoalRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
       );
-      expect(result.kind).toBe("resumed");
+      expect(result?.kind).toBe("resumed");
     } finally {
       runner.mockRestore();
     }
@@ -616,7 +616,7 @@ describe("answering a goal's parked run", () => {
     try {
       await run(
         test,
-        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+        resumeGoalRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
       );
     } finally {
       runner.mockRestore();
@@ -643,7 +643,7 @@ describe("answering a goal's parked run", () => {
     try {
       await run(
         test,
-        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+        resumeGoalRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
       );
     } finally {
       runner.mockRestore();
@@ -671,7 +671,7 @@ describe("answering a goal's parked run", () => {
     try {
       await run(
         test,
-        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+        resumeGoalRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
       );
     } finally {
       runner.mockRestore();
@@ -683,7 +683,7 @@ describe("answering a goal's parked run", () => {
   });
 });
 
-describe("resumeGoalAwareRun", () => {
+describe("resumeGoalRun", () => {
   it("refuses to answer the run of a paused goal", async () => {
     const test = harness();
     await run(
@@ -703,13 +703,13 @@ describe("resumeGoalAwareRun", () => {
 
     const result = await run(
       test,
-      resumeGoalAwareRun({
+      resumeGoalRun({
         runId: "run-parked",
         outcome: { kind: "approval", value: { approved: true } },
       }),
     );
 
-    expect(result.kind).toBe("blocked");
+    expect(result?.kind).toBe("blocked");
   });
 });
 

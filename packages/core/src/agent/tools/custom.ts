@@ -13,8 +13,8 @@ import type {
 import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
 import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
+import { toError } from "@/core/utils/errors";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
-import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 import {
   appendCapped,

@@ -15,14 +15,14 @@ import { join } from "node:path";
 import { FileGoalStore } from "@jazz/adapters/storage/goal-store";
 import { Effect } from "effect";
 import { result, violation } from "./_shared";
-import { getGoalOwnerInstanceId } from "../../../packages/core/src/agent/goal/goal-owner";
 import type {
   GoalBudget,
   GoalPlan,
   GoalRecordInput,
 } from "../../../packages/core/src/agent/goal/goal-record";
 import type { ApprovalPolicyLevel } from "../../../packages/core/src/types/tools";
-import { toError } from "../../../packages/core/src/utils/storage";
+import { toError } from "../../../packages/core/src/utils/errors";
+import { getJazzInstanceId } from "../../../packages/core/src/utils/instance-id";
 import { reportFilePath, spawnJazz } from "../../run-jazz";
 import {
   emptyResult,
@@ -136,7 +136,7 @@ export async function runGoal(
   const now = new Date().toISOString();
   const goal: GoalRecordInput = {
     goalId,
-    ownerInstanceId: getGoalOwnerInstanceId(context.jazzHome),
+    ownerInstanceId: getJazzInstanceId(context.jazzHome),
     agentId: context.agentId,
     sourceConversationId: `eval-${context.runId}`,
     conversationId: `goal-${context.runId}`,

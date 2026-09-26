@@ -25,8 +25,8 @@ import type {
   SkillRouteInput,
   SkillRouteOutcome,
 } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";

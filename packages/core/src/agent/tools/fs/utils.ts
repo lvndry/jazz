@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import {
   bindCappedStdio,
   decodeCappedText,

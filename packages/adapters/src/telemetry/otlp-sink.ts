@@ -7,7 +7,7 @@
  */
 
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import type { OtlpSignal, ResolvedOtlpConfig } from "./otlp-config";
 import { buildLogsPayload } from "./otlp-mapping";
 import { OtlpOutbox } from "./otlp-outbox";

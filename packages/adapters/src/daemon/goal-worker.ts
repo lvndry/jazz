@@ -10,7 +10,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { hostname } from "node:os";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import {
   goalEvaluationRepairMessages,
@@ -22,24 +21,21 @@ import { cycleMessages, goalCyclePrompt } from "@jazz/core/agent/goal/goal-promp
 import { settleCycle, type EndedRun } from "@jazz/core/agent/goal/goal-reconcile";
 import {
   asInput,
-  type GoalCycle,
   type GoalLimit,
   type GoalRecord,
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
 import { CLAIMED_GOAL_STATES, isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
-import {
-  addSpend,
-  reachedLimit,
-  remainingCaps,
-  runSpend,
-  type RunSpend,
-  type CycleCaps,
-} from "@jazz/core/agent/goal/goal-usage";
+import { addSpend, reachedLimit, remainingCaps } from "@jazz/core/agent/goal/goal-usage";
 import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
-import { priceOneOffCall } from "@jazz/core/agent/run/run-spend";
+import {
+  priceOneOffCall,
+  runSpend,
+  type RunSpend,
+  type SpendBudget,
+} from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
@@ -51,13 +47,14 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
-import { currentProcessOwner, localOwnerStatus, type ProcessOwner } from "@jazz/core/utils/process";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
+import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
 import {
   loadConversationOrNull,
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
+import { claimOwnerStatus, inFlight, isThisProcess } from "./runs-in-flight";
 
 /**
  * Iterations one cycle may take before it must report, unless the goal's budget sets its
@@ -68,38 +65,6 @@ const DEFAULT_CYCLE_ITERATIONS = 24;
 
 /** A disposition is a small JSON object; this bounds a repair call that would ramble. */
 const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
-
-/**
- * Cycle runs this process is executing right now. A cycle whose owner pid is this process
- * but which is not in the set died here (a defect, an interrupt) and will not settle itself.
- */
-const cyclesInFlight = new Set<string>();
-
-/**
- * Whether a cycle's run is still being worked on. This process's own in-flight set is checked
- * first, so a hostname change mid-cycle cannot make the daemon disown a cycle it is running.
- */
-function cycleOwnerStatus(
-  owner: GoalCycle["owner"],
-  runId: string,
-): "alive" | "gone" | "unverifiable" {
-  if (cyclesInFlight.has(runId)) {
-    return "alive";
-  }
-  if (owner.pid === process.pid && owner.host === hostname()) {
-    return "gone";
-  }
-  return localOwnerStatus(owner);
-}
-
-/** Mark a cycle run as executing in this process for the duration of `work`. */
-function inFlight<A, E, R>(runId: string, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
-  return Effect.acquireUseRelease(
-    Effect.sync(() => cyclesInFlight.add(runId)),
-    () => work,
-    () => Effect.sync(() => cyclesInFlight.delete(runId)),
-  );
-}
 
 function cappedBy(response: AgentResponse): Exclude<GoalLimit, "cycles"> | undefined {
   if (response.tokenCapped === true) {
@@ -409,7 +374,7 @@ function runCycle(
   goal: GoalRecord,
   agent: Agent,
   runId: string,
-  caps: CycleCaps,
+  caps: SpendBudget,
   attendance?: GoalAttendance,
 ) {
   return Effect.gen(function* () {
@@ -482,10 +447,6 @@ function settleInterruptedCycle(goal: GoalRecord, runId: string, messages: reado
       "pause where the user stopped it",
     );
   });
-}
-
-function isThisProcess(owner: ProcessOwner | undefined): boolean {
-  return owner !== undefined && owner.pid === process.pid && owner.host === hostname();
 }
 
 /** Attempts at a read-modify-write of a goal before giving up on concurrent writers. */
@@ -710,7 +671,7 @@ export function runDueGoals() {
           }
           return;
         }
-        const cycleOwner = cycleOwnerStatus(cycle.owner, cycle.runId);
+        const cycleOwner = claimOwnerStatus(cycle.owner, cycle.runId);
         if (cycleOwner === "alive") {
           return;
         }
@@ -733,7 +694,7 @@ export function runDueGoals() {
           return;
         }
         if (run.state.kind === "working") {
-          const runOwner = cycleOwnerStatus(run.state.owner ?? cycle.owner, cycle.runId);
+          const runOwner = claimOwnerStatus(run.state.owner ?? cycle.owner, cycle.runId);
           if (runOwner === "gone") {
             yield* settleDeadWorkingRun(goal, run);
           } else if (runOwner === "unverifiable") {
@@ -762,12 +723,12 @@ export function runDueGoals() {
 }
 
 /**
- * Answer a parked run, and when it belongs to a goal, settle the goal's cycle with the
- * result: finished, parked again on another approval, or failed. The goal is active again
- * while the answered run works, so a pause or cancel in that window is recorded on the
- * cycle instead of being lost. Every surface that answers runs uses this.
+ * Answer a parked run that is a goal's cycle, and settle the cycle with the result: finished,
+ * parked again on another approval, or failed. The goal is active again while the answered run
+ * works, so a pause or cancel in that window is recorded on the cycle instead of being lost.
+ * Undefined when no goal owns the run; `resumeOwnedRun` is what answer surfaces call.
  */
-export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">) {
+export function resumeGoalRun(options: ResumeRunOptions) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
@@ -776,8 +737,7 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     });
     const goal = candidates.find((candidate) => candidate.cycle?.runId === options.runId);
     if (goal === undefined) {
-      const response = yield* resumeRun(options);
-      return { kind: "not-goal", response } as const;
+      return undefined;
     }
     if (goal.state.kind === "paused") {
       return {
@@ -819,12 +779,12 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, goalLimits: caps.caps }));
+        const settled = yield* runToOutcome(resumeRun({ ...options, ...caps.caps }));
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),
     );
-    return { kind: "resumed", goalId: goal.goalId, outcome } as const;
+    return { kind: "resumed", owner: { goalId: goal.goalId }, outcome } as const;
   });
 }
 

@@ -11,7 +11,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -158,11 +158,17 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
     reason:
       "accepting a goal (`jazz goal accept`, `jazz goal start --yes`) is the user's decision, not an agent's",
   },
+  // Starting or resuming a loop grants it authority to rerun unattended; that is the user's call.
+  {
+    pattern: /\bjazz\s+loop\s+(?:start|resume)\b/,
+    reason:
+      "starting or resuming a loop (`jazz loop start`, `jazz loop resume`) is the user's decision, not an agent's",
+  },
   // A parked run stopped to ask the user; an agent answering it would grant itself the step.
   {
-    pattern: /\bjazz\s+(?:goal|runs)\s+(?:approve|answer)\b/,
+    pattern: /\bjazz\s+(?:goal|loop|runs)\s+(?:approve|answer)\b/,
     reason:
-      "approving or answering a parked run (`jazz runs approve`, `jazz goal answer`) is the user's decision, not an agent's",
+      "approving or answering a parked run (`jazz runs approve`, `jazz goal answer`, `jazz loop approve`) is the user's decision, not an agent's",
   },
   // File-system destruction (rm with any -r/-f flag combination, root paths,
   // home, or wildcards)

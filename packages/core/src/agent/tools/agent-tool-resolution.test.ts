@@ -107,7 +107,20 @@ describe("runToolDenials", () => {
    */
   it("withholds propose_goal unless the surface shows proposals to a person", () => {
     const agent = agentWith({ deniedTools: ["rm"] });
-    expect([...runToolDenials(agent, undefined, {})].sort()).toEqual(["propose_goal", "rm"]);
-    expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })]).toEqual(["rm"]);
+    expect([...runToolDenials(agent, undefined, {})].sort()).toEqual([
+      "end_loop",
+      "propose_goal",
+      "rm",
+    ]);
+    expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })].sort()).toEqual([
+      "end_loop",
+      "rm",
+    ]);
+  });
+
+  it("gives end_loop only to a run a loop started", () => {
+    const agent = agentWith({});
+    expect(runToolDenials(agent, undefined, { inLoop: true }).has("end_loop")).toBe(false);
+    expect(runToolDenials(agent, undefined, { inLoop: true }).has("propose_goal")).toBe(true);
   });
 });

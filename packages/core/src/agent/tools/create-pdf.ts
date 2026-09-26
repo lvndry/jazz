@@ -22,7 +22,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import {

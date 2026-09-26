@@ -14,6 +14,7 @@ import { fs } from "./fs";
 import { createProposeGoalTool } from "./goal";
 import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
+import { createEndLoopTool } from "./loop";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
@@ -259,6 +260,7 @@ export function registerGoalTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     yield* registry.registerForCategory(GOALS_CATEGORY)(createProposeGoalTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createEndLoopTool());
   });
 }
 

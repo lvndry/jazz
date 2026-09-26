@@ -8,6 +8,7 @@ import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
 import type { ModelInfo } from "@jazz/core/types";
 import type { LLMConfig } from "@jazz/core/types/config";
 import { LLMConfigurationError } from "@jazz/core/types/errors";
+import { toError } from "@jazz/core/utils/errors";
 import { isConnectionError, localServerUnreachableMessage } from "@jazz/core/utils/llm-error";
 import {
   getMetadataFromMap,
@@ -17,7 +18,6 @@ import {
   type ModelsDevModelEntry,
 } from "@jazz/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
-import { toError } from "@jazz/core/utils/storage";
 import { gateway } from "ai";
 import { Effect } from "effect";
 import { ChatGPTSignInRequiredError } from "./chatgpt/credentials";

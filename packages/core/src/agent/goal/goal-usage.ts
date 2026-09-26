@@ -6,7 +6,13 @@
  * stays unknown for the rest of the goal once any run had no pricing.
  */
 
-import type { RunRecord } from "@/core/agent/run/run-record";
+import {
+  addRunSpend,
+  extendSpendBudget,
+  remainingSpendCaps,
+  spendLimitReached,
+  type RunSpend,
+} from "@/core/agent/run/run-spend";
 import type { GoalBudget, GoalLimit, GoalRecord, GoalUsage } from "./goal-record";
 
 /**
@@ -22,96 +28,23 @@ export const DEFAULT_GOAL_BUDGET: GoalBudget = {
   maxCostUSD: 5,
 };
 
-export interface RunSpend {
-  readonly totalTokens: number;
-  /** Undefined when the run's provider has no pricing. */
-  readonly costUSD?: number;
-  readonly activeDurationMs: number;
-}
-
-export function runSpend(
-  run: Pick<RunRecord, "totalTokens" | "costUSD" | "activeDurationMs">,
-): RunSpend {
-  return {
-    totalTokens: run.totalTokens ?? 0,
-    ...(run.costUSD !== undefined ? { costUSD: run.costUSD } : {}),
-    activeDurationMs: run.activeDurationMs ?? 0,
-  };
-}
-
 export function addSpend(usage: GoalUsage, spend: RunSpend): GoalUsage {
-  const costKnown = usage.costKnown && spend.costUSD !== undefined;
-  return {
-    cycles: usage.cycles,
-    totalTokens: usage.totalTokens + spend.totalTokens,
-    activeDurationMs: usage.activeDurationMs + spend.activeDurationMs,
-    costKnown,
-    ...(costKnown ? { costUSD: (usage.costUSD ?? 0) + (spend.costUSD ?? 0) } : {}),
-  };
+  return addRunSpend(usage, spend);
 }
 
 /** The first cap the goal has reached, or undefined while it may start another cycle. */
 export function reachedLimit(goal: Pick<GoalRecord, "budget" | "usage">): GoalLimit | undefined {
-  const { budget, usage } = goal;
-  if (usage.cycles >= budget.maxCycles) {
-    return "cycles";
-  }
-  if (usage.totalTokens >= budget.maxTokens) {
-    return "tokens";
-  }
-  if (usage.activeDurationMs >= budget.maxDurationMs) {
-    return "duration";
-  }
-  if (
-    budget.maxCostUSD !== undefined &&
-    usage.costKnown &&
-    (usage.costUSD ?? 0) >= budget.maxCostUSD
-  ) {
-    return "cost";
-  }
-  return undefined;
-}
-
-export interface CycleCaps {
-  readonly maxTokens: number;
-  readonly maxDurationMs: number;
-  readonly maxCostUSD?: number;
+  return goal.usage.cycles >= goal.budget.maxCycles
+    ? "cycles"
+    : spendLimitReached(goal.budget, goal.usage);
 }
 
 /**
  * The caps for the next stretch of a cycle: what the goal has left after `inFlight`, the
  * spend of a parked run that is about to resume. A cap at or below zero is a reached limit.
  */
-export function remainingCaps(
-  goal: Pick<GoalRecord, "budget" | "usage">,
-  inFlight: RunSpend = { totalTokens: 0, activeDurationMs: 0 },
-):
-  | { readonly kind: "caps"; readonly caps: CycleCaps }
-  | { readonly kind: "limit"; readonly limit: GoalLimit } {
-  const tokens = goal.budget.maxTokens - goal.usage.totalTokens - inFlight.totalTokens;
-  if (tokens <= 0) {
-    return { kind: "limit", limit: "tokens" };
-  }
-  const duration =
-    goal.budget.maxDurationMs - goal.usage.activeDurationMs - inFlight.activeDurationMs;
-  if (duration <= 0) {
-    return { kind: "limit", limit: "duration" };
-  }
-  let maxCostUSD: number | undefined;
-  if (goal.budget.maxCostUSD !== undefined && goal.usage.costKnown) {
-    maxCostUSD = goal.budget.maxCostUSD - (goal.usage.costUSD ?? 0) - (inFlight.costUSD ?? 0);
-    if (maxCostUSD <= 0) {
-      return { kind: "limit", limit: "cost" };
-    }
-  }
-  return {
-    kind: "caps",
-    caps: {
-      maxTokens: tokens,
-      maxDurationMs: duration,
-      ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
-    },
-  };
+export function remainingCaps(goal: Pick<GoalRecord, "budget" | "usage">, inFlight?: RunSpend) {
+  return remainingSpendCaps(goal.budget, goal.usage, inFlight);
 }
 
 /**
@@ -122,25 +55,12 @@ export function remainingCaps(
  */
 export function extendBudget(
   goal: Pick<GoalRecord, "budget" | "usage">,
-  inFlight: RunSpend = { totalTokens: 0, activeDurationMs: 0 },
+  inFlight?: RunSpend,
 ): GoalBudget {
   const { budget, usage } = goal;
-  const spentUSD = (usage.costUSD ?? 0) + (inFlight.costUSD ?? 0);
-  const maxCostUSD =
-    budget.maxCostUSD === undefined
-      ? undefined
-      : Math.max(budget.maxCostUSD, spentUSD + (DEFAULT_GOAL_BUDGET.maxCostUSD ?? 0));
   return {
     maxCycles: Math.max(budget.maxCycles, usage.cycles + DEFAULT_GOAL_BUDGET.maxCycles),
-    maxTokens: Math.max(
-      budget.maxTokens,
-      usage.totalTokens + inFlight.totalTokens + DEFAULT_GOAL_BUDGET.maxTokens,
-    ),
-    maxDurationMs: Math.max(
-      budget.maxDurationMs,
-      usage.activeDurationMs + inFlight.activeDurationMs + DEFAULT_GOAL_BUDGET.maxDurationMs,
-    ),
-    ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+    ...extendSpendBudget(budget, usage, DEFAULT_GOAL_BUDGET, inFlight),
     ...(budget.maxIterationsPerCycle !== undefined
       ? { maxIterationsPerCycle: budget.maxIterationsPerCycle }
       : {}),

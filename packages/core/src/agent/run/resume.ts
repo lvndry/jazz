@@ -44,18 +44,16 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
-  /** Remaining aggregate goal caps for the cycle containing this parked run. */
-  readonly goalLimits?: {
-    readonly maxTokens: number;
-    readonly maxDurationMs: number;
-    readonly maxCostUSD?: number;
-  };
   /** Preserve an unattended caller's authority ceiling across the park; overrides the policy stored on the run. */
   readonly autoApprovePolicy?: AutoApprovePolicy;
+  /** What the resumed segment may spend; a goal or loop passes what its budget has left. */
+  readonly maxTokens?: number;
   readonly maxCostUSD?: number;
   readonly maxDurationMs?: number;
   readonly maxIterations?: number;
   readonly withholdInteractiveTools?: boolean;
+  /** Set when a loop started the run, so the resumed segment keeps `end_loop`. */
+  readonly inLoop?: boolean;
   /**
    * Provider keys for this resumed segment only, layered over the agent's own. A long-lived
    * host process resolves them per segment so a key stored after it started still applies.
@@ -205,18 +203,19 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
-      ...(options.goalLimits !== undefined ? options.goalLimits : {}),
       ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
       ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
+      ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
       ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
       ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
       ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
       ...(options.withholdInteractiveTools !== undefined
         ? { withholdInteractiveTools: options.withholdInteractiveTools }
         : {}),
+      ...(options.inLoop === true ? { inLoop: true } : {}),
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

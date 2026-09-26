@@ -5,8 +5,8 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { Agent } from "@jazz/core/types/agent";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
+import { toError } from "@jazz/core/utils/errors";
 import { getGlobalWorkflowsDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { Effect } from "effect";
 

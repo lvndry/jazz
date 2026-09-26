@@ -22,7 +22,7 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;

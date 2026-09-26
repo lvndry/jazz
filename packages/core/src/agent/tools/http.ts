@@ -8,7 +8,7 @@ import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;

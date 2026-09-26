@@ -8,6 +8,7 @@
  * 2 the request needs answers before a plan can be drafted.
  */
 
+import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   activateGoal,
   answerGoal,
@@ -15,7 +16,6 @@ import {
   getOwnedGoal,
   listOwnedGoals,
   proposeGoal,
-  type GoalAnswer,
   type GoalProposal,
 } from "@jazz/adapters/goals/goal-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
@@ -23,17 +23,13 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
-import {
-  APPROVAL_POLICY_LEVELS,
-  isApprovalPolicyLevel,
-  type ApprovalPolicyLevel,
-} from "@jazz/core/types/tools";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
-import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
+import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";
 import { describeGoalNow, describePlan } from "@/cli/goals/describe-goal";
+import { grantedPolicy } from "@/cli/helpers/approval-policy";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 function reportProposal(json: boolean, proposal: Exclude<GoalProposal, { kind: "failed" }>): void {
@@ -93,33 +89,13 @@ export interface StartGoalOptions extends DraftGoalOptions {
 }
 
 /**
- * The approval policy a command grants, or a refusal for an unknown tier: a typo must not
- * leave an unattended goal with a tier nobody asked for.
- */
-function grantedPolicy(
-  value: string | undefined,
-):
-  | { readonly kind: "granted"; readonly policy?: ApprovalPolicyLevel }
-  | { readonly kind: "invalid"; readonly reason: string } {
-  if (value === undefined) {
-    return { kind: "granted" };
-  }
-  return isApprovalPolicyLevel(value)
-    ? { kind: "granted", policy: value }
-    : {
-        kind: "invalid",
-        reason: `Invalid --approval-policy "${value}". Expected ${APPROVAL_POLICY_LEVELS.join(", ")}.`,
-      };
-}
-
-/** Draft a plan and, with `--yes`, accept it as an active goal for the daemon to run. */
-/**
  * Accepting a goal is the user's decision, so a command an agent ran through a tool refuses
  * to accept one: it would turn one approved shell call into lasting, unattended authority.
  */
 const AGENT_ACCEPT_REFUSAL =
   "Accepting a goal is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
 
+/** Draft a plan and, with `--yes`, accept it as an active goal for the daemon to run. */
 export function startGoalCommand(options: StartGoalOptions) {
   return Effect.gen(function* () {
     if (options.yes && isAgentStartedProcess()) {
@@ -166,7 +142,7 @@ export function startGoalCommand(options: StartGoalOptions) {
     emitEnvelope(
       options.json,
       { ok: true, kind: "started", goal: activation.goal, daemon: daemon.kind },
-      `${describePlan(proposal.plan)}\n\n${describeGoalStart(activation.goal.goalId, daemon)}`,
+      `${describePlan(proposal.plan)}\n\n${describeDaemonStart(`Goal ${activation.goal.name ?? activation.goal.goalId}`, daemon)}`,
     );
   }).pipe(
     Effect.catchAll((error) =>
@@ -237,7 +213,7 @@ export function decideProposedGoalCommand(options: {
     emitEnvelope(
       options.json,
       { ok: true, goal: outcome.goal, daemon: daemon.kind },
-      describeGoalStart(options.id, daemon),
+      describeDaemonStart(`Goal ${options.id}`, daemon),
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }
@@ -245,7 +221,7 @@ export function decideProposedGoalCommand(options: {
 /** `jazz goal approve|reject|answer`: answer what a goal waits on; the daemon carries on after. */
 export function answerGoalCommand(options: {
   readonly id: string;
-  readonly answer: GoalAnswer;
+  readonly answer: RunAnswer;
   readonly json: boolean;
 }) {
   return Effect.gen(function* () {
@@ -261,7 +237,7 @@ export function answerGoalCommand(options: {
     emitEnvelope(
       options.json,
       { ok: true, goal: answered.goal },
-      yield* describeGoalNow(answered.goal, "cli"),
+      `\n${yield* describeGoalNow(answered.goal, "cli")}`,
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }

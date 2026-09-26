@@ -16,7 +16,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineApprovalTool, makeZodValidator, type ApprovalToolPair } from "./base-tool";
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";

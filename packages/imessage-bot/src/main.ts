@@ -7,7 +7,7 @@
  * loaded to read anything else out of it.
  */
 
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { startBridge } from "./bridge";
 
 void startBridge().catch((error: unknown) => {
