@@ -227,45 +227,32 @@ export function isIncrementalRead(args: {
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          "File to read. Absolute or relative to the session working directory. Must be a file, not a directory.",
-        ),
+      path: z.string().min(1).describe("File, absolute or relative to the working directory."),
       startLine: lineIndexSchema
         .optional()
-        .describe(
-          "First line to return, 1-based and inclusive. Negative counts from the end: -1 is the last line, -20 starts 20 lines from the end. Omit startLine and endLine to read from the top, up to maxBytes.",
-        ),
+        .describe("First line, 1-based, inclusive; negative counts from the end (-20 = last 20)."),
       endLine: lineIndexSchema
         .optional()
-        .describe(
-          "Last line to return, 1-based and inclusive. Negative counts from the end. Omit to read through the last line, or until maxBytes is reached.",
-        ),
+        .describe("Last line, inclusive; negative counts from the end."),
       maxBytes: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Maximum number of characters to return after applying the line range. Measured as JavaScript string length, not UTF-8 bytes, despite the parameter name. Default 131072, hard cap 524288.",
-        ),
+        .describe("Max characters (not bytes) returned. Default 131072, cap 524288."),
       sinceByte: z
         .number()
         .int()
         .min(0)
         .optional()
         .describe(
-          "Returns only what was appended past this byte offset, for following a file still being written. Pass the previous read's nextByte. Omit for ordinary reads; not combinable with startLine/endLine.",
+          "Previous read's nextByte; returns only what was appended since. Not with startLine/endLine.",
         ),
       sinceInode: z
         .number()
         .int()
         .optional()
-        .describe(
-          "The previous read's inode, so a rotated file is detected instead of read as an append. Only with sinceByte; omit otherwise.",
-        ),
+        .describe("Previous read's inode, to detect rotation. Only with sinceByte."),
     })
     .strict()
     .refine(
@@ -289,13 +276,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     name: "read_file",
     disclosure: "private",
     description:
-      "Read a file relative to the session working directory. UTF-8 text is returned as numbered lines (`   12|content`) so edit_file can use those numbers for replace_lines, insert, and delete_lines. " +
-      "Images, PDFs, audio, and video are attached to the conversation when the active model supports that modality. " +
-      "Use this to inspect or edit text and code. Do not use this for directories (ls), to discover filenames (find), for unsupported binary formats, or via execute_command with cat/sed/nl. " +
-      "For large files, pass startLine and endLine. A negative startLine reads from the end (startLine: -20 is the last 20 lines). " +
-      "Pass the returned snapshot unchanged to edit_file; it binds the edit to the file state you read. Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
-      "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped. " +
-      "To follow a file that is still being written, pass sinceByte (from the previous read's nextByte) and sinceInode: you get only what was appended, plus a reset field saying the file was rotated or truncated when the offset stopped meaning anything.",
+      "Read a file (not a directory: ls; not cat via execute_command). Text comes back as numbered `N|` lines — the prefix is metadata, never copy it into edits — plus a snapshot to pass to edit_file. " +
+      "Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
+      "To follow a growing file, pass sinceByte and sinceInode; a reset field flags rotation or truncation.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),

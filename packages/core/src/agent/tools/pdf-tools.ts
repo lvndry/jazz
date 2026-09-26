@@ -40,19 +40,17 @@ const createPdfParameters = z
     html: z
       .string()
       .min(1)
-      .describe("Complete HTML document to render. Inline any CSS; @page rules control margins."),
-    title: z.string().min(1).describe("Short title, used for the filename when path is omitted."),
+      .describe("Complete HTML document; inline CSS, @page rules set margins."),
+    title: z.string().min(1).describe("Short title; the filename when path is omitted."),
     path: z
       .string()
       .optional()
-      .describe(
-        "Where to write the PDF. Relative paths resolve against the working directory. Defaults to <title>.pdf in the working directory.",
-      ),
-    landscape: z.boolean().optional().describe("Landscape orientation (default: portrait)."),
+      .describe("Output path, relative to the working directory. Defaults to <title>.pdf."),
+    landscape: z.boolean().optional().describe("Landscape orientation (default portrait)."),
     format: z
       .enum(["A4", "Letter", "Legal", "A3", "A5"])
       .optional()
-      .describe("Page size (default: A4)."),
+      .describe("Page size (default A4)."),
   })
   .strict();
 
@@ -118,11 +116,12 @@ export function createPdfTool(
   return defineTool<FileSystem.FileSystem | FileSystemContextService, CreatePdfArgs>({
     name: "create_pdf",
     disclosure: "internal",
+    summary:
+      "Render a PDF from HTML you write, saved to the working directory: reports, invoices, documents.",
     description:
-      "Render a PDF from HTML you write, saved to the user's working directory (or an explicit path). " +
-      "Use for reports, summaries, invoices, or anything the person will keep, print, or send on. " +
-      "The text and numbers are exactly what you write — this is a renderer, not an image generator. " +
-      "Needs Chrome or Chromium installed (or PUPPETEER_EXECUTABLE_PATH set).",
+      "Render HTML you write to a PDF, for reports, invoices or anything the person will keep, " +
+      "print or send. The text and numbers are exactly what you write: a renderer, not an image " +
+      "generator. Needs Chrome or Chromium (or PUPPETEER_EXECUTABLE_PATH).",
     tags: ["document", "pdf"],
     parameters: createPdfParameters,
     riskLevel: "low-risk",

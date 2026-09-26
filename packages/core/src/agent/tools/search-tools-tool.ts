@@ -111,7 +111,7 @@ const searchToolsParameters = z.object({
   query: z
     .string()
     .min(1, "query cannot be empty")
-    .describe("Keywords describing the capability you need, e.g. 'create linear issue'."),
+    .describe("Keywords for the capability, e.g. 'create linear issue'."),
 });
 
 export function createSearchToolsTool(): Tool<ToolRegistry> {
@@ -119,9 +119,8 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
     name: "search_tools",
     disclosure: "internal",
     description:
-      "Fetch full parameter schemas for tools you can currently see only by name and one-line summary in your tool list (MCP server tools, background jobs, reminders, wake triggers, workspace, peers). " +
-      "Call this before attempting to use one of them — once fetched, the tool becomes directly callable for the rest of this conversation. " +
-      "Do not use execute_command to replicate what a listed-but-unfetched tool already does; search for it here instead.",
+      "Fetch schemas for tools listed only by name and summary; once fetched, a tool stays callable for this conversation. " +
+      "Search here instead of replicating a listed tool with execute_command.",
     parameters: searchToolsParameters,
     riskLevel: "read-only",
     egress: false,

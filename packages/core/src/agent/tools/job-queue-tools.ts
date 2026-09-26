@@ -69,41 +69,31 @@ const enqueueBatchParameters = z
     jobs: z
       .array(
         z.object({
-          command: z
-            .string()
-            .min(1)
-            .max(JOB_COMMAND_MAX_LENGTH)
-            .describe("The shell command to run."),
+          command: z.string().min(1).max(JOB_COMMAND_MAX_LENGTH).describe("Shell command to run."),
         }),
       )
       .min(1)
       .max(MAX_JOBS_PER_BATCH)
-      .describe("Independent shell commands to run — each becomes its own retried job."),
+      .describe("Independent commands; each becomes its own retried job."),
     concurrencyCap: z
       .number()
       .int()
       .min(1)
       .max(MAX_CONCURRENCY_CAP)
       .optional()
-      .describe(
-        `How many jobs run at once, across the whole batch (default 3, max ${MAX_CONCURRENCY_CAP}).`,
-      ),
+      .describe(`Jobs running at once across the batch (default 3, max ${MAX_CONCURRENCY_CAP}).`),
     maxAttempts: z
       .number()
       .int()
       .min(1)
       .max(MAX_MAX_ATTEMPTS)
       .optional()
-      .describe(
-        `Attempts per job before giving up, with exponential backoff between retries (default 1, max ${MAX_MAX_ATTEMPTS}).`,
-      ),
+      .describe(`Attempts per job, with exponential backoff (default 1, max ${MAX_MAX_ATTEMPTS}).`),
     reason: z
       .string()
       .min(1)
       .max(JOB_REASON_MAX_LENGTH)
-      .describe(
-        "Brief note on what this batch is for, shown via list_jobs to a human — not sent back to you.",
-      ),
+      .describe("What this batch is for; shown to a human in list_jobs, not sent back to you."),
   })
   .strict();
 
@@ -124,21 +114,14 @@ export function createJobQueueTools(): {
       `${JOB_TIMEOUT_MINUTES} minutes.`,
 
     description:
-      "Run several independent shell commands in the background, with a concurrency cap and " +
-      "per-job retry/backoff, without blocking your turn. Returns immediately with a batchId — " +
-      "you will be woken up once every job in the batch reaches a final state (succeeded or " +
-      "exhausted its retries), with each job's status and what it printed. Do not poll in a " +
-      "loop; call list_jobs only if the " +
-      "user explicitly asks for a progress check. Use this instead of chaining execute_command " +
-      "calls with sleeps when the work is independent (e.g. running the same check across " +
-      "several repos, retrying a flaky command) — not for commands that depend on each other's " +
-      "output.\n\n" +
-      `Every job is killed at ${JOB_TIMEOUT_MINUTES} minutes and reports whatever it printed ` +
-      "up to that point, so a command that never exits on its own (`tail -f`, `watch`) burns " +
-      "the whole budget and tells you little. To follow something open-ended, either bound the " +
-      "command (`timeout 60 tail -f app.log`, or `gh run watch` on a run you expect to finish " +
-      "inside the cap) or use register_trigger to wake yourself later and look again — that is " +
-      "the tool for anything that could outlast a single batch.",
+      "Run independent shell commands in the background without blocking your turn, instead of " +
+      "chaining execute_command calls with sleeps. Returns a batchId at once; you are woken when " +
+      "every job finishes or exhausts its retries, with each job's status and output. Do not " +
+      "poll: call list_jobs only if the user asks for progress. Not for commands that depend on " +
+      "each other's output.\n\n" +
+      `Each job is killed at ${JOB_TIMEOUT_MINUTES} minutes, so a command that never exits ` +
+      "(`tail -f`, `watch`) burns the budget. Bound it (`timeout 60 tail -f app.log`) or use " +
+      "register_trigger for anything that could outlast a batch.",
     parameters: enqueueBatchParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(enqueueBatchParameters),
@@ -246,7 +229,7 @@ These commands will run unattended, without further approval, until every job fi
         .string()
         .min(1)
         .optional()
-        .describe("A specific batch id, from enqueue_batch. Omit to list all active batches."),
+        .describe("Batch id from enqueue_batch; omit for all active batches."),
     })
     .strict();
 
@@ -256,9 +239,7 @@ These commands will run unattended, without further approval, until every job fi
     summary:
       "Check on background jobs already started: each batch's progress, every job's status, and " +
       "the output it printed.",
-    description:
-      "List this agent's background job batches (active, or a specific one by id), every job's " +
-      "status, and what each one printed.",
+    description: "List this agent's job batches with each job's status and output.",
     parameters: listJobsParameters,
     riskLevel: "read-only",
     validate: makeZodValidator(listJobsParameters),
@@ -304,16 +285,15 @@ These commands will run unattended, without further approval, until every job fi
 
   const cancelBatchParameters = z
     .object({
-      batchId: z.string().min(1).describe("The id of the job batch to cancel, from list_jobs."),
+      batchId: z.string().min(1).describe("Batch id from list_jobs."),
     })
     .strict();
 
   const cancelBatch = defineTool<JobQueueToolDeps, z.infer<typeof cancelBatchParameters>>({
     name: "cancel_batch",
     disclosure: "internal",
-    description:
-      "Cancel a job batch's pending jobs by id (get the id from list_jobs first). Jobs already " +
-      "running finish naturally — this only stops jobs that haven't started yet.",
+    summary: "Cancel a job batch's pending jobs by id (get the id from list_jobs first).",
+    description: "Cancel a job batch's jobs that haven't started; running jobs finish.",
     parameters: cancelBatchParameters,
     riskLevel: "low-risk",
     validate: makeZodValidator(cancelBatchParameters),

@@ -184,39 +184,25 @@ function buildTablesSection(getTableResult: {
 export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-          "Local PDF to read. Absolute or relative to the session working directory. Provide this or url, not both.",
-        ),
+      path: z.string().min(1).optional().describe("Local PDF. Exactly one of path or url."),
       url: z
         .url({
           protocol: /^https?$/,
           error: "URL must be absolute and include the protocol (http or https).",
         })
         .optional()
-        .describe(
-          "http or https URL of a PDF to download and read. Provide this or path, not both.",
-        ),
+        .describe("http(s) URL of a PDF to download."),
       pages: z
         .array(z.number().int().positive())
         .optional()
-        .describe(
-          "1-based page numbers to extract (for example [1, 2, 3], not a range string). Omit for all pages. For large files, request 10–20 pages at a time.",
-        ),
+        .describe("1-based page numbers, e.g. [1, 2, 3]. Omit for all."),
       maxChars: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Maximum number of characters to return. Default 512000. Truncated if exceeded."),
-      password: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Password to open the PDF if it is encrypted/password-protected."),
+        .describe("Max characters returned. Default 512000."),
+      password: z.string().min(1).optional().describe("For encrypted PDFs."),
     })
     .strict()
     .refine((value) => (value.path === undefined) !== (value.url === undefined), {
@@ -233,7 +219,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
     // `path` mode touches nothing but disk.
     egress: true,
     description:
-      "Extract text and tables from a PDF — a local file (path) or a remote one (url, downloaded over http/https). Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). If the PDF is encrypted, pass its password. No OCR or images.",
+      "Extract text and tables from a local or remote PDF (no OCR). For large files, call pdf_page_count first and read 10–20 pages at a time.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),

@@ -70,39 +70,16 @@ const COMPANION_MAX_ITERATIONS = 4;
 export const SELECTED_OPTION_KEY = "_selectedOptionId";
 
 const analyzeMediaSchema = z.object({
-  modality: z
-    .enum(["image", "audio", "video"])
-    .describe(
-      "Which media kind to delegate: image for pictures, audio for recordings, video for clips.",
-    ),
-  task: z
-    .string()
-    .min(1)
-    .describe(
-      "What to extract from the media, stated precisely — questions to answer, details to read, " +
-        "the exact shape of the answer you need back.",
-    ),
-  mediaPaths: z
-    .array(z.string().min(1))
-    .min(1)
-    .max(8)
-    .describe("Absolute paths of the media files the companion should perceive."),
+  modality: z.enum(["image", "audio", "video"]).describe("Media kind to analyze."),
+  task: z.string().min(1).describe("Exactly what to extract and the answer shape you need."),
+  mediaPaths: z.array(z.string().min(1)).min(1).max(8).describe("Absolute file paths."),
 });
 
 type AnalyzeMediaArgs = z.infer<typeof analyzeMediaSchema>;
 
 const generateMediaSchema = z.object({
-  modality: z
-    .enum(["image", "audio", "video"])
-    .describe("Which media kind to produce: image, audio, or video."),
-  prompt: z
-    .string()
-    .min(1)
-    .describe(
-      "The full description of what to produce, standalone — style, subject, composition, " +
-        "length, voice, everything that matters. The companion sees nothing else of this " +
-        "conversation, so a reference to 'the chart above' produces nothing.",
-    ),
+  modality: z.enum(["image", "audio", "video"]).describe("Media kind to produce."),
+  prompt: z.string().min(1).describe("Complete standalone brief: subject, style, length, voice."),
 });
 
 type GenerateMediaArgs = z.infer<typeof generateMediaSchema>;
@@ -563,12 +540,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     timeoutMs: COMPANION_TIMEOUT_MS,
     riskLevel: "high-risk",
     description:
-      "Delegate image, audio, or video analysis to a model that accepts that modality, and get a " +
-      "textual answer back. Use this when the user asks about media your own model cannot ingest " +
-      "(check your supported kinds) or when higher-fidelity perception would help. The person at " +
-      "the keyboard picks which model does the looking; name every file explicitly in mediaPaths " +
-      "and put everything you want answered into task — the companion sees nothing else of this " +
-      "conversation.",
+      "Have another model analyze image, audio or video you cannot ingest yourself, and get text back. " +
+      "The user picks the model. It sees only mediaPaths and task, none of this conversation.",
     parameters: analyzeMediaSchema,
     validate: makeZodValidator(analyzeMediaSchema),
     handler: (args: AnalyzeMediaArgs, context) =>
@@ -707,11 +680,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     timeoutMs: COMPANION_TIMEOUT_MS,
     riskLevel: "high-risk",
     description:
-      "Produce an image, audio clip, or video by delegating to a model that generates that " +
-      "medium, and get the file back. Use this when the user asks you to make media your own " +
-      "model cannot produce. The person at the keyboard picks which model draws; put the entire " +
-      "brief into prompt — the companion sees nothing else of this conversation. If your own " +
-      "model already produces this medium, do it yourself instead: that costs one call, not two.",
+      "Have another model generate an image, audio or video you cannot produce yourself, and get the file back. " +
+      "The user picks the model. It sees only prompt, none of this conversation.",
     parameters: generateMediaSchema,
     validate: makeZodValidator(generateMediaSchema),
     handler: (args: GenerateMediaArgs, context) =>

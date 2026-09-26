@@ -22,19 +22,15 @@ import { defineTool, makeZodValidator } from "./base-tool";
  */
 const TodoItemSchema = z.object({
   content: z.string().describe("What this step is."),
-  status: z
-    .enum(["pending", "in_progress", "completed", "cancelled"])
-    .describe("pending, in_progress, completed, or cancelled."),
+  status: z.enum(["pending", "in_progress", "completed", "cancelled"]).describe("Step status."),
   verifiedBy: z
     .string()
     .optional()
     .describe(
-      'What you ran that confirms this works, e.g. "bun test src/foo.test.ts". Set it ' +
-        "whenever you mark something completed. Leave it out if you believe the work is " +
-        "finished but have not actually checked — completed without it reads as exactly " +
-        "that, which is honest and useful; a claim you did not verify is not.",
+      'What you ran to confirm it works, e.g. "bun test src/foo.test.ts". Set it when marking ' +
+        "completed; omit it if you have not actually checked.",
     ),
-  priority: z.enum(["high", "medium", "low"]).describe("high, medium, or low.").default("medium"),
+  priority: z.enum(["high", "medium", "low"]).describe("Step priority.").default("medium"),
 });
 
 type TodoItem = z.infer<typeof TodoItemSchema>;
@@ -110,21 +106,16 @@ function computeStats(todos: TodoItem[]) {
  */
 export function createManageTodosTool(): Tool<never> {
   const parameters = z.object({
-    todos: z
-      .array(TodoItemSchema)
-      .describe(
-        "The complete updated list. This replaces the current list; do not send only the changed items.",
-      ),
+    todos: z.array(TodoItemSchema).describe("The complete list, replacing the current one."),
   });
 
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     disclosure: "private",
     description:
-      "Replace this conversation's todo list, which steers the run and shows progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
-      "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
-      "This list belongs to the current conversation and does not survive compaction on its own. It is not memory, not work state, and not a reminder. " +
-      "For a plan that must survive compaction, also call update_work_state. To ping someone at a clock time, use add_reminder.",
+      "Replace this conversation's todo list, shown as progress in the UI. Send every item each call, not just changes. " +
+      "Use it for work with three or more distinct steps. Keep exactly one item in_progress; mark it completed as soon as it is done. " +
+      "It does not survive compaction: for that, also call update_work_state. For a clock-time ping, use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -178,7 +169,7 @@ export function createListTodosTool(): Tool<never> {
   return defineTool({
     name: "list_todos",
     disclosure: "private",
-    description: "Read the current todo list. Returns all items with their status and priority.",
+    description: "Read the current todo list.",
     parameters: z.object({}),
     riskLevel: "read-only",
     hidden: false,

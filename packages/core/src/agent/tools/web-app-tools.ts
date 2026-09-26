@@ -94,25 +94,19 @@ const createCompositionParameters = z
       .string()
       .min(1)
       .describe(
-        "A complete, self-contained HTML document (<!doctype html> optional, but include " +
-          "<html>/<head>/<body>). Inline all CSS/JS; CDN <script>/<link> tags are fine. Don't " +
-          "reference local files — the page must render correctly with nothing but this string.",
+        "Complete self-contained HTML document with <html>/<head>/<body>. Inline CSS/JS; CDN " +
+          "<script>/<link> tags are fine; never reference local files.",
       ),
     title: z
       .string()
       .min(1)
       .max(120)
-      .describe(
-        "Short, distinctive name for this composition — used as its display title and filename. " +
-          "Prefer a concrete noun phrase such as 'weekly-spending' or 'project-timeline'.",
-      ),
+      .describe("Short display title and filename, a concrete noun phrase like 'weekly-spending'."),
     mode: z
       .enum(["static", "interactive"])
       .describe(
-        "'static': render once to a PNG image delivered directly in the chat, no tap needed — " +
-          "use for a quick chart, diagram, or anything that doesn't need input or motion. " +
-          "'interactive': the person taps a button to open the live page — use when it needs " +
-          "hover/zoom/filter, form input, or is a game/tool they interact with.",
+        "'static': one PNG in the chat, for a chart or diagram needing no input or motion. " +
+          "'interactive': a live page the person opens, for hover, filters, forms or games.",
       ),
     width: z
       .number()
@@ -120,14 +114,14 @@ const createCompositionParameters = z
       .min(200)
       .max(2000)
       .optional()
-      .describe("Viewport width in pixels for 'static' rendering (default: 800)."),
+      .describe("Viewport width in px for 'static' (default 800)."),
     height: z
       .number()
       .int()
       .min(200)
       .max(2000)
       .optional()
-      .describe("Viewport height in pixels for 'static' rendering (default: 600)."),
+      .describe("Viewport height in px for 'static' (default 600)."),
   })
   .strict();
 
@@ -192,13 +186,16 @@ export function createCompositionTool(
   return defineTool<FileSystem.FileSystem, CreateCompositionArgs>({
     name: "create_composition",
     disclosure: "internal",
+    summary:
+      "Compose a visual artifact: chart, visualization, diagram, interactive explainer, dashboard, form or tool.",
     description:
-      "Compose a polished visual artifact — a visualization, interactive explainer, dashboard, form, or small tool — when text alone is not the clearest medium. " +
-      "Write one complete, self-contained HTML document. Before writing, choose the simplest useful interaction and information hierarchy; build a finished artifact, not a rough demo. " +
-      "Use semantic HTML, responsive CSS that works from 320px to desktop, clear labels and units, accessible contrast, visible focus states, keyboard-operable controls, and reduced-motion-friendly animation. " +
-      "Never invent data or imply false precision. Prefer inline CSS and JavaScript with no build step; use an external library only when it materially improves the result. Include useful empty, loading, or error states when the composition needs them. " +
-      "For mode 'static', make every important detail legible in the requested viewport with no hover, click, or scroll required. For mode 'interactive', make the first screen useful without instructions. " +
-      "mode 'static' produces a PNG and needs Chrome or Chromium installed (or PUPPETEER_EXECUTABLE_PATH set); mode 'interactive' produces a live HTML composition. On a supported local terminal, Jazz opens a completed composition in the default browser; chat surfaces deliver an image or link. Do not use this to fetch or search the web.",
+      "Build a polished visual artifact when text alone is not the clearest medium. Make it " +
+      "finished, not a demo: semantic HTML, responsive from 320px, clear labels and units, " +
+      "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Never invent " +
+      "data or imply false precision. Prefer inline CSS/JS; add a library only when it clearly " +
+      "helps. A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
+      "or Chromium (or PUPPETEER_EXECUTABLE_PATH). An 'interactive' page must be useful on its " +
+      "first screen without instructions. Not for fetching or searching the web.",
     tags: ["ui", "visualization", "composition"],
     // Existing agent configurations can keep working while the model sees and
     // calls the new, better-named capability.

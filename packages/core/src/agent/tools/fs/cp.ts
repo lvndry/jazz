@@ -19,22 +19,12 @@ import { buildKeyFromContext } from "../context-utils";
 
 const cpParameters = z
   .object({
-    source: z
-      .string()
-      .min(1)
-      .describe(
-        "File or directory to copy. Absolute or relative to the session working directory.",
-      ),
+    source: z.string().min(1).describe("File or directory; copied recursively."),
     destination: z
       .string()
       .min(1)
-      .describe(
-        "Exact destination path. If this is an existing directory, the source is not copied into it — unlike shell cp.",
-      ),
-    force: z
-      .boolean()
-      .optional()
-      .describe("Overwrite the destination if it already exists. Default false."),
+      .describe("Exact target path, not a parent directory (unlike shell cp)."),
+    force: z.boolean().optional().describe("Delete an existing destination first."),
   })
   .strict();
 
@@ -49,8 +39,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
   const config: ApprovalToolConfig<CpDeps, CpArgs> = {
     name: "cp",
     disclosure: "public",
-    description:
-      "Copy a file or directory. Directories are always copied recursively. destination is the exact target path: if it is an existing directory, the source is not copied into it (unlike shell cp). force deletes the destination first.",
+    description: "Copy a file or directory.",
     tags: ["filesystem", "write"],
     parameters: cpParameters,
     validate: makeZodValidator(cpParameters),

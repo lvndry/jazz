@@ -10,11 +10,9 @@ import { defineTool, makeZodValidator } from "./base-tool";
 type ReminderToolDeps = ReminderService | FileSystem.FileSystem;
 
 const WHEN_DESCRIPTION =
-  'When to fire, e.g. a relative duration ("30m", "2h", "1h30m", "90s", "1d"), a 24h clock ' +
-  'time ("18:00" — next occurrence of that time), "tomorrow HH:MM", a weekday and time ' +
-  '("tue 20:00" — next occurrence of that weekday), or an absolute date and time ' +
-  '("2026-08-25 20:00"). When the reminder is about something happening on a known date, ' +
-  "use the absolute or weekday form so it cannot land after the event.";
+  'Relative ("30m", "1h30m", "1d"), 24h clock ("18:00"), "tomorrow HH:MM", weekday ' +
+  '("tue 20:00") or absolute ("2026-08-25 20:00"). For an event on a known date, use the ' +
+  "weekday or absolute form so it cannot land after the event.";
 
 function formatFireAt(reminder: ReminderRecord): string {
   return new Date(reminder.fireAt).toISOString();
@@ -23,7 +21,7 @@ function formatFireAt(reminder: ReminderRecord): string {
 const addReminderParameters = z
   .object({
     when: z.string().min(1).describe(WHEN_DESCRIPTION),
-    text: z.string().min(1).describe("What to remind about — kept concise."),
+    text: z.string().min(1).describe("What to remind about, kept concise."),
   })
   .strict();
 
@@ -33,11 +31,12 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, AddReminderArgs>({
     name: "add_reminder",
     disclosure: "public",
+    summary:
+      "Schedule a reminder that will be delivered back to this person later: remind, ping or notify.",
     description:
-      "Schedule a reminder that will be delivered back to this person later. " +
-      `${WHEN_DESCRIPTION} Use this whenever someone asks to be reminded, pinged, or ` +
-      "notified about something at a future time — do not try to fire notifications any " +
-      "other way. This is an out-of-band ping to a human (chat surfaces), not a todo and not task_state.",
+      "Schedule a reminder delivered back to this person later, when they ask to be reminded, " +
+      "pinged or notified. This is the only way to fire a future notification. It pings a human; " +
+      "it is not a todo or work state.",
     parameters: addReminderParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -129,7 +128,7 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
 
 const cancelReminderParameters = z
   .object({
-    id: z.string().min(1).describe("The id of the reminder to cancel, from list_reminders."),
+    id: z.string().min(1).describe("Reminder id from list_reminders."),
   })
   .strict();
 
@@ -139,7 +138,8 @@ export function createCancelReminderTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, CancelReminderArgs>({
     name: "cancel_reminder",
     disclosure: "private",
-    description: "Cancel a pending reminder by id (get the id from list_reminders first).",
+    summary: "Cancel a pending reminder by id (get the id from list_reminders first).",
+    description: "Cancel a pending reminder.",
     parameters: cancelReminderParameters,
     riskLevel: "low-risk",
     hidden: false,

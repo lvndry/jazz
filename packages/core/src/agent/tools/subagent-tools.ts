@@ -46,44 +46,33 @@ const spawnSubagentSchema = z.object({
   task: z
     .string()
     .describe(
-      "Self-contained brief for the child. Include every fact, path, constraint, and the exact output shape. The child cannot see this conversation.",
+      "Self-contained brief: every fact, path, constraint and the exact output shape the child needs.",
     ),
   name: z
     .string()
     .optional()
-    .describe(
-      "Short role label for this sub-agent (e.g. 'Curriculum coach', 'Food-safety instructor'). " +
-        "Shown in the sub-agent panel so parallel sub-agents are distinguishable. " +
-        "Defaults to 'Sub-Agent (<persona>)' when omitted.",
-    ),
+    .describe("Short role label shown in the sub-agent panel, e.g. 'Curriculum coach'."),
   persona: z
     .enum(["default", "coder", "researcher"])
     .optional()
     .default("default")
-    .describe(
-      "Which persona the child uses. coder for code and git, researcher for read-only investigation, default for general work. Default: default.",
-    ),
+    .describe("coder for code and git, researcher for read-only investigation, default otherwise."),
   reasoning: z
     .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
     .optional()
-    .describe(
-      "Reasoning effort for this sub-agent. Omit to inherit the parent's effort. " +
-        "Raise it for hard analysis tasks (deep review, root-cause hunting); lower it for mechanical ones.",
-    ),
+    .describe("Omit to inherit yours. Raise for hard analysis, lower for mechanical work."),
   resultSchema: z
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      "JSON Schema for a structured child result. When supplied, the child must return a JSON envelope with a text summary and a result that validates against this schema.",
+      "JSON Schema the child's result must validate against; you get its summary plus the structured result.",
     ),
   resultName: z
     .string()
     .min(1)
     .max(120)
     .optional()
-    .describe(
-      "Human-readable label for the structured result, used in prompts and validation errors.",
-    ),
+    .describe("Label for the structured result in prompts and errors."),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
@@ -227,12 +216,10 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Delegate a self-contained task to a child agent with a fresh context window. " +
-        "The child cannot see this conversation, so put every fact, path, constraint, and the exact output shape in task. Only the child's final answer comes back. " +
-        "Use this when the work would flood this context, when two or more independent investigations can run in parallel in one turn, or when you need a specialist (coder for code and git, researcher for read-only investigation). " +
-        "Do not use this when a few greps or reads would finish the work, when the child would need to remember this conversation, when the work must mutate the same files in order, or when you are already under context pressure. " +
-        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting deeper than 3 is refused. Label parallel children with name. " +
-        "When resultSchema is supplied, Jazz validates the child's final JSON envelope and returns its summary plus structured result.",
+        "Delegate a self-contained task to a child agent with a fresh context; it cannot see this conversation and only its final answer comes back. " +
+        "Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. " +
+        "Skip it when a few reads would do, when the child would need this conversation, or when the work must mutate the same files in order. " +
+        "The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting deeper than 3 is refused.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -546,7 +533,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       disclosure: "private",
       longRunning: true,
       description:
-        "Summarize older messages to free context. The harness already auto-compacts around 80% of the window — call this only when you need space before that, not as a habit. Empty or short histories return an error instead of summarizing.",
+        "Summarize older messages to free context. The harness auto-compacts near 80% of the window, so call this only when you need space sooner.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

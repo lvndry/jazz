@@ -10,22 +10,19 @@ import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const askUserSchema = z.object({
-  question: z.string().describe("The one question the human must answer to unblock you."),
+  question: z.string().describe("The single question blocking you."),
   suggested_responses: z
     .array(
       z.object({
-        value: z.string().describe("Stable id returned when this option is chosen."),
-        label: z.string().optional().describe("Short label shown in the picker."),
-        description: z
-          .string()
-          .optional()
-          .describe("One-line explanation of what this option means."),
+        value: z.string().describe("Id returned when chosen."),
+        label: z.string().optional().describe("Short display label."),
+        description: z.string().optional().describe("One-line explanation."),
       }),
     )
     .min(2)
     .max(4)
-    .describe("2-4 concrete, self-contained options."),
-  allow_multiple: z.boolean().optional().default(false).describe("Allow multiple selections."),
+    .describe("Concrete, self-contained options."),
+  allow_multiple: z.boolean().optional().default(false).describe("Allow several selections."),
 });
 
 type AskUserArgs = z.infer<typeof askUserSchema>;
@@ -35,16 +32,13 @@ const filePickerSchema = z.object({
   base_path: z
     .string()
     .optional()
-    .describe("Directory to start in. Defaults to the session working directory."),
-  extensions: z
-    .array(z.string())
-    .optional()
-    .describe("Only show files with these extensions, without the dot. Example: ['ts', 'js']."),
+    .describe("Start directory. Defaults to the session working directory."),
+  extensions: z.array(z.string()).optional().describe("Extensions to show, without the dot."),
   include_directories: z
     .boolean()
     .optional()
     .default(false)
-    .describe("Also let the user pick directories. Default false."),
+    .describe("Also allow picking directories."),
 });
 
 type FilePickerArgs = z.infer<typeof filePickerSchema>;
@@ -59,10 +53,8 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Ask the human one blocking question with 2-4 concrete options. " +
-      "Ask only when you are actually blocked: a scope or approach decision with no clearly best option, a destructive action that needs explicit sign-off, or a secret or provider choice no tool can fetch. " +
-      "Do not ask permission to do work they already requested, confirmation of safe reversible actions, anything already answered, or anything a tool can resolve. " +
-      "Surfaces work anywhere a human is reachable, including chat bridges with no TTY; when nobody is, the tool says so and you must then decide on a stated assumption or ask in your reply. One decision per call.",
+      "Ask the human one blocking decision. Only for an approach with no clear best option, sign-off on a destructive action, or a secret no tool can fetch. " +
+      "Never to confirm requested or reversible work, or anything a tool can answer.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -136,7 +128,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Show an interactive file picker so the human can choose a path. Use this when they need to pick among files you cannot uniquely identify. Prefer find or ls when you can locate the file yourself. When there is no TTY (headless), do not call this — decide or fail.",
+      "Let the human pick a file interactively when you cannot identify it with find or ls. Not available headless.",
     parameters: filePickerSchema,
     hidden: false,
     riskLevel: "read-only",

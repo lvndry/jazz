@@ -12,18 +12,15 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 const updateWorkStateParameters = z
   .object({
-    goal: z.string().optional().describe("What this task is ultimately trying to achieve."),
+    goal: z.string().optional().describe("What the task is ultimately for."),
     constraints: z
       .array(z.string())
       .optional()
-      .describe("Requirements or limits that must hold, e.g. 'must not change the public API'."),
-    decisions: z
-      .array(z.string())
-      .optional()
-      .describe("Choices made and why, so whoever picks this up later does not relitigate them."),
-    filesTouched: z.array(z.string()).optional().describe("Paths you have created or modified."),
+      .describe("Limits that must hold, e.g. 'must not change the public API'."),
+    decisions: z.array(z.string()).optional().describe("Choices made and why."),
+    filesTouched: z.array(z.string()).optional().describe("Paths created or modified."),
     openQuestions: z.array(z.string()).optional().describe("Unresolved uncertainties."),
-    nextStep: z.string().optional().describe("The single next action you intend to take."),
+    nextStep: z.string().optional().describe("The single next action."),
   })
   .strict();
 
@@ -41,10 +38,9 @@ export function createUpdateWorkStateTool(): Tool<never> {
     name: "update_work_state",
     disclosure: "private",
     description:
-      "Read or update the current task state so progress survives context compaction or resumption. " +
-      "Update it when the goal, constraints, decisions, touched files, open questions, or next step " +
-      "materially change. This is temporary task context, not long-term memory or a todo list. " +
-      "Omitted fields remain unchanged; call with no fields to read the current state.",
+      "Read or update the current task's state so progress survives compaction and resumption. " +
+      "Update it when any field materially changes. Task context, not long-term memory. " +
+      "Omitted fields stay unchanged; no fields reads the state.",
     parameters: updateWorkStateParameters,
     riskLevel: "low-risk",
     hidden: false,

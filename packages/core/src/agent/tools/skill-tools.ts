@@ -20,19 +20,10 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       name: "find_skills",
       disclosure: "internal",
       description:
-        "Search the skill catalog by keyword and return the top matches with their full descriptions. Matching is keyword, not semantic. Use this when the skill index in the system prompt is not enough to decide which skill to load, then call load_skill.",
+        "Keyword-search the skill catalog and return full descriptions of the top matches. Use it when the skill index in the system prompt is not enough to pick a skill.",
       parameters: z.object({
-        query: z
-          .string()
-          .min(1)
-          .describe("What you are looking for, for example 'email triage' or 'commit message'."),
-        limit: z
-          .number()
-          .int()
-          .positive()
-          .max(10)
-          .optional()
-          .describe("Maximum number of matches to return. Default 5."),
+        query: z.string().min(1).describe("Keywords, e.g. 'email triage'."),
+        limit: z.number().int().positive().max(10).optional().describe("Max matches. Default 5."),
       }),
       hidden: false,
       riskLevel: "read-only",
@@ -76,9 +67,9 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       name: "load_skill",
       disclosure: "internal",
       description:
-        "Load a skill's full instruction body by name (the markdown after the frontmatter). Load only when the index or find_skills names a match for the current task. Do not preload every skill.",
+        "Load a skill's full instructions. Only for a skill the index or find_skills matched to the current task; do not preload.",
       parameters: z.object({
-        skill_name: skillNameSchema.describe("Name of the skill to load."),
+        skill_name: skillNameSchema.describe("Skill to load."),
       }),
       hidden: false,
       riskLevel: "read-only",
@@ -108,12 +99,10 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       name: "load_skill_section",
       disclosure: "internal",
       description:
-        "Load a supplementary file referenced in a skill's instructions, for example references/foo.md. Call this only after load_skill. Allowed extensions: .md, .txt, .json, .yaml, .yml.",
+        "Load a supplementary file a loaded skill's instructions reference. Allowed extensions: .md, .txt, .json, .yaml, .yml.",
       parameters: z.object({
-        skill_name: skillNameSchema.describe("Name of the skill that referenced this file."),
-        section_name: z
-          .string()
-          .describe("Path of the supplementary file, for example references/foo.md."),
+        skill_name: skillNameSchema.describe("Skill that references the file."),
+        section_name: z.string().describe("File path, e.g. references/foo.md."),
       }),
       hidden: false,
       riskLevel: "read-only",

@@ -18,20 +18,9 @@ import { buildKeyFromContext } from "../context-utils";
 
 const rmParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        "File or directory to remove. Absolute or relative to the session working directory.",
-      ),
-    recursive: z
-      .boolean()
-      .optional()
-      .describe("Required to remove a directory and its contents. Default false."),
-    force: z
-      .boolean()
-      .optional()
-      .describe("Treat a missing path as success, and ignore remove errors. Default false."),
+    path: z.string().min(1).describe("File or directory to remove."),
+    recursive: z.boolean().optional().describe("Required for directories."),
+    force: z.boolean().optional().describe("Report success on a missing path or failed remove."),
   })
   .strict();
 
@@ -46,7 +35,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
     name: "rm",
     disclosure: "public",
     description:
-      "Remove a file or directory. Directories require recursive: true. force reports success even when the path is missing or the remove fails. This is a permanent delete, not trash. To unstage a tracked git file, use execute_command with git rm.",
+      "Permanently delete a file or directory (no trash). For git rm use execute_command.",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
     validate: makeZodValidator(rmParameters),

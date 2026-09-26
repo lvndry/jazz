@@ -29,26 +29,19 @@ const waitForParameters = z
       .string()
       .trim()
       .min(1, "command cannot be empty")
-      .describe(
-        "Shell command run repeatedly as the condition. Exit code 0 means the condition is met " +
-          "and the wait ends; any other exit code means keep waiting. Write it to be cheap and " +
-          "idempotent — it may run hundreds of times.",
-      ),
+      .describe("Condition command, rerun until it exits 0. Keep it cheap and idempotent."),
     description: z
       .string()
       .trim()
       .min(1, "description cannot be empty")
-      .describe("Short explanation of what is being waited for, shown at the approval gate."),
+      .describe("What is being waited for, shown at the approval gate."),
     intervalMs: z
       .number()
       .int()
       .min(WAIT_FOR_MIN_INTERVAL_MS)
       .optional()
       .describe(
-        `How long to wait between checks, in milliseconds. Default ${String(
-          WAIT_FOR_DEFAULT_INTERVAL_MS,
-        )}, minimum ${String(WAIT_FOR_MIN_INTERVAL_MS)}. Match it to how fast the thing actually ` +
-          `changes; each check is a process spawn.`,
+        `Milliseconds between checks. Default ${String(WAIT_FOR_DEFAULT_INTERVAL_MS)}; match how fast the thing changes.`,
       ),
     timeoutMs: z
       .number()
@@ -62,16 +55,9 @@ const waitForParameters = z
       )
       .optional()
       .describe(
-        `How long to keep checking before giving up, in milliseconds. Default and maximum ` +
-          `${String(SHELL_COMMAND_MAX_TIMEOUT_MS)} (${String(
-            SHELL_COMMAND_TIMEOUT_MINUTES,
-          )} minutes). Running out is not an error — you get timedOut: true and the last check's ` +
-          `output, so you can re-arm with register_trigger.`,
+        `Milliseconds before giving up. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}.`,
       ),
-    workingDirectory: z
-      .string()
-      .optional()
-      .describe("Directory to run the command in. Defaults to the session working directory."),
+    workingDirectory: z.string().optional().describe("Defaults to the session working directory."),
   })
   .strict();
 
@@ -97,17 +83,9 @@ export function createWaitTools(): ApprovalToolPair<WaitToolDeps> {
       "turn per look. Capped at " +
       `${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
     description:
-      "Run a command over and over until it exits 0, then return — one tool call, one model " +
-      "turn, however many checks it took. Use this instead of chaining execute_command with " +
-      "sleeps, and instead of waking yourself repeatedly for something that will resolve in " +
-      "minutes.\n\n" +
-      `Bounded at ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes like any other command. If ` +
-      "the budget runs out you get timedOut: true plus the last check's output rather than an " +
-      "error — register_trigger from there to keep waiting, which is the tool for anything " +
-      "open-ended or longer than the cap.\n\n" +
-      "Pick intervalMs to match how fast the thing changes: sub-second to catch a transition the " +
-      "moment it happens, tens of seconds for a build. The predicate runs as a real process each " +
-      "time, so keep it cheap — one status check, not a full test suite.",
+      "Rerun a command until it exits 0, in one tool call. Use instead of execute_command with sleeps. " +
+      `Capped at ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes; on timeout it returns timedOut: true ` +
+      "with the last output, not an error. For longer or open-ended waits use register_trigger.",
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),

@@ -29,7 +29,7 @@ export function createGetTimeTool(): Tool<never> {
     name: "get_time",
     disclosure: "internal",
     description:
-      "Get the current date and time. The Environment block already has today's date — use this only when you need a fresh clock during a long run, for scheduling, relative times such as 'yesterday', or timestamps.",
+      "Get the current date and time. The Environment block already has today's date; use this for a fresh clock in long runs, scheduling, or relative times.",
     parameters: z.object({}).strict(),
     riskLevel: "read-only",
     egress: false,
@@ -67,7 +67,7 @@ export function createContextInfoTool(): Tool<never> {
     name: "context_info",
     disclosure: "internal",
     description:
-      "Report how much of the context window is in use. The harness already warns at 70% and 90% and auto-compacts around 80%. Do not poll this. If you need to free space now, call summarize_context.",
+      "Report how much of the context window is in use. The harness already warns and auto-compacts, so do not poll this.",
     parameters: z.object({}),
     riskLevel: "read-only",
     egress: false,
@@ -106,10 +106,7 @@ export function createContextInfoTool(): Tool<never> {
 
 const retrieveToolResultParameters = z
   .object({
-    tool_call_id: z
-      .string()
-      .min(1)
-      .describe("The tool_call_id from the offloaded placeholder you want to read back."),
+    tool_call_id: z.string().min(1).describe("From the offloaded placeholder."),
   })
   .strict();
 
@@ -128,9 +125,7 @@ export function createRetrieveToolResultTool(): Tool<never> {
     name: "retrieve_tool_result",
     disclosure: "private",
     description:
-      "Read the original output of a tool result that was offloaded from context. " +
-      "Pass the tool_call_id from the offloaded placeholder. If nothing is stored, " +
-      "re-run the original tool instead — the host may be read-only.",
+      "Read back a tool result that was offloaded from context. If nothing is stored, re-run the original tool.",
     parameters: retrieveToolResultParameters,
     riskLevel: "read-only",
     egress: false,

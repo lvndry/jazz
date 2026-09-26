@@ -25,15 +25,8 @@ import { normalizeStatSize } from "./utils";
 export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe("PDF to inspect. Absolute or relative to the session working directory."),
-      password: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Password to open the PDF if it is encrypted/password-protected."),
+      path: z.string().min(1).describe("Absolute or relative to the working directory."),
+      password: z.string().min(1).optional().describe("For encrypted PDFs."),
     })
     .strict();
 
@@ -43,7 +36,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
     name: "pdf_page_count",
     disclosure: "internal",
     description:
-      "Return the page count and file size of a PDF without extracting its text. Call this before read_pdf on large files so you can request a page list instead of dumping hundreds of pages. If the PDF is encrypted, pass its password.",
+      "Return a PDF's page count and file size without extracting text. Use before read_pdf on large files.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: makeZodValidator(parameters),

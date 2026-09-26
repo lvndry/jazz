@@ -62,16 +62,11 @@ const viewWorkspaceParameters = z
     path: z
       .string()
       .default("")
-      .describe(
-        'Path relative to this agent\'s workspace root (e.g. "research/notes.md" or ' +
-          '"drafts/report.md"). Empty string or "/" views the root directory.',
-      ),
+      .describe('Relative path, e.g. "research/notes.md". Empty or "/" lists the root.'),
     view_range: z
       .tuple([z.number().int(), z.number().int()])
       .optional()
-      .describe(
-        "Optional [start_line, end_line], 1-based. Use -1 as end_line for the end of the file. Ignored for directories.",
-      ),
+      .describe("[start_line, end_line], 1-based; -1 as end_line reads to the end."),
   })
   .strict();
 
@@ -83,10 +78,9 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
     aliases: ["view_workspace"],
     disclosure: "private",
     description:
-      "View your durable scratchpad: working drafts, research dumps, and intermediate " +
-      "artifacts too large or too provisional for memory. No path lists everything you've " +
-      "saved; a path reads one file. An empty or missing directory just means nothing has " +
-      "been saved yet — that is a normal answer, not an error.",
+      "View your durable scratchpad: drafts, research dumps and intermediate artifacts too " +
+      "large or provisional for memory. No path lists everything saved. An empty scratchpad " +
+      "means nothing is saved yet, not an error.",
     parameters: viewWorkspaceParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -137,35 +131,33 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
 const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z.object({
     command: z.literal("create"),
-    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
-    file_text: z.string().describe("Full file contents. Errors if the path already exists."),
+    path: z.string().min(1).describe("Path relative to the scratchpad root."),
+    file_text: z.string().describe("Full contents. Fails if the path exists."),
   }),
   z.object({
     command: z.literal("str_replace"),
-    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+    path: z.string().min(1).describe("Path relative to the scratchpad root."),
     old_str: z.string().min(1).describe("Exact unique snippet to replace."),
     new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
   }),
   z.object({
     command: z.literal("insert"),
-    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+    path: z.string().min(1).describe("Path relative to the scratchpad root."),
     insert_line: z
       .number()
       .int()
       .nonnegative()
-      .describe(
-        "0-based line index to insert after (0 = beginning of the file). Note that view_scratchpad view_range is 1-based.",
-      ),
+      .describe("Insert after this many lines; 0 is the start. Unlike view_range, 0-based."),
     insert_text: z.string().describe("Text to insert."),
   }),
   z.object({
     command: z.literal("delete"),
-    path: z.string().min(1).describe("Scratchpad file path to delete."),
+    path: z.string().min(1).describe("Path relative to the scratchpad root."),
   }),
   z.object({
     command: z.literal("rename"),
-    old_path: z.string().min(1).describe("Current path, relative to the scratchpad directory."),
-    new_path: z.string().min(1).describe("New path, relative to the scratchpad directory."),
+    old_path: z.string().min(1).describe("Current relative path."),
+    new_path: z.string().min(1).describe("New relative path."),
   }),
 ]);
 

@@ -158,34 +158,17 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("replace_lines"),
-      startLine: z
-        .number()
-        .int()
-        .positive()
-        .describe("First line to replace, 1-based and inclusive. Use the numbers from read_file."),
-      endLine: z.number().int().positive().describe("Last line to replace, 1-based and inclusive."),
-      content: z
-        .string()
-        .describe(
-          "Text that replaces the startLine–endLine range. Do not include the `N|` prefix from read_file.",
-        ),
+      startLine: z.number().int().positive().describe("First line, 1-based, inclusive."),
+      endLine: z.number().int().positive().describe("Last line, inclusive."),
+      content: z.string().describe("Replacement text."),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
     }),
   z.object({
     type: z.literal("replace_pattern"),
-    pattern: z
-      .string()
-      .min(1)
-      .describe(
-        "Text to find. A plain string matches literally. Prefix with re: for a regex. Use this for a short single-line swap (rename a variable, change quotes). For multi-line or structural edits, use replace_lines. Nested quantifiers such as (a+)+ are rejected.",
-      ),
-    replacement: z
-      .string()
-      .describe(
-        "Text to put in place of each match. Literal text — $1 and similar are not expanded.",
-      ),
+    pattern: z.string().min(1).describe("Literal single-line text, or re:<regex>."),
+    replacement: z.string().describe("Literal text; $1 is not expanded."),
     count: z
       .number()
       .int()
@@ -193,9 +176,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .refine((v) => v === undefined || v === -1 || v >= 1, {
         message: "count must be a positive integer or -1 (all). Got 0 or invalid negative value.",
       })
-      .describe(
-        "How many matches to replace. Default 1 (the first match only). Pass -1 to replace every match.",
-      ),
+      .describe("Matches to replace: omit for the first, -1 for all."),
   }),
   z.object({
     type: z.literal("insert"),
@@ -203,18 +184,14 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .number()
       .int()
       .nonnegative()
-      .describe("Insert after this line. 0 means before the first line. 5 means after line 5."),
-    content: z.string().describe("Text to insert. Do not include the `N|` prefix from read_file."),
+      .describe("Insert after this line; 0 inserts before line 1."),
+    content: z.string().describe("Text to insert."),
   }),
   z
     .object({
       type: z.literal("delete_lines"),
-      startLine: z
-        .number()
-        .int()
-        .positive()
-        .describe("First line to delete, 1-based and inclusive."),
-      endLine: z.number().int().positive().describe("Last line to delete, 1-based and inclusive."),
+      startLine: z.number().int().positive().describe("First line, 1-based, inclusive."),
+      endLine: z.number().int().positive().describe("Last line, inclusive."),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
@@ -226,20 +203,16 @@ const editFileParameters = z
     path: z
       .string()
       .min(1)
-      .describe(
-        "File to edit. Absolute or relative to the session working directory. The file must already exist.",
-      ),
+      .describe("Existing file, absolute or relative to the working directory."),
     snapshot: z
       .string()
       .regex(/^sha256:[0-9a-f]{64}$/)
-      .describe(
-        "Copy the snapshot returned by your latest read_file of this file. If it changed, read_file again before retrying.",
-      ),
+      .describe("Snapshot from your latest read_file of this file."),
     edits: z
       .array(editOperationSchema)
       .min(1)
       .describe(
-        "One or more edits, applied in the order given: replace_lines, replace_pattern, insert, or delete_lines. After each edit, later line numbers refer to the file as it now is.",
+        "Applied in order; each edit's line numbers refer to the file after the previous edits.",
       ),
   })
   .strict();
@@ -517,10 +490,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
     name: "edit_file",
     disclosure: "private",
     description:
-      "Change part of a file that already exists. To create a new file, use write_file. You can pass several edits in one call; they run one after another. If an earlier edit inserts or deletes lines, later edits must use the line numbers of the file as it is after those edits — not the numbers from the original read_file. " +
-      "Use this whenever you are changing an existing file. First call read_file and copy its snapshot into this call; if the file changed, reread it and use the new snapshot. Do not use this to create a file (write_file), to rewrite the whole file after a failed edit (read the errorType and retry), or to run sed via execute_command. " +
-      "Prefer replace_pattern with a unique literal substring. Omit count to replace the first match only; pass count: -1 to replace all. Use replace_lines, insert, or delete_lines when you have exact 1-based line numbers from read_file. The `N|` prefix on those lines is metadata — do not copy it into content. " +
-      "insert.line: 0 puts text before line 1; N puts text after line N. replace_pattern accepts a short single-line literal or a re:<regex>. The replacement is literal text, not a regex substitution — $1 is not expanded.",
+      "Change part of an existing file (new files: write_file; never sed via execute_command). Call read_file first and pass its snapshot; if the file changed, reread. " +
+      "Prefer replace_pattern with a unique substring; use line-based edits for multi-line changes. Never copy read_file's `N|` line prefix into content. After a failed edit, read errorType and retry rather than rewriting the file.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),

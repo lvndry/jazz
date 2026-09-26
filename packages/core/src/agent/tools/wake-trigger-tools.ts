@@ -19,23 +19,19 @@ const registerTriggerParameters = z
       .string()
       .min(1)
       .describe(
-        'When to wake, e.g. a relative duration ("30m", "2h", "1h30m", "90s", "1d"), a 24h clock ' +
-          'time ("18:00" — next occurrence of that time), "tomorrow HH:MM", a weekday and time ' +
-          '("tue 20:00" — next occurrence of that weekday), or an absolute date and time ' +
-          '("2026-08-25 20:00").',
+        'Relative ("30m", "1h30m", "1d"), 24h clock ("18:00"), "tomorrow HH:MM", weekday ' +
+          '("tue 20:00") or absolute ("2026-08-25 20:00").',
       ),
     prompt: z
       .string()
       .min(1)
       .describe(
-        "What you should do when you wake up — written as an instruction to your future " +
-          "self, e.g. 'Check whether the deploy finished and report the result.' This is " +
-          "what runs next, not a note to a person.",
+        "Instruction to your future self, e.g. 'Check whether the deploy finished and report.'",
       ),
     reason: z
       .string()
       .min(1)
-      .describe("Brief note on why you're scheduling this, shown to the person via list_triggers."),
+      .describe("Why you're scheduling this; shown to the person in list_triggers."),
   })
   .strict();
 
@@ -51,16 +47,12 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
       "log file, a price or restock, tickets going on sale, a package arriving, a reply, a site " +
       "coming back up.",
     description:
-      "Schedule yourself to wake up later and resume this exact conversation — use this " +
-      "when you need to check back on something ('check again in 20 minutes', 'come back " +
-      "once the build should be done'), rather than stopping the task entirely. Unlike " +
-      "add_reminder (which just delivers a note to a person), this causes you to actually " +
-      "run again with the prompt you specify.\n\n" +
-      "This is how you watch anything that outlasts a single background job: wake, look, and " +
-      "if it is still running register another trigger. Prefer it over enqueue_batch whenever " +
-      "the wait could exceed one job's cap, or is open-ended. Each cycle costs a model run, so " +
-      "space the checks to match how fast the thing actually changes, and stop once you have " +
-      "an answer — the cap is on triggers pending at once, not on how many times you may look.",
+      "Wake yourself later and resume this conversation with the prompt you give, to check " +
+      "back on something instead of ending the task. Unlike add_reminder, which only notifies " +
+      "a person, this runs you again. Prefer it over enqueue_batch when the wait could exceed " +
+      "one job's cap or is open-ended: wake, look, and register another trigger if it is still " +
+      "running. Each wake costs a model run, so space checks to how fast the thing changes and " +
+      "stop once you have an answer. The cap limits pending triggers, not how often you look.",
     parameters: registerTriggerParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -168,7 +160,7 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
 
 const cancelTriggerParameters = z
   .object({
-    id: z.string().min(1).describe("The id of the wake trigger to cancel, from list_triggers."),
+    id: z.string().min(1).describe("Wake trigger id from list_triggers."),
   })
   .strict();
 
@@ -178,7 +170,8 @@ export function createCancelTriggerTool(): Tool<WakeTriggerToolDeps> {
   return defineTool<WakeTriggerToolDeps, CancelTriggerArgs>({
     name: "cancel_trigger",
     disclosure: "internal",
-    description: "Cancel a pending wake trigger by id (get the id from list_triggers first).",
+    summary: "Cancel a pending wake trigger by id (get the id from list_triggers first).",
+    description: "Cancel a pending wake trigger.",
     parameters: cancelTriggerParameters,
     riskLevel: "low-risk",
     hidden: false,

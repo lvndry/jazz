@@ -409,16 +409,13 @@ export function denylistBlockedError(command: string): string | null {
 
 const executeCommandParameters = z
   .object({
-    command: z.string().min(1, "command cannot be empty").describe("The shell command to run."),
+    command: z.string().min(1, "command cannot be empty").describe("Command to run."),
     description: z
       .string()
       .trim()
       .min(1, "description cannot be empty")
-      .describe("Short explanation of what this command will do, shown at the approval gate."),
-    workingDirectory: z
-      .string()
-      .optional()
-      .describe("Directory to run the command in. Defaults to the session working directory."),
+      .describe("What it does, shown at the approval gate."),
+    workingDirectory: z.string().optional().describe("Defaults to the session working directory."),
     timeout: z
       .number()
       .int()
@@ -432,10 +429,7 @@ const executeCommandParameters = z
       )
       .optional()
       .describe(
-        `How long to wait, in milliseconds. Default and maximum ${String(
-          SHELL_COMMAND_MAX_TIMEOUT_MS,
-        )} (${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes); a larger value is rejected rather ` +
-          `than silently capped.`,
+        `Milliseconds. Default and maximum ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}; for longer waits use register_trigger.`,
       ),
   })
   .strict();
@@ -630,17 +624,10 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     name: "execute_command",
     disclosure: "private",
     description:
-      "Run a shell command. Do not use this when a dedicated tool exists: use ls to list files, find (also available as glob) to search names, grep to search contents, read_file to read a file (startLine: -N for the end), and mkdir to create directories. " +
-      "This also applies to tools you can only see by name in your tool list (MCP servers, background jobs, and similar) — call search_tools to fetch one's schema rather than replicating what it does with curl or a CLI. " +
-      "Git has no dedicated tools — use this for status, diff, log, commit, push, rebase, stash, and the rest. " +
-      "Risk is unknown until each command is classified: inspect-only and minor reversible commands may be auto-approved, mutating or ambiguous ones stay high-risk and need approval. " +
-      "Commands are non-interactive: stdin is discarded, so do not run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
-      "sudo and su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
-      "The environment is sanitized (no KEY, TOKEN, or SECRET); you cannot pass env vars. " +
-      `Timeout defaults to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes, which is also the ` +
-      "maximum — to wait longer, let the command finish and use register_trigger to resume later, " +
-      "rather than asking for a bigger timeout. " +
-      "stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
+      "Run a non-interactive shell command (stdin is discarded). Prefer dedicated tools (ls, find, grep, read_file, mkdir) and any deferred tool from search_tools over shell equivalents; use this for git. " +
+      "Read-only commands may be auto-approved; anything that mutates needs approval. " +
+      "sudo and inline -c/-e code are blocked. The environment has no secrets and you cannot set env vars. " +
+      "stdout and stderr are each capped at 256 KB.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",
     timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS,

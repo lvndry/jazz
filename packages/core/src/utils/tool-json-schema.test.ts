@@ -24,6 +24,19 @@ describe("compactToolJsonSchema", () => {
     });
   });
 
+  it("drops the propertyNames every z.record emits, but keeps a real key constraint", () => {
+    expect(
+      compactToolJsonSchema({
+        type: "object",
+        propertyNames: { type: "string" },
+        additionalProperties: { type: "string" },
+      }),
+    ).toEqual({ type: "object", additionalProperties: { type: "string" } });
+    expect(
+      compactToolJsonSchema({ type: "object", propertyNames: { type: "string", pattern: "^x-" } }),
+    ).toEqual({ type: "object", propertyNames: { type: "string", pattern: "^x-" } });
+  });
+
   it("keeps bounds someone actually wrote", () => {
     expect(compactToolJsonSchema({ type: "integer", minimum: 0, maximum: 100 })).toEqual({
       type: "integer",

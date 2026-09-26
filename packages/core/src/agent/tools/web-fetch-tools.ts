@@ -35,26 +35,20 @@ const webFetchSchema = z
         protocol: /^https?$/,
         error: "URL must be absolute and include the protocol (http or https).",
       })
-      .describe(
-        "Absolute http or https URL to fetch. This is not search — the URL must already be known.",
-      ),
+      .describe("Absolute http(s) URL, already known."),
     max_length: z
       .number()
       .int()
       .min(1)
       .max(200_000)
       .optional()
-      .describe(
-        `Maximum number of characters to return. Default ${DEFAULT_MAX_CONTENT_LENGTH}, hard cap 200000.`,
-      ),
+      .describe(`Characters to return. Default ${DEFAULT_MAX_CONTENT_LENGTH}.`),
     offset: z
       .number()
       .int()
       .min(0)
       .optional()
-      .describe(
-        "Character offset into the extracted content to start returning from. Use this to page through content longer than max_length — the result reports total_length and truncated so you know whether to fetch again with a higher offset.",
-      ),
+      .describe("Character offset to resume from when the last result was truncated."),
   })
   .strict();
 
@@ -68,8 +62,8 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     // the path or query string, and the reply comes back for it to read.
     egress: true,
     description:
-      "Fetch a URL over HTTP GET and return its title and main content as clean markdown, with navigation, ads, and boilerplate stripped. JavaScript is not run, so content that appears only after client-side rendering is not captured. " +
-      "Default 50000 characters (max 200000) per call; if the result is `truncated`, call again with `offset` to page through the rest (`total_length` reports the full size). Redirects are followed. For PDFs, images, other binary, APIs, custom headers, or POST, use http_request. To find URLs, use web_search.",
+      "Fetch a web page's main content as markdown. JavaScript is not run. " +
+      "For binary files, APIs, custom headers or POST use http_request; to find URLs use web_search.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
