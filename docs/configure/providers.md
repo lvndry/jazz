@@ -89,18 +89,19 @@ export NVIDIA_API_KEY="nvapi-..."
 jazz agent create
 ```
 
-Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares the chat-template toggle for a Qwen model:
+Jazz sends no reasoning control to NIM by default, so each model reasons the way its deployment is configured and an agent's reasoning setting has no effect. NIM rejects request fields a model's schema does not declare, and models differ in which reasoning field they accept, so a guessed control would fail the request. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides). Check which field the model's NIM page documents before adding an entry. This one declares DeepSeek V4.1 Flash's `reasoning_effort` ladder; `"canDisable": false` keeps Jazz from sending `"none"`, which the model is not documented to accept, so `disable` runs at `low` instead:
 
 ```json
 {
   "llm": {
     "capabilityOverrides": {
       "nvidia": {
-        "qwen/qwen3.5-122b-a10b": {
+        "deepseek-ai/deepseek-v4.1-flash": {
           "reasoning": {
-            "kind": "toggle",
-            "transport": "openai-compatible.chat.template-enable-thinking",
-            "canDisable": true
+            "kind": "effort",
+            "transport": "openai-compatible.chat.reasoning-effort",
+            "efforts": ["low", "high", "max"],
+            "canDisable": false
           }
         }
       }
