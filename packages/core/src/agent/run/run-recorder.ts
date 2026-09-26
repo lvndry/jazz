@@ -7,6 +7,7 @@
  * one process open for the whole run and has nobody to answer a question from outside.
  */
 
+import { hostname } from "node:os";
 import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
@@ -25,6 +26,8 @@ export interface RunRecordingInput {
   readonly parkTtlMs?: number;
   /** Reads the run's spend so far. Called at every terminal or parked transition. */
   readonly costSoFarUSD?: () => number | undefined;
+  /** Reads prompt plus completion tokens so a goal can reconcile a cycle after restart. */
+  readonly totalTokensSoFar?: () => number;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -83,15 +86,25 @@ export function withRunRecording<E, R>(
       return yield* effect;
     }
     const store = storeOption.value;
+    const activeStartedAt = Date.now();
 
     const withCost = (record: RunRecord): RunRecord => {
       const costUSD = input.costSoFarUSD?.();
-      return costUSD === undefined ? record : { ...record, costUSD };
+      const totalTokens = input.totalTokensSoFar?.();
+      return {
+        ...record,
+        ...(costUSD !== undefined ? { costUSD: (record.costUSD ?? 0) + costUSD } : {}),
+        ...(totalTokens !== undefined
+          ? { totalTokens: (record.totalTokens ?? 0) + totalTokens }
+          : {}),
+        activeDurationMs:
+          (record.activeDurationMs ?? 0) + Math.max(0, Date.now() - activeStartedAt),
+      };
     };
 
-    const moveTo = (state: RunState) =>
+    const moveTo = (state: RunState, includeMetrics = true) =>
       store.transition(input.runId, state).pipe(
-        Effect.flatMap((updated) => store.save(withCost(updated))),
+        Effect.flatMap((updated) => store.save(includeMetrics ? withCost(updated) : updated)),
         Effect.ignore,
       );
 
@@ -109,7 +122,14 @@ export function withRunRecording<E, R>(
           now: new Date(),
         }),
       );
-      yield* moveTo({ kind: "working", iteration: 0 });
+      yield* moveTo(
+        {
+          kind: "working",
+          iteration: 0,
+          owner: { pid: process.pid, host: hostname() },
+        },
+        false,
+      );
     }
 
     return yield* effect.pipe(

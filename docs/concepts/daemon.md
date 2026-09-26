@@ -51,6 +51,7 @@ One process, several jobs, most of them opt-in:
   `POST /runs/:id/answer` approves or rejects what it is parked on, `GET /runs` lists what is in
   flight. This is the only way to answer a parked run from a different process than the one that
   started it.
+- **Owns accepted goals.** `POST /goals` creates a proposed goal, and versioned `POST /goals/:id/{accept,pause,resume,cancel}` routes control its lifecycle. `GET /goals` and `GET /goals/:id` read state. The daemon claims and advances goal cycles; if it is stopped, goals remain saved and wait for it to return.
 - **Serves the agent catalogue.** `GET`/`POST`/`DELETE` on `/agents`, `/personas`, plus
   `/catalog`, `/models` and `/tools`. This is what an agent editor talks to, so a UI never has to
   parse JSON files on disk or reimplement validation.

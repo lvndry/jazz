@@ -4,6 +4,10 @@ import { fileURLToPath } from "node:url";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import {
+  goalEvaluationSchema,
+  goalEvaluationSchemaForPlan,
+} from "@jazz/core/agent/goal/goal-evaluation";
 import type { ProviderName } from "@jazz/core/constants/models";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -17,7 +21,7 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
-import { APICallError, generateText } from "ai";
+import { APICallError, generateText, Output } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
@@ -394,6 +398,73 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(typeof result.hasModels).toBe("boolean");
       expect(typeof result.defaultModel).toBe("string");
     });
+  });
+
+  it("applies a goal disposition schema through the configured vLLM provider", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const plan = {
+      revision: 1,
+      objective: "Improve evals",
+      successCriteria: ["The inventory is verified"],
+      constraints: [],
+      assumptions: [],
+      feasibility: { assessment: "plausible" as const, rationale: "The eval tree is present." },
+      steps: [
+        {
+          id: "inventory",
+          objective: "Map current evals",
+          successCriteria: ["The inventory is verified"],
+          state: "pending" as const,
+        },
+      ],
+      verification: ["Read the inventory file"],
+    };
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          id: "test-response",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content: '{"status":"blocked","summary":"The oracle cannot inspect the service."}',
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const response = await runWithTestLayers(
+        Effect.gen(function* () {
+          const llm = yield* LLMServiceTag;
+          return yield* llm.createChatCompletion("vllm", {
+            model: "qwen3.8-27b",
+            messages: [{ role: "user", content: "Classify this completed goal cycle." }],
+            outputSchema: goalEvaluationSchemaForPlan(plan),
+            reasoning: "disable",
+          });
+        }),
+        createTestConfigLayer({ vllm: { base_url: "http://vllm.test/v1" } }),
+      );
+
+      const responseFormat = requestBody?.["response_format"] as
+        { type?: string; json_schema?: { schema?: Record<string, unknown> } } | undefined;
+      expect(responseFormat?.type).toBe("json_schema");
+      expect(responseFormat?.json_schema?.schema).toBeDefined();
+      expect(JSON.parse(response.content)).toEqual({
+        status: "blocked",
+        summary: "The oracle cannot inspect the service.",
+      });
+      expect(response.usage?.totalTokens).toBe(18);
+    } finally {
+      globalThis.fetch = actualFetch;
+    }
   });
 
   describe("Provider Authentication", () => {
@@ -1206,6 +1277,51 @@ describe("buildProviderOptions - vLLM reasoning", () => {
       providerOptions,
     });
     expect(requestBody?.["reasoning_effort"]).toBe("medium");
+  });
+
+  it("forwards schema-constrained object output as vLLM response_format json_schema", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "vllm",
+      baseURL: "http://vllm.test/v1",
+      supportsStructuredOutputs: true,
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content:
+                    '{"status":"continue","summary":"Inventory done","nextAction":"Research prior art","completedStepIds":["inventory"]}',
+                },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+
+    const result = await generateText({
+      model: provider(options.model),
+      prompt: "Return a goal planning response.",
+      output: Output.object({ schema: goalEvaluationSchema }),
+    });
+
+    const responseFormat = requestBody?.["response_format"] as
+      { type?: string; json_schema?: { schema?: Record<string, unknown> } } | undefined;
+    expect(responseFormat?.type).toBe("json_schema");
+    expect(responseFormat?.json_schema?.schema).toBeDefined();
+    expect(result.output).toEqual({
+      status: "continue",
+      summary: "Inventory done",
+      nextAction: "Research prior art",
+      completedStepIds: ["inventory"],
+    });
   });
 });
 

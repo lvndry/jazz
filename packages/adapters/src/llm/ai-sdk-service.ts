@@ -86,6 +86,7 @@ import {
 import {
   gateway,
   generateText,
+  Output,
   stepCountIs,
   streamText,
   jsonSchema,
@@ -825,6 +826,16 @@ function getConfiguredProviders(
   return providers;
 }
 
+/**
+ * A provider's API key: the configured one, else its environment variable. Completions and
+ * local servers' served-model lookups both use this, so a server that requires a key is
+ * reachable for both or for neither.
+ */
+function resolveProviderApiKey(provider: ProviderName, llmConfig?: LLMConfig): string | undefined {
+  const envVar = PROVIDER_ENV_VARS[provider];
+  return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+}
+
 function selectModel(
   providerName: ProviderName,
   modelId: ModelName,
@@ -838,10 +849,7 @@ function selectModel(
   }
 
   let model: LanguageModel;
-  const resolveApiKey = (provider: ProviderName): string | undefined => {
-    const envVar = PROVIDER_ENV_VARS[provider];
-    return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
-  };
+  const resolveApiKey = (provider: ProviderName) => resolveProviderApiKey(provider, llmConfig);
 
   switch (providerName) {
     case "openai": {
@@ -940,6 +948,7 @@ function selectModel(
         name: providerName,
         baseURL,
         includeUsage: true,
+        ...(providerName === "vllm" ? { supportsStructuredOutputs: true } : {}),
         ...(headers ? { headers } : {}),
       });
       model = localServer(modelId);
@@ -1759,6 +1768,9 @@ class AISDKService implements LLMService {
           messages: coreMessages,
           allowSystemInMessages: true,
           maxRetries: AI_SDK_MAX_RETRIES,
+          ...(options.outputSchema !== undefined
+            ? { output: Output.object({ schema: options.outputSchema }) }
+            : {}),
           ...(typeof options.temperature === "number" && modelInfo?.supportsTemperature !== false
             ? { temperature: options.temperature }
             : {}),
@@ -1788,7 +1800,10 @@ class AISDKService implements LLMService {
         }
 
         const responseModel = options.model;
-        const content = result.text ?? "";
+        const content =
+          options.outputSchema !== undefined && result.output !== undefined
+            ? JSON.stringify(result.output)
+            : (result.text ?? "");
         // Files the model itself produced. Empty for every text-only model, so this costs
         // nothing on the common path.
         const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
@@ -1924,7 +1939,7 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl, apiKey),
+      try: () => fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp")),
       catch: (error) => error,
     });
   };
@@ -1935,7 +1950,8 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchVllmServerModel(baseUrl, preferredModelId, apiKey),
+      try: () =>
+        fetchVllmServerModel(baseUrl, preferredModelId, apiKey ?? resolveProviderApiKey("vllm")),
       catch: (error) => error,
     });
   };
@@ -1946,7 +1962,12 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchSglangServerModel(baseUrl, preferredModelId, apiKey),
+      try: () =>
+        fetchSglangServerModel(
+          baseUrl,
+          preferredModelId,
+          apiKey ?? resolveProviderApiKey("sglang"),
+        ),
       catch: (error) => error,
     });
   };

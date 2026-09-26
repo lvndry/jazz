@@ -3,6 +3,8 @@
  * bypassing LLM provider hosts so replay never starves the model itself.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { LOCAL_MODEL_PROVIDERS, LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
 
 interface CassetteEntry {
   status: number;
@@ -45,7 +47,10 @@ const BYPASS_HOST_SUBSTRINGS = [
   "127.0.0.1",
 ];
 
-export function isBypassHost(input: RequestInfo | URL): boolean {
+export function isBypassHost(
+  input: RequestInfo | URL,
+  modelServerHosts: readonly string[] = [],
+): boolean {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   let host: string;
   try {
@@ -53,7 +58,52 @@ export function isBypassHost(input: RequestInfo | URL): boolean {
   } catch {
     return false;
   }
-  return BYPASS_HOST_SUBSTRINGS.some((needle) => host.includes(needle));
+  return (
+    modelServerHosts.includes(host) ||
+    BYPASS_HOST_SUBSTRINGS.some((needle) => host.includes(needle))
+  );
+}
+
+function hostnameOf(url: string): string | undefined {
+  try {
+    return new URL(/^[a-z]+:\/\//i.test(url) ? url : `http://${url}`).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Hosts of the user-run model servers Jazz may call: each local provider's base URL from
+ * `<jazzHome>/config.json` and from its environment variable. A server can live at any
+ * address, such as another machine on a private network, which no fixed host list covers,
+ * and replaying the model call would starve the run.
+ */
+export function localModelServerHosts(
+  jazzHome: string,
+  environment: Readonly<Record<string, string | undefined>>,
+): string[] {
+  let llm: Record<string, { base_url?: unknown } | undefined> = {};
+  try {
+    const config = JSON.parse(readFileSync(join(jazzHome, "config.json"), "utf-8")) as {
+      llm?: typeof llm;
+    };
+    llm = config.llm ?? {};
+  } catch {
+    llm = {};
+  }
+  const urls = LOCAL_MODEL_PROVIDERS.flatMap((provider) => {
+    const configured = llm[provider]?.base_url;
+    const fromEnvironment = environment[LOCAL_SERVER_PROVIDERS[provider].envVar];
+    return [typeof configured === "string" ? configured : undefined, fromEnvironment];
+  });
+  return [
+    ...new Set(
+      urls
+        .filter((url): url is string => url !== undefined && url.trim().length > 0)
+        .map((url) => hostnameOf(url.trim()))
+        .filter((host): host is string => host !== undefined),
+    ),
+  ];
 }
 
 /**
@@ -61,7 +111,11 @@ export function isBypassHost(input: RequestInfo | URL): boolean {
  * replay: serve only recorded requests; throw on a miss (never silently hit the
  * network, or a run would be non-reproducible). record: pass through, then store.
  */
-export function installWebCassette(cassettePath: string, mode: "record" | "replay"): void {
+export function installWebCassette(
+  cassettePath: string,
+  mode: "record" | "replay",
+  modelServerHosts: readonly string[] = [],
+): void {
   const realFetch = globalThis.fetch.bind(globalThis);
   const cassette: Cassette = existsSync(cassettePath)
     ? (JSON.parse(readFileSync(cassettePath, "utf-8")) as Cassette)
@@ -69,7 +123,7 @@ export function installWebCassette(cassettePath: string, mode: "record" | "repla
 
   // Bun's `typeof fetch` demands a `preconnect` member the cassette never needs.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (isBypassHost(input)) return realFetch(input, init);
+    if (isBypassHost(input, modelServerHosts)) return realFetch(input, init);
     const key = requestKey(input, init);
     if (mode === "replay") {
       const entry = cassette[key];

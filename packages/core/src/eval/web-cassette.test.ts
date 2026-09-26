@@ -1,6 +1,13 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
-import { installWebCassette, isBypassHost, requestKey } from "./web-cassette";
+import {
+  installWebCassette,
+  isBypassHost,
+  localModelServerHosts,
+  requestKey,
+} from "./web-cassette";
 
 const CASSETTE = "/tmp/jazz-eval-cassette-test.json";
 const originalFetch = globalThis.fetch;
@@ -19,6 +26,34 @@ describe("isBypassHost", () => {
   it("does not bypass genuine web-tool hosts", () => {
     expect(isBypassHost("https://example.com/article")).toBe(false);
     expect(isBypassHost("https://en.wikipedia.org/wiki/Recursion")).toBe(false);
+  });
+});
+
+describe("localModelServerHosts", () => {
+  /**
+   * The regression: a vLLM server on a private-network address was not on the fixed host
+   * list, so replay intercepted the model call itself and every eval sample timed out.
+   */
+  it("collects configured and environment model-server hosts so replay lets them through", () => {
+    const jazzHome = mkdtempSync(join(tmpdir(), "cassette-home-"));
+    try {
+      writeFileSync(
+        join(jazzHome, "config.json"),
+        JSON.stringify({ llm: { vllm: { base_url: "http://100.85.157.126:8090/v1" } } }),
+      );
+
+      const hosts = localModelServerHosts(jazzHome, { SGLANG_BASE_URL: "gpu-box:30000" });
+
+      expect(hosts.sort()).toEqual(["100.85.157.126", "gpu-box"]);
+      expect(isBypassHost("http://100.85.157.126:8090/v1/chat/completions", hosts)).toBe(true);
+      expect(isBypassHost("https://example.com/article", hosts)).toBe(false);
+    } finally {
+      rmSync(jazzHome, { recursive: true, force: true });
+    }
+  });
+
+  it("returns nothing when there is no config and no environment override", () => {
+    expect(localModelServerHosts(join(tmpdir(), "no-such-jazz-home"), {})).toEqual([]);
   });
 });
 

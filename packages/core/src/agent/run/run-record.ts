@@ -27,6 +27,10 @@ export interface RunRecord {
   readonly updatedAt: string;
   readonly costUSD?: number;
   readonly tokenUsage?: TokenUsage;
+  /** Prompt plus completion tokens, retained for aggregate goal budget reconciliation. */
+  readonly totalTokens?: number;
+  /** Active execution time across resumes; waiting for approval is excluded. */
+  readonly activeDurationMs?: number;
 }
 
 /**

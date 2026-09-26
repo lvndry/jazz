@@ -11,6 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import {
   DEFAULT_DAEMON_PORT,
   isLoopback,
@@ -45,6 +46,7 @@ import {
   keyringSet,
 } from "@jazz/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
@@ -389,6 +391,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         if (workflowsDue) lastWorkflowCatchUpAt = now;
         void run(
           runDueTriggers({ runWorkflows: workflowsDue }).pipe(
+            Effect.zipRight(runDueGoals()),
             Effect.catchAll((error) =>
               Effect.sync(() => {
                 process.stderr.write(`jazz daemon tick failed: ${String(error)}\n`);
@@ -428,6 +431,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
     // it just gets silently approved by the safe-mode policy instead.
     Effect.provide(OneShotPresentationServiceLayer),
     Effect.provide(makeFileRunStoreLayer()),
+    Effect.provide(makeFileGoalStoreLayer()),
   );
 }
 

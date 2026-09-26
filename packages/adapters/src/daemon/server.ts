@@ -21,11 +21,15 @@
  * neighbours are other local accounts and the operator's own open tabs.
  */
 
+import { randomUUID } from "node:crypto";
 import { FileSystem } from "@effect/platform";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { decideAccept, decideControl, latestRunView } from "@jazz/core/agent/goal/goal-controls";
+import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
+import { DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
@@ -34,6 +38,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -85,10 +90,12 @@ import {
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
+import { resumeGoalAwareRun, settleStoppingGoal } from "@jazz/adapters/daemon/goal-worker";
 import {
   loadConversation,
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
+import { getGoalOwnerInstanceId } from "@jazz/adapters/storage/goal-owner";
 
 export const DEFAULT_DAEMON_PORT = 4747;
 
@@ -104,6 +111,7 @@ export type DaemonRequirements =
   | AgentConfigService
   | PersonaService
   | RunStoreTag
+  | GoalStoreTag
   | ToolRegistry
   | ToolRequirements
   // A threaded webhook reads its conversation before the run and writes it after, so the
@@ -331,6 +339,22 @@ export function makeHandler(
     answerRunRoute(context.req.raw, context.req.param("runId"), runEffect),
   );
 
+  app.post("/goals", (context) => createGoalRoute(context.req.raw, runEffect));
+  app.get("/goals", () => runEffect(listGoals()));
+  app.get("/goals/:goalId", (context) => runEffect(showGoal(context.req.param("goalId"))));
+  app.post("/goals/:goalId/accept", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "accept", runEffect),
+  );
+  app.post("/goals/:goalId/pause", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "pause", runEffect),
+  );
+  app.post("/goals/:goalId/resume", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "resume", runEffect),
+  );
+  app.post("/goals/:goalId/cancel", (context) =>
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "cancel", runEffect),
+  );
+
   app.get("/agents", () => runEffect(listAgents()));
   app.post("/agents", async (context) => {
     const body = await agentWriteBody(context.req.raw);
@@ -393,6 +417,168 @@ async function startRunRoute(
       : generateConversationId("daemon");
 
   return runEffect(startRun(agentIdentifier, prompt, conversationId));
+}
+
+async function createGoalRoute(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
+  if (raw instanceof Response) return raw;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return json({ ok: false, error: "body must be JSON" }, 400);
+  }
+  if (!isPlainObject(value)) return json({ ok: false, error: "body must be an object" }, 400);
+  const agentId = typeof value["agentId"] === "string" ? value["agentId"].trim() : "";
+  const requestText = typeof value["request"] === "string" ? value["request"].trim() : "";
+  const conversationId =
+    typeof value["conversationId"] === "string" && value["conversationId"].trim().length > 0
+      ? value["conversationId"].trim()
+      : generateConversationId("goal");
+  if (
+    agentId.length === 0 ||
+    agentId.length > 200 ||
+    requestText.length === 0 ||
+    requestText.length > 8000
+  ) {
+    return json(
+      { ok: false, error: "agentId and a request of 1–8000 characters are required" },
+      400,
+    );
+  }
+  if (!isPlainObject(value["plan"])) {
+    return json({ ok: false, error: "a proposed plan is required" }, 400);
+  }
+  const { revision: _revision, ...planBody } = value["plan"];
+  const parsedDraft = parseGoalDraft(JSON.stringify({ kind: "plan", ...planBody }));
+  if (parsedDraft?.kind !== "plan") {
+    return json({ ok: false, error: "plan is malformed or exceeds its limits" }, 400);
+  }
+  return runEffect(
+    Effect.gen(function* () {
+      const agents = yield* AgentServiceTag;
+      const store = yield* GoalStoreTag;
+      yield* agents.getAgent(agentId);
+      const now = new Date().toISOString();
+      const record = yield* store.create({
+        goalId: randomUUID(),
+        ownerInstanceId: getGoalOwnerInstanceId(),
+        agentId,
+        sourceConversationId: conversationId,
+        conversationId: generateConversationId("goal"),
+        request: requestText,
+        plan: parsedDraft.plan,
+        state: { kind: "proposed" },
+        budget: DEFAULT_GOAL_BUDGET,
+        usage: { cycles: 0, totalTokens: 0, costUSD: 0, costKnown: true, activeDurationMs: 0 },
+        createdAt: now,
+        updatedAt: now,
+      });
+      return json({ ok: true, goal: record }, 201);
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.succeed(
+          json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400),
+        ),
+      ),
+    ),
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function listGoals() {
+  return Effect.gen(function* () {
+    const store = yield* GoalStoreTag;
+    const goals = yield* store.list({ ownerInstanceId: getGoalOwnerInstanceId() });
+    return json({ ok: true, goals });
+  });
+}
+
+function showGoal(goalId: string) {
+  return Effect.gen(function* () {
+    const store = yield* GoalStoreTag;
+    const goal = yield* store.get(goalId);
+    if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
+      return json({ ok: false, error: "no such goal" }, 404);
+    }
+    return json({ ok: true, goal });
+  });
+}
+
+type GoalControl = "accept" | "pause" | "resume" | "cancel";
+
+async function goalControlRoute(
+  request: Request,
+  goalId: string,
+  operation: GoalControl,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const raw = await readBody(request, 4096);
+  if (raw instanceof Response) return raw;
+  let body: unknown;
+  try {
+    body = raw.length > 0 ? JSON.parse(raw) : {};
+  } catch {
+    return json({ ok: false, error: "body must be JSON" }, 400);
+  }
+  if (!isPlainObject(body) || !Number.isSafeInteger(body["version"])) {
+    return json({ ok: false, error: "current goal version is required" }, 400);
+  }
+  return runEffect(
+    Effect.gen(function* () {
+      const store = yield* GoalStoreTag;
+      const runs = yield* RunStoreTag;
+      const goal = yield* store.get(goalId);
+      if (goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId()) {
+        return json({ ok: false, error: "no such goal" }, 404);
+      }
+      if (goal.version !== body["version"]) {
+        return json({ ok: false, error: "goal changed; refresh and retry" }, 409);
+      }
+      if (operation === "accept") {
+        const active = yield* store.list({
+          ownerInstanceId: goal.ownerInstanceId,
+          ...(goal.sourceConversationId !== undefined
+            ? { sourceConversationId: goal.sourceConversationId }
+            : {}),
+          states: ["active", "awaiting-input", "stopping"],
+        });
+        if (active.length > 0) {
+          return json({ ok: false, error: "this conversation already has an active goal" }, 409);
+        }
+      }
+      const latest = goal.latestRunId === undefined ? undefined : yield* runs.get(goal.latestRunId);
+      const decision =
+        operation === "accept"
+          ? decideAccept(goal, Number(body["planRevision"]))
+          : decideControl(
+              goal,
+              operation,
+              latest === undefined ? undefined : latestRunView(latest),
+              typeof body["note"] === "string" ? body["note"] : undefined,
+            );
+      if (decision.kind === "refused") {
+        return json({ ok: false, error: decision.reason }, 409);
+      }
+      const next = decision.next;
+      const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.either);
+      if (saved._tag === "Left") {
+        return json({ ok: false, error: "goal changed; refresh and retry" }, 409);
+      }
+      yield* settleStoppingGoal(saved.right.goalId);
+      return json({
+        ok: true,
+        goal: (yield* store.get(saved.right.goalId)) ?? saved.right,
+        ...(decision.note !== undefined ? { note: decision.note } : {}),
+      });
+    }),
+  );
 }
 
 async function answerRunRoute(
@@ -1805,11 +1991,47 @@ function answerRun(
               ? { approved: true }
               : { approved: false, ...(note ? { userMessage: note } : {}) },
           };
-  return resumeRun({ runId, outcome }).pipe(
-    Effect.map((response) => json({ ok: true, runId, answer: response.content })),
+  return Effect.gen(function* () {
+    const result = yield* resumeGoalAwareRun({ runId, outcome });
+    if (result.kind === "blocked") {
+      return json({ ok: false, error: result.reason }, 409);
+    }
+    if (result.kind === "not-goal") {
+      return json({ ok: true, runId, answer: result.response.content });
+    }
+    const settled = result.outcome;
+    if (settled.kind === "parked") {
+      return json(
+        {
+          ok: false,
+          state: "input-required",
+          runId,
+          goalId: result.goalId,
+          expiresAt: settled.park.expiresAt,
+          pending: describePendingInput(settled.park.pending),
+        },
+        202,
+      );
+    }
+    if (settled.kind === "failed") {
+      return json({ ok: false, runId, goalId: result.goalId, error: settled.error }, 500);
+    }
+    return json({ ok: true, runId, goalId: result.goalId, answer: settled.response.content });
+  }).pipe(
     Effect.catchAll((error) =>
       Effect.succeed(
-        json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 409),
+        isRunParkRequested(error) && error.runId !== undefined
+          ? json(
+              {
+                ok: false,
+                state: "input-required",
+                runId: error.runId,
+                expiresAt: error.expiresAt,
+                pending: describePendingInput(error.pending),
+              },
+              202,
+            )
+          : json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 409),
       ),
     ),
   );

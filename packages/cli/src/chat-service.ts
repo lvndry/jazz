@@ -65,6 +65,7 @@ import {
   setPluginCommands,
   setSkillCommands,
 } from "./chat/commands";
+import { handleGoalCommand, mayBeGoalRequest } from "./chat/commands/goal";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -213,6 +214,7 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
+      let goalOfferDeclined = false;
       let sessionLimits: SessionLimits = {};
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let autoApprovedCommands: string[] = [];
@@ -519,6 +521,45 @@ export class ChatServiceImpl implements ChatService {
               continue;
             }
           }
+        }
+
+        const offerGoal = !goalOfferDeclined && mayBeGoalRequest(messageForAgent);
+        const planAsGoal =
+          offerGoal &&
+          (yield* terminal.confirm(
+            "This sounds like a longer objective. Plan it as a goal Jazz keeps working on across runs? (No runs it now as a normal turn.)",
+            false,
+          ));
+        if (offerGoal && !planAsGoal) {
+          goalOfferDeclined = true;
+        }
+        if (planAsGoal) {
+          yield* handleGoalCommand(
+            {
+              agent,
+              conversationId,
+              conversationHistory,
+              sessionUsage,
+              sessionTurnCount,
+              sessionLimits,
+              sessionStartedAt,
+              lastUsedAgentId,
+              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
+              ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
+            },
+            ["draft", messageForAgent],
+          );
+          store.flushOutputBatchNow();
+          yield* persistConversationIfNeeded({
+            ephemeral,
+            conversationHistory,
+            conversationId,
+            agentId: agent.id,
+            startedAt,
+            uiTranscript: uiTranscriptFromStore(),
+          });
+          continue;
         }
 
         if (Object.keys(sessionLimits).length > 0) {

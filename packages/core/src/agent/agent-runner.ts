@@ -67,6 +67,7 @@ import {
   type CompactionProgressObserver,
   type RecursiveRunner,
 } from "./context/summarizer";
+import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
@@ -297,6 +298,14 @@ function resolveProjectInstructions(
 }
 
 /**
+ * The answer a new run gives a call its history left unanswered, such as a parked approval
+ * whose resume failed. That resume may have run the tool before failing, so the text does
+ * not claim either way.
+ */
+const UNANSWERED_HISTORY_TOOL_RESULT =
+  "No result was recorded for this tool call: the run that requested it ended first. It may or may not have run; check its effects before relying on them.";
+
+/**
  * Resolve a `maxCostUSD`/`maxTokens`-style cap: unlike `maxIterations`, neither has a
  * default ceiling, so an unset or non-positive value means uncapped rather than falling
  * back to a constant.
@@ -350,7 +359,13 @@ function initializeAgentRun(
     const appConfig = yield* configService.appConfig;
 
     const actualConversationId = conversationId || generateConversationId();
-    const history: ChatMessage[] = options.conversationHistory || [];
+    const history: ChatMessage[] =
+      options.isResume === true
+        ? (options.conversationHistory ?? [])
+        : closeUnansweredToolCalls(
+            options.conversationHistory ?? [],
+            UNANSWERED_HISTORY_TOOL_RESULT,
+          );
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
     // Local servers can change models between runs. The live model and window flow into
@@ -993,6 +1008,8 @@ export class AgentRunner {
             userInput: options.userInput,
             internal: options.internal === true,
             costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+            totalTokensSoFar: () =>
+              runContext.runMetrics.totalPromptTokens + runContext.runMetrics.totalCompletionTokens,
           },
           execute,
         );

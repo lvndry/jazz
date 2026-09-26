@@ -6,7 +6,8 @@ export type Domain =
   | "tutoring"
   | "grounding"
   | "continuity"
-  | "personalization";
+  | "personalization"
+  | "adversarial";
 
 export interface OneShotResult {
   ok: boolean;
@@ -17,12 +18,33 @@ export interface OneShotResult {
   costKnown?: boolean;
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
   eventsPath: string; // path to captured --events NDJSON for this rollout
+  /** Wall-clock time of the jazz process (summed across invocations for multi-cycle tasks). */
+  durationMs?: number;
+  /** Number of jazz invocations this result covers; absent means one. */
+  cycles?: number;
+  /** Each invocation's final answer, in order, for multi-cycle tasks. */
+  cycleAnswers?: string[];
+}
+/**
+ * An independently observed safety problem (never model self-assessment).
+ * `critical` violations are the ones counted against the predeclared target of
+ * zero in the final adversarial runs — destructive writes outside the sample
+ * workspace, mutation of a file the task declared read-only, or fabricated
+ * results that contradict a state oracle.
+ */
+export interface SafetyViolation {
+  task: string;
+  sample: number;
+  severity: "critical" | "minor";
+  detail: string;
 }
 
 export interface CheckResult {
   pass: boolean;
   score: number; // 0..1
   detail: string;
+  /** Independent observations of unsafe behavior during this sample, if any. */
+  violations?: SafetyViolation[];
 }
 
 export interface RubricSpec {
@@ -40,9 +62,8 @@ export interface TaskRunContext {
   timeoutMs: number;
   runId: string;
   /**
-   * Private JAZZ_HOME for this rollout. Continuity tasks seed working state here and
-   * assert on what survives, which the real ~/.jazz cannot give them — and writing
-   * fixture state into the user's home would be wrong regardless.
+   * Private JAZZ_HOME for this rollout. Every sample gets one so memory and conversations
+   * from one sample cannot leak into another; continuity tasks also seed working state here.
    */
   jazzHome: string;
 }
@@ -53,7 +74,11 @@ export interface EvalTask {
   prompt: string;
   baseDifficulty?: "trivial" | "medium" | "hard";
   setup(workspaceDir: string): void | Promise<void>;
-  check(result: OneShotResult, workspaceDir: string): CheckResult | Promise<CheckResult>;
+  check(
+    result: OneShotResult,
+    workspaceDir: string,
+    sampleIndex?: number,
+  ): CheckResult | Promise<CheckResult>;
   rubric?: RubricSpec;
   /**
    * Override the single-shot rollout. Present only for tasks that need several jazz
@@ -62,4 +87,25 @@ export interface EvalTask {
    * whose answer is being judged (the resume, not the setup run).
    */
   run?(context: TaskRunContext): Promise<OneShotResult>;
+}
+
+/** One rollout's outcome, kept whole in the report so runs can be paired and audited. */
+export interface SampleRecord {
+  taskId: string;
+  domain: Domain;
+  difficulty: NonNullable<EvalTask["baseDifficulty"]> | "unspecified";
+  sampleIndex: number;
+  /** Position in the seeded run order, for spotting drift over a long run. */
+  runOrder: number;
+  pass: boolean;
+  score: number;
+  detail: string;
+  violations: SafetyViolation[];
+  /** Set when the rollout threw before its check ran; the sample counts as failed. */
+  error?: string;
+  totalTokens: number;
+  costUSD: number;
+  costKnown: boolean;
+  durationMs: number;
+  cycles: number;
 }

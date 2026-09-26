@@ -3,7 +3,7 @@
  * AppleScript fallback), silently a no-op on other platforms.
  */
 
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
@@ -14,6 +14,28 @@ import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { Effect, Layer, Option } from "effect";
 import { getTerminalBundleId } from "./terminal-bundle-id";
 import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
+
+/**
+ * Launch a notifier without letting it hold the process open. `terminal-notifier -activate`
+ * stays alive until the notification is clicked, so a ref'd child (or its stdio pipes)
+ * would keep a headless run from exiting once its work is done.
+ */
+export function launchDetached(
+  command: string,
+  args: readonly string[],
+  callback: (error: Error | null) => void,
+): void {
+  const child = spawn(command, args, { stdio: "ignore" });
+  child.once("error", (error) => callback(error));
+  child.once("exit", (code, signal) => {
+    if (code === 0 || signal !== null) {
+      callback(null);
+      return;
+    }
+    callback(new Error(`${command} exited with code ${code}`));
+  });
+  child.unref();
+}
 
 function escapeForAppleScript(str: string): string {
   return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -29,7 +51,7 @@ function sendAppleScriptNotification(
   const soundPart = sound ? ' sound name "Blow"' : "";
   const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
   const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
-  execFile("osascript", ["-e", script], callback);
+  launchDetached("osascript", ["-e", script], callback);
 }
 
 function sendNativeNotification(
@@ -56,7 +78,7 @@ function sendNativeNotification(
       if (sound) {
         args.push("-sound", "Blow");
       }
-      execFile(terminalNotifier, args, (error) => {
+      launchDetached(terminalNotifier, args, (error) => {
         if (error) {
           console.error(`[Notification] Failed to send via terminal-notifier: ${error.message}`);
           sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
@@ -73,7 +95,7 @@ function sendNativeNotification(
     const args: string[] = [];
     if (sound) args.push("--urgency=normal");
     args.push(title, message);
-    execFile("notify-send", args, callback);
+    launchDetached("notify-send", args, callback);
     return;
   }
 }

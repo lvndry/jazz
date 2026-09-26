@@ -63,6 +63,7 @@ import {
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
+import { closeUnansweredToolCalls } from "../context/unanswered-tool-calls";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -580,33 +581,17 @@ function finalizeRun(
 }
 
 /**
- * Close assistant `tool_calls` that never got a `role: "tool"` result, so the transcript
- * stays valid to send. Used on a user interrupt mid-batch, and on a copy of the transcript
- * when a turn fails outright.
+ * Close assistant `tool_calls` that never got a `role: "tool"` result, in place, so the
+ * transcript stays valid to send. Used on a user interrupt mid-batch, and on a copy of the
+ * transcript when a turn fails outright.
  */
 function closeDanglingToolCalls(
   state: Pick<LoopState, "currentMessages">,
   content = "Tool execution interrupted by user",
 ): void {
-  const lastAssistant = [...state.currentMessages]
-    .reverse()
-    .find((message) => message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0);
-  if (lastAssistant?.tool_calls === undefined) return;
-
-  const existing = new Set(
-    state.currentMessages
-      .filter((message) => message.role === "tool" && message.tool_call_id !== undefined)
-      .map((message) => message.tool_call_id),
-  );
-
-  for (const toolCall of lastAssistant.tool_calls) {
-    if (existing.has(toolCall.id)) continue;
-    state.currentMessages.push({
-      role: "tool",
-      name: toolCall.function.name,
-      content,
-      tool_call_id: toolCall.id,
-    });
+  const closed = closeUnansweredToolCalls(state.currentMessages, content);
+  if (closed !== state.currentMessages) {
+    state.currentMessages.splice(0, state.currentMessages.length, ...closed);
   }
 }
 

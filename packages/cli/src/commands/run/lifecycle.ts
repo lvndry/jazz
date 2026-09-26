@@ -6,8 +6,10 @@
  * it has exited. These commands are how a person finds it and answers it.
  */
 
+import { resumeGoalAwareRun } from "@jazz/adapters/daemon/goal-worker";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -155,34 +157,41 @@ export function answerRunCommand(options: {
                     ...(options.note !== undefined ? { userMessage: options.note } : {}),
                   },
           };
-  return resumeRun({
-    runId: options.runId,
-    outcome,
+  const fail = (message: string) =>
+    Effect.sync(() => {
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
+      } else {
+        process.stderr.write(`${message}\n`);
+      }
+      process.exitCode = 1;
+    });
+  return Effect.gen(function* () {
+    const result = yield* resumeGoalAwareRun({ runId: options.runId, outcome });
+    if (result.kind === "blocked") {
+      return yield* fail(result.reason);
+    }
+    const settled =
+      result.kind === "not-goal"
+        ? { kind: "finished" as const, response: result.response }
+        : result.outcome;
+    if (settled.kind === "parked") {
+      return yield* fail(getErrorMessage(settled.park));
+    }
+    if (settled.kind === "failed") {
+      return yield* fail(settled.error);
+    }
+    if (options.json) {
+      process.stdout.write(
+        `${JSON.stringify({ ok: true, runId: options.runId, answer: settled.response.content })}\n`,
+      );
+    } else {
+      process.stdout.write(`${settled.response.content}\n`);
+    }
   }).pipe(
-    Effect.tap((response) =>
-      Effect.sync(() => {
-        if (options.json) {
-          process.stdout.write(
-            `${JSON.stringify({ ok: true, runId: options.runId, answer: response.content })}\n`,
-          );
-        } else {
-          process.stdout.write(`${response.content}\n`);
-        }
-      }),
-    ),
-    Effect.asVoid,
-    Effect.catchAll((error) =>
-      Effect.sync(() => {
-        const message = getErrorMessage(error);
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-        } else {
-          process.stderr.write(`${message}\n`);
-        }
-        process.exitCode = 1;
-      }),
-    ),
+    Effect.catchAll((error) => fail(getErrorMessage(error))),
     Effect.provide(makeFileRunStoreLayer()),
+    Effect.provide(makeFileGoalStoreLayer()),
   );
 }
 

@@ -42,6 +42,12 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /** Remaining aggregate goal caps for the cycle containing this parked run. */
+  readonly goalLimits?: {
+    readonly maxTokens: number;
+    readonly maxDurationMs: number;
+    readonly maxCostUSD?: number;
+  };
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -78,28 +84,6 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
 
-    // Claimed before the work starts: two approvals racing on the same parked run would
-    // otherwise both replay the tool, and the transition table rejects the second.
-    yield* store
-      .transition(options.runId, {
-        kind: "working",
-        iteration: snapshot.iteration,
-        // Kept so a resume that dies mid-flight can be re-parked rather than stranded.
-        recovery: {
-          pending,
-          snapshot,
-          expiresAt: record.state.expiresAt,
-          pid: process.pid,
-          host: hostname(),
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
-        ),
-      );
-
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
     const lastAssistant = [...snapshot.messages]
@@ -122,6 +106,28 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
     }
+
+    // Claim only after validating the complete snapshot. Two approvals racing on the same
+    // parked run still cannot replay the tool because the transition is atomic.
+    yield* store
+      .transition(options.runId, {
+        kind: "working",
+        iteration: snapshot.iteration,
+        owner: { pid: process.pid, host: hostname() },
+        recovery: {
+          pending,
+          snapshot,
+          expiresAt: record.state.expiresAt,
+          pid: process.pid,
+          host: hostname(),
+        },
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
+        ),
+      );
 
     // Everything this turn has already been answered, plus the answer just given. Building
     // the map from the new answer alone was the bug: a turn needing two approvals would stop
@@ -157,6 +163,7 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
+      ...(options.goalLimits !== undefined ? options.goalLimits : {}),
       ...(options.autoApprovedTools !== undefined
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),

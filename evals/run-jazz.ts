@@ -116,6 +116,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     argv.push("--max-iterations", String(options.maxIterations));
   }
 
+  const startedAt = performance.now();
   const proc = Bun.spawn(argv, {
     cwd: options.workspaceDir,
     env: {
@@ -138,10 +139,11 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     new Response(proc.stderr).text(),
   ]);
   await proc.exited;
+  const durationMs = Math.round(performance.now() - startedAt);
 
   await Bun.write(eventsPath, stderr);
   const envelope = parseEnvelope(stdout);
-  return { ...envelope, eventsPath };
+  return { ...envelope, eventsPath, durationMs, cycles: 1 };
 }
 
 export interface KilledRun {

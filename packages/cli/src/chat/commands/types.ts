@@ -37,6 +37,7 @@ export type CommandType =
   | "retry"
   | "shell"
   | "limit"
+  | "goal"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"

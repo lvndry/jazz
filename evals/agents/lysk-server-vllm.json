@@ -1,0 +1,36 @@
+{
+  "id": "lysk-server-vllm",
+  "name": "lysk-server-vllm",
+  "model": "vllm/qwen3.8-27b",
+  "config": {
+    "persona": "default",
+    "llmProvider": "vllm",
+    "llmModel": "qwen3.8-27b",
+    "reasoning": "medium",
+    "tools": [
+      "ls",
+      "cd",
+      "pwd",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "find",
+      "grep",
+      "glob",
+      "mkdir",
+      "mv",
+      "cp",
+      "rm",
+      "read_pdf",
+      "pdf_page_count",
+      "manage_todos",
+      "list_todos",
+      "get_time",
+      "web_fetch",
+      "http_request",
+      "execute_command"
+    ]
+  },
+  "createdAt": "2026-09-26T00:00:00.000Z",
+  "updatedAt": "2026-09-26T00:00:00.000Z"
+}

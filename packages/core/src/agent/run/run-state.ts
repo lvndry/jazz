@@ -101,6 +101,8 @@ export type RunState =
   | {
       readonly kind: "working";
       readonly iteration: number;
+      /** Process holding the current execution claim, used to detect a dead controller. */
+      readonly owner?: { readonly pid: number; readonly host: string };
       /**
        * Carried by a resumed run so a crash cannot swallow it.
        *

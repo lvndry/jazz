@@ -132,4 +132,32 @@ describe("withRunRecording", () => {
     expect(record?.createdAt).toBe(parkedAt);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
   });
+
+  it("keeps cumulative usage across approval resumes without charging parked time", async () => {
+    const store = new InMemoryRunStore();
+    const firstSegment = {
+      ...INPUT,
+      totalTokensSoFar: () => 120,
+      costSoFarUSD: () => 0.12,
+    };
+    await runWith(store, Effect.fail(PARK), firstSegment);
+    const parked = await Effect.runPromise(store.get(RUN_ID));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 2 }));
+    const secondSegment = {
+      ...INPUT,
+      totalTokensSoFar: () => 80,
+      costSoFarUSD: () => 0.08,
+    };
+    await runWith(store, Effect.succeed(response("done")), secondSegment);
+    const completed = await Effect.runPromise(store.get(RUN_ID));
+
+    expect(completed?.totalTokens).toBe(200);
+    expect(completed?.costUSD).toBeCloseTo(0.2);
+    expect(completed?.activeDurationMs).toBeDefined();
+    expect((completed?.activeDurationMs ?? 0) + 60).toBeLessThan(
+      Date.now() - Date.parse(parked?.createdAt ?? new Date().toISOString()),
+    );
+  });
 });
