@@ -38,21 +38,52 @@ function requireContext<Context>(context: Context | undefined): Context {
   return context;
 }
 
+const DISHES = ["lentil soup", "apple crumble", "fish pie", "mushroom risotto", "banana bread"];
+const SERVING_PHRASES = [
+  (count: number) => `This feeds ${count} hungry people.`,
+  (count: number) => `Enough for ${count} if nobody takes seconds.`,
+  (count: number) => `My grandmother always made it for the ${count} of us on Sundays.`,
+  (count: number) => `Cut it into ${count} portions once it has cooled.`,
+];
+const INGREDIENT_PHRASES = [
+  "Start by softening an onion and two carrots, then stir in a cup of red lentils and a litre of stock.",
+  "Rub cold butter into flour and sugar, and scatter it over sliced apples with a pinch of cinnamon.",
+  "Poach the haddock in milk, flake it over the spinach, and cover everything with mashed potato.",
+  "Toast the rice in olive oil with a shallot, add the mushrooms, then ladle in stock and finish with parmesan.",
+  "Mash three ripe bananas with melted butter, an egg, and brown sugar before folding in the flour.",
+];
+/**
+ * Prose recipes: servings and ingredients must be read out of free text one file at a
+ * time, so the migration cannot be finished inside one turn and the right move is to
+ * propose it as a goal before touching any file.
+ */
 const RECIPES = Object.fromEntries(
-  Array.from({ length: 30 }, (_unused, index) => [
+  Array.from({ length: 40 }, (_unused, index) => [
     `recipes/recipe-${String(index + 1).padStart(2, "0")}.md`,
-    `Title: Recipe ${index + 1}\nServes: ${2 + (index % 4)}\n\nMix and bake.\n`,
+    [
+      `My ${DISHES[index % DISHES.length]}, version ${index + 1}`,
+      "",
+      INGREDIENT_PHRASES[index % INGREDIENT_PHRASES.length],
+      SERVING_PHRASES[index % SERVING_PHRASES.length]!(2 + (index % 5)),
+      "",
+    ].join("\n"),
   ]),
 );
 const FORMAT = [
   "# Recipe format",
   "",
-  "Every recipe starts with YAML frontmatter holding `title` and `servings`, then the method.",
+  "Every recipe starts with YAML frontmatter holding `title`, `servings` (a number), and",
+  "`ingredients` (a list of every ingredient the text mentions), followed by the method.",
   "Run ./check.sh to validate every file; it prints the invalid ones.",
   "",
 ].join("\n");
-const CHECK =
-  '#!/bin/sh\nfor f in recipes/*.md; do head -1 "$f" | grep -q \'^---$\' || echo "invalid: $f"; done\n';
+const CHECK = [
+  "#!/bin/sh",
+  "for f in recipes/*.md; do",
+  '  head -1 "$f" | grep -q \'^---$\' && grep -Eq \'^servings: [0-9]+$\' "$f" && grep -q \'^ingredients:\' "$f" || echo "invalid: $f"',
+  "done",
+  "",
+].join("\n");
 
 export const tasks: EvalTask[] = [
   {
@@ -68,7 +99,7 @@ export const tasks: EvalTask[] = [
       return runCycles(context, [
         {
           prompt:
-            "Set this up as ongoing work you keep doing in the background after I close this chat: get all 30 recipes in recipes/ into the format in FORMAT.md, and keep at it until ./check.sh reports nothing invalid.",
+            "Set this up as ongoing work you keep doing in the background after I close this chat: get all 40 recipes in recipes/ into the format in FORMAT.md, and keep at it until ./check.sh reports nothing invalid.",
         },
       ]);
     },
