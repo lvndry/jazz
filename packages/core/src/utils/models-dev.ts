@@ -320,11 +320,15 @@ export async function getModelsDevProviderModels(
 /**
  * Look up metadata from an already-fetched map. Tries provider:model first if providerId given, then exact match then base name (without :tag).
  * Use this when you have the map from getModelsDevMap() to avoid async per-model lookups.
+ *
+ * `anyProvider: false` stops after the provider-scoped keys, for a caller that must know
+ * whether the entry is this provider's own listing rather than another host's.
  */
 export function getMetadataFromMap(
   map: Map<string, ModelsDevMetadata> | null,
   modelId: string,
   providerId?: string,
+  options: { readonly anyProvider?: boolean } = {},
 ): ModelsDevMetadata | undefined {
   if (!map) return undefined;
   const normalizedModel = modelId.toLowerCase().trim();
@@ -334,6 +338,7 @@ export function getMetadataFromMap(
       const meta = map.get(`${providerKey}:${key}`);
       if (meta) return meta;
     }
+    if (options.anyProvider === false) return undefined;
   }
   for (const key of lookupKeys(modelId)) {
     const meta = map.get(key);

@@ -24,7 +24,13 @@ export type ModelSource =
        */
       catalogId?: string;
     }
-  | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
+  | {
+      type: "dynamic";
+      endpointPath: string;
+      defaultBaseUrl?: string;
+      /** models.dev provider id for metadata enrichment, when it differs from Jazz's name. */
+      catalogId?: string;
+    };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/api";
 export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
@@ -59,6 +65,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     type: "dynamic",
     endpointPath: "/v1/accounts/fireworks/models?pageSize=200",
     defaultBaseUrl: "https://api.fireworks.ai",
+    catalogId: "fireworks-ai",
   },
   groq: {
     type: "dynamic",
@@ -68,7 +75,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   minimax: { type: "models-dev" },
   mistral: { type: "models-dev" },
   moonshotai: { type: "models-dev" },
-  nvidia: { type: "models-dev" },
+  nvidia: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://integrate.api.nvidia.com",
+  },
   ollama: { type: "dynamic", endpointPath: "/tags", defaultBaseUrl: DEFAULT_OLLAMA_BASE_URL },
   llamacpp: {
     type: "dynamic",

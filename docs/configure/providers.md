@@ -82,7 +82,7 @@ The [CI reviewer](../guides/pr-review.md) shows the same workflow running throug
 
 ## NVIDIA NIM
 
-The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists NIM models from the models.dev catalog, so context windows and tool support come with the list. Tool calling varies by model: check the model's page on NVIDIA Build before pinning it to an agent that needs tools.
+The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists the models your key can call from NIM's `/v1/models`, leaving out embedding, reranking, guardrail and document-parsing models, and fills in context windows and tool support from the models.dev catalog. A model the catalog lists only under another host keeps that entry's context window and tool support but shows no price, since the price belongs to that host. A model the catalog does not list at all gets a 128,000-token window and no tools; if it does call tools, set `"supportsTools": true` for it under [`llm.capabilityOverrides`](#model-capability-overrides), and `jazz agent create` will offer tool selection for it.
 
 ```bash
 export NVIDIA_API_KEY="nvapi-..."
@@ -197,7 +197,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 }
 ```
 
-Keys are exact server-facing model IDs. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+Keys are exact server-facing model IDs. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
 Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
 
