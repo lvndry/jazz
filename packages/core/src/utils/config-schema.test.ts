@@ -25,7 +25,7 @@ describe("parseConfigFile", () => {
               reasoning: {
                 kind: "toggle",
                 transport: "ollama.chat.think",
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: false,
             },
@@ -36,7 +36,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -46,7 +46,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "openai-compatible.chat.reasoning-effort",
                 efforts: ["low", "medium", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -225,7 +225,7 @@ describe("parseConfigFile", () => {
                 minimumBudgetTokens: 1024,
                 maximumBudgetTokens: 8192,
                 efforts: ["low", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: true,
             },
@@ -237,7 +237,7 @@ describe("parseConfigFile", () => {
                 transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 256,
                 maximumBudgetTokens: 32768,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -261,7 +261,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "bogus",
                 efforts: ["high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -276,6 +276,30 @@ describe("parseConfigFile", () => {
     });
   });
 
+  it("rejects the old canDisable field name", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "openai-compatible.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining(["llm.capabilityOverrides.vllm.model.reasoning.canDisable"]),
+    );
+  });
+
   it("rejects the retired vendor-named transports", () => {
     const { config, issues } = parseConfigFile({
       llm: {
@@ -286,7 +310,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "vllm.chat.reasoning-effort",
                 efforts: ["high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -310,7 +334,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "arbitrary.request.body",
                 efforts: ["high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -339,7 +363,7 @@ describe("parseConfigFile", () => {
                 transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
                 maximumBudgetTokens: 1024,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -356,7 +380,7 @@ describe("parseConfigFile", () => {
                 kind: "budget",
                 transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },

@@ -5,7 +5,7 @@ const lowToHigh: ReasoningControlSurface = {
   kind: "effort",
   transport: "openai-compatible.chat.reasoning-effort",
   efforts: ["low", "medium", "high"],
-  canDisable: true,
+  canDisableReasoning: true,
 };
 
 describe("clampReasoningSelection", () => {
@@ -25,12 +25,14 @@ describe("clampReasoningSelection", () => {
   });
 
   it("turns disable into the weakest effort when the model cannot stop reasoning", () => {
-    expect(clampReasoningSelection("disable", { ...lowToHigh, canDisable: false })).toBe("low");
+    expect(clampReasoningSelection("disable", { ...lowToHigh, canDisableReasoning: false })).toBe(
+      "low",
+    );
     expect(
       clampReasoningSelection("disable", {
         kind: "toggle",
         transport: "openai-compatible.chat.template-enable-thinking",
-        canDisable: false,
+        canDisableReasoning: false,
       }),
     ).toBe("minimal");
   });

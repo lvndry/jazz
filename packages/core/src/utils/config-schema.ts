@@ -136,7 +136,7 @@ const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
   transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const effortReasoningSchema = z.strictObject({
@@ -146,7 +146,7 @@ const effortReasoningSchema = z.strictObject({
     "openai-compatible.chat.reasoning-effort",
   ]),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const manualReasoningSchema = z
@@ -156,7 +156,7 @@ const manualReasoningSchema = z
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     efforts: capabilityReasoningEfforts.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
@@ -175,7 +175,7 @@ const adaptiveReasoningSchema = z.strictObject({
   kind: z.literal("adaptive"),
   transport: z.literal("anthropic.messages.adaptive-thinking"),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const budgetReasoningSchema = z
@@ -184,7 +184,7 @@ const budgetReasoningSchema = z
     transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
