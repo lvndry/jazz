@@ -412,3 +412,44 @@ describe("unverified completion claims", () => {
     expect(next.unverifiedClaims).toBeUndefined();
   });
 });
+
+describe("cycles cut off by the process stopping", () => {
+  const interrupted: CycleEnd = { run: { kind: "interrupted", spend: SPEND } };
+
+  it("continues with a fresh cycle told to check the state, up to the limit", () => {
+    const first = settleCycle(goal(), interrupted);
+    expect(first.state).toEqual({ kind: "active" });
+    expect(first.interruptedCycles).toBe(1);
+    expect(first.lastProgress).toContain("Check the current state before redoing anything");
+    expect(first.usage.totalTokens).toBe(1_500);
+    expect(parseGoalRecord({ ...first, version: 4 }).ok).toBe(true);
+
+    expect(settleCycle(goal({ interruptedCycles: 1 }), interrupted).interruptedCycles).toBe(2);
+    expect(settleCycle(goal({ interruptedCycles: 2 }), interrupted).state.kind).toBe(
+      "review-required",
+    );
+  });
+
+  it("honors a pause or cancel requested before the process stopped", () => {
+    const stopping = (stopAfter: "pause" | "cancel") =>
+      goal({
+        state: { kind: "stopping" },
+        cycle: { runId: RUN_ID, owner: { pid: 1, host: "host" }, stopAfter },
+      });
+    expect(settleCycle(stopping("pause"), interrupted).state).toEqual({ kind: "paused" });
+    expect(settleCycle(stopping("cancel"), interrupted).state).toEqual({ kind: "canceled" });
+  });
+
+  it("resets the count once a cycle reports verifiable progress", () => {
+    const next = settleCycle(goal({ interruptedCycles: 2 }), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: valid({
+        status: "continue",
+        summary: "s",
+        nextAction: "n",
+        completedStepIds: [],
+      }),
+    });
+    expect(next.interruptedCycles).toBeUndefined();
+  });
+});

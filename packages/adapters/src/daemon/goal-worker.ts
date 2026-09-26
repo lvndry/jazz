@@ -118,7 +118,9 @@ function endedRun(run: RunRecord | undefined): EndedRun | undefined {
     case "completed":
       return { kind: "completed", spend };
     case "failed":
-      return { kind: "failed", error: run.state.error, spend };
+      return run.state.cause === "interrupted"
+        ? { kind: "interrupted", spend }
+        : { kind: "failed", error: run.state.error, spend };
     case "canceled":
       return { kind: "canceled", spend };
     default:
@@ -517,7 +519,7 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
     }
     const error = "the process running it stopped";
     yield* runs
-      .transition(run.runId, { kind: "failed", cause: "error", error })
+      .transition(run.runId, { kind: "failed", cause: "interrupted", error })
       .pipe(Effect.catchAll(() => Effect.void));
     yield* finishCycle(goal.goalId, run.runId, []);
   });

@@ -108,6 +108,11 @@ export interface GoalRecord {
    * cycle told what was missing; past a small limit the goal stops for review.
    */
   readonly unverifiedClaims?: number;
+  /**
+   * Cycles in a row cut off by the process stopping. Each one is continued by a fresh cycle
+   * told to check the state first; past a small limit the goal stops for review.
+   */
+  readonly interruptedCycles?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Compare-and-set version for competing controls and continuation workers. */
@@ -233,6 +238,7 @@ export const goalRecordSchema = z
       .optional(),
     lastProgress: z.string().optional(),
     unverifiedClaims: positiveInteger.optional(),
+    interruptedCycles: positiveInteger.optional(),
     createdAt: nonEmpty,
     updatedAt: nonEmpty,
     version: positiveInteger,

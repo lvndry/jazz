@@ -40,7 +40,9 @@ export type RunFailureCause =
   | "timeout"
   | "max-iterations"
   /** Parked waiting for a person, and nobody answered before the run's park deadline. */
-  | "abandoned";
+  | "abandoned"
+  /** The process running it stopped (a crash or restart) before the run finished. */
+  | "interrupted";
 
 /** What a parked run is waiting for. */
 export type PendingInput =

@@ -312,7 +312,7 @@ describe("runDueGoals", () => {
     expect(settled.usage.totalTokens).toBe(1_200);
   });
 
-  it("sends a cycle whose worker died mid-run to review instead of replaying it", async () => {
+  it("continues a cycle whose worker died mid-run in a fresh run told to check the state", async () => {
     const test = harness();
     await run(
       test,
@@ -340,13 +340,24 @@ describe("runDueGoals", () => {
     const runner = scriptRunner(test, COMPLETE);
     try {
       await tick(test);
+      const settled = await current(test);
+      expect(settled.state.kind).toBe("active");
+      expect(settled.cycle).toBeUndefined();
+      expect(settled.interruptedCycles).toBe(1);
+      expect(test.prompts).toHaveLength(0);
+      expect((await run(test, test.runs.get("run-dead")))?.state).toMatchObject({
+        kind: "failed",
+        cause: "interrupted",
+      });
+
+      await tick(test);
     } finally {
       runner.mockRestore();
     }
 
-    const goal = await current(test);
-    expect(goal.state.kind).toBe("review-required");
-    expect(test.prompts).toHaveLength(0);
+    expect(test.prompts).toHaveLength(1);
+    expect(test.prompts[0]?.userInput).toContain("Check the current state before redoing anything");
+    expect((await current(test)).latestRunId).not.toBe("run-dead");
   });
 
   /** The regression: a run left `submitted` by a dead process kept its goal active forever. */
