@@ -512,6 +512,13 @@ async function goalControlRoute(
   if (typeof version !== "number" || !Number.isSafeInteger(version)) {
     return json({ ok: false, error: "current goal version is required" }, 400);
   }
+  const planRevision = body["planRevision"];
+  if (
+    action === "accept" &&
+    (typeof planRevision !== "number" || !Number.isSafeInteger(planRevision))
+  ) {
+    return json({ ok: false, error: "the plan revision being accepted is required" }, 400);
+  }
   const approvalPolicy = body["approvalPolicy"];
   if (
     approvalPolicy !== undefined &&
@@ -531,7 +538,7 @@ async function goalControlRoute(
     Effect.map(
       controlGoal(goalId, action, {
         expectedVersion: version,
-        ...(action === "accept" ? { planRevision: Number(body["planRevision"]) } : {}),
+        ...(typeof planRevision === "number" ? { planRevision } : {}),
         ...(typeof approvalPolicy === "string" && isApprovalPolicyLevel(approvalPolicy)
           ? { approvalPolicy }
           : {}),

@@ -11,7 +11,7 @@ import type { RunState } from "@/core/agent/run/run-state";
 import type { ApprovalPolicyLevel } from "@/core/types/tools";
 import { settleCycle } from "./goal-reconcile";
 import { asInput, withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
-import { extendBudget, remainingCaps, runSpend, type RunSpend } from "./goal-usage";
+import { extendBudget, reachedLimit, remainingCaps, runSpend, type RunSpend } from "./goal-usage";
 
 export type GoalControl = "pause" | "resume" | "cancel";
 
@@ -131,7 +131,14 @@ export function decideResume(
     return write(settled, "The paused cycle's run had already ended; review it before continuing.");
   }
   if (state.kind === "paused" || state.kind === "review-required") {
-    return write(withGuidance({ ...withoutCycle(goal), state: { kind: "active" } }, guidance));
+    const resumed = withGuidance({ ...withoutCycle(goal), state: { kind: "active" } }, guidance);
+    if (reachedLimit(resumed) !== undefined) {
+      return write(
+        { ...resumed, budget: extendBudget(goal) },
+        "The goal had used its budget; resuming extended it by one default budget.",
+      );
+    }
+    return write(resumed);
   }
   if (state.kind === "budget-limited") {
     return write(

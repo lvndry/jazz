@@ -247,8 +247,19 @@ export function activateGoal(options: {
     if (acceptance.kind === "refused") {
       return { kind: "refused", reason: acceptance.reason } as const;
     }
-    const active = yield* store.compareAndSet(proposed.goalId, proposed.version, acceptance.next);
-    return { kind: "active", goal: active } as const;
+    const saved = yield* store
+      .compareAndSet(proposed.goalId, proposed.version, acceptance.next)
+      .pipe(Effect.either);
+    if (saved._tag === "Left") {
+      const cancel = decideCancel(proposed);
+      if (cancel.kind === "write") {
+        yield* store
+          .compareAndSet(proposed.goalId, proposed.version, cancel.next)
+          .pipe(Effect.ignore);
+      }
+      return { kind: "refused", reason: saved.left.message } as const;
+    }
+    return { kind: "active", goal: saved.right } as const;
   });
 }
 

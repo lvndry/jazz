@@ -480,3 +480,41 @@ describe("the authority granted on acceptance", () => {
     expect(parseGoalRecord({ ...goal(), approvalPolicy: "high-risk" }).ok).toBe(true);
   });
 });
+
+describe("counters that must run in a row", () => {
+  /** The regression: a cycle with an unverified claim kept the interruption count alive. */
+  it("an interruption streak ends at any cycle that finishes, verified or not", () => {
+    const next = settleCycle(goal({ interruptedCycles: 2 }), {
+      run: { kind: "completed", spend: SPEND },
+      evaluation: {
+        kind: "invalid",
+        reason: "Completion evidence for criterion 1 does not appear in this cycle's tool output.",
+      },
+    });
+    expect(next.interruptedCycles).toBeUndefined();
+    expect(next.unverifiedClaims).toBe(1);
+  });
+});
+
+describe("resuming a goal that ran out of budget while paused", () => {
+  /** The regression: it went straight back to budget-limited on the next tick. */
+  it("extends the budget so the resumed goal can run", () => {
+    const { cycle: _cycle, ...paused } = goal({
+      state: { kind: "paused" },
+      usage: {
+        cycles: 5,
+        totalTokens: 1_000,
+        activeDurationMs: 1_000,
+        costKnown: true,
+        costUSD: 0.1,
+      },
+    });
+    const decision = decideResume(paused, undefined);
+    expect(decision.kind).toBe("write");
+    if (decision.kind === "write") {
+      expect(decision.next.state).toEqual({ kind: "active" });
+      expect(decision.next.budget.maxCycles).toBeGreaterThan(5);
+      expect(reachedLimit(decision.next)).toBeUndefined();
+    }
+  });
+});

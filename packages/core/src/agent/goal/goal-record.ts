@@ -221,7 +221,7 @@ export const planDraftFields = {
     .min(1)
     .max(DRAFT_MAX_LIST_ITEMS)
     .describe(
-      "Checks that together mean the goal is done, each one something a command or tool can print when it holds (a test run, a file's content, a check that echoes a confirmation).",
+      "Checks that together mean the goal is done, each one something a command or tool can print when it holds (a test run, a checker's report, a file's content).",
     ),
   constraints: z
     .array(boundedText(DRAFT_ITEM_CHARS).describe("One constraint."))

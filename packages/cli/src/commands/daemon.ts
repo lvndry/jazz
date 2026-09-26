@@ -391,14 +391,21 @@ export function daemonCommand(options: DaemonCommandOptions) {
         const workflowsDue =
           runInProcessWorkflows && now - lastWorkflowCatchUpAt >= WORKFLOW_CATCH_UP_INTERVAL_MS;
         if (workflowsDue) lastWorkflowCatchUpAt = now;
+        const reportFailure = (work: string) => (error: unknown) =>
+          Effect.sync(() => {
+            process.stderr.write(`jazz daemon ${work} tick failed: ${String(error)}\n`);
+          });
+        // Triggers and goals share the tick but not its fate: a failing or slow trigger must
+        // not keep goal cycles from being settled and started.
         void run(
-          runDueTriggers({ runWorkflows: workflowsDue }).pipe(
-            Effect.zipRight(runDueGoals()),
-            Effect.catchAll((error) =>
-              Effect.sync(() => {
-                process.stderr.write(`jazz daemon tick failed: ${String(error)}\n`);
-              }),
-            ),
+          Effect.all(
+            [
+              runDueTriggers({ runWorkflows: workflowsDue }).pipe(
+                Effect.catchAll(reportFailure("trigger")),
+              ),
+              runDueGoals().pipe(Effect.asVoid, Effect.catchAll(reportFailure("goal"))),
+            ],
+            { concurrency: "unbounded", discard: true },
           ) as Effect.Effect<void, unknown, DaemonRequirements>,
         ).finally(() => {
           tickRunning = false;
@@ -688,8 +695,15 @@ export function ensureDaemonRunning() {
       return found;
     }
     const started = yield* spawnBackgroundDaemon(options);
+    if (started.kind !== "started") {
+      const unavailable: DaemonAvailability = { kind: "unavailable" };
+      return unavailable;
+    }
+    const answering = yield* Effect.promise(() =>
+      probeDaemonOwner(options.host, options.port, RUNNING_DAEMON_PROBE_MS),
+    );
     const availability: DaemonAvailability =
-      started.kind === "started" ? started : { kind: "unavailable" };
+      answering === getGoalOwnerInstanceId() ? started : { kind: "port-taken", port: options.port };
     return availability;
   });
 }

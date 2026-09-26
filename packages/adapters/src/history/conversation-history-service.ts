@@ -159,7 +159,9 @@ export function saveRunTranscript(
     {
       agentId: options.agentId,
       conversationId: options.conversationId,
-      title: options.prior?.title ?? options.fallbackTitle.slice(0, MAX_RUN_TITLE_CHARS),
+      title:
+        options.prior?.title ??
+        Array.from(options.fallbackTitle).slice(0, MAX_RUN_TITLE_CHARS).join(""),
       startedAt: options.prior?.startedAt ?? now,
       endedAt: now,
       messages: [...options.messages],

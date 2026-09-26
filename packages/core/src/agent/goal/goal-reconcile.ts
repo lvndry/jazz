@@ -142,7 +142,12 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
           lastProgress: `${evaluation.evaluation.summary}\nNext: ${evaluation.evaluation.nextAction}`,
         }
       : evaluation?.kind === "invalid"
-        ? base
+        ? {
+            ...settledBase,
+            ...(base.unverifiedClaims !== undefined
+              ? { unverifiedClaims: base.unverifiedClaims }
+              : {}),
+          }
         : settledBase;
 
   if (stopAfter === "cancel") {

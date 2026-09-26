@@ -138,3 +138,38 @@ describe("controlGoal", () => {
     expect(again).toMatchObject({ kind: "refused", cause: "refused" });
   });
 });
+
+describe("activating a goal", () => {
+  /** The regression: a refused accept left the goal it had just created behind as a proposal. */
+  it("cancels the goal it created when accepting it is refused", async () => {
+    const goals = new InMemoryGoalStore();
+    const accept = goals.compareAndSet.bind(goals);
+    let refusedOnce = false;
+    goals.compareAndSet = ((goalId, version, next) => {
+      if (!refusedOnce && next.state.kind === "active") {
+        refusedOnce = true;
+        return Effect.fail(new Error("another writer moved the goal first"));
+      }
+      return accept(goalId, version, next);
+    }) as typeof goals.compareAndSet;
+    const proposal = await run(
+      goals,
+      proposeGoal({ agent: LOCAL_AGENT, request: "Fix the header test", inspect: false }),
+    );
+    if (proposal.kind !== "plan") {
+      throw new Error("expected a plan");
+    }
+    const activation = await run(
+      goals,
+      activateGoal({
+        agent: LOCAL_AGENT,
+        request: "Fix the header test",
+        plan: proposal.plan,
+        spend: proposal.spend,
+      }),
+    );
+    expect(activation.kind).toBe("refused");
+    const stored = await run(goals, goals.list({}));
+    expect(stored.map((goal) => goal.state.kind)).toEqual(["canceled"]);
+  });
+});
