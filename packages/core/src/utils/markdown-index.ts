@@ -5,6 +5,7 @@
  * malformed definitions are skipped so one bad file cannot hide valid peers.
  */
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { Effect } from "effect";
 import glob from "fast-glob";
@@ -21,6 +22,21 @@ export interface ScanMarkdownIndexOptions<T> {
   readonly ignore?: readonly string[];
   readonly dot?: boolean;
   readonly parse: (data: Record<string, unknown>, definitionDir: string) => T | null;
+}
+
+/**
+ * True when `dir` is the home directory or one of its ancestors. A recursive scan from there walks
+ * Desktop, Documents, Downloads, Music and the like, which on macOS raises a privacy prompt for
+ * each folder, so project-local discovery must not treat these as a project root.
+ */
+export function isHomeOrAncestor(dir: string, homeDirectory: string = os.homedir()): boolean {
+  const resolvedDir = path.resolve(dir);
+  const resolvedHome = path.resolve(homeDirectory);
+  if (resolvedDir === resolvedHome) {
+    return true;
+  }
+  const relative = path.relative(resolvedDir, resolvedHome);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 /**

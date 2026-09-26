@@ -9,7 +9,12 @@ import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
-import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
+import {
+  isHomeOrAncestor,
+  loadCachedIndex,
+  mergeByName,
+  scanMarkdownIndex,
+} from "@/core/utils/markdown-index";
 import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
@@ -282,6 +287,9 @@ export class WorkflowsLive implements WorkflowService {
 
   private scanLocalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
     const cwd = process.cwd();
+    if (isHomeOrAncestor(cwd)) {
+      return Effect.succeed([]);
+    }
     return scanMarkdownIndex({
       dir: cwd,
       fileName: WORKFLOW_DEFINITION_FILENAME,
