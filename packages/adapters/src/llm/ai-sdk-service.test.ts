@@ -1609,12 +1609,13 @@ describe("buildToolInputSchema", () => {
   });
 
   it("keeps Zod validation for a plain object schema", async () => {
-    const inputSchema = buildToolInputSchema({
+    const { validate } = buildToolInputSchema({
       function: { parameters: z.object({ x: z.string() }) },
-    }) as { validate: (value: unknown) => Promise<{ success: boolean }> };
+    });
 
-    expect((await inputSchema.validate({ x: "ok" })).success).toBe(true);
-    expect((await inputSchema.validate({ x: 1 })).success).toBe(false);
+    expect(validate).toBeDefined();
+    expect((await validate?.({ x: "ok" }))?.success).toBe(true);
+    expect((await validate?.({ x: 1 }))?.success).toBe(false);
   });
 
   it("flattens a top-level discriminated union, which Anthropic rejects both for a missing type and for the oneOf keyword itself", () => {
