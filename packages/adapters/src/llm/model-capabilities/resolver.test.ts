@@ -104,6 +104,39 @@ describe("resolveModelCapabilities", () => {
     expect(result.source.reasoning).toBe("catalog");
   });
 
+  test("accepts an openai-compatible transport for any OpenAI-compatible provider", () => {
+    const override: ReasoningControlSurface = {
+      kind: "toggle",
+      canDisable: true,
+      transport: "openai-compatible.chat.template-enable-thinking",
+    };
+
+    const nvidia = resolveModelCapabilities({
+      provider: "nvidia",
+      modelId: "qwen/qwen3-next-80b-a3b-thinking",
+      operator: { reasoning: override },
+    });
+    expect(nvidia.reasoning).toEqual(override);
+    expect(nvidia.source.reasoning).toBe("operator");
+
+    const openai = resolveModelCapabilities({
+      provider: "openai",
+      modelId: "gpt-5.1",
+      operator: { reasoning: override },
+    });
+    expect(openai.source.reasoning).not.toBe("operator");
+  });
+
+  test("ships no built-in NVIDIA NIM reasoning control", () => {
+    const result = resolveModelCapabilities({
+      provider: "nvidia",
+      modelId: "deepseek-ai/deepseek-v4-flash",
+      catalog: { supportsReasoning: true },
+    });
+
+    expect(result.reasoning).toEqual({ kind: "unknown" });
+  });
+
   test("returns unknown rather than unsupported when no source makes a claim", () => {
     const result = resolve({ modelId: "unknown" });
 

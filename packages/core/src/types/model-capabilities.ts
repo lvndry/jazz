@@ -46,21 +46,39 @@ export function describeReasoningSelection(selection: ReasoningSelection | undef
 }
 
 /**
- * A provider-specific request encoding which Jazz has implemented and tested.
+ * A request encoding which Jazz has implemented and tested.
  *
  * This is deliberately a closed union rather than an arbitrary request-body
  * escape hatch: configuration may select a known transport but cannot inject
  * unreviewed provider options.
+ *
+ * `openai-compatible.*` transports describe the chat-completions wire rather
+ * than a vendor, so any provider Jazz reaches through an OpenAI-compatible
+ * client (llama.cpp, vLLM, SGLang, NVIDIA NIM, OrcaRouter) can use them:
+ * - `reasoning-effort` sends top-level `reasoning_effort`, `"none"` to disable.
+ * - `template-enable-thinking` sends `chat_template_kwargs.enable_thinking`.
+ * - `template-thinking-budget` sends `chat_template_kwargs.thinking_budget`.
  */
 export type ReasoningTransport =
   | "openai.responses.reasoning-effort"
   | "anthropic.messages.extended-thinking"
   | "anthropic.messages.adaptive-thinking"
   | "ollama.chat.think"
-  | "llamacpp.chat.enable-thinking"
-  | "llamacpp.chat.thinking-budget"
-  | "vllm.chat.reasoning-effort"
-  | "sglang.chat.reasoning-effort";
+  | "openai-compatible.chat.reasoning-effort"
+  | "openai-compatible.chat.template-enable-thinking"
+  | "openai-compatible.chat.template-thinking-budget";
+
+/**
+ * Transport names accepted in configuration before the vendor-neutral
+ * `openai-compatible.*` names existed. Parsing rewrites them to the name they
+ * always encoded, so saved `capabilityOverrides` keep working.
+ */
+export const LEGACY_REASONING_TRANSPORTS = {
+  "llamacpp.chat.enable-thinking": "openai-compatible.chat.template-enable-thinking",
+  "llamacpp.chat.thinking-budget": "openai-compatible.chat.template-thinking-budget",
+  "vllm.chat.reasoning-effort": "openai-compatible.chat.reasoning-effort",
+  "sglang.chat.reasoning-effort": "openai-compatible.chat.reasoning-effort",
+} as const satisfies Readonly<Record<string, ReasoningTransport>>;
 
 /**
  * The controls an exact provider-facing model ID accepts.
@@ -72,15 +90,13 @@ export type ReasoningControlSurface =
   | { readonly kind: "unsupported" }
   | {
       readonly kind: "toggle";
-      readonly transport: "ollama.chat.think" | "llamacpp.chat.enable-thinking";
+      readonly transport: "ollama.chat.think" | "openai-compatible.chat.template-enable-thinking";
       readonly canDisable: boolean;
     }
   | {
       readonly kind: "effort";
       readonly transport:
-        | "openai.responses.reasoning-effort"
-        | "vllm.chat.reasoning-effort"
-        | "sglang.chat.reasoning-effort";
+        "openai.responses.reasoning-effort" | "openai-compatible.chat.reasoning-effort";
       readonly efforts: readonly CapabilityReasoningEffort[];
       readonly canDisable: boolean;
     }
@@ -100,7 +116,7 @@ export type ReasoningControlSurface =
     }
   | {
       readonly kind: "budget";
-      readonly transport: "llamacpp.chat.thinking-budget";
+      readonly transport: "openai-compatible.chat.template-thinking-budget";
       readonly minimumBudgetTokens: number;
       readonly maximumBudgetTokens?: number;
       readonly canDisable: boolean;
@@ -114,4 +130,39 @@ export type ReasoningControlSurface =
 export interface ModelCapabilityOverride {
   readonly reasoning?: ReasoningControlSurface;
   readonly supportsTools?: boolean;
+}
+
+/**
+ * Fit a requested selection to what a resolved control accepts.
+ *
+ * An effort the model does not list becomes the nearest weaker listed effort,
+ * or the weakest one when nothing below it is listed, so clamping never raises
+ * cost past what was asked. A disable request on a model that cannot stop
+ * reasoning becomes its weakest effort. Unknown and unsupported controls return
+ * the selection untouched: there is no ladder to fit it to.
+ */
+export function clampReasoningSelection(
+  selection: ReasoningSelection | undefined,
+  control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
+): ReasoningSelection | undefined {
+  if (!selection || !control || control.kind === "unknown" || control.kind === "unsupported") {
+    return selection;
+  }
+  const listed = "efforts" in control ? control.efforts : undefined;
+  const supported: readonly CapabilityReasoningEffort[] =
+    listed !== undefined && listed.length > 0
+      ? CAPABILITY_REASONING_EFFORTS.filter((effort) => listed.includes(effort))
+      : CAPABILITY_REASONING_EFFORTS;
+  const weakest = supported[0] ?? "minimal";
+  if (selection === "disable") {
+    return control.canDisable ? "disable" : weakest;
+  }
+  if (supported.includes(selection)) {
+    return selection;
+  }
+  const requestedRank = CAPABILITY_REASONING_EFFORTS.indexOf(selection);
+  const weaker = supported.filter(
+    (effort) => CAPABILITY_REASONING_EFFORTS.indexOf(effort) < requestedRank,
+  );
+  return weaker.at(-1) ?? weakest;
 }

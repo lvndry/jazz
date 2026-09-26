@@ -40,6 +40,7 @@ const BYPASS_HOST_SUBSTRINGS = [
   "minimax",
   "cerebras",
   "dashscope",
+  "nvidia.com",
   "models.dev",
   "localhost",
   "127.0.0.1",

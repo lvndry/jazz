@@ -17,6 +17,7 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { APICallError, generateText } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
@@ -189,6 +190,76 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(openaiProvider?.configured).toBe(true);
       expect(openrouterProvider?.configured).toBe(true);
       expect(anthropicProvider?.configured).toBe(false);
+    });
+
+    it("detects an NVIDIA NIM key from the NIM_API_KEY alias", async () => {
+      const savedNvidia = process.env["NVIDIA_API_KEY"];
+      const savedNim = process.env["NIM_API_KEY"];
+      delete process.env["NVIDIA_API_KEY"];
+      process.env["NIM_API_KEY"] = "nvapi-alias";
+      try {
+        const testEffect = Effect.gen(function* () {
+          const llmService = yield* LLMServiceTag;
+          return yield* llmService.listProviders();
+        });
+        const result = await runWithTestLayers(testEffect, createTestConfigLayer({}));
+        expect(result.find((provider) => provider.name === "nvidia")?.configured).toBe(true);
+      } finally {
+        if (savedNvidia !== undefined) {
+          process.env["NVIDIA_API_KEY"] = savedNvidia;
+        }
+        if (savedNim === undefined) {
+          delete process.env["NIM_API_KEY"];
+        } else {
+          process.env["NIM_API_KEY"] = savedNim;
+        }
+      }
+    });
+
+    it("sends NVIDIA NIM requests to the hosted endpoint with the bearer key", async () => {
+      const requests: Array<{ url: string; authorization: string | null }> = [];
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        requests.push({ url, authorization: new Headers(init?.headers).get("Authorization") });
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-nim",
+            object: "chat.completion",
+            created: 0,
+            model: "meta/llama-3.3-70b-instruct",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "hi" },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }) as typeof fetch;
+      try {
+        const testEffect = Effect.gen(function* () {
+          const llmService = yield* LLMServiceTag;
+          return yield* llmService.createChatCompletion("nvidia", {
+            model: "meta/llama-3.3-70b-instruct",
+            messages: [{ role: "user", content: "hello" }],
+          });
+        });
+        const response = await runWithTestLayers(
+          testEffect,
+          createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } }),
+        );
+        expect(response.content).toBe("hi");
+        const chatRequest = requests.find((request) => request.url.includes("/chat/completions"));
+        expect(chatRequest?.url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
+        expect(chatRequest?.authorization).toBe("Bearer nvapi-test");
+      } finally {
+        globalThis.fetch = original;
+      }
     });
 
     it("should mark Ollama as configured even without API key", async () => {
@@ -1086,7 +1157,7 @@ describe("buildProviderOptions - ollama reasoning", () => {
     });
   });
 
-  it("does not downgrade an effort rejected by an exact OpenAI profile", () => {
+  it("clamps an effort an exact OpenAI profile does not list to the nearest weaker one", () => {
     expect(
       buildProviderOptions(
         "openai",
@@ -1098,7 +1169,82 @@ describe("buildProviderOptions - ollama reasoning", () => {
           canDisable: true,
         },
       ),
-    ).toEqual({ openai: { promptCacheKey: "conversation" } });
+    ).toMatchObject({ openai: { reasoningEffort: "low" } });
+  });
+});
+
+describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
+  async function nimRequestBody(
+    providerOptions: ReturnType<typeof buildProviderOptions>,
+  ): Promise<Record<string, unknown>> {
+    let requestBody: Record<string, unknown> = {};
+    const provider = createOpenAICompatible({
+      name: "nvidia",
+      baseURL: "https://integrate.api.nvidia.com/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    await generateText({
+      model: provider("qwen/qwen3-next-80b-a3b-thinking"),
+      prompt: "hi",
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+    return requestBody;
+  }
+
+  const nimOptions = (reasoning: ReasoningSelection): ChatCompletionOptions => ({
+    model: "qwen/qwen3-next-80b-a3b-thinking",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning,
+  });
+
+  it("sends no reasoning field without an operator profile", async () => {
+    const body = await nimRequestBody(buildProviderOptions("nvidia", nimOptions("high")));
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("chat_template_kwargs");
+  });
+
+  it("sends a top-level reasoning_effort for an effort profile, clamped to its ladder", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("max"), {
+        kind: "effort",
+        transport: "openai-compatible.chat.reasoning-effort",
+        efforts: ["low", "medium", "high"],
+        canDisable: true,
+      }),
+    );
+    expect(body["reasoning_effort"]).toBe("high");
+  });
+
+  it("sends chat_template_kwargs.enable_thinking for a template toggle profile", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("disable"), {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisable: true,
+      }),
+    );
+    expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: false });
+    expect(body).not.toHaveProperty("enable_thinking");
+  });
+
+  it("keeps thinking on when the profile says the model cannot disable it", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("disable"), {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisable: false,
+      }),
+    );
+    expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: true });
   });
 });
 

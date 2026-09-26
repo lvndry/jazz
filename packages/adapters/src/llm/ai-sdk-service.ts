@@ -66,9 +66,10 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { JsonValue } from "@jazz/core/types/message";
-import type {
-  ReasoningControlSurface,
-  ReasoningSelection,
+import {
+  clampReasoningSelection,
+  type ReasoningControlSurface,
+  type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { safeParseJson } from "@jazz/core/utils/json";
@@ -105,7 +106,7 @@ import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
 import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
-import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
+import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import { saveModelGeneratedFiles } from "./generated-files";
 import { resolveModelCapabilities } from "./model-capabilities/resolver";
@@ -771,6 +772,10 @@ function getConfiguredProviders(
       providers.push({ name: "moonshotai", apiKey: llmConfig.moonshotai.api_key });
       addedProviders.add("moonshotai");
     }
+    if (llmConfig.nvidia?.api_key) {
+      providers.push({ name: "nvidia", apiKey: llmConfig.nvidia.api_key });
+      addedProviders.add("nvidia");
+    }
     if (llmConfig.openai?.api_key) {
       providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
       addedProviders.add("openai");
@@ -798,9 +803,9 @@ function getConfiguredProviders(
   }
 
   // Fallback: check environment variables for providers not yet configured
-  for (const [providerName, envVar] of Object.entries(PROVIDER_ENV_VARS)) {
+  for (const providerName of Object.keys(PROVIDER_ENV_VARS)) {
     if (!addedProviders.has(providerName)) {
-      const envKey = process.env[envVar];
+      const envKey = llmProviderApiKeyFromEnv(providerName);
       if (envKey) {
         providers.push({ name: providerName as ProviderName, apiKey: envKey });
         addedProviders.add(providerName);
@@ -839,8 +844,7 @@ function selectModel(
 
   let model: LanguageModel;
   const resolveApiKey = (provider: ProviderName): string | undefined => {
-    const envVar = PROVIDER_ENV_VARS[provider];
-    return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+    return llmConfig?.[provider]?.api_key ?? llmProviderApiKeyFromEnv(provider);
   };
 
   switch (providerName) {
@@ -977,6 +981,17 @@ function selectModel(
       model = orcarouter(modelId);
       break;
     }
+    case "nvidia": {
+      const apiKey = resolveApiKey("nvidia");
+      const nvidia = createOpenAICompatible({
+        name: "nvidia",
+        baseURL: "https://integrate.api.nvidia.com/v1",
+        includeUsage: true,
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+      });
+      model = nvidia(modelId);
+      break;
+    }
     case "ai_gateway": {
       model = gateway(modelId);
       break;
@@ -1101,8 +1116,12 @@ function reasoningBudget(
   return Math.min(Math.max(requested, minimum), maximum ?? Number.POSITIVE_INFINITY);
 }
 
-/** Serialize only a capability-resolved control. */
+/**
+ * Serialize only a capability-resolved control. `selection` must already be
+ * clamped to the control, so every listed effort is sent verbatim.
+ */
 function buildResolvedReasoningOptions(
+  providerName: ProviderName,
   selection: ReasoningSelection | undefined,
   control: ReasoningControlSurface | { readonly kind: "unknown" } | undefined,
 ): ProviderOptions | undefined {
@@ -1112,7 +1131,7 @@ function buildResolvedReasoningOptions(
 
   switch (control.transport) {
     case "openai.responses.reasoning-effort": {
-      if (selection === "disable" || !control.efforts.includes(selection)) return undefined;
+      if (selection === "disable") return undefined;
       return {
         openai: {
           promptCacheKey: "conversation",
@@ -1150,22 +1169,18 @@ function buildResolvedReasoningOptions(
     }
     case "ollama.chat.think":
       return { ollama: { think: selection !== "disable" } };
-    case "llamacpp.chat.enable-thinking":
+    case "openai-compatible.chat.template-enable-thinking":
       return {
-        llamacpp: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
+        [providerName]: { chat_template_kwargs: { enable_thinking: selection !== "disable" } },
       };
-    case "vllm.chat.reasoning-effort":
+    case "openai-compatible.chat.reasoning-effort":
       return {
-        vllm: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
+        [providerName]: { reasoningEffort: selection === "disable" ? "none" : selection },
       };
-    case "sglang.chat.reasoning-effort":
-      return {
-        sglang: { reasoningEffort: selection === "disable" ? "none" : toProviderEffort(selection) },
-      };
-    case "llamacpp.chat.thinking-budget": {
+    case "openai-compatible.chat.template-thinking-budget": {
       if (selection === "disable") return undefined;
       return {
-        llamacpp: {
+        [providerName]: {
           chat_template_kwargs: {
             thinking_budget: reasoningBudget(
               selection,
@@ -1182,16 +1197,21 @@ function buildResolvedReasoningOptions(
 /**
  * Convert a model-neutral selection into provider options.
  *
- * An exact resolved profile is authoritative: unsupported or unavailable
- * efforts are serialized as disabled rather than falling through to a generic
- * provider serializer. Unknown profiles preserve the established serializer.
+ * An exact resolved profile is authoritative: the selection is first clamped
+ * to the efforts it lists, and a model reported as unsupported is serialized
+ * as disabled rather than falling through to a generic provider serializer.
+ * Unknown profiles preserve the established serializer.
  */
 export function buildProviderOptions(
   providerName: ProviderName,
   options: ChatCompletionOptions,
   control?: ReasoningControlSurface | { readonly kind: "unknown" },
 ): ProviderOptions | undefined {
-  const resolved = buildResolvedReasoningOptions(options.reasoning, control);
+  const resolved = buildResolvedReasoningOptions(
+    providerName,
+    clampReasoningSelection(options.reasoning, control),
+    control,
+  );
   if (resolved !== undefined) return resolved;
   if (control && control.kind !== "unknown") {
     return buildProviderOptions(providerName, { ...options, reasoning: "disable" });
@@ -1450,6 +1470,7 @@ class AISDKService implements LLMService {
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
   private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
+  private readonly reportedReasoningClamps = new Set<string>();
 
   constructor(
     config: AISDKConfig,
@@ -1501,6 +1522,30 @@ class AISDKService implements LLMService {
         Effect.sync(() => {
           this.modelInfoCache.set(providerName, models);
         }),
+      ),
+    );
+  }
+
+  /** Log once per provider, model, and requested level when the model cannot honor it as asked. */
+  private reportReasoningClamp(
+    providerName: ProviderName,
+    modelId: ModelName,
+    requested: ReasoningSelection | undefined,
+    control: ReasoningControlSurface | { readonly kind: "unknown" },
+  ): void {
+    const effective = clampReasoningSelection(requested, control);
+    if (effective === requested) {
+      return;
+    }
+    const key = `${providerName}/${modelId}:${requested}`;
+    if (this.reportedReasoningClamps.has(key)) {
+      return;
+    }
+    this.reportedReasoningClamps.add(key);
+    Effect.runFork(
+      this.logger.warn(
+        `Reasoning "${requested}" is not supported by ${providerName}/${modelId}; using "${effective}"`,
+        { provider: providerName, requested, effective },
       ),
     );
   }
@@ -1730,6 +1775,12 @@ class AISDKService implements LLMService {
         const tools = prepared?.tools;
         const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
 
+        this.reportReasoningClamp(
+          providerName,
+          options.model,
+          options.reasoning,
+          resolvedCapabilities.reasoning,
+        );
         const providerOptions = buildProviderOptions(
           providerName,
           options,
@@ -1997,6 +2048,12 @@ class AISDKService implements LLMService {
             operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
           }),
         });
+        this.reportReasoningClamp(
+          providerName,
+          options.model,
+          options.reasoning,
+          resolvedCapabilities.reasoning,
+        );
         const providerOptions = buildProviderOptions(
           providerName,
           options,
