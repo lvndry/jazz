@@ -148,6 +148,8 @@ export interface AgentRunnerOptions {
    * the rest of the run lost its tools.
    */
   readonly offersGoalProposals?: boolean;
+  /** Set when a loop started this run; only then does it get `end_loop`. */
+  readonly inLoop?: boolean;
   /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.

@@ -93,6 +93,10 @@ export function getGoalsDirectory(): string {
   return path.join(getJazzHomeDirectory(), "goals");
 }
 
+export function getLoopsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "loops");
+}
+
 /**
  * Returns the directory for per-agent memory shared across invocation surfaces.
  */
