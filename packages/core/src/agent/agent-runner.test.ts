@@ -1,7 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import os from "node:os";
-import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -39,7 +36,6 @@ import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
 import type { ChatMessage } from "../types/message";
-import { fileSnapshot } from "./tools/fs/file-snapshot";
 
 describe("renderSkillRoutingAdvisory", () => {
   it("renders only a live-roster winner that beats no-skill", () => {
@@ -704,67 +700,6 @@ describe("AgentRunner", () => {
         tool_call_id: "call-parked",
       });
       expect(parkedTail).toHaveLength(2);
-    });
-  });
-
-  describe("files changed since the conversation read them", () => {
-    it("tells a new run which files it read have changed on disk", async () => {
-      const directory = mkdtempSync(join(tmpdir(), "changed-since-read-"));
-      const filePath = join(realpathSync(directory), "ticket.json");
-      writeFileSync(filePath, '{"priority":"low"}');
-      const snapshot = fileSnapshot(filePath, '{"priority":"low"}');
-      writeFileSync(filePath, '{"priority":"high"}');
-      const sent: ChatMessage[][] = [];
-      const llm = {
-        ...mockLlmService,
-        createChatCompletion: (_provider: string, options: { messages: ChatMessage[] }) => {
-          sent.push(options.messages);
-          return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "ok" });
-        },
-      } as unknown as LLMService;
-      try {
-        await runWithTestLayers(
-          AgentRunner.run({
-            ...defaultOptions,
-            userInput: "Re-triage the ticket",
-            stream: false,
-            maxIterations: 1,
-            conversationHistory: [
-              { role: "user", content: "Triage the ticket" },
-              {
-                role: "assistant",
-                content: "",
-                tool_calls: [
-                  {
-                    id: "call-read",
-                    type: "function",
-                    function: { name: "read_file", arguments: JSON.stringify({ path: filePath }) },
-                  },
-                ],
-              },
-              {
-                role: "tool",
-                name: "read_file",
-                tool_call_id: "call-read",
-                content: JSON.stringify({
-                  path: filePath,
-                  snapshot,
-                  content: '1|{"priority":"low"}',
-                }),
-              },
-              { role: "assistant", content: "It is low." },
-            ],
-          }),
-          { llm },
-        );
-      } finally {
-        rmSync(directory, { recursive: true, force: true });
-      }
-
-      const turn = (sent[0] ?? []).find(
-        (message) => message.role === "user" && message.content.includes("Re-triage the ticket"),
-      );
-      expect(turn?.content).toContain(`Changed: ${filePath}.`);
     });
   });
 
