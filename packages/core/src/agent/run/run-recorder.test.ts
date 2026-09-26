@@ -5,7 +5,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AgentResponse } from "../types";
 import { RunParkRequested } from "./park-signal";
-import { withRunRecording } from "./run-recorder";
+import { withRunRecording, type RunRecordingInput } from "./run-recorder";
 
 const RUN_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
@@ -39,7 +39,7 @@ const PARK = new RunParkRequested({
 async function runWith<E>(
   store: InMemoryRunStore | undefined,
   effect: Effect.Effect<AgentResponse, E>,
-  input = INPUT,
+  input: RunRecordingInput = INPUT,
 ) {
   const layer = store === undefined ? Layer.empty : Layer.succeed(RunStoreTag, store);
   return Effect.runPromiseExit(
@@ -51,6 +51,22 @@ async function runWith<E>(
 }
 
 describe("withRunRecording", () => {
+  it("keeps the authority and iteration cap a run started with, for its resume", async () => {
+    const store = new InMemoryRunStore();
+    await runWith(store, Effect.fail(PARK), {
+      ...INPUT,
+      approvalPolicy: "read-only",
+      autoApprovedTools: ["git_status"],
+      maxIterations: 24,
+    });
+    const record = await Effect.runPromise(store.get(RUN_ID));
+    expect(record).toMatchObject({
+      approvalPolicy: "read-only",
+      autoApprovedTools: ["git_status"],
+      maxIterations: 24,
+    });
+  });
+
   it("records a completed run", async () => {
     const store = new InMemoryRunStore();
     const exit = await runWith(store, Effect.succeed(response("pushed")));

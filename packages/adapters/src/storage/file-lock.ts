@@ -12,10 +12,9 @@
 
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
-import { hostname } from "node:os";
 import * as path from "node:path";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { isLocalOwnerGone } from "@jazz/core/utils/process";
+import { currentProcessOwner, isLocalOwnerGone } from "@jazz/core/utils/process";
 
 const HOLDER_FILE = "owner.json";
 
@@ -90,7 +89,7 @@ export async function acquireFileLock(
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const deadline = Date.now() + (options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS);
   const token = randomUUID();
-  const holder: LockHolder = { pid: process.pid, host: hostname(), token };
+  const holder: LockHolder = { ...currentProcessOwner(), token };
   await nodeFs.mkdir(path.dirname(lockDirectory), { recursive: true, mode: 0o700 });
   for (;;) {
     try {

@@ -50,7 +50,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { isProcessAlive } from "@jazz/core/utils/process";
+import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
 import { toError } from "@jazz/core/utils/storage";
 import { Cause, Effect, Fiber } from "effect";
 import {
@@ -74,14 +74,21 @@ const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
  */
 const cyclesInFlight = new Set<string>();
 
-function ownerIsRunning(owner: GoalCycle["owner"], runId: string): boolean {
-  if (owner.host !== hostname()) {
-    return false;
+/**
+ * Whether a cycle's run is still being worked on. This process's own in-flight set is checked
+ * first, so a hostname change mid-cycle cannot make the daemon disown a cycle it is running.
+ */
+function cycleOwnerStatus(
+  owner: GoalCycle["owner"],
+  runId: string,
+): "alive" | "gone" | "unverifiable" {
+  if (cyclesInFlight.has(runId)) {
+    return "alive";
   }
-  if (owner.pid === process.pid) {
-    return cyclesInFlight.has(runId);
+  if (owner.pid === process.pid && owner.host === hostname()) {
+    return "gone";
   }
-  return isProcessAlive(owner.pid);
+  return localOwnerStatus(owner);
 }
 
 /** Mark a cycle run as executing in this process for the duration of `work`. */
@@ -375,7 +382,7 @@ function claimCycle(goal: GoalRecord) {
       .compareAndSet(goal.goalId, goal.version, {
         ...asInput(goal),
         state: { kind: "active" },
-        cycle: { runId, owner: { pid: process.pid, host: hostname() } },
+        cycle: { runId, owner: currentProcessOwner() },
         latestRunId: runId,
         usage: { ...goal.usage, cycles: goal.usage.cycles + 1 },
       })
@@ -444,6 +451,23 @@ function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<A
  * parked snapshot, so it goes back to waiting for its answer; anything else failed, and the
  * run is closed too so nothing can re-park and run it outside the goal later.
  */
+/**
+ * A cycle whose process cannot be checked from here (another host, or a start time `ps`
+ * cannot read) is neither trusted as running nor replayed: the goal stops for review, and a
+ * cancel already requested on it is applied.
+ */
+function settleUnverifiableCycle(goal: GoalRecord) {
+  return writeGoal(
+    goal,
+    settleCycle(goal, {
+      run: { kind: "missing" },
+      unchecked:
+        "Jazz cannot tell whether the process running this cycle is still working (it ran on another host, or its process cannot be inspected); check for side effects before continuing.",
+    }),
+    "stop a cycle whose owner cannot be verified",
+  );
+}
+
 function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
   return Effect.gen(function* () {
     const runs = yield* RunStoreTag;
@@ -502,7 +526,12 @@ export function runDueGoals() {
           }
           return;
         }
-        if (ownerIsRunning(cycle.owner, cycle.runId)) {
+        const cycleOwner = cycleOwnerStatus(cycle.owner, cycle.runId);
+        if (cycleOwner === "alive") {
+          return;
+        }
+        if (cycleOwner === "unverifiable") {
+          yield* settleUnverifiableCycle(goal);
           return;
         }
         const run = yield* runs.get(cycle.runId);
@@ -520,9 +549,11 @@ export function runDueGoals() {
           return;
         }
         if (run.state.kind === "working") {
-          const owner = run.state.owner ?? cycle.owner;
-          if (!ownerIsRunning(owner, cycle.runId)) {
+          const runOwner = cycleOwnerStatus(run.state.owner ?? cycle.owner, cycle.runId);
+          if (runOwner === "gone") {
             yield* settleDeadWorkingRun(goal, run);
+          } else if (runOwner === "unverifiable") {
+            yield* settleUnverifiableCycle(goal);
           }
           return;
         }
@@ -596,7 +627,9 @@ export function resumeGoalAwareRun(options: Omit<ResumeRunOptions, "goalLimits">
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, goalLimits: caps.caps }));
+        const settled = yield* runToOutcome(
+          resumeRun({ ...options, goalLimits: caps.caps, restrictAgent: withoutGoalProposals }),
+        );
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),

@@ -7,11 +7,12 @@
  * approval it needs is already answered.
  */
 
-import { hostname } from "node:os";
 import { Effect } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
+import type { Agent } from "@/core/types/agent";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
 import type { RunId } from "./run-state";
@@ -42,6 +43,11 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /**
+   * Restrictions the caller placed on the agent when the run started, applied again to the
+   * agent loaded for the resume (a goal cycle denies `propose_goal`, for one).
+   */
+  readonly restrictAgent?: (agent: Agent) => Agent;
   /** Remaining aggregate goal caps for the cycle containing this parked run. */
   readonly goalLimits?: {
     readonly maxTokens: number;
@@ -76,13 +82,14 @@ export function resumeRun(options: ResumeRunOptions) {
     }
 
     const { snapshot, pending } = record.state;
-    const agent = yield* agentService
+    const storedAgent = yield* agentService
       .getAgent(record.agentId)
       .pipe(
         Effect.mapError(
           () => new RunNotResumableError(options.runId, `its agent ${record.agentId} is gone`),
         ),
       );
+    const agent = options.restrictAgent?.(storedAgent) ?? storedAgent;
 
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
@@ -113,13 +120,12 @@ export function resumeRun(options: ResumeRunOptions) {
       .transition(options.runId, {
         kind: "working",
         iteration: snapshot.iteration,
-        owner: { pid: process.pid, host: hostname() },
+        owner: currentProcessOwner(),
         recovery: {
           pending,
           snapshot,
           expiresAt: record.state.expiresAt,
-          pid: process.pid,
-          host: hostname(),
+          ...currentProcessOwner(),
         },
       })
       .pipe(
@@ -165,6 +171,7 @@ export function resumeRun(options: ResumeRunOptions) {
       parkWhenUnattended: true,
       ...(options.goalLimits !== undefined ? options.goalLimits : {}),
       ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
+      ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

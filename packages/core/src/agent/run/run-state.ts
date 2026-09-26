@@ -25,7 +25,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalOutcome } from "@/core/types/tools";
 import type { ApprovalRequest } from "@/core/types/tools";
-import { isLocalOwnerGone } from "@/core/utils/process";
+import { isLocalOwnerGone, type ProcessOwner } from "@/core/utils/process";
 
 /**
  * Identifier for a single run.
@@ -105,7 +105,7 @@ export type RunState =
       readonly kind: "working";
       readonly iteration: number;
       /** Process holding the current execution claim, used to detect a dead controller. */
-      readonly owner?: { readonly pid: number; readonly host: string };
+      readonly owner?: ProcessOwner;
       /**
        * Carried by a resumed run so a crash cannot swallow it.
        *
@@ -128,6 +128,7 @@ export type RunState =
          */
         readonly pid: number;
         readonly host: string;
+        readonly startedAt?: number;
       };
     }
   | {

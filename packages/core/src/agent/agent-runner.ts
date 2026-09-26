@@ -1017,6 +1017,9 @@ export class AgentRunner {
             ...(options.autoApprovedTools !== undefined
               ? { autoApprovedTools: options.autoApprovedTools }
               : {}),
+            ...(options.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
           },
           execute,
         );

@@ -349,6 +349,65 @@ describe("runDueGoals", () => {
     expect((await current(test)).latestRunId).not.toBe("run-dead");
   });
 
+  async function workingCycle(
+    test: Harness,
+    owner: { pid: number; host: string; startedAt?: number },
+  ) {
+    await run(
+      test,
+      test.goals.create(
+        testGoal({
+          cycle: { runId: "run-elsewhere", owner },
+          latestRunId: "run-elsewhere",
+          usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: false },
+        }),
+      ),
+    );
+    await run(
+      test,
+      test.runs.save(record("run-elsewhere", { kind: "working", iteration: 2, owner })),
+    );
+  }
+
+  /**
+   * The regression: an owner whose host did not match was declared dead, so a hostname change
+   * mid-cycle started a second cycle beside the one still running.
+   */
+  it("stops for review, never replays, when the cycle's process cannot be checked from here", async () => {
+    const test = harness();
+    await workingCycle(test, { pid: process.pid, host: `${hostname()}-renamed` });
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("review-required");
+    expect(goal.cycle).toBeUndefined();
+    expect(test.prompts).toHaveLength(0);
+  });
+
+  /** The regression: a reused pid kept a crashed cycle looking alive, and cancel could not end it. */
+  it("treats a live pid with another start time as a crashed cycle", async () => {
+    const test = harness();
+    await workingCycle(test, { pid: process.ppid, host: hostname(), startedAt: 1 });
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await current(test);
+    expect(goal.state.kind).toBe("active");
+    expect(goal.interruptedCycles).toBe(1);
+    expect((await run(test, test.runs.get("run-elsewhere")))?.state).toMatchObject({
+      kind: "failed",
+      cause: "interrupted",
+    });
+  });
+
   /** The regression: a run left `submitted` by a dead process kept its goal active forever. */
   it("settles a cycle whose run was submitted by a process that then died", async () => {
     const test = harness();
@@ -497,6 +556,35 @@ describe("answering a goal's parked run", () => {
     const goal = await current(test);
     expect(goal.state.kind).toBe("completed");
     expect(goal.usage.totalTokens).toBe(1_200);
+  });
+
+  /**
+   * The regression: the resumed segment loaded the raw agent and no iteration cap, so it
+   * could propose a new goal from inside a cycle and ran up to the global default.
+   */
+  it("keeps the cycle's restrictions for the rest of an answered run", async () => {
+    const test = harness();
+    const runId = await parkedGoal(test);
+    const parked = await run(test, test.runs.get(runId));
+    await run(test, test.runs.save({ ...parked!, maxIterations: 24 }));
+    const seen: AgentRunnerOptions[] = [];
+    const runner = resumedRunner(test, COMPLETE);
+    const capture = runner.getMockImplementation()!;
+    runner.mockImplementation(((options: AgentRunnerOptions) => {
+      seen.push(options);
+      return capture(options);
+    }) as unknown as typeof AgentRunner.run);
+    try {
+      await run(
+        test,
+        resumeGoalAwareRun({ runId, outcome: { kind: "approval", value: { approved: true } } }),
+      );
+    } finally {
+      runner.mockRestore();
+    }
+
+    expect(seen[0]?.agent.config.deniedTools).toContain("propose_goal");
+    expect(seen[0]?.maxIterations).toBe(24);
   });
 
   /** The regression: a pause while the answered run worked was dropped and cycles went on. */

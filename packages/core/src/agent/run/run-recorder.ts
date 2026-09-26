@@ -7,11 +7,11 @@
  * one process open for the whole run and has nobody to answer a question from outside.
  */
 
-import { hostname } from "node:os";
 import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { currentProcessOwner } from "@/core/utils/process";
 import { toError } from "@/core/utils/storage";
 import type { AgentResponse } from "../types";
 import { RunParkRequested, isRunParkRequested } from "./park-signal";
@@ -32,6 +32,7 @@ export interface RunRecordingInput {
   readonly totalTokensSoFar?: () => number;
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
+  readonly maxIterations?: number;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -128,13 +129,14 @@ export function withRunRecording<E, R>(
           ...(input.autoApprovedTools !== undefined
             ? { autoApprovedTools: input.autoApprovedTools }
             : {}),
+          ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
         }),
       );
       yield* moveTo(
         {
           kind: "working",
           iteration: 0,
-          owner: { pid: process.pid, host: hostname() },
+          owner: currentProcessOwner(),
         },
         false,
       );

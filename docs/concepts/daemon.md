@@ -78,8 +78,9 @@ of it.
 
 `GET /health` is unauthenticated on purpose: a process supervisor should be able to see that the
 daemon is alive without holding a credential that can drive an agent. It returns
-`{ "ok": true, "owner": "<id>" }`, where `owner` is a hash of the host name and Jazz home the
-daemon serves, so a client can tell whether the daemon on the port is its own.
+`{ "ok": true, "owner": "<id>" }`, where `owner` is the random instance id of the Jazz home the
+daemon serves (stored once in `$JAZZ_HOME/instance-id`), so a client can tell whether the daemon
+on the port is its own. It reveals nothing about the machine or its paths.
 
 Everything else needs a bearer token, **including on loopback**. That covers paths matching no
 route, so an unauthenticated caller cannot map the door by telling 404s from 401s.

@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { APPROVAL_POLICY_LEVELS, type ApprovalPolicyLevel } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
+import type { ProcessOwner } from "@/core/utils/process";
 import { getGoalOwnerInstanceId } from "./goal-owner";
 import type { GoalState } from "./goal-state";
 import { DEFAULT_GOAL_BUDGET } from "./goal-usage";
@@ -81,7 +82,7 @@ export interface GoalUsage {
 export interface GoalCycle {
   readonly runId: string;
   /** Process that started the run, for telling a crashed worker from a live one. */
-  readonly owner: { readonly pid: number; readonly host: string };
+  readonly owner: ProcessOwner;
   /** A pause or cancel requested while the run was in flight, applied once it settles. */
   readonly stopAfter?: "pause" | "cancel";
 }
@@ -326,7 +327,11 @@ export const goalRecordSchema = z
     cycle: z
       .object({
         runId: nonEmpty,
-        owner: z.object({ pid: positiveInteger, host: z.string() }),
+        owner: z.object({
+          pid: positiveInteger,
+          host: z.string(),
+          startedAt: z.number().int().nonnegative().optional(),
+        }),
         stopAfter: z.enum(["pause", "cancel"]).optional(),
       })
       .optional(),

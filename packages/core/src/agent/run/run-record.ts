@@ -38,6 +38,8 @@ export interface RunRecord {
    */
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
+  /** The run's iteration cap, which a resumed run keeps rather than falling back to the default. */
+  readonly maxIterations?: number;
 }
 
 /**
@@ -58,6 +60,7 @@ export function createRunRecord(input: {
   readonly now: Date;
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
+  readonly maxIterations?: number;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -72,5 +75,6 @@ export function createRunRecord(input: {
     ...(input.autoApprovedTools !== undefined && input.autoApprovedTools.length > 0
       ? { autoApprovedTools: input.autoApprovedTools }
       : {}),
+    ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
   };
 }
