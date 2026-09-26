@@ -38,9 +38,7 @@ export function createUpdateWorkStateTool(): Tool<never> {
     name: "update_work_state",
     disclosure: "private",
     description:
-      "Read or update the current task's state so progress survives compaction and resumption. " +
-      "Update it when any field materially changes. Task context, not long-term memory. " +
-      "Omitted fields stay unchanged; no fields reads the state.",
+      "Read or update the current task's state; it survives compaction and resumption. Update it when a field materially changes. For facts about the user, use manage_memory. Omitted fields stay unchanged; call with no fields to read.",
     parameters: updateWorkStateParameters,
     riskLevel: "low-risk",
     hidden: false,

@@ -216,10 +216,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Delegate a self-contained task to a child agent with a fresh context; it cannot see this conversation and only its final answer comes back. " +
-        "Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. " +
-        "Skip it when a few reads would do, when the child would need this conversation, or when the work must mutate the same files in order. " +
-        "The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting deeper than 3 is refused.",
+        "Delegate a self-contained task to a child agent with a fresh context; only its final answer comes back. Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting stops at depth 3.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -533,7 +530,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       disclosure: "private",
       longRunning: true,
       description:
-        "Summarize older messages to free context. The harness auto-compacts near 80% of the window, so call this only when you need space sooner.",
+        "Summarize older messages to free context. Call it only when you need space before the automatic compaction at 80% of the window.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

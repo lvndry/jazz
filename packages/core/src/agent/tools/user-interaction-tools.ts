@@ -53,8 +53,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Ask the human one blocking decision. Only for an approach with no clear best option, sign-off on a destructive action, or a secret no tool can fetch. " +
-      "Never to confirm requested or reversible work, or anything a tool can answer.",
+      "Ask the human one blocking decision: an approach with no clear best option, sign-off on a destructive action, or a secret no tool can fetch. Proceed on your own with requested or reversible work and anything a tool can answer.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -128,7 +127,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Let the human pick a file interactively when you cannot identify it with find or ls. Not available headless.",
+      "Let the human pick a file interactively when find and ls cannot identify it. Interactive sessions only.",
     parameters: filePickerSchema,
     hidden: false,
     riskLevel: "read-only",

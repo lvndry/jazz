@@ -20,10 +20,7 @@ import { buildKeyFromContext } from "../context-utils";
 const cpParameters = z
   .object({
     source: z.string().min(1).describe("File or directory; copied recursively."),
-    destination: z
-      .string()
-      .min(1)
-      .describe("Exact target path, not a parent directory (unlike shell cp)."),
+    destination: z.string().min(1).describe("Final path, including the name."),
     force: z.boolean().optional().describe("Delete an existing destination first."),
   })
   .strict();

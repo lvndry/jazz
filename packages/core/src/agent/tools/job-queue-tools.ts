@@ -93,7 +93,7 @@ const enqueueBatchParameters = z
       .string()
       .min(1)
       .max(JOB_REASON_MAX_LENGTH)
-      .describe("What this batch is for; shown to a human in list_jobs, not sent back to you."),
+      .describe("What this batch is for; shown to the person in list_jobs."),
   })
   .strict();
 
@@ -114,14 +114,9 @@ export function createJobQueueTools(): {
       `${JOB_TIMEOUT_MINUTES} minutes.`,
 
     description:
-      "Run independent shell commands in the background without blocking your turn, instead of " +
-      "chaining execute_command calls with sleeps. Returns a batchId at once; you are woken when " +
-      "every job finishes or exhausts its retries, with each job's status and output. Do not " +
-      "poll: call list_jobs only if the user asks for progress. Not for commands that depend on " +
-      "each other's output.\n\n" +
-      `Each job is killed at ${JOB_TIMEOUT_MINUTES} minutes, so a command that never exits ` +
-      "(`tail -f`, `watch`) burns the budget. Bound it (`timeout 60 tail -f app.log`) or use " +
-      "register_trigger for anything that could outlast a batch.",
+      "Run independent shell commands in the background while you keep working. Returns a batchId at once; you are woken with each job's status and output when every job finishes or exhausts its retries. Call list_jobs only when the user asks for progress. Put commands that depend on each other's output in one job.\n\n" +
+      `Each job is killed at ${JOB_TIMEOUT_MINUTES} minutes: bound long-running commands ` +
+      "(`timeout 60 tail -f app.log`) and use register_trigger for anything that could outlast a batch.",
     parameters: enqueueBatchParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(enqueueBatchParameters),

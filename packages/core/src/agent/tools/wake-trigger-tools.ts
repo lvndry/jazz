@@ -47,12 +47,7 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
       "log file, a price or restock, tickets going on sale, a package arriving, a reply, a site " +
       "coming back up.",
     description:
-      "Wake yourself later and resume this conversation with the prompt you give, to check " +
-      "back on something instead of ending the task. Unlike add_reminder, which only notifies " +
-      "a person, this runs you again. Prefer it over enqueue_batch when the wait could exceed " +
-      "one job's cap or is open-ended: wake, look, and register another trigger if it is still " +
-      "running. Each wake costs a model run, so space checks to how fast the thing changes and " +
-      "stop once you have an answer. The cap limits pending triggers, not how often you look.",
+      "Wake yourself later and resume this conversation with your prompt, to check back on something. Use it over enqueue_batch when a wait could exceed one job's cap or is open-ended: wake, look, and register another trigger if it is still running. Space wakes to how fast the thing changes and stop once you have the answer.",
     parameters: registerTriggerParameters,
     riskLevel: "low-risk",
     hidden: false,

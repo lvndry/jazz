@@ -118,8 +118,7 @@ export function createWebSearchTool(): ReturnType<
     // prose, sent verbatim to a third party under the operator's account.
     egress: true,
     description:
-      "Search the public web for titles, urls and snippets; read full pages with web_fetch. " +
-      "Parameters other than query are hints some providers ignore. On error, do not invent sources.",
+      "Search the public web for titles, URLs and snippets; read full pages with web_fetch. Parameters besides query are hints some providers ignore. On error, report it and cite only sources you retrieved.",
     tags: ["web", "search"],
     parameters: webSearchSchema,
     validate: makeZodValidator(webSearchSchema),

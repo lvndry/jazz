@@ -239,20 +239,20 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .int()
         .positive()
         .optional()
-        .describe("Max characters (not bytes) returned. Default 131072, cap 524288."),
+        .describe("Character limit on the result. Default 131072, cap 524288."),
       sinceByte: z
         .number()
         .int()
         .min(0)
         .optional()
         .describe(
-          "Previous read's nextByte; returns only what was appended since. Not with startLine/endLine.",
+          "nextByte from the previous read; returns only text appended since. Use without startLine/endLine.",
         ),
       sinceInode: z
         .number()
         .int()
         .optional()
-        .describe("Previous read's inode, to detect rotation. Only with sinceByte."),
+        .describe("inode from the previous read; pass with sinceByte to detect rotation."),
     })
     .strict()
     .refine(
@@ -276,9 +276,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     name: "read_file",
     disclosure: "private",
     description:
-      "Read a file (not a directory: ls; not cat via execute_command). Text comes back as numbered `N|` lines — the prefix is metadata, never copy it into edits — plus a snapshot to pass to edit_file. " +
+      "Read a file; for a directory, use ls. Text comes back as numbered `N|` lines plus a snapshot to pass to edit_file; copy only the text after `N|` into edits. " +
       "Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
-      "To follow a growing file, pass sinceByte and sinceInode; a reset field flags rotation or truncation.",
+      "To follow a growing file, pass sinceByte and sinceInode from the previous read; a reset field flags rotation or truncation.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),

@@ -40,12 +40,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       path: z
         .string()
         .optional()
-        .describe("File or directory; keep it narrow. Default cwd. Never '/'."),
+        .describe("Narrowest file or directory containing the target. Default cwd."),
       recursive: z.boolean().optional().describe("Default true."),
       regex: z
         .boolean()
         .optional()
-        .describe("Treat pattern as a regex. Prefer the re: prefix; never both."),
+        .describe("Treat pattern as a regex. Use either this or the re: prefix."),
       ignoreCase: z.boolean().optional().describe("Case-insensitive."),
       maxResults: z.number().int().positive().optional().describe("Default 200, max 2000."),
       filePattern: z.string().optional().describe("Filename glob to include, e.g. '*.ts'."),
@@ -349,8 +349,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "grep",
     disclosure: "private",
     description:
-      "Search inside file contents (ripgrep, else grep); use instead of rg/grep via execute_command. For file names use find. " +
-      "Recursion is unbounded, so start narrow. Skips hidden files unless path targets them.",
+      "Search file contents with ripgrep, falling back to grep; use it for every content search. For file names, use find. Recursion is unbounded: start from a narrow path. Skips hidden files unless path points at them.",
     tags: ["search", "text"],
     parameters,
     validate: makeZodValidator(parameters),

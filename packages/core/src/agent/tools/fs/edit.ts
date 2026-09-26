@@ -490,8 +490,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
     name: "edit_file",
     disclosure: "private",
     description:
-      "Change part of an existing file (new files: write_file; never sed via execute_command). Call read_file first and pass its snapshot; if the file changed, reread. " +
-      "Prefer replace_pattern with a unique substring; use line-based edits for multi-line changes. Never copy read_file's `N|` line prefix into content. After a failed edit, read errorType and retry rather than rewriting the file.",
+      "Change part of an existing file; to create one, use write_file. Call read_file first and pass its snapshot; if the file changed, read it again. Use replace_pattern with a unique substring for small changes and line-based edits for multi-line ones. Copy only the text after read_file's `N|` prefix into content. After a failed edit, read errorType, fix the edit and retry.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),

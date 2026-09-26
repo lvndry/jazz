@@ -23,7 +23,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     name: "cd",
     disclosure: "internal",
     description:
-      "Change the session working directory used by later tool calls. Prefer passing path to the next tool instead.",
+      "Change the session working directory for later tool calls. For a single call, pass the path to that tool instead.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: makeZodValidator(parameters),

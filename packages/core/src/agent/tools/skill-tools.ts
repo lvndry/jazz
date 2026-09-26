@@ -20,7 +20,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       name: "find_skills",
       disclosure: "internal",
       description:
-        "Keyword-search the skill catalog and return full descriptions of the top matches. Use it when the skill index in the system prompt is not enough to pick a skill.",
+        "Keyword-search the skill catalog and return full descriptions of the top matches. Use it when the skill index in the system prompt leaves the right skill unclear.",
       parameters: z.object({
         query: z.string().min(1).describe("Keywords, e.g. 'email triage'."),
         limit: z.number().int().positive().max(10).optional().describe("Max matches. Default 5."),
@@ -67,7 +67,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       name: "load_skill",
       disclosure: "internal",
       description:
-        "Load a skill's full instructions. Only for a skill the index or find_skills matched to the current task; do not preload.",
+        "Load a skill's full instructions once the index or find_skills matches it to the current task.",
       parameters: z.object({
         skill_name: skillNameSchema.describe("Skill to load."),
       }),

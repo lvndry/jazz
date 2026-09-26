@@ -42,7 +42,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     name: "write_file",
     disclosure: "public",
     description:
-      "Create a UTF-8 file or replace one entirely. To change part of a file, use edit_file. Prefer createDirs over a separate mkdir.",
+      "Create a UTF-8 file or replace one entirely. To change part of a file, use edit_file. Set createDirs to create missing parent directories.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),

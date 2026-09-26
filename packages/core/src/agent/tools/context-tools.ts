@@ -29,7 +29,7 @@ export function createGetTimeTool(): Tool<never> {
     name: "get_time",
     disclosure: "internal",
     description:
-      "Get the current date and time. The Environment block already has today's date; use this for a fresh clock in long runs, scheduling, or relative times.",
+      "Get the current date and time, for a fresh clock in long runs, scheduling or relative times. Today's date is already in the Environment block.",
     parameters: z.object({}).strict(),
     riskLevel: "read-only",
     egress: false,
@@ -67,7 +67,7 @@ export function createContextInfoTool(): Tool<never> {
     name: "context_info",
     disclosure: "internal",
     description:
-      "Report how much of the context window is in use. The harness already warns and auto-compacts, so do not poll this.",
+      "Report how much of the context window is in use. Call it only when the user asks about context usage.",
     parameters: z.object({}),
     riskLevel: "read-only",
     egress: false,
@@ -125,7 +125,7 @@ export function createRetrieveToolResultTool(): Tool<never> {
     name: "retrieve_tool_result",
     disclosure: "private",
     description:
-      "Read back a tool result that was offloaded from context. If nothing is stored, re-run the original tool.",
+      "Read back a tool result that was offloaded from context. If nothing is stored, rerun the original tool.",
     parameters: retrieveToolResultParameters,
     riskLevel: "read-only",
     egress: false,

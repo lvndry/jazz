@@ -19,8 +19,11 @@ import { buildKeyFromContext } from "../context-utils";
 const rmParameters = z
   .object({
     path: z.string().min(1).describe("File or directory to remove."),
-    recursive: z.boolean().optional().describe("Required for directories."),
-    force: z.boolean().optional().describe("Report success on a missing path or failed remove."),
+    recursive: z.boolean().optional().describe("Set true to delete a directory."),
+    force: z
+      .boolean()
+      .optional()
+      .describe("Report success even when the path is missing or removal fails."),
   })
   .strict();
 

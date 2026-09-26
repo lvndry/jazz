@@ -29,7 +29,7 @@ const waitForParameters = z
       .string()
       .trim()
       .min(1, "command cannot be empty")
-      .describe("Condition command, rerun until it exits 0. Keep it cheap and idempotent."),
+      .describe("Cheap, idempotent check that exits 0 once the condition holds."),
     description: z
       .string()
       .trim()
@@ -41,7 +41,7 @@ const waitForParameters = z
       .min(WAIT_FOR_MIN_INTERVAL_MS)
       .optional()
       .describe(
-        `Milliseconds between checks. Default ${String(WAIT_FOR_DEFAULT_INTERVAL_MS)}; match how fast the thing changes.`,
+        `Milliseconds between checks. Default ${String(WAIT_FOR_DEFAULT_INTERVAL_MS)}; match how fast the condition changes.`,
       ),
     timeoutMs: z
       .number()
@@ -83,9 +83,9 @@ export function createWaitTools(): ApprovalToolPair<WaitToolDeps> {
       "turn per look. Capped at " +
       `${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
     description:
-      "Rerun a command until it exits 0, in one tool call. Use instead of execute_command with sleeps. " +
-      `Capped at ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes; on timeout it returns timedOut: true ` +
-      "with the last output, not an error. For longer or open-ended waits use register_trigger.",
+      "Rerun a command until it exits 0, all in one tool call; use it for every wait-until check. " +
+      `Runs up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes, then returns timedOut: true ` +
+      "with the last output. For longer or open-ended waits, use register_trigger.",
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),

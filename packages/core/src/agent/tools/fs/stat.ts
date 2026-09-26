@@ -24,7 +24,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "stat",
     disclosure: "internal",
     description:
-      "Check whether a path exists; returns type, size in bytes, and times. A missing path returns exists: false, not an error.",
+      "Check whether a path exists and get its type, size in bytes and times. A missing path returns exists: false.",
     tags: ["filesystem", "info"],
     parameters,
     validate: makeZodValidator(parameters),

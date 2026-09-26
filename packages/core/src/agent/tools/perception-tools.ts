@@ -540,8 +540,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     timeoutMs: COMPANION_TIMEOUT_MS,
     riskLevel: "high-risk",
     description:
-      "Have another model analyze image, audio or video you cannot ingest yourself, and get text back. " +
-      "The user picks the model. It sees only mediaPaths and task, none of this conversation.",
+      "Have another model analyze image, audio or video you cannot ingest, and get text back. It sees only mediaPaths and task.",
     parameters: analyzeMediaSchema,
     validate: makeZodValidator(analyzeMediaSchema),
     handler: (args: AnalyzeMediaArgs, context) =>
@@ -680,8 +679,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     timeoutMs: COMPANION_TIMEOUT_MS,
     riskLevel: "high-risk",
     description:
-      "Have another model generate an image, audio or video you cannot produce yourself, and get the file back. " +
-      "The user picks the model. It sees only prompt, none of this conversation.",
+      "Have another model generate an image, audio or video file for you. It sees only prompt.",
     parameters: generateMediaSchema,
     validate: makeZodValidator(generateMediaSchema),
     handler: (args: GenerateMediaArgs, context) =>

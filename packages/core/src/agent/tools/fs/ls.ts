@@ -21,16 +21,14 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
       pattern: z
         .string()
         .optional()
-        .describe(
-          "Name substring or re:<regex>. Not a glob: '*.ts' is literal; use find for globs.",
-        ),
+        .describe("Name substring or re:<regex>. For globs such as '*.ts', use find."),
       maxResults: z.number().int().positive().optional().describe("Default 200, max 2000."),
       maxDepth: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Levels when recursive. Default 10."),
+        .describe("Levels to descend when recursive. Default 10."),
     })
     .strict();
 
@@ -40,8 +38,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     name: "ls",
     disclosure: "internal",
     description:
-      "List one directory. To locate files across a tree use find; for contents use grep. " +
-      ".gitignore'd entries and node_modules are skipped unless showHidden is true.",
+      "List one directory. Skips .gitignore'd entries and node_modules; set showHidden to include them. To search a tree by name, use find; to search contents, use grep.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: makeZodValidator(parameters),

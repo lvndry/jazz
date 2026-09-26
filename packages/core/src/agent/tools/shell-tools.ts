@@ -624,9 +624,9 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     name: "execute_command",
     disclosure: "private",
     description:
-      "Run a non-interactive shell command (stdin is discarded). Prefer dedicated tools (ls, find, grep, read_file, mkdir) and any deferred tool from search_tools over shell equivalents; use this for git. " +
+      "Run a non-interactive shell command; stdin is empty. Use the dedicated tools (ls, find, grep, read_file, mkdir) and tools from search_tools for what they cover, and this for git and everything else. " +
       "Read-only commands may be auto-approved; anything that mutates needs approval. " +
-      "sudo and inline -c/-e code are blocked. The environment has no secrets and you cannot set env vars. " +
+      "sudo and inline -c/-e code are blocked: write code to a temp file and run it. The environment has no secrets and takes no env vars. " +
       "stdout and stderr are each capped at 256 KB.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",

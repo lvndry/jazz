@@ -35,8 +35,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
     disclosure: "internal",
-    description:
-      "Return a PDF's page count and file size without extracting text. Use before read_pdf on large files.",
+    description: "Return a PDF's page count and file size. Call it before read_pdf on a large PDF.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: makeZodValidator(parameters),

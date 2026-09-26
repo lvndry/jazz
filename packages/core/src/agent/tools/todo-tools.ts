@@ -27,8 +27,7 @@ const TodoItemSchema = z.object({
     .string()
     .optional()
     .describe(
-      'What you ran to confirm it works, e.g. "bun test src/foo.test.ts". Set it when marking ' +
-        "completed; omit it if you have not actually checked.",
+      'Command you ran to confirm the step, e.g. "bun test src/foo.test.ts". Set it only when you actually verified.',
     ),
   priority: z.enum(["high", "medium", "low"]).describe("Step priority.").default("medium"),
 });
@@ -113,9 +112,7 @@ export function createManageTodosTool(): Tool<never> {
     name: "manage_todos",
     disclosure: "private",
     description:
-      "Replace this conversation's todo list, shown as progress in the UI. Send every item each call, not just changes. " +
-      "Use it for work with three or more distinct steps. Keep exactly one item in_progress; mark it completed as soon as it is done. " +
-      "It does not survive compaction: for that, also call update_work_state. For a clock-time ping, use add_reminder.",
+      "Replace this conversation's todo list, shown as progress in the UI. Use it for work with three or more distinct steps. Send every item each call. Keep exactly one item in_progress and mark it completed as soon as it is done. Record lasting progress with update_work_state. For a clock-time ping, use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,

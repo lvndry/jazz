@@ -113,12 +113,16 @@ const HttpRequestSchema = z
     headers: z
       .record(z.string(), z.string())
       .optional()
-      .describe("Never include secrets unless the user asked."),
+      .describe(
+        "Request headers. Include credentials only when the user supplied them for this request.",
+      ),
     query: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]) as z.ZodType<QueryValue>)
       .optional()
       .describe("Query-string parameters."),
-    body: HttpBodySchema.optional().describe("Not allowed on GET or HEAD. No multipart uploads."),
+    body: HttpBodySchema.optional().describe(
+      "Request body for methods other than GET and HEAD. Multipart is unsupported.",
+    ),
     timeoutMs: z
       .number()
       .int("Timeout must be an integer number of milliseconds.")
@@ -140,7 +144,7 @@ const HttpRequestSchema = z
       .positive("Cache TTL must be greater than zero.")
       .max(3600, "Cache TTL cannot exceed one hour.")
       .optional()
-      .describe("Sends Cache-Control: max-age; nothing is cached locally."),
+      .describe("Sets a Cache-Control: max-age request header only."),
   })
   .strict();
 
@@ -346,8 +350,7 @@ export function createHttpRequestTool(): Tool<never> {
     // tool from a disclosure tier alone.
     egress: true,
     description:
-      "Call an HTTP API. JSON responses are parsed, media comes back as base64, anything else as text. " +
-      "Reaches private networks too. To read an article use web_fetch; to find URLs use web_search.",
+      "Call an HTTP API. JSON responses are parsed, media comes back as base64, anything else as text. It can reach private networks. To read an article, use web_fetch.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: makeZodValidator(HttpRequestSchema),

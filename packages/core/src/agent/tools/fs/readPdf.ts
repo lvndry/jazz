@@ -184,7 +184,11 @@ function buildTablesSection(getTableResult: {
 export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).optional().describe("Local PDF. Exactly one of path or url."),
+      path: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Local PDF path. Pass exactly one of path or url."),
       url: z
         .url({
           protocol: /^https?$/,
@@ -195,7 +199,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
       pages: z
         .array(z.number().int().positive())
         .optional()
-        .describe("1-based page numbers, e.g. [1, 2, 3]. Omit for all."),
+        .describe("1-based page numbers, e.g. [1, 2, 3]. Omit to read all."),
       maxChars: z
         .number()
         .int()
@@ -219,7 +223,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
     // `path` mode touches nothing but disk.
     egress: true,
     description:
-      "Extract text and tables from a local or remote PDF (no OCR). For large files, call pdf_page_count first and read 10–20 pages at a time.",
+      "Extract text and tables from a local or remote PDF's text layer. For a large PDF, call pdf_page_count first, then read 10–20 pages per call.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),

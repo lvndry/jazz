@@ -20,10 +20,7 @@ import { buildKeyFromContext } from "../context-utils";
 const mvParameters = z
   .object({
     source: z.string().min(1).describe("File or directory to move."),
-    destination: z
-      .string()
-      .min(1)
-      .describe("Exact target path, not a parent directory (unlike shell mv)."),
+    destination: z.string().min(1).describe("Final path, including the name."),
     force: z.boolean().optional().describe("Delete an existing destination first."),
   })
   .strict();
@@ -40,7 +37,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
     name: "mv",
     disclosure: "public",
     description:
-      "Rename or move a file or directory on the same filesystem; cross-device moves need execute_command.",
+      "Rename or move a file or directory within one filesystem. To move across devices, use execute_command.",
     tags: ["filesystem", "write"],
     parameters: mvParameters,
     validate: makeZodValidator(mvParameters),

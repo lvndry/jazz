@@ -35,7 +35,7 @@ const webFetchSchema = z
         protocol: /^https?$/,
         error: "URL must be absolute and include the protocol (http or https).",
       })
-      .describe("Absolute http(s) URL, already known."),
+      .describe("Absolute http(s) URL."),
     max_length: z
       .number()
       .int()
@@ -48,7 +48,7 @@ const webFetchSchema = z
       .int()
       .min(0)
       .optional()
-      .describe("Character offset to resume from when the last result was truncated."),
+      .describe("Character offset to resume from after a truncated result."),
   })
   .strict();
 
@@ -62,8 +62,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     // the path or query string, and the reply comes back for it to read.
     egress: true,
     description:
-      "Fetch a web page's main content as markdown. JavaScript is not run. " +
-      "For binary files, APIs, custom headers or POST use http_request; to find URLs use web_search.",
+      "Fetch a known URL's main content as markdown. JavaScript does not run. For binary files, APIs, custom headers or POST, use http_request.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),

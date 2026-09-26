@@ -119,8 +119,7 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
     name: "search_tools",
     disclosure: "internal",
     description:
-      "Fetch schemas for tools listed only by name and summary; once fetched, a tool stays callable for this conversation. " +
-      "Search here instead of replicating a listed tool with execute_command.",
+      "Fetch full schemas for tools listed only by name and summary; fetched tools stay callable for this conversation. Use it whenever a listed tool fits the task.",
     parameters: searchToolsParameters,
     riskLevel: "read-only",
     egress: false,

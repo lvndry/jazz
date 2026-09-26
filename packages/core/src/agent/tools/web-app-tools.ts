@@ -94,8 +94,7 @@ const createCompositionParameters = z
       .string()
       .min(1)
       .describe(
-        "Complete self-contained HTML document with <html>/<head>/<body>. Inline CSS/JS; CDN " +
-          "<script>/<link> tags are fine; never reference local files.",
+        "Complete self-contained HTML document with <html>/<head>/<body>. Inline CSS/JS; CDN <script>/<link> tags are fine; reference no local files.",
       ),
     title: z
       .string()
@@ -189,13 +188,9 @@ export function createCompositionTool(
     summary:
       "Compose a visual artifact: chart, visualization, diagram, interactive explainer, dashboard, form or tool.",
     description:
-      "Build a polished visual artifact when text alone is not the clearest medium. Make it " +
-      "finished, not a demo: semantic HTML, responsive from 320px, clear labels and units, " +
-      "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Never invent " +
-      "data or imply false precision. Prefer inline CSS/JS; add a library only when it clearly " +
-      "helps. A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
-      "or Chromium (or PUPPETEER_EXECUTABLE_PATH). An 'interactive' page must be useful on its " +
-      "first screen without instructions. Not for fetching or searching the web.",
+      "Build a polished visual artifact when a visual is clearer than text. Make it finished: semantic HTML, responsive from 320px, clear labels and units, " +
+      "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Use only real data at its real precision. Inline CSS/JS; add a library only when it clearly helps. A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
+      "or Chromium (or PUPPETEER_EXECUTABLE_PATH). An 'interactive' page must be useful on its first screen without instructions.",
     tags: ["ui", "visualization", "composition"],
     // Existing agent configurations can keep working while the model sees and
     // calls the new, better-named capability.

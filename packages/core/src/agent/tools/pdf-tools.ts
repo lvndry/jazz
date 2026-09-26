@@ -120,8 +120,7 @@ export function createPdfTool(
       "Render a PDF from HTML you write, saved to the working directory: reports, invoices, documents.",
     description:
       "Render HTML you write to a PDF, for reports, invoices or anything the person will keep, " +
-      "print or send. The text and numbers are exactly what you write: a renderer, not an image " +
-      "generator. Needs Chrome or Chromium (or PUPPETEER_EXECUTABLE_PATH).",
+      "print or send. The PDF shows exactly the text and numbers you write. Needs Chrome or Chromium (or PUPPETEER_EXECUTABLE_PATH).",
     tags: ["document", "pdf"],
     parameters: createPdfParameters,
     riskLevel: "low-risk",

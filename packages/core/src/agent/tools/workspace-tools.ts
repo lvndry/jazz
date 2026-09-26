@@ -79,8 +79,7 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
     disclosure: "private",
     description:
       "View your durable scratchpad: drafts, research dumps and intermediate artifacts too " +
-      "large or provisional for memory. No path lists everything saved. An empty scratchpad " +
-      "means nothing is saved yet, not an error.",
+      "large or provisional for memory. Call with no path to list everything saved. An empty scratchpad means nothing is saved yet.",
     parameters: viewWorkspaceParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -132,7 +131,7 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z.object({
     command: z.literal("create"),
     path: z.string().min(1).describe("Path relative to the scratchpad root."),
-    file_text: z.string().describe("Full contents. Fails if the path exists."),
+    file_text: z.string().describe("Full contents for a new path."),
   }),
   z.object({
     command: z.literal("str_replace"),
@@ -147,7 +146,7 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
       .number()
       .int()
       .nonnegative()
-      .describe("Insert after this many lines; 0 is the start. Unlike view_range, 0-based."),
+      .describe("Number of lines to insert after; 0 inserts at the start."),
     insert_text: z.string().describe("Text to insert."),
   }),
   z.object({

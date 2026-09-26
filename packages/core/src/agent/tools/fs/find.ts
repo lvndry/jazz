@@ -36,7 +36,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       path: z
         .string()
         .optional()
-        .describe("Start directory. Omit to search cwd, then parents, then home. Never '/'."),
+        .describe(
+          "Narrowest directory containing the target. Omit to search cwd, then parents, then home.",
+        ),
       name: z
         .string()
         .optional()
@@ -51,12 +53,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .nonnegative()
         .optional()
         .describe("Levels to descend. Default 25; 0 = start directory only."),
-      minDepth: z
-        .number()
-        .int()
-        .nonnegative()
-        .optional()
-        .describe("Skip results shallower than this."),
+      minDepth: z.number().int().nonnegative().optional().describe("Minimum depth of results."),
       maxResults: z.number().int().positive().optional().describe("Default 200, max 2000."),
       includeHidden: z.boolean().optional().describe("Include dotfiles."),
       smart: z
@@ -67,7 +64,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       pathPattern: z.string().optional().describe("Glob on the full path, e.g. '**/test/**'."),
       excludePaths: z.array(z.string()).optional().describe("Paths to skip."),
       caseSensitive: z.boolean().optional().describe("Default false."),
-      size: z.string().optional().describe("e.g. '+100M' (over), '-1k' (under)."),
+      size: z.string().optional().describe("Size filter: '+100M' over, '-1k' under."),
       mtime: z
         .string()
         .optional()
@@ -516,8 +513,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     disclosure: "internal",
     aliases: ["glob"],
     description:
-      "Locate files and directories by name or path (also callable as glob). For file contents use grep; for one directory use ls. " +
-      "Pass path for project work. Honors .gitignore and skips node_modules and .git.",
+      "Locate files and directories by name or path; also callable as glob. For file contents, use grep. Pass path for project work. Honors .gitignore and skips node_modules and .git.",
     tags: ["filesystem", "search"],
     parameters,
     validate: makeZodValidator(parameters),
