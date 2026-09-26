@@ -1850,6 +1850,14 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
+      // The approval mode belongs to the session, not the composer: it toggles while a slash
+      // command runs or one of its prompts is open, which both leave the composer unavailable.
+      // It stays behind the approval card above, so a pending decision cannot be flipped.
+      if (name === "tab" && shift) {
+        store.toggleMode();
+        return true;
+      }
+
       if (active !== null && active.type !== "chat") {
         if (name === "pageup" || name === "pagedown") return false;
         if (name === "escape") {
@@ -2122,10 +2130,6 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      if (name === "tab" && shift) {
-        store.toggleMode();
-        return true;
-      }
       if (isCtrlLetter({ name, ctrl }, "f")) {
         setSearchQuery("");
         setSearchCaret(0);
