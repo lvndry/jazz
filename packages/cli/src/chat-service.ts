@@ -14,6 +14,7 @@ import {
 } from "@jazz/adapters/command-approval-tracker";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import type { ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag, type ChatService } from "@jazz/core/interfaces/chat-service";
@@ -232,6 +233,51 @@ export class ChatServiceImpl implements ChatService {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
 
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, fileSystem);
+      /**
+       * What every run this chat starts shares, built fresh per run because the remembered
+       * approvals are replaced as the user edits them: the chat's own turns and a goal's cycles
+       * run in front of the user both use it, so a cycle behaves like any turn here.
+       */
+      const chatTurnOptions = (): ChatTurnOptions => ({
+        ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+        // A getter, so a Shift+Tab switch applies to a run already under way.
+        autoApprovePolicy: () => autoApprovePolicy,
+        autoApprovedCommands,
+        autoApprovedTools,
+        onAutoApproveCommand: (command: string) =>
+          Effect.gen(function* () {
+            if (!autoApprovedCommands.includes(command)) {
+              autoApprovedCommands.push(command);
+            }
+            yield* Effect.forkDaemon(
+              recordCommandApproval(command, conversationId).pipe(
+                Effect.catchAll(() => Effect.void),
+                Effect.provide(fileSystemLayer),
+              ),
+            );
+          }),
+        onAutoApproveTool: (toolName: string) => {
+          if (!autoApprovedTools.includes(toolName)) {
+            autoApprovedTools.push(toolName);
+          }
+        },
+        checkQueuedMessage: () => {
+          const queued = store.takeQueuedProse().join("\n");
+          if (queued.length === 0) return undefined;
+          Effect.runSync(terminal.user(queued));
+          return queued;
+        },
+        // A Ctrl+B-detached tool call reports back here, possibly long after this run has
+        // ended. Queuing it through the same path as text typed mid-run means it surfaces
+        // automatically — at the next tool-phase boundary if a run is still going, or as the
+        // opening line of the next turn otherwise.
+        onDetachedToolComplete: (summary: string) => {
+          store.appendToQueue(`[Background task finished]\n${summary}`);
+        },
+      });
+
       // Load last-used agent from runtime state for sorting /agents and /switch
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
@@ -391,7 +437,7 @@ export class ChatServiceImpl implements ChatService {
               sessionStartedAt,
               lastUsedAgentId,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-              currentAutoApprovePolicy: () => autoApprovePolicy,
+              chatTurnOptions,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -509,12 +555,10 @@ export class ChatServiceImpl implements ChatService {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
 
-              const fs = yield* FileSystem.FileSystem;
-              const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
               yield* Effect.forkDaemon(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, conversationId).pipe(
                   Effect.catchAll(() => Effect.void),
-                  Effect.provide(fsLayer),
+                  Effect.provide(fileSystemLayer),
                 ),
               );
             }
@@ -564,18 +608,12 @@ export class ChatServiceImpl implements ChatService {
         sessionTurnCount += 1;
 
         yield* Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
-
-          // Create runner options
-          // Use a getter for autoApprovePolicy to support real-time mode switches via Shift+Tab
-          const getCurrentAutoApprovePolicy = () => autoApprovePolicy;
-
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
 
           const runnerOptions: AgentRunnerOptions = {
+            ...chatTurnOptions(),
             agent,
             userInput: messageForAgent,
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
@@ -584,44 +622,10 @@ export class ChatServiceImpl implements ChatService {
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
-            ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
             ...(ephemeral ? { disablePersistence: true } : { offersGoalProposals: true }),
-            autoApprovePolicy: getCurrentAutoApprovePolicy,
-            autoApprovedCommands,
-            autoApprovedTools,
-            onAutoApproveCommand: (command: string) =>
-              Effect.gen(function* () {
-                if (!autoApprovedCommands.includes(command)) {
-                  autoApprovedCommands.push(command);
-                }
-                yield* Effect.forkDaemon(
-                  recordCommandApproval(command, conversationId).pipe(
-                    Effect.catchAll(() => Effect.void),
-                    Effect.provide(fsLayer),
-                  ),
-                );
-              }),
-            onAutoApproveTool: (toolName: string) => {
-              if (!autoApprovedTools.includes(toolName)) {
-                autoApprovedTools.push(toolName);
-              }
-            },
-            checkQueuedMessage: () => {
-              const queued = store.takeQueuedProse().join("\n");
-              if (queued.length === 0) return undefined;
-              Effect.runSync(terminal.user(queued));
-              return queued;
-            },
-            // A Ctrl+B-detached tool call reports back here, possibly long after this
-            // run has ended. Queuing it through the same path as text typed mid-run
-            // means it surfaces automatically — at the next tool-phase boundary if this
-            // run is still going, or as the opening line of the next turn otherwise.
-            onDetachedToolComplete: (summary: string) => {
-              store.appendToQueue(`[Background task finished]\n${summary}`);
-            },
           };
 
           // Run the agent with proper error handling
@@ -795,7 +799,7 @@ export class ChatServiceImpl implements ChatService {
           }
 
           if (!ephemeral) {
-            yield* offerProposedGoals(conversationId, () => autoApprovePolicy);
+            yield* offerProposedGoals(conversationId, chatTurnOptions);
           }
 
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)

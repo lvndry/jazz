@@ -26,6 +26,24 @@ import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
  * including the agent configuration, user input, conversation context, and execution settings.
  *
  */
+/**
+ * What a run takes from the chat it runs in: the live approval mode, the approvals remembered
+ * this session and how new ones are remembered, messages typed while it works, and the stream
+ * setting. A chat builds these once, fresh per run, for its own turns and for a goal's cycles run
+ * in front of the user, so a cycle behaves like any other turn of that chat.
+ */
+export type ChatTurnOptions = Pick<
+  AgentRunnerOptions,
+  | "stream"
+  | "autoApprovePolicy"
+  | "autoApprovedCommands"
+  | "autoApprovedTools"
+  | "onAutoApproveCommand"
+  | "onAutoApproveTool"
+  | "checkQueuedMessage"
+  | "onDetachedToolComplete"
+>;
+
 export interface AgentRunnerOptions {
   /**
    * The agent to execute.

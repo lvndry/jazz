@@ -2,6 +2,7 @@
  * Shared types for chat slash-command parsing, dispatch, and results.
  */
 
+import type { ChatTurnOptions } from "@jazz/core/agent/types";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -124,8 +125,8 @@ export interface CommandContext {
   sessionStartedAt: Date;
   /** Current auto-approve policy (for /mode display). */
   autoApprovePolicy?: AutoApprovePolicy;
-  /** The live auto-approve policy, for work that outlasts the command (a goal's cycles). */
-  currentAutoApprovePolicy?: () => AutoApprovePolicy | undefined;
+  /** This chat's options for a run, built fresh each call, for runs a command starts (a goal's cycles). */
+  chatTurnOptions?: () => ChatTurnOptions;
   /** Currently auto-approved command prefixes (for /mode display). */
   autoApprovedCommands?: readonly string[];
   /** Commands persisted in config (always auto-approved across sessions). */

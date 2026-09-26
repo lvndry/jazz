@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   hintsFor,
+  overlayLeavesTranscriptScrollable,
   INTERRUPT_WINDOW_MS,
   isBackgroundChord,
   isComposerNewline,
@@ -355,12 +356,25 @@ describe("footer hints", () => {
       "^f to search",
       "^r for reasoning",
     ]);
-    expect(hintsFor("input", false, false, "approval", false, false)).toEqual(["esc to reject"]);
+    expect(hintsFor("input", false, false, "approval", false, false)).toEqual([
+      "esc to reject",
+      "pgup to read above",
+    ]);
     expect(hintsFor("input", false, false, "approval", false, true)).toEqual([
       "enter to accept",
       "esc to reject",
+      "pgup to read above",
     ]);
-    expect(hintsFor("input", false, false, "text")).toEqual(["enter to confirm", "esc to go back"]);
+    expect(hintsFor("input", false, false, "text")).toEqual([
+      "enter to confirm",
+      "esc to go back",
+      "pgup to read above",
+    ]);
+    expect(hintsFor("input", false, false, "question")).toEqual([
+      "enter to confirm",
+      "esc to cancel",
+      "pgup to read above",
+    ]);
     expect(hintsFor("input", true, false, "search")).toEqual([
       "enter to insert",
       "tab to scope",
@@ -408,5 +422,15 @@ describe("hints are font-safe", () => {
         }
       }
     }
+  });
+});
+
+describe("scrolling under an overlay", () => {
+  it("keeps the conversation scrollable under a question or approval, not under a list", () => {
+    expect(overlayLeavesTranscriptScrollable("question")).toBe(true);
+    expect(overlayLeavesTranscriptScrollable("approval")).toBe(true);
+    expect(overlayLeavesTranscriptScrollable("text")).toBe(true);
+    expect(overlayLeavesTranscriptScrollable("search")).toBe(false);
+    expect(overlayLeavesTranscriptScrollable("filepicker")).toBe(false);
   });
 });

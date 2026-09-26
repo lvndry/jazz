@@ -37,7 +37,7 @@ import {
   type SpendBudget,
 } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
-import type { AgentResponse } from "@jazz/core/agent/types";
+import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
@@ -46,7 +46,6 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
-import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
 import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
@@ -365,7 +364,8 @@ function claimCycle(goal: GoalRecord) {
  * read live so a Shift+Tab switch applies mid-cycle, instead of the goal's unattended grant.
  */
 export interface GoalAttendance {
-  readonly autoApprovePolicy: () => AutoApprovePolicy | undefined;
+  /** The chat's options for a run, read fresh for each cycle so it runs like any turn there. */
+  readonly turnOptions: () => ChatTurnOptions;
   /** Told before each cycle starts, so the chat can say which one is running. */
   readonly onCycle?: (goal: GoalRecord) => Effect.Effect<void>;
 }
@@ -398,12 +398,12 @@ function runCycle(
       AgentRunner.run({
         agent,
         runId,
-        userInput: goalCyclePrompt(goal, runId),
+        userInput: goalCyclePrompt(goal, runId, { attended: attendance !== undefined }),
         conversationId: goal.conversationId,
         maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
         ...caps,
         ...(attendance !== undefined
-          ? { autoApprovePolicy: attendance.autoApprovePolicy }
+          ? attendance.turnOptions()
           : goal.approvalPolicy !== undefined
             ? { autoApprovePolicy: goal.approvalPolicy }
             : {}),

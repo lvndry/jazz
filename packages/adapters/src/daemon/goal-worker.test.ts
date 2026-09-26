@@ -716,11 +716,12 @@ describe("resumeGoalRun", () => {
 const DEAD_CHAT = { pid: 999_999_999, host: hostname() };
 
 describe("a goal run in front of the user", () => {
-  it("runs its cycles here under the chat's live mode until it completes", async () => {
+  it("runs its cycles here as turns of the chat, with its live mode, approvals, and queue", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));
     const runner = scriptRunner(test, COMPLETE);
     const mode = () => "high-risk" as const;
+    const checkQueuedMessage = () => "also keep the README";
     let cycles = 0;
     try {
       const attended = await run(
@@ -728,7 +729,11 @@ describe("a goal run in front of the user", () => {
         holdAttendance(
           GOAL_ID,
           runAttendedCycles(GOAL_ID, {
-            autoApprovePolicy: mode,
+            turnOptions: () => ({
+              autoApprovePolicy: mode,
+              autoApprovedCommands: ["git status"],
+              checkQueuedMessage,
+            }),
             onCycle: () => Effect.sync(() => void cycles++),
           }),
         ),
@@ -741,6 +746,8 @@ describe("a goal run in front of the user", () => {
     expect(goal.state.kind).toBe("completed");
     expect(cycles).toBe(1);
     expect(test.prompts[0]?.autoApprovePolicy).toBe(mode);
+    expect(test.prompts[0]?.autoApprovedCommands).toEqual(["git status"]);
+    expect(test.prompts[0]?.checkQueuedMessage).toBe(checkQueuedMessage);
   });
 
   it("pauses where the user stopped a cycle, keeping its spend", async () => {
@@ -759,7 +766,7 @@ describe("a goal run in front of the user", () => {
     try {
       await run(
         test,
-        holdAttendance(GOAL_ID, runAttendedCycles(GOAL_ID, { autoApprovePolicy: () => undefined })),
+        holdAttendance(GOAL_ID, runAttendedCycles(GOAL_ID, { turnOptions: () => ({}) })),
       );
     } finally {
       runner.mockRestore();

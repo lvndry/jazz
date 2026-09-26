@@ -257,7 +257,7 @@ export const planDraftFields = {
   constraints: z
     .array(boundedText(DRAFT_ITEM_CHARS).describe("One constraint."))
     .max(DRAFT_MAX_LIST_ITEMS)
-    .describe("What must not change or be done."),
+    .describe("Rules the work must follow once accepted, such as what must not change or be done."),
 };
 
 export const feasibilityDraftFields = {

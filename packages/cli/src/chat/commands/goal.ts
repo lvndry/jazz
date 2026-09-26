@@ -24,9 +24,10 @@ import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { GoalRecord } from "@jazz/core/agent/goal/goal-record";
 import { WAITING_ON_USER_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
+import type { ChatTurnOptions } from "@jazz/core/agent/types";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
-import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
+import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
@@ -34,8 +35,11 @@ import { describeGoal, describeGoalNow, describePlan, goalHandle } from "@/cli/g
 import { store } from "@/cli/ui/store";
 import type { CommandContext } from "./types";
 
-/** The chat's approval mode, read live so a Shift+Tab switch applies to a running cycle. */
-export type ChatApprovalMode = () => AutoApprovePolicy | undefined;
+/**
+ * The chat's options for a run, built fresh for each cycle: its live approval mode (so a
+ * Shift+Tab switch applies mid-cycle), remembered approvals, and messages typed meanwhile.
+ */
+export type ChatTurns = () => ChatTurnOptions;
 
 /**
  * Goals this chat was running when they paused: the user stopped them, or a control from
@@ -79,48 +83,117 @@ function reportGoal(goal: GoalRecord) {
 }
 
 /**
- * Run the goal's cycles here until it stops being active, after `first` (answering what it
- * waits on, for one). The chat is busy meanwhile, so what the user types queues for after.
+ * Run the goal's cycles here until it is done, after `first` (answering what it waits on, for
+ * one). Each cycle runs like a turn of this chat: what the user types reaches it at its next tool
+ * step, and approvals remembered here apply to it. When it stops for the user, the chat asks them
+ * right here and carries on with the answer; only Esc at that question leaves it paused.
  */
 function attendInChat<E = never, R = never>(
   goal: GoalRecord,
-  mode: ChatApprovalMode,
+  turns: ChatTurns,
   first: Effect.Effect<{ readonly refused?: string }, E, R> = Effect.succeed({}),
 ) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    pausedHere.delete(goal.goalId);
-    store.setChatBusy(true);
-    const attended = yield* holdAttendance(
-      goal.goalId,
-      Effect.gen(function* () {
-        const before = yield* first;
-        if (before.refused !== undefined) {
-          return { refused: before.refused };
-        }
-        const left = yield* runAttendedCycles(goal.goalId, {
-          autoApprovePolicy: mode,
-          onCycle: (cycleGoal) =>
-            terminal.info(
-              `Goal ${goalHandle(cycleGoal)} · cycle ${String(cycleGoal.usage.cycles)} of ${String(cycleGoal.budget.maxCycles)} (Esc stops it)`,
-            ),
-        });
-        return { left };
-      }),
-    ).pipe(Effect.ensuring(Effect.sync(() => store.setChatBusy(false))));
-    if (attended.kind === "attended-elsewhere") {
-      yield* terminal.warn(
-        `Goal ${goalHandle(goal)} is running in another chat; follow it there, or stop it with /goal pause ${goalHandle(goal)}.`,
+    let before: Effect.Effect<{ readonly refused?: string }, E, R> = first;
+    for (;;) {
+      pausedHere.delete(goal.goalId);
+      store.setChatBusy(true);
+      const opening = before;
+      const attended = yield* holdAttendance(
+        goal.goalId,
+        Effect.gen(function* () {
+          const answered = yield* opening;
+          if (answered.refused !== undefined) {
+            return { refused: answered.refused };
+          }
+          const left = yield* runAttendedCycles(goal.goalId, {
+            turnOptions: turns,
+            onCycle: (cycleGoal) =>
+              terminal.info(
+                `Goal ${goalHandle(cycleGoal)} · cycle ${String(cycleGoal.usage.cycles)} of ${String(cycleGoal.budget.maxCycles)} (Esc stops it)`,
+              ),
+          });
+          return { left };
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            store.setChatBusy(false);
+            store.setActivity({ phase: "idle" });
+          }),
+        ),
       );
-      return;
+      if (attended.kind === "attended-elsewhere") {
+        yield* terminal.warn(
+          `Goal ${goalHandle(goal)} is running in another chat; follow it there, or stop it with /goal pause ${goalHandle(goal)}.`,
+        );
+        return;
+      }
+      if ("refused" in attended.value) {
+        yield* terminal.warn(attended.value.refused);
+        return;
+      }
+      const left = attended.value.left;
+      if (left === undefined) {
+        return;
+      }
+      const answer = yield* askToCarryOn(left);
+      if (answer === undefined) {
+        yield* reportGoal(left);
+        return;
+      }
+      const resumed = yield* controlGoal(left.goalId, "resume", {
+        ...(answer.length > 0 ? { guidance: answer } : {}),
+        attendedBy: currentProcessOwner(),
+      });
+      if (resumed.kind === "refused") {
+        yield* terminal.warn(resumed.reason);
+        yield* reportGoal(left);
+        return;
+      }
+      if (resumed.goal.state.kind !== "active") {
+        yield* reportGoal(resumed.goal);
+        return;
+      }
+      before = Effect.succeed({});
     }
-    if ("refused" in attended.value) {
-      yield* terminal.warn(attended.value.refused);
-      return;
+  });
+}
+
+/**
+ * Ask, in the chat, what carries on a goal that stopped for the user: the answer to its
+ * question, how to get past what stopped it, or whether to extend its budget. `""` resumes with
+ * no note; undefined leaves the goal where it is.
+ */
+function askToCarryOn(goal: GoalRecord) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const handle = goalHandle(goal);
+    const { state } = goal;
+    if (state.kind === "budget-limited") {
+      const more = yield* terminal.confirm(
+        `Goal ${handle} used its ${state.limit} budget. Give it one more budget and keep going?`,
+        true,
+      );
+      return more === true ? "" : undefined;
     }
-    if (attended.value.left !== undefined) {
-      yield* reportGoal(attended.value.left);
+    if (state.kind !== "review-required") {
+      return undefined;
     }
+    yield* terminal.log(
+      state.question !== undefined
+        ? `Goal ${handle} asks: ${state.question}`
+        : `Goal ${handle} stopped: ${state.reason}`,
+    );
+    const answer = yield* terminal.ask(
+      state.question !== undefined
+        ? "Your answer (Esc leaves it paused)"
+        : "How should it go on? (Esc leaves it here)",
+      { cancellable: true, simple: true },
+    );
+    const trimmed = answer?.trim();
+    return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
   });
 }
 
@@ -159,7 +232,7 @@ function replaceBlockingGoal(blocking: GoalRecord, replacement: string) {
 }
 
 /** Accept a stored proposal and run it here, offering to replace a goal already under way. */
-function acceptHere(goal: GoalRecord, mode: ChatApprovalMode) {
+function acceptHere(goal: GoalRecord, turns: ChatTurns) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const accept = controlGoal(goal.goalId, "accept", { attendedBy: currentProcessOwner() });
@@ -177,7 +250,7 @@ function acceptHere(goal: GoalRecord, mode: ChatApprovalMode) {
       }
       return;
     }
-    yield* attendInChat(outcome.goal, mode);
+    yield* attendInChat(outcome.goal, turns);
   });
 }
 
@@ -186,7 +259,7 @@ function acceptHere(goal: GoalRecord, mode: ChatApprovalMode) {
  * here if the user accepts. Declining cancels the proposal. This is the only way a proposed
  * goal starts from chat, whatever the approval mode.
  */
-export function offerProposedGoals(conversationId: string, mode: ChatApprovalMode) {
+export function offerProposedGoals(conversationId: string, turns: ChatTurns) {
   return goalLayers(
     Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
@@ -198,7 +271,7 @@ export function offerProposedGoals(conversationId: string, mode: ChatApprovalMod
           false,
         );
         if (accepted === true) {
-          yield* acceptHere(goal, mode);
+          yield* acceptHere(goal, turns);
           continue;
         }
         const declined = yield* controlGoal(goal.goalId, "decline");
@@ -210,7 +283,7 @@ export function offerProposedGoals(conversationId: string, mode: ChatApprovalMod
   );
 }
 
-function draftGoal(context: CommandContext, request: string, mode: ChatApprovalMode) {
+function draftGoal(context: CommandContext, request: string, turns: ChatTurns) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const proposal = yield* proposeGoal({ agent: context.agent, request, inspect: true });
@@ -268,7 +341,7 @@ function draftGoal(context: CommandContext, request: string, mode: ChatApprovalM
       }
       return;
     }
-    yield* attendInChat(activation.goal, mode);
+    yield* attendInChat(activation.goal, turns);
   });
 }
 
@@ -294,7 +367,7 @@ function answerHere(
   handle: string | undefined,
   answer: (goal: GoalRecord) => RunAnswer,
   usage: string,
-  mode: ChatApprovalMode,
+  turns: ChatTurns,
 ) {
   return Effect.gen(function* () {
     const goal = yield* findGoal(handle, usage);
@@ -303,7 +376,7 @@ function answerHere(
     }
     yield* attendInChat(
       goal,
-      mode,
+      turns,
       Effect.map(answerGoal(goal.goalId, answer(goal)), (answered) =>
         answered.kind === "refused" ? { refused: answered.reason } : {},
       ),
@@ -311,7 +384,7 @@ function answerHere(
   });
 }
 
-function resumeHere(handle: string | undefined, guidance: string, mode: ChatApprovalMode) {
+function resumeHere(handle: string | undefined, guidance: string, turns: ChatTurns) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const goal = yield* findGoal(handle, "/goal resume <goal> [note]");
@@ -330,7 +403,7 @@ function resumeHere(handle: string | undefined, guidance: string, mode: ChatAppr
       yield* terminal.info(outcome.note);
     }
     if (outcome.goal.state.kind === "active") {
-      yield* attendInChat(outcome.goal, mode);
+      yield* attendInChat(outcome.goal, turns);
       return;
     }
     yield* terminal.log(yield* describeGoalNow(outcome.goal, "chat"));
@@ -376,7 +449,7 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
   const [command, ...rest] = args;
   const [handle] = rest;
   const note = rest.slice(1).join(" ").trim();
-  const mode: ChatApprovalMode = context.currentAutoApprovePolicy ?? (() => undefined);
+  const turns: ChatTurns = context.chatTurnOptions ?? (() => ({}));
   const done = <E, R>(effect: Effect.Effect<unknown, E, R>) =>
     goalLayers(effect).pipe(Effect.as({ shouldContinue: true }));
 
@@ -415,7 +488,7 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
             yield* terminal.log(describeGoal(goal, "chat", yield* pendingGoalInput(goal)));
             return;
           }
-          yield* acceptHere(goal, mode);
+          yield* acceptHere(goal, turns);
         }),
       );
     case "decline":
@@ -433,14 +506,14 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
         }),
       );
     case "approve":
-      return done(answerHere(handle, () => ({ kind: "approve" }), "/goal approve <goal>", mode));
+      return done(answerHere(handle, () => ({ kind: "approve" }), "/goal approve <goal>", turns));
     case "reject":
       return done(
         answerHere(
           handle,
           () => ({ kind: "reject", ...(note.length > 0 ? { note } : {}) }),
           "/goal reject <goal> [why]",
-          mode,
+          turns,
         ),
       );
     case "answer":
@@ -456,11 +529,11 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
           handle,
           () => ({ kind: "answer", response: note }),
           "/goal answer <goal> <your answer>",
-          mode,
+          turns,
         ),
       );
     case "resume":
-      return done(resumeHere(handle, note, mode));
+      return done(resumeHere(handle, note, turns));
     case "pause":
     case "cancel":
       return done(stopGoal(command, handle));
@@ -473,7 +546,7 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
       ),
     );
   }
-  return done(draftGoal(context, request, mode));
+  return done(draftGoal(context, request, turns));
 }
 
 /**

@@ -43,6 +43,7 @@ import {
   normalizeKey,
   resolveEscape,
   resolveFocusKey,
+  overlayLeavesTranscriptScrollable,
   resolveScrollKey,
   type KeyAction,
 } from "./keymap";
@@ -615,7 +616,7 @@ function AppView({
     <box
       style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
       onMouseScroll={(event) => {
-        if (overlayOpen) return;
+        if (overlayOpen && !overlayLeavesTranscriptScrollable(view.overlay?.kind)) return;
         const scroll = event.scroll;
         if (scroll === undefined) return;
         scrollTranscriptByWheel(scroll.direction, scroll.delta);

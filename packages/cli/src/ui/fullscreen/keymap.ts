@@ -465,6 +465,17 @@ export function isPrintableSequence(sequence: string, ctrl = false, superKey = f
  * Key names stay ASCII. `⏎` and `↑` live in Miscellaneous Technical and Arrows
  * — 7/256 and 11/112 in SF Mono — and would shift the cost column.
  */
+/**
+ * Whether the wheel still scrolls the conversation under this overlay. A question or an approval
+ * is about what the conversation above it says (a plan, a command), so reading it must stay
+ * possible; search and the file picker scroll their own lists.
+ */
+export function overlayLeavesTranscriptScrollable(
+  overlay: "approval" | "search" | "question" | "text" | "filepicker" | undefined,
+): boolean {
+  return overlay === "approval" || overlay === "question" || overlay === "text";
+}
+
 export function hintsFor(
   focus: Focus,
   runActive: boolean,
@@ -475,13 +486,14 @@ export function hintsFor(
   hasQueued = false,
 ): readonly string[] {
   if (overlay === "approval") {
-    return overlayArmed ? ["enter to accept", "esc to reject"] : ["esc to reject"];
+    return overlayArmed
+      ? ["enter to accept", "esc to reject", "pgup to read above"]
+      : ["esc to reject", "pgup to read above"];
   }
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
-  if (overlay === "text") return ["enter to confirm", "esc to go back"];
-  if (overlay === "question" || overlay === "filepicker") {
-    return ["enter to confirm", "esc to cancel"];
-  }
+  if (overlay === "text") return ["enter to confirm", "esc to go back", "pgup to read above"];
+  if (overlay === "question") return ["enter to confirm", "esc to cancel", "pgup to read above"];
+  if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
     return ["up down to scroll", "pgup to page", "type to input", "^f to search"];

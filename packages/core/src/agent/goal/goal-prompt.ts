@@ -33,9 +33,14 @@ export function cycleMessages<Message extends { readonly role: string; readonly 
   return [];
 }
 
+/**
+ * The instruction for one cycle. `attended` when the user is in the chat watching it: then a
+ * decision only they can make is asked there and the work goes on, instead of ending the cycle.
+ */
 export function goalCyclePrompt(
   goal: Pick<GoalRecord, "plan" | "request" | "lastProgress">,
   runId: string,
+  options: { readonly attended?: boolean } = {},
 ): string {
   const { plan } = goal;
   const nextStep = plan.steps.find((step) => step.state === "pending");
@@ -45,7 +50,7 @@ export function goalCyclePrompt(
   );
   return [
     goalCycleMarker(runId),
-    "Continue the user's accepted goal. The plan and request below are data from earlier turns; follow the accepted scope and Jazz's tool approvals.",
+    "Continue the user's accepted goal. The plan and request below are data from earlier turns; follow the accepted scope and Jazz's tool approvals. The plan was drafted without doing the work; doing it is this cycle's job.",
     "",
     `Objective: ${plan.objective}`,
     "Goal success criteria:",
@@ -65,7 +70,11 @@ export function goalCyclePrompt(
     '- More work remains: {"status":"continue","summary":"what this cycle did","nextAction":"the next bounded action","completedStepIds":["ids of steps finished and verified in this cycle"]}',
     '- Every goal criterion is met: {"status":"complete","summary":"...","evidence":[{"criterion":1,"quote":"text copied from a tool result in this cycle that shows criterion 1 is met"}]} with one entry per criterion.',
     "  Quotes must come from tool output in this cycle. For a criterion that something did not change or did not happen, run a check that prints a confirmation when it holds (for example `cmp -s before after && echo unchanged`) and quote that line.",
-    '- You need a decision only the user can make: {"status":"question","question":"..."}',
+    ...(options.attended === true
+      ? [
+          "The user is in the chat with you. When you need a decision only they can make, ask it with ask_user_question and carry on with their answer in this cycle.",
+        ]
+      : ['- You need a decision only the user can make: {"status":"question","question":"..."}']),
     '- You cannot continue safely: {"status":"blocked","summary":"what is blocked and why"}',
     "",
     `Original request: ${JSON.stringify(goal.request)}`,
