@@ -9,7 +9,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { PluginConsentGrant } from "@jazz/core/types/plugin";
-import type { PluginManifest } from "./manifest-schema";
+import { parsePluginManifest, type PluginManifest } from "./manifest-schema";
 
 export const PLUGIN_STATE_SCHEMA_VERSION = 1;
 
@@ -84,17 +84,40 @@ function isConsentGrantArray(value: unknown): value is readonly PluginConsentGra
   );
 }
 
-function isLockRecord(value: unknown): value is PluginLockRecord {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+/** Validate saved manifests through the same boundary used for installation. */
+function parseLockRecord(
+  value: unknown,
+  id: string,
+  slot: "current" | "previous",
+): PluginLockRecord {
+  const invalid = () =>
+    new PluginStateError(
+      `Plugin state record ${id} has an invalid ${slot} lock or manifest; retained for recovery`,
+      "corrupt",
+    );
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const item = value as Record<string, unknown>;
-  return (
-    item["manifest"] !== null &&
-    typeof item["manifest"] === "object" &&
-    typeof item["source"] === "string" &&
-    typeof item["artifactPath"] === "string" &&
-    typeof item["installedAt"] === "string" &&
-    (item["kind"] === undefined || item["kind"] === "packed" || item["kind"] === "source")
-  );
+  if (
+    typeof item["source"] !== "string" ||
+    typeof item["artifactPath"] !== "string" ||
+    typeof item["installedAt"] !== "string" ||
+    (item["kind"] !== undefined && item["kind"] !== "packed" && item["kind"] !== "source")
+  )
+    throw invalid();
+  let manifest: PluginManifest;
+  try {
+    manifest = parsePluginManifest(item["manifest"]);
+  } catch {
+    throw invalid();
+  }
+  if (manifest.id !== id) throw invalid();
+  return {
+    manifest,
+    source: item["source"],
+    artifactPath: item["artifactPath"],
+    installedAt: item["installedAt"],
+    ...(item["kind"] === undefined ? {} : { kind: item["kind"] }),
+  };
 }
 
 function parseState(value: unknown): PluginStateDocument {
@@ -122,8 +145,6 @@ function parseState(value: unknown): PluginStateDocument {
     }
     const item = value as Record<string, unknown>;
     if (
-      !isLockRecord(item["current"]) ||
-      (item["previous"] !== undefined && !isLockRecord(item["previous"])) ||
       !isStringArray(item["trustedDigests"]) ||
       !isConsentGrantArray(item["consentGrants"]) ||
       !isStringArray(item["enabledAgentIds"]) ||
@@ -133,8 +154,10 @@ function parseState(value: unknown): PluginStateDocument {
       throw new PluginStateError(`Plugin state record ${id} is invalid`, "corrupt");
     }
     plugins[id] = {
-      current: item["current"],
-      ...(item["previous"] === undefined ? {} : { previous: item["previous"] }),
+      current: parseLockRecord(item["current"], id, "current"),
+      ...(item["previous"] === undefined
+        ? {}
+        : { previous: parseLockRecord(item["previous"], id, "previous") }),
       trustedDigests: item["trustedDigests"],
       consentGrants: item["consentGrants"],
       enabledAgentIds: item["enabledAgentIds"],
