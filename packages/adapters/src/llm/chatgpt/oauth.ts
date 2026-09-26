@@ -152,7 +152,10 @@ async function exchangeAuthorizationCode(
 }
 
 /** Trade a refresh token for a new credential. OpenAI rotates the refresh token on every call. */
-export async function refreshChatGPTCredential(refreshToken: string): Promise<ChatGPTCredential> {
+export async function refreshChatGPTCredential(
+  refreshToken: string,
+  signal?: AbortSignal,
+): Promise<ChatGPTCredential> {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -161,6 +164,7 @@ export async function refreshChatGPTCredential(refreshToken: string): Promise<Ch
       refresh_token: refreshToken,
       client_id: CLIENT_ID,
     }),
+    ...(signal !== undefined ? { signal } : {}),
   });
   return readTokenResponse(response, "refresh");
 }
