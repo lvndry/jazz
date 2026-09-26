@@ -405,6 +405,23 @@ describe("parseConfigFile", () => {
   });
 });
 
+describe("config issue paths", () => {
+  it("quote a key containing dots so the printed path can be pasted into config set", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          nvidia: { "deepseek-ai/deepseek-v4.1-flash": { supportsTools: "yes" } },
+        },
+      },
+    });
+
+    expect(issues[0]?.path).toBe(
+      'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+    );
+    expect(resolveConfigPath(issues[0]!.path)).toEqual({ known: true, structured: false });
+  });
+});
+
 describe("formatConfigIssues", () => {
   it("says nothing when nothing was removed", () => {
     expect(formatConfigIssues("/c.json", [], neverSecret)).toBeUndefined();
@@ -466,6 +483,23 @@ describe("resolveConfigPath", () => {
     expect(resolveConfigPath("mcpServers.any-server.enabled")).toEqual({
       known: true,
       structured: false,
+    });
+  });
+
+  it("addresses a key containing dots through a quoted segment", () => {
+    expect(
+      resolveConfigPath(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+      ),
+    ).toEqual({ known: true, structured: false });
+    expect(
+      parseConfigInput(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+        "true",
+      ),
+    ).toEqual({ ok: true, value: true });
+    expect(resolveConfigPath('llm.capabilityOverrides.nvidia."unterminated')).toEqual({
+      known: false,
     });
   });
 
@@ -601,11 +635,11 @@ describe("checkConfigWrite", () => {
   it("still reports a bad field under a dotted server name", () => {
     expect(checkConfigWrite("mcpServers.my.server", { command: "npx" })).toEqual({
       ok: false,
-      problem: 'mcpServers.my.server expected no key named "command"',
+      problem: 'mcpServers."my.server" expected no key named "command"',
     });
     expect(checkConfigWrite("mcpServers.my.server", { enabled: "yes" })).toEqual({
       ok: false,
-      problem: "mcpServers.my.server.enabled expected true or false",
+      problem: 'mcpServers."my.server".enabled expected true or false',
     });
   });
 
