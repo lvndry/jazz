@@ -14,6 +14,11 @@ import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
+import {
+  APPROVAL_POLICY_LEVELS,
+  isApprovalPolicyLevel,
+  type ApprovalPolicyLevel,
+} from "@jazz/core/types/tools";
 import { Effect } from "effect";
 import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import {
@@ -91,11 +96,38 @@ export interface StartGoalOptions extends DraftGoalOptions {
   /** Accept the drafted plan without a prompt; without it the plan is only shown. */
   readonly yes: boolean;
   readonly budget: Partial<GoalBudget>;
+  /** The authority granted with the acceptance, as typed on the command line. */
+  readonly approvalPolicy?: string;
+}
+
+/**
+ * The approval policy a command grants, or a refusal for an unknown tier: a typo must not
+ * leave an unattended goal with a tier nobody asked for.
+ */
+function grantedPolicy(
+  value: string | undefined,
+):
+  | { readonly kind: "granted"; readonly policy?: ApprovalPolicyLevel }
+  | { readonly kind: "invalid"; readonly reason: string } {
+  if (value === undefined) {
+    return { kind: "granted" };
+  }
+  return isApprovalPolicyLevel(value)
+    ? { kind: "granted", policy: value }
+    : {
+        kind: "invalid",
+        reason: `Invalid --approval-policy "${value}". Expected ${APPROVAL_POLICY_LEVELS.join(", ")}.`,
+      };
 }
 
 /** Draft a plan and, with `--yes`, accept it as an active goal for the daemon to run. */
 export function startGoalCommand(options: StartGoalOptions) {
   return Effect.gen(function* () {
+    const granted = grantedPolicy(options.approvalPolicy);
+    if (granted.kind === "invalid") {
+      fail(options.json, granted.reason);
+      return;
+    }
     const agent = yield* getAgentByIdentifier(options.agent.trim());
     const proposal = yield* proposeGoal({
       agent,
@@ -120,6 +152,7 @@ export function startGoalCommand(options: StartGoalOptions) {
       plan: proposal.plan,
       spend: proposal.spend,
       budget: options.budget,
+      ...(granted.policy !== undefined ? { approvalPolicy: granted.policy } : {}),
     });
     if (activation.kind === "refused") {
       fail(options.json, activation.reason);
@@ -172,9 +205,15 @@ export function decideProposedGoalCommand(options: {
   readonly id: string;
   readonly accept: boolean;
   readonly json: boolean;
+  readonly approvalPolicy?: string;
 }) {
   return Effect.gen(function* () {
-    const outcome = yield* decideProposedGoal(options.id, options.accept);
+    const granted = grantedPolicy(options.approvalPolicy);
+    if (granted.kind === "invalid") {
+      fail(options.json, granted.reason);
+      return;
+    }
+    const outcome = yield* decideProposedGoal(options.id, options.accept, granted.policy);
     if (outcome.kind === "refused") {
       fail(options.json, outcome.reason);
       return;

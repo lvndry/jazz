@@ -246,12 +246,17 @@ jazz goal draft --agent assistant "Get every recipe into the new format until ./
 jazz goal start --agent assistant --yes --max-cycles 20 --cycle-iterations 12 "…"
 jazz goal list
 jazz goal show <id>
-jazz goal accept <id>           # start a goal Jazz proposed; the work begins right away
+jazz goal accept <id> --approval-policy low-risk   # start a proposed goal; work begins now
 jazz goal decline <id>
 jazz goal pause <id>
 jazz goal resume <id> [note]    # the note answers its question or steers the next cycle
 jazz goal cancel <id>
 ```
+
+`--approval-policy` on `accept` and `start` is what the goal may run while you are away without
+asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
+approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
+wait for you. In chat, accepting a proposal asks the same question.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
 `start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it. Budget flags:

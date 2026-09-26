@@ -13,6 +13,7 @@
  */
 
 import type { TokenUsage } from "@/core/interfaces/telemetry";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { RunId, RunState } from "./run-state";
 
 export interface RunRecord {
@@ -31,6 +32,12 @@ export interface RunRecord {
   readonly totalTokens?: number;
   /** Active execution time across resumes; waiting for approval is excluded. */
   readonly activeDurationMs?: number;
+  /**
+   * The authority the run started with. A resumed run gets exactly this back, so answering
+   * one approval neither drops a granted tier nor widens a narrower one to the default.
+   */
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
 }
 
 /**
@@ -49,6 +56,8 @@ export function createRunRecord(input: {
   readonly conversationId: string;
   readonly input: string;
   readonly now: Date;
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -59,5 +68,9 @@ export function createRunRecord(input: {
     input: input.input,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...(input.approvalPolicy !== undefined ? { approvalPolicy: input.approvalPolicy } : {}),
+    ...(input.autoApprovedTools !== undefined && input.autoApprovedTools.length > 0
+      ? { autoApprovedTools: input.autoApprovedTools }
+      : {}),
   };
 }

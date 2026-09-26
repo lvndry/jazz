@@ -219,6 +219,30 @@ describe("runDueGoals", () => {
     expect(test.prompts[0]?.userInput).toContain("1. The header test passes");
   });
 
+  it("runs each cycle under the approval policy granted when the goal was accepted", async () => {
+    const test = harness();
+    await run(test, test.goals.create(acceptedGoal({ approvalPolicy: "high-risk" })));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts[0]?.autoApprovePolicy).toBe("high-risk");
+  });
+
+  it("grants no extra authority when the goal was accepted without a policy", async () => {
+    const test = harness();
+    await run(test, test.goals.create(acceptedGoal()));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts[0]?.autoApprovePolicy).toBeUndefined();
+  });
+
   it("records step progress on continue and feeds it to the next cycle", async () => {
     const test = harness();
     await run(test, test.goals.create(acceptedGoal()));

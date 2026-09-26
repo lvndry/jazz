@@ -1,6 +1,5 @@
 import * as path from "node:path";
 import {
-  isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
@@ -18,6 +17,7 @@ import {
   type CompanionRole,
 } from "@jazz/core/types/llm";
 import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
+import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
@@ -215,7 +215,10 @@ function registerRunCommand(program: Command): void {
       ) => {
         const json = options.json === true;
 
-        if (options.approvalPolicy !== undefined && !isApprovalPolicyFlag(options.approvalPolicy)) {
+        if (
+          options.approvalPolicy !== undefined &&
+          !isApprovalPolicyLevel(options.approvalPolicy)
+        ) {
           const message = `Invalid --approval-policy "${options.approvalPolicy}". Expected read-only, low-risk, or high-risk.`;
           if (json) {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
@@ -323,7 +326,7 @@ function registerRunCommand(program: Command): void {
               mod.runAgentOnceCommand(options.agent, prompt, {
                 json,
                 ...(options.approvalPolicy !== undefined &&
-                isApprovalPolicyFlag(options.approvalPolicy)
+                isApprovalPolicyLevel(options.approvalPolicy)
                   ? { approvalPolicy: options.approvalPolicy }
                   : {}),
                 ...(autoApproveTools && autoApproveTools.length > 0
@@ -1447,6 +1450,10 @@ function registerGoalCommand(program: Command): void {
     .option("--inspect", "Let a read-only pass over the current directory inform the plan")
     .option("--yes", "Accept the drafted plan without showing it for review first")
     .option("--json", "Emit a single JSON envelope")
+    .option(
+      "--approval-policy <policy>",
+      "What the goal may run without asking once accepted: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
+    )
     .option("--max-cycles <n>", "Most cycles the goal may run", parsePositiveInt("--max-cycles"))
     .option(
       "--cycle-iterations <n>",
@@ -1477,6 +1484,7 @@ function registerGoalCommand(program: Command): void {
           maxTokens?: number;
           maxMinutes?: number;
           maxCostUsd?: number;
+          approvalPolicy?: string;
         },
       ) =>
         runCliAction(
@@ -1488,6 +1496,9 @@ function registerGoalCommand(program: Command): void {
                 inspect: options.inspect === true,
                 yes: options.yes === true,
                 json: options.json === true,
+                ...(options.approvalPolicy !== undefined
+                  ? { approvalPolicy: options.approvalPolicy }
+                  : {}),
                 budget: {
                   ...(options.maxCycles !== undefined ? { maxCycles: options.maxCycles } : {}),
                   ...(options.cycleIterations !== undefined
@@ -1534,24 +1545,33 @@ function registerGoalCommand(program: Command): void {
     ["accept", "Start a goal Jazz proposed"],
     ["decline", "Drop a goal Jazz proposed"],
   ] as const) {
-    goalCommand
+    const command = goalCommand
       .command(`${decision} <id>`)
       .description(description)
-      .option("--json", "Emit a single JSON envelope")
-      .action((id: string, options: { json?: boolean }) =>
-        runCliAction(
-          () =>
-            load().then((mod) =>
-              mod.decideProposedGoalCommand({
-                id,
-                accept: decision === "accept",
-                json: options.json === true,
-              }),
-            ),
-          cliRuntimeOptions(program),
-          { skipUpdateCheck: options.json === true },
-        ),
+      .option("--json", "Emit a single JSON envelope");
+    if (decision === "accept") {
+      command.option(
+        "--approval-policy <policy>",
+        "What the goal may run without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
       );
+    }
+    command.action((id: string, options: { json?: boolean; approvalPolicy?: string }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.decideProposedGoalCommand({
+              id,
+              accept: decision === "accept",
+              json: options.json === true,
+              ...(options.approvalPolicy !== undefined
+                ? { approvalPolicy: options.approvalPolicy }
+                : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
   }
 
   for (const [control, description] of [

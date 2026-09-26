@@ -388,6 +388,70 @@ describe("what an unattended run may do without being asked", () => {
   });
 });
 
+describe("the authority a run started with", () => {
+  it("runs a high-risk tool without parking when the run was granted high-risk", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "conv-granted",
+        stream: false,
+        parkWhenUnattended: true,
+        autoApprovePolicy: "high-risk",
+      }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(executions).toEqual(["danger_execute"]);
+  });
+
+  /**
+   * The regression: a resumed run got no policy back, so the default applied to the rest of
+   * it. A read-only run that parked had its next low-risk call run unasked after the resume.
+   */
+  it("keeps a narrower policy across a resume instead of widening to the default", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL], "low-risk");
+
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do both low-risk things",
+        conversationId: "conv-narrow",
+        stream: false,
+        parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const askedAbout: string[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const parked = (await Effect.runPromise(store.list()))[0];
+      if (parked === undefined) {
+        break;
+      }
+      expect(parked.approvalPolicy).toBe("read-only");
+      if (parked.state.kind !== "input-required" || parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected a parked approval");
+      }
+      askedAbout.push(parked.state.pending.request.toolCallId);
+      await Effect.runPromiseExit(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    }
+
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+    expect(executions).toEqual(["danger_execute", "danger_execute"]);
+  });
+});
+
 describe("a batch of gated calls, with nobody in the room to answer", () => {
   it("parks on the gated one without letting its ungated sibling run", async () => {
     // A batch used to be unparkable at all, for a real reason: resuming replays it, so a

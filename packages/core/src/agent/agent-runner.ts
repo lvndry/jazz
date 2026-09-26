@@ -1010,6 +1010,13 @@ export class AgentRunner {
             costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
             totalTokensSoFar: () =>
               runContext.runMetrics.totalPromptTokens + runContext.runMetrics.totalCompletionTokens,
+            ...(options.autoApprovePolicy !== undefined &&
+            typeof options.autoApprovePolicy !== "function"
+              ? { approvalPolicy: options.autoApprovePolicy }
+              : {}),
+            ...(options.autoApprovedTools !== undefined
+              ? { autoApprovedTools: options.autoApprovedTools }
+              : {}),
           },
           execute,
         );

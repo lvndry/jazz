@@ -8,6 +8,7 @@
  */
 
 import type { RunState } from "@/core/agent/run/run-state";
+import type { ApprovalPolicyLevel } from "@/core/types/tools";
 import { settleCycle } from "./goal-reconcile";
 import { asInput, withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
 import { extendBudget, remainingCaps, runSpend, type RunSpend } from "./goal-usage";
@@ -38,7 +39,15 @@ function refuse(reason: string): ControlDecision {
   return { kind: "refused", reason };
 }
 
-export function decideAccept(goal: GoalRecord, planRevision: number): ControlDecision {
+/**
+ * Accept a proposed plan. The approval policy is the authority the user grants with the
+ * acceptance; without one the goal's cycles run only read-only and low-risk tools unasked.
+ */
+export function decideAccept(
+  goal: GoalRecord,
+  planRevision: number,
+  approvalPolicy?: ApprovalPolicyLevel,
+): ControlDecision {
   if (goal.state.kind !== "proposed" || planRevision !== goal.plan.revision) {
     return refuse("The proposal is stale or no longer awaiting acceptance.");
   }
@@ -46,6 +55,7 @@ export function decideAccept(goal: GoalRecord, planRevision: number): ControlDec
     ...asInput(goal),
     state: { kind: "active" },
     approvedPlanRevision: goal.plan.revision,
+    ...(approvalPolicy !== undefined ? { approvalPolicy } : {}),
   });
 }
 

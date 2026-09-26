@@ -14,7 +14,8 @@ without asking. Denying a tool is a wall; an approval policy is a door with a lo
 ## Risk levels and policies
 
 Every tool declares a risk level. One dial decides which levels run unattended:
-`--approval-policy` on a run, or `autoApprove` in a workflow.
+`--approval-policy` on a run, `autoApprove` in a workflow, or the policy granted when accepting a
+goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat asks as you accept).
 
 | Policy      | Runs without asking                                                     |
 | ----------- | ----------------------------------------------------------------------- |
@@ -76,6 +77,9 @@ usually what you want: the run finishes and reports what it could not do.
 When the work genuinely needs a decision, `--park` saves the run instead, exits `2`, and waits.
 `jazz runs show <id>` prints what it is waiting on. `jazz runs approve <id>` finishes it.
 `jazz runs reject <id> --note "why"` turns it down with a reason the agent can use.
+
+A resumed run keeps the policy and the `--auto-approve-tools` list it started with. Answering one
+approval never widens the rest of the run to the default, and never drops a tier it was granted.
 
 Park only where somebody will actually look.
 

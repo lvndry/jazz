@@ -11,6 +11,7 @@ import { hostname } from "node:os";
 import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { AgentResponse } from "../types";
 import { RunParkRequested, isRunParkRequested } from "./park-signal";
 import { DEFAULT_PARK_TTL_MS, createRunRecord, type RunRecord } from "./run-record";
@@ -28,6 +29,8 @@ export interface RunRecordingInput {
   readonly costSoFarUSD?: () => number | undefined;
   /** Reads prompt plus completion tokens so a goal can reconcile a cycle after restart. */
   readonly totalTokensSoFar?: () => number;
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -120,6 +123,10 @@ export function withRunRecording<E, R>(
           conversationId: input.conversationId,
           input: input.userInput,
           now: new Date(),
+          ...(input.approvalPolicy !== undefined ? { approvalPolicy: input.approvalPolicy } : {}),
+          ...(input.autoApprovedTools !== undefined
+            ? { autoApprovedTools: input.autoApprovedTools }
+            : {}),
         }),
       );
       yield* moveTo(

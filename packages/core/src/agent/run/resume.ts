@@ -164,8 +164,16 @@ export function resumeRun(options: ResumeRunOptions) {
       ...resolved,
       parkWhenUnattended: true,
       ...(options.goalLimits !== undefined ? options.goalLimits : {}),
-      ...(options.autoApprovedTools !== undefined
-        ? { autoApprovedTools: options.autoApprovedTools }
+      ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
+      ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
+        ? {
+            autoApprovedTools: [
+              ...new Set([
+                ...(record.autoApprovedTools ?? []),
+                ...(options.autoApprovedTools ?? []),
+              ]),
+            ],
+          }
         : {}),
     });
 

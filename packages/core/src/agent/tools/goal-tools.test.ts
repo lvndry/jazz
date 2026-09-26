@@ -91,4 +91,15 @@ describe("propose_goal", () => {
     expect(result.success).toBe(false);
     expect(created).toHaveLength(0);
   });
+
+  it("cannot grant the goal any authority: the proposal schema has no such field", async () => {
+    const { store, created } = recordingStore();
+    const result = await Effect.runPromise(
+      createProposeGoalTool()
+        .execute({ ...PROPOSAL, approvalPolicy: "high-risk" }, { agentId: "agent-1" })
+        .pipe(Effect.provideService(GoalStoreTag, store)),
+    );
+    expect(result.success).toBe(false);
+    expect(created).toHaveLength(0);
+  });
 });

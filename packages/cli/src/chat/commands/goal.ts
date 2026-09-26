@@ -12,6 +12,11 @@ import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import {
+  APPROVAL_POLICY_LEVELS,
+  isApprovalPolicyLevel,
+  type ApprovalPolicyLevel,
+} from "@jazz/core/types/tools";
 import { Effect } from "effect";
 import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import {
@@ -32,6 +37,26 @@ export { describeGoal };
  * only if the user accepts. Declining cancels the proposal. This is the only way a proposed
  * goal starts from chat, whatever the approval mode.
  */
+const APPROVAL_POLICY_CHOICES: readonly { name: string; value: ApprovalPolicyLevel }[] = [
+  {
+    name: "Reading and low-risk changes; ask me before anything riskier",
+    value: "low-risk",
+  },
+  { name: "Everything, including commands flagged high-risk", value: "high-risk" },
+  { name: "Reading only; ask me before any change", value: "read-only" },
+];
+
+/** The authority the user grants a goal as they accept it; undefined when they back out. */
+function askApprovalPolicy() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    return yield* terminal.select<ApprovalPolicyLevel>(
+      "What may it do while you are away, without asking you?",
+      { choices: APPROVAL_POLICY_CHOICES, default: "low-risk" },
+    );
+  });
+}
+
 export function offerProposedGoals(conversationId: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -42,7 +67,14 @@ export function offerProposedGoals(conversationId: string) {
         "Start this goal? Jazz keeps working on it in the background until it is done.",
         false,
       );
-      const outcome = yield* decideProposedGoal(goal.goalId, accepted === true);
+      const approvalPolicy = accepted === true ? yield* askApprovalPolicy() : undefined;
+      if (accepted === true && approvalPolicy === undefined) {
+        yield* terminal.info(
+          `Not started; the proposal stays open. Accept it later with /goal accept ${goal.goalId}.`,
+        );
+        continue;
+      }
+      const outcome = yield* decideProposedGoal(goal.goalId, accepted === true, approvalPolicy);
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
       } else if (accepted === true) {
@@ -86,7 +118,8 @@ function draftGoal(context: CommandContext, request: string) {
       "Accept this plan and let Jazz continue toward it?",
       false,
     );
-    if (!accepted) {
+    const approvalPolicy = accepted === true ? yield* askApprovalPolicy() : undefined;
+    if (approvalPolicy === undefined) {
       yield* terminal.info("Proposal declined; no goal was activated.");
       return;
     }
@@ -96,6 +129,7 @@ function draftGoal(context: CommandContext, request: string) {
       plan: proposal.plan,
       spend: proposal.spend,
       sourceConversationId: context.conversationId,
+      approvalPolicy,
     });
     if (activation.kind === "refused") {
       yield* terminal.warn(activation.reason);
@@ -120,6 +154,10 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
       yield* terminal.log(
         "/goal list                 Goals from this conversation and their progress",
       );
+      yield* terminal.log(
+        "/goal accept <id> [tier]   Start a proposed goal; tier is what it may do unasked",
+      );
+      yield* terminal.log("/goal decline <id>         Drop a proposed goal");
       yield* terminal.log("/goal pause <id>           Stop after the running cycle settles");
       yield* terminal.log(
         "/goal resume <id> [note]   Resume; the note answers a question or steers the next cycle",
@@ -150,12 +188,22 @@ export function handleGoalCommand(context: CommandContext, args: readonly string
   if (command === "accept" || command === "decline") {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
-      const goalId = rest[0];
+      const [goalId, tier] = rest;
       if (goalId === undefined) {
-        yield* terminal.warn(`Usage: /goal ${command} <goal-id>`);
+        yield* terminal.warn(
+          command === "accept"
+            ? `Usage: /goal accept <goal-id> [${APPROVAL_POLICY_LEVELS.join("|")}]`
+            : "Usage: /goal decline <goal-id>",
+        );
         return { shouldContinue: true };
       }
-      const outcome = yield* decideProposedGoal(goalId, command === "accept");
+      if (tier !== undefined && (command !== "accept" || !isApprovalPolicyLevel(tier))) {
+        yield* terminal.warn(
+          `Expected one of ${APPROVAL_POLICY_LEVELS.join(", ")}, got "${tier}".`,
+        );
+        return { shouldContinue: true };
+      }
+      const outcome = yield* decideProposedGoal(goalId, command === "accept", tier);
       if (outcome.kind === "refused") {
         yield* terminal.warn(outcome.reason);
       } else if (command === "accept") {

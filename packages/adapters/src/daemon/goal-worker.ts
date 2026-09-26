@@ -435,6 +435,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: CycleCaps
       conversationId: goal.conversationId,
       maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
       ...caps,
+      ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
       parkWhenUnattended: true,
       conversationHistory: [...(prior?.messages ?? [])],
     }).pipe(

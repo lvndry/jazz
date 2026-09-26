@@ -2,12 +2,14 @@
  * @fileoverview Durable user objective and its approved execution plan.
  *
  * GoalRecord is the controller-owned source of truth for a multi-run task. Plan steps and
- * evidence are metadata for orchestration; they do not grant tool permissions. Each run
+ * evidence are metadata for orchestration; they do not grant tool permissions. The only
+ * authority a goal carries is `approvalPolicy`, granted by the user when accepting. Each run
  * keeps its own RunRecord and transcript, while this record preserves objective, plan,
  * ownership, aggregate budgets, and completion state across runs and client disconnects.
  */
 
 import { z } from "zod";
+import { APPROVAL_POLICY_LEVELS, type ApprovalPolicyLevel } from "@/core/types/tools";
 import type { GoalState } from "./goal-state";
 
 export type GoalId = string;
@@ -90,6 +92,12 @@ export interface GoalRecord {
   readonly plan: GoalPlan;
   /** Set only when the user approves this exact plan revision. */
   readonly approvedPlanRevision?: number;
+  /**
+   * The tools a cycle may run without asking, granted by the user when accepting the plan.
+   * Anything above it parks for approval; absent means read-only and low-risk tools only.
+   * Only an approved goal can carry one, so no proposal arrives with authority attached.
+   */
+  readonly approvalPolicy?: ApprovalPolicyLevel;
   readonly state: GoalState;
   readonly budget: GoalBudget;
   readonly usage: GoalUsage;
@@ -216,6 +224,7 @@ export const goalRecordSchema = z
     request: z.string(),
     plan: planSchema,
     approvedPlanRevision: positiveInteger.optional(),
+    approvalPolicy: z.enum(APPROVAL_POLICY_LEVELS).optional(),
     state: goalStateSchema,
     budget: z.object({
       maxCycles: positiveInteger,
@@ -263,6 +272,12 @@ export const goalRecordSchema = z
     }
     if (APPROVAL_REQUIRED_STATES.has(kind) && goal.approvedPlanRevision !== goal.plan.revision) {
       context.addIssue({ code: "custom", message: `a ${kind} goal needs its plan approved` });
+    }
+    if (goal.approvalPolicy !== undefined && goal.approvedPlanRevision === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "only an accepted goal carries an approval policy",
+      });
     }
     if (goal.approvedPlanRevision !== undefined && goal.approvedPlanRevision > goal.plan.revision) {
       context.addIssue({ code: "custom", message: "approval cannot be ahead of the plan" });

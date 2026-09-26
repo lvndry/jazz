@@ -30,7 +30,8 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   {
     name: "goal",
     description: "Draft and manage persistent multi-run goals",
-    usage: "<objective>|list|accept <id>|decline <id>|pause <id>|resume <id> [note]|cancel <id>",
+    usage:
+      "<objective>|list|accept <id> [tier]|decline <id>|pause <id>|resume <id> [note]|cancel <id>",
   },
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   {

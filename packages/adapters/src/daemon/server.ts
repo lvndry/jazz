@@ -66,6 +66,7 @@ import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { Persona } from "@jazz/core/types/persona";
 import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
+import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import {
   DEFAULT_WEBHOOK_DISCLOSURE,
@@ -545,6 +546,21 @@ async function goalControlRoute(
       if (goal.version !== body["version"]) {
         return json({ ok: false, error: "goal changed; refresh and retry" }, 409);
       }
+      const requestedPolicy = body["approvalPolicy"];
+      if (
+        requestedPolicy !== undefined &&
+        (operation !== "accept" ||
+          typeof requestedPolicy !== "string" ||
+          !isApprovalPolicyLevel(requestedPolicy))
+      ) {
+        return json(
+          {
+            ok: false,
+            error: "approvalPolicy is read-only, low-risk, or high-risk, and only on accept",
+          },
+          400,
+        );
+      }
       if (operation === "accept") {
         const active = yield* store.list({
           ownerInstanceId: goal.ownerInstanceId,
@@ -560,7 +576,13 @@ async function goalControlRoute(
       const latest = goal.latestRunId === undefined ? undefined : yield* runs.get(goal.latestRunId);
       const decision =
         operation === "accept"
-          ? decideAccept(goal, Number(body["planRevision"]))
+          ? decideAccept(
+              goal,
+              Number(body["planRevision"]),
+              typeof requestedPolicy === "string" && isApprovalPolicyLevel(requestedPolicy)
+                ? requestedPolicy
+                : undefined,
+            )
           : decideControl(
               goal,
               operation,

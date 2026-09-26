@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { RunState } from "@/core/agent/run/run-state";
-import { decideCancel, decidePause, decideResume, type LatestRun } from "./goal-controls";
+import {
+  decideAccept,
+  decideCancel,
+  decidePause,
+  decideResume,
+  type LatestRun,
+} from "./goal-controls";
 import { settleCycle, type CycleEnd } from "./goal-reconcile";
 import { parseGoalRecord, type GoalRecord } from "./goal-record";
 import { canTransitionGoal, type GoalState } from "./goal-state";
@@ -455,5 +461,35 @@ describe("cycles cut off by the process stopping", () => {
       }),
     });
     expect(next.interruptedCycles).toBeUndefined();
+  });
+});
+
+describe("the authority granted on acceptance", () => {
+  const proposed = (): GoalRecord => {
+    const {
+      cycle: _cycle,
+      latestRunId: _latestRunId,
+      approvedPlanRevision: _approved,
+      ...unaccepted
+    } = goal({
+      state: { kind: "proposed" },
+      usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: true, costUSD: 0 },
+    });
+    return unaccepted;
+  };
+
+  it("records the policy the user grants with the acceptance", () => {
+    const decision = decideAccept(proposed(), 1, "high-risk");
+    expect(decision.kind === "write" && decision.next.approvalPolicy).toBe("high-risk");
+  });
+
+  it("grants nothing extra when accepted without one", () => {
+    const decision = decideAccept(proposed(), 1);
+    expect(decision.kind === "write" && "approvalPolicy" in decision.next).toBe(false);
+  });
+
+  it("refuses a record where a proposal carries authority before anyone accepted it", () => {
+    expect(parseGoalRecord({ ...proposed(), approvalPolicy: "high-risk" }).ok).toBe(false);
+    expect(parseGoalRecord({ ...goal(), approvalPolicy: "high-risk" }).ok).toBe(true);
   });
 });

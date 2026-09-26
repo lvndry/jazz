@@ -27,6 +27,7 @@ import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
+import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
 
@@ -172,6 +173,7 @@ export function activateGoal(options: {
   readonly spend: PlanningSpend;
   readonly sourceConversationId?: string;
   readonly budget?: Partial<GoalBudget>;
+  readonly approvalPolicy?: ApprovalPolicyLevel;
 }) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
@@ -211,7 +213,7 @@ export function activateGoal(options: {
       createdAt: now,
       updatedAt: now,
     });
-    const acceptance = decideAccept(proposed, proposed.plan.revision);
+    const acceptance = decideAccept(proposed, proposed.plan.revision, options.approvalPolicy);
     if (acceptance.kind === "refused") {
       return { kind: "refused", reason: acceptance.reason } as const;
     }
@@ -221,10 +223,15 @@ export function activateGoal(options: {
 }
 
 /**
- * Accept or decline a goal the agent proposed. Accepting activates it for the daemon;
- * declining cancels it so it never runs. Only a goal still in `proposed` can be decided.
+ * Accept or decline a goal the agent proposed. Accepting activates it for the daemon under
+ * the approval policy the user grants with it; declining cancels it so it never runs. Only a
+ * goal still in `proposed` can be decided.
  */
-export function decideProposedGoal(goalId: string, accept: boolean) {
+export function decideProposedGoal(
+  goalId: string,
+  accept: boolean,
+  approvalPolicy?: ApprovalPolicyLevel,
+) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
     const goal = yield* store.get(goalId);
@@ -238,7 +245,7 @@ export function decideProposedGoal(goalId: string, accept: boolean) {
       } as const;
     }
     const decision = accept
-      ? decideAccept(goal, goal.plan.revision)
+      ? decideAccept(goal, goal.plan.revision, approvalPolicy)
       : decideControl(goal, "cancel", undefined);
     if (decision.kind === "refused") {
       return { kind: "refused", reason: decision.reason } as const;
@@ -326,9 +333,13 @@ export function describeGoal(goal: GoalRecord): string[] {
         : goal.state.kind === "awaiting-input"
           ? `awaiting ${goal.state.reason}${goal.cycle !== undefined ? ` on run ${goal.cycle.runId}` : ""}`
           : goal.state.kind;
+  const authority =
+    goal.approvedPlanRevision === undefined
+      ? ""
+      : ` · runs unasked: ${goal.approvalPolicy ?? "read-only and low-risk tools"}`;
   return [
     `${goal.goalId}  ${goal.plan.objective}`,
-    `  ${state}`,
+    `  ${state}${authority}`,
     `  steps ${done}/${goal.plan.steps.length} · cycles ${goal.usage.cycles}/${goal.budget.maxCycles} · tokens ${formatTokens(goal.usage.totalTokens)}/${formatTokens(goal.budget.maxTokens)} · ${Math.round(goal.usage.activeDurationMs / 60_000)}/${Math.round(goal.budget.maxDurationMs / 60_000)} min`,
     ...(goal.lastProgress !== undefined
       ? [`  last: ${goal.lastProgress.split("\n").join(" · ")}`]
