@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { computePluginConsentDigest } from "@jazz/core/agent/plugins/consent";
+import { PluginNotInstalledError } from "@jazz/core/types/errors";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import {
   describeGitHubSource,
@@ -149,7 +150,7 @@ function requireEntry(state: PluginStateDocument, id: string): PluginStateRecord
   const resolved = resolveInstalledId(state, id);
   const entry = resolved === undefined ? undefined : state.plugins[resolved];
   if (!entry) {
-    throw new Error(`Plugin is not installed: ${id}`);
+    throw new PluginNotInstalledError({ pluginId: id });
   }
   return entry;
 }

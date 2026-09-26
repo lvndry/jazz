@@ -1,8 +1,11 @@
+/** Verifies actionable error output and cancellation behavior across CLI surfaces. */
+
 import { describe, expect, it, vi } from "bun:test";
 import { Effect, Layer } from "effect";
 import { formatError, handleError, isUserCancellation } from "./error-handler";
 import { PresentationServiceTag, type PresentationService } from "../interfaces/presentation";
 import {
+  PluginNotInstalledError,
   AgentAlreadyExistsError,
   AgentNotFoundError,
   ConfigurationError,
@@ -11,6 +14,22 @@ import {
 } from "../types/errors";
 
 describe("Error Handler", () => {
+  it("points missing plugins directly to installation without generic troubleshooting", () => {
+    const formatted = formatError(
+      new PluginNotInstalledError({ pluginId: "com.jazz.plugins.lsp" }),
+    );
+    expect(formatted).toBe(
+      "❌ Plugin not installed\n   com.jazz.plugins.lsp isn't installed yet.\n\n💡 Suggestion: Install it first:\n   jazz plugin add com.jazz.plugins.lsp\n",
+    );
+  });
+
+  it("quotes shell metacharacters in a suggested plugin source", () => {
+    const formatted = formatError(
+      new PluginNotInstalledError({ pluginId: "owner/repo; echo 'oops'" }),
+    );
+    expect(formatted).toContain("jazz plugin add 'owner/repo; echo '\"'\"'oops'\"'\"''");
+  });
+
   it("should format AgentNotFoundError with actionable suggestions", () => {
     const error = new AgentNotFoundError({
       agentId: "non-existent-agent",
