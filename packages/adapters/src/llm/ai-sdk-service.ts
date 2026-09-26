@@ -272,7 +272,14 @@ function buildToolConfig(
   };
 }
 
-const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
+/**
+ * Providers whose reasoning must be sent back between tool calls within a turn. Anthropic
+ * requires its signed thinking blocks. OpenAI and ChatGPT continue from the previous reasoning
+ * item: by reference when the item is stored, or from its encrypted content when `store` is off,
+ * which is always the case for ChatGPT. Ollama and llama.cpp emit reasoning but cannot accept it
+ * back.
+ */
+const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic", "openai", "chatgpt"]);
 
 /**
  * File parts for a message's attachments, plus text notes for any that could not be sent.

@@ -1,6 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, streamText } from "ai";
+import { generateText, jsonSchema, streamText } from "ai";
 import { describe, expect, it } from "bun:test";
+import { toCoreMessages } from "../ai-sdk-service";
+import { extractReasoningParts } from "../reasoning-parts";
 import type { ChatGPTCredential } from "./oauth";
 import {
   CHATGPT_CODEX_BASE_URL,
@@ -352,5 +354,110 @@ describe("fetchChatGPTModels", () => {
         ingestImage: true,
       },
     ]);
+  });
+});
+
+describe("reasoning across tool calls", () => {
+  function toolCallTurn(callNumber: number): unknown[] {
+    const reasoning = {
+      type: "reasoning",
+      id: `rs_${callNumber}`,
+      encrypted_content: `encrypted-${callNumber}`,
+      summary: [{ type: "summary_text", text: `plan ${callNumber}` }],
+    };
+    const call = {
+      type: "function_call",
+      id: `fc_${callNumber}`,
+      call_id: `call_${callNumber}`,
+      name: "read_file",
+      arguments: JSON.stringify({ path: `file-${callNumber}.txt` }),
+      status: "completed",
+    };
+    const response = { ...completedResponse, id: `resp_${callNumber}`, output: [reasoning, call] };
+    return [
+      { type: "response.output_item.done", output_index: 0, item: reasoning },
+      { type: "response.output_item.done", output_index: 1, item: call },
+      { type: "response.completed", response },
+    ];
+  }
+
+  it("sends every earlier call's encrypted reasoning back to the backend", async () => {
+    let callNumber = 0;
+    const backend = fakeBackend(() => {
+      callNumber += 1;
+      return sseResponse(callNumber <= 2 ? toolCallTurn(callNumber) : streamEvents);
+    });
+    const model = createOpenAI({
+      apiKey: "chatgpt-oauth",
+      baseURL: CHATGPT_CODEX_BASE_URL,
+      fetch: createChatGPTFetch({
+        baseFetch: backend.fetch,
+        getCredential: () => Promise.resolve(credential),
+      }),
+    }).responses("gpt-5.5");
+    const tools = {
+      read_file: { description: "Read a file", inputSchema: jsonSchema({ type: "object" }) },
+    };
+    const providerOptions = {
+      openai: { store: false, include: ["reasoning.encrypted_content"], reasoningEffort: "high" },
+    };
+
+    type JazzMessage = Parameters<typeof toCoreMessages>[0][number];
+    const history: JazzMessage[] = [
+      { role: "system", content: "You are Jazz." },
+      { role: "user", content: "Compare two files" },
+    ];
+
+    for (let step = 1; step <= 2; step++) {
+      const result = await generateText({
+        model,
+        messages: toCoreMessages(history, "chatgpt"),
+        allowSystemInMessages: true,
+        tools,
+        providerOptions,
+      });
+      const toolCall = result.toolCalls[0]!;
+      const reasoningParts = extractReasoningParts(result.response.messages, "chatgpt");
+      history.push(
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: toolCall.toolCallId,
+              type: "function",
+              function: { name: toolCall.toolName, arguments: JSON.stringify(toolCall.input) },
+            },
+          ],
+          ...(reasoningParts ? { reasoning_parts: reasoningParts } : {}),
+        },
+        { role: "tool", content: `contents of file ${step}`, tool_call_id: toolCall.toolCallId },
+      );
+    }
+
+    await generateText({
+      model,
+      messages: toCoreMessages(history, "chatgpt"),
+      allowSystemInMessages: true,
+      tools,
+      providerOptions,
+    });
+
+    const finalInput = backend.requests[2]!.body["input"] as Array<Record<string, unknown>>;
+    expect(finalInput.map((item) => item["type"] ?? item["role"])).toEqual([
+      "user",
+      "reasoning",
+      "function_call",
+      "function_call_output",
+      "reasoning",
+      "function_call",
+      "function_call_output",
+    ]);
+    expect(
+      finalInput
+        .filter((item) => item["type"] === "reasoning")
+        .map((item) => item["encrypted_content"]),
+    ).toEqual(["encrypted-1", "encrypted-2"]);
+    expect(finalInput.some((item) => item["id"] !== undefined)).toBe(false);
   });
 });
