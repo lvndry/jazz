@@ -181,10 +181,18 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
         lastProgress: evaluation.evaluation.summary,
       };
     case "question":
-      return review(
-        progressed,
-        `Jazz needs your input: ${evaluation.evaluation.question} Answer with /goal resume ${goal.goalId} <answer>.`,
-      );
+      return {
+        ...progressed,
+        lastProgress:
+          progressed.lastProgress === undefined
+            ? `Asked the user: ${evaluation.evaluation.question}`
+            : `${progressed.lastProgress}\nAsked the user: ${evaluation.evaluation.question}`,
+        state: {
+          kind: "review-required",
+          reason: "Jazz needs your input.",
+          question: evaluation.evaluation.question,
+        },
+      };
     case "continue": {
       const limit = reachedLimit(progressed);
       return {

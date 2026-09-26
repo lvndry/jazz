@@ -18,7 +18,12 @@ export type GoalState =
       readonly kind: "budget-limited";
       readonly limit: "cycles" | "tokens" | "cost" | "duration";
     }
-  | { readonly kind: "review-required"; readonly reason: string }
+  | {
+      readonly kind: "review-required";
+      readonly reason: string;
+      /** Set when the goal stopped to ask the user something; resuming with a note answers it. */
+      readonly question?: string;
+    }
   | { readonly kind: "completed"; readonly summary: string }
   | { readonly kind: "failed"; readonly error: string }
   | { readonly kind: "canceled" };

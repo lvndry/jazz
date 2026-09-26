@@ -107,7 +107,7 @@ export const tasks: EvalTask[] = [
         ...Object.fromEntries(
           Array.from({ length: 12 }, (_unused, index) => [
             `recipes/recipe-${index + 1}.md`,
-            `Title: Recipe ${index + 1}\n\nMix and bake.\n`,
+            `Title: Recipe ${index + 1}\nServes: ${2 + (index % 4)}\n\nMix and bake.\n`,
           ]),
         ),
       });

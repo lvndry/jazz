@@ -318,7 +318,9 @@ export function describeGoal(goal: GoalRecord): string[] {
   const done = goal.plan.steps.filter((step) => step.state === "completed").length;
   const state =
     goal.state.kind === "review-required"
-      ? `review-required: ${goal.state.reason}`
+      ? goal.state.question !== undefined
+        ? `waiting for your answer: ${goal.state.question} (resume the goal with your answer as the note)`
+        : `review-required: ${goal.state.reason}`
       : goal.state.kind === "budget-limited"
         ? `budget-limited (${goal.state.limit})`
         : goal.state.kind === "awaiting-input"

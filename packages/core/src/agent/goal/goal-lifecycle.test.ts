@@ -192,9 +192,13 @@ describe("settleCycle", () => {
       run: { kind: "completed", spend: SPEND },
       evaluation: valid({ status: "question", question: "Which delimiter?" }),
     });
-    expect(question.state.kind === "review-required" && question.state.reason).toContain(
-      "/goal resume goal-1",
-    );
+    expect(question.state).toEqual({
+      kind: "review-required",
+      reason: "Jazz needs your input.",
+      question: "Which delimiter?",
+    });
+    expect(question.lastProgress).toContain("Asked the user: Which delimiter?");
+    expect(parseGoalRecord({ ...question, version: 4 }).ok).toBe(true);
   });
 
   it("stops at a budget cap the cycle hit or the goal reached", () => {

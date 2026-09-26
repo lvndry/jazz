@@ -82,7 +82,12 @@ function freePort(): number {
 
 export interface GoalView {
   readonly version: number;
-  readonly state: { readonly kind: string; readonly reason?: string; readonly summary?: string };
+  readonly state: {
+    readonly kind: string;
+    readonly reason?: string;
+    readonly summary?: string;
+    readonly question?: string;
+  };
   readonly cycle?: { readonly runId: string };
   readonly usage: {
     readonly cycles: number;
@@ -219,6 +224,14 @@ export async function runGoal(
     const deadline = Date.now() + GOAL_DEADLINE_MS;
     for (;;) {
       last = (await fetchGoal()) ?? last;
+      if (
+        last.state.kind === "review-required" &&
+        last.state.question !== undefined &&
+        (await harness.control("resume", scenario.answer ?? QUESTION_ANSWER))
+      ) {
+        events.push("answered a question");
+        continue;
+      }
       if (STOPPED_STATES.has(last.state.kind)) {
         break;
       }

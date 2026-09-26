@@ -147,7 +147,11 @@ const goalStateSchema = z.discriminatedUnion("kind", [
     kind: z.literal("budget-limited"),
     limit: z.enum(["cycles", "tokens", "cost", "duration"]),
   }),
-  z.object({ kind: z.literal("review-required"), reason: z.string() }),
+  z.object({
+    kind: z.literal("review-required"),
+    reason: z.string(),
+    question: z.string().optional(),
+  }),
   z.object({ kind: z.literal("completed"), summary: z.string() }),
   z.object({ kind: z.literal("failed"), error: z.string() }),
   z.object({ kind: z.literal("canceled") }),
