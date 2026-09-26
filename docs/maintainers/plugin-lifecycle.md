@@ -24,6 +24,12 @@ Every transition takes `$JAZZ_HOME/plugins/.state.lock`. The artifact is written
 one atomic state-document replacement makes it current. An incompatible state schema fails closed;
 repair is explicit and must not silently erase grants or rollback artifacts.
 
+Saved current and rollback manifests pass through the install-time manifest validator on every
+state read. Omitted optional capabilities become empty collections before consent calculation;
+malformed manifests or IDs that disagree with the state entry fail closed with a plugin-state
+error. Reading does not rewrite the file or change trust, consent, or enablement. Existing consent
+grants must still match the current disclosure digest; normalization never grants consent.
+
 The module is imported only after the current lock has valid trust, consent, and agent enablement.
 Registration is synchronous and sealed on return. Hook/provider registrations are session-local so
 concurrent agents cannot overwrite one another. Session disposal is best effort only: in-process ESM
