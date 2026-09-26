@@ -9,6 +9,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isProcessAlive } from "@jazz/core/utils/process";
 import type { OtlpSignal } from "./otlp-config";
 
 const ENTRY_PATTERN = /^[a-f0-9]{24}-\d{13}-\d{6}-[a-f0-9-]+\.json$/;
@@ -41,15 +42,6 @@ interface QueueEntry {
 
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
-}
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 /** A queued request is addressed by the signal and endpoint that created it. */
@@ -171,7 +163,7 @@ export class OtlpOutbox {
         if (claim) {
           const claimedAt = Number(claim[2]);
           const pid = Number(claim[1]);
-          if (Date.now() - claimedAt > CLAIM_LEASE_MS || !processAlive(pid)) {
+          if (Date.now() - claimedAt > CLAIM_LEASE_MS || !isProcessAlive(pid)) {
             try {
               await rename(
                 path.join(this.directory, file),

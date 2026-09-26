@@ -8,12 +8,12 @@
  */
 
 import * as nodeFs from "node:fs/promises";
-import { hostname } from "node:os";
 import * as path from "node:path";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import {
   isParked,
   isTerminal,
+  recoveredState,
   transition,
   type RunId,
   type RunState,
@@ -22,6 +22,8 @@ import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
 import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
+import { writeJsonFileDurably } from "./durable-file";
+import { acquireFileLock } from "./file-lock";
 
 /** Run ids are UUIDs; anything else came from outside and must not reach a path join. */
 const RUN_ID_PATTERN = /^[0-9a-fA-F-]{8,64}$/;
@@ -52,107 +54,6 @@ function isExpired(record: RunRecord, now: Date): boolean {
   if (expiresAt === undefined) return false;
   const deadline = new Date(expiresAt).getTime();
   return Number.isFinite(deadline) && deadline <= now.getTime();
-}
-
-/**
- * Whether the process that claimed a run is still alive.
- *
- * `kill(pid, 0)` sends no signal; it only asks whether the pid is addressable. EPERM means
- * the process exists but belongs to someone else — still alive, so still working. A record
- * written on another machine is never judged from here: its pid means nothing locally, and
- * re-parking a run that is happily working elsewhere would run its tool twice.
- */
-function ownerIsGone(recovery: { readonly pid: number; readonly host: string }): boolean {
-  if (recovery.host !== hostname()) return false;
-  try {
-    process.kill(recovery.pid, 0);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "EPERM";
-  }
-}
-
-/**
- * A run whose owner died goes back to where it was, not to failed.
- *
- * The approval is still unanswered and the transcript is still intact, so the honest state
- * is the one it was in before somebody tried to resume it.
- */
-function recoveredState(record: RunRecord): RunState | undefined {
-  if (record.state.kind !== "working") return undefined;
-  const { recovery } = record.state;
-  if (recovery === undefined || !ownerIsGone(recovery)) return undefined;
-  return {
-    kind: "input-required",
-    pending: recovery.pending,
-    snapshot: recovery.snapshot,
-    expiresAt: recovery.expiresAt,
-  };
-}
-
-const LOCK_STALE_MS = 30_000;
-const LOCK_RETRY_DELAY_MS = 25;
-const LOCK_MAX_WAIT_MS = 5_000;
-
-interface LockPayload {
-  readonly pid: number;
-  readonly host: string;
-  readonly acquiredAt: number;
-}
-
-async function readLockPayload(lockPath: string): Promise<LockPayload | undefined> {
-  try {
-    return JSON.parse(await nodeFs.readFile(lockPath, "utf-8")) as LockPayload;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Staleness is decided from the lock file's own mtime, not from parsing its content: a
- * holder that just created the file has a real window, between the create and the payload
- * write landing, where the file exists but reads as empty. Judging staleness by content
- * would misread that window as an abandoned lock and let a second caller steal it out from
- * under the first — the exact double-acquire this lock exists to prevent. An unparseable
- * payload on a fresh file is "still being written", not "stale": say so, not stale.
- */
-async function isLockStale(lockPath: string): Promise<boolean> {
-  const stats = await nodeFs.stat(lockPath).catch(() => undefined);
-  if (stats === undefined) return true;
-  if (Date.now() - stats.mtimeMs > LOCK_STALE_MS) return true;
-  const payload = await readLockPayload(lockPath);
-  if (payload === undefined) return false;
-  return ownerIsGone(payload);
-}
-
-/**
- * Exclusive-create (`writeFile(path, content, { flag: "wx" })` fails with EEXIST if the
- * lock file already exists) is what makes this safe across processes without a native
- * flock binding. Creation and content land in one call rather than an `open` followed by a
- * separate `writeFile`, so there is no `await` boundary between them for a concurrent
- * stale-check to observe an empty file through. A lock is stale — its holder crashed
- * mid-write — if the owning process is gone or it has sat past LOCK_STALE_MS; either way we
- * reclaim it rather than wait out a dead holder.
- */
-async function acquireRunLock(lockPath: string): Promise<() => Promise<void>> {
-  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
-  for (;;) {
-    try {
-      const payload: LockPayload = { pid: process.pid, host: hostname(), acquiredAt: Date.now() };
-      await nodeFs.writeFile(lockPath, JSON.stringify(payload), { flag: "wx" });
-      return () => nodeFs.rm(lockPath, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (await isLockStale(lockPath)) {
-        await nodeFs.rm(lockPath, { force: true }).catch(() => undefined);
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for the run lock at "${lockPath}".`, { cause: error });
-      }
-      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
-    }
-  }
 }
 
 const ABANDONED: RunState = {
@@ -236,7 +137,7 @@ export class InMemoryRunStore implements RunStore {
       let deleted = 0;
       let reparked = 0;
       for (const [runId, record] of [...this.records]) {
-        const recovered = recoveredState(record);
+        const recovered = recoveredState(record.state);
         if (recovered !== undefined) {
           this.records.set(runId, withState(record, recovered, options.now));
           reparked += 1;
@@ -294,23 +195,19 @@ export class FileRunStore implements RunStore {
     return `${this.pathFor(runId)}.lock`;
   }
 
-  private async writeRecordFile(record: RunRecord): Promise<void> {
-    const destination = this.pathFor(record.runId);
-    // A reader polling mid-write would otherwise parse a truncated record as a
-    // missing one, which for a parked run reads as "your approval is gone".
-    const temporary = `${destination}.${process.pid}.tmp`;
-    await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
-    await nodeFs.rename(temporary, destination);
+  /**
+   * Written durably because a reader polling mid-write would otherwise parse a truncated record
+   * as a missing one, which for a parked run reads as "your approval is gone".
+   */
+  private writeRecordFile(record: RunRecord): Promise<void> {
+    return writeJsonFileDurably(this.pathFor(record.runId), record);
   }
 
   /** Serializes read-modify-write on one run id across processes so a losing writer's update isn't silently dropped. */
   private withRunLock<A, E>(runId: RunId, use: Effect.Effect<A, E>): Effect.Effect<A, E | Error> {
     return Effect.acquireUseRelease(
       Effect.tryPromise({
-        try: async () => {
-          await nodeFs.mkdir(this.directory, { recursive: true });
-          return acquireRunLock(this.lockPathFor(runId));
-        },
+        try: () => acquireFileLock(this.lockPathFor(runId)),
         catch: toError,
       }),
       () => use,
@@ -379,7 +276,7 @@ export class FileRunStore implements RunStore {
         const current = yield* this.get(runId);
         if (current === undefined) return "kept" as const;
 
-        const recovered = recoveredState(current);
+        const recovered = recoveredState(current.state);
         if (recovered !== undefined) {
           yield* Effect.tryPromise({
             try: () => this.writeRecordFile(withState(current, recovered, now)),
