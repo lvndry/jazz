@@ -13,6 +13,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
@@ -334,10 +335,6 @@ function formatUptime(ms: number): string {
 
 function newRunToken(): string {
   return Math.random().toString(36).slice(2, 10);
-}
-
-function formatTokenCount(tokens: number): string {
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 }
 
 /**
