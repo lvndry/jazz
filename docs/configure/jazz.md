@@ -32,6 +32,14 @@ Configuration files are partial overrides, so include only values you intend to 
 
 Use `jazz config show`, `jazz config get <key>`, or `jazz config set <key> <value>` instead of editing JSON when practical. `jazz config validate` checks the global and project files without starting the rest of Jazz, so it remains usable when an invalid file blocks normal startup.
 
+Keys are dot-separated paths. Wrap a segment in double quotes when the key itself contains dots, as model IDs often do, and quote the whole path for the shell:
+
+```bash
+jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true
+```
+
+Jazz prints paths back the same way in validation messages, so a reported path can be pasted into `jazz config set`.
+
 `jazz config set` stores a value with the type the setting is read back as: `jazz config set maxRetries 5` stores the number `5`, and `jazz config set output.collapseReasoning false` stores the boolean `false`. Text settings such as API keys, paths, `logging.level`, and `llm.ollama.keep_alive` are stored as typed. A value that cannot be read as the setting's type is refused instead of written, because a string in a numeric or boolean field is ignored by everything that reads it:
 
 ```console

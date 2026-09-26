@@ -107,6 +107,22 @@ describe("AgentConfigService", () => {
     expect(mockFS.rename).toHaveBeenCalledWith(expect.any(String), configPath);
   });
 
+  it("writes and reads a quoted path segment as one key, dots included", async () => {
+    const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/config.json", mockFS);
+    const path = 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools';
+
+    await Effect.runPromise(service.set(path, true));
+
+    expect(await Effect.runPromise(service.get<boolean>(path))).toBe(true);
+    const writeCalls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const written = JSON.parse(String(writeCalls[writeCalls.length - 1]?.[1])) as {
+      llm: { capabilityOverrides: Record<string, Record<string, unknown>> };
+    };
+    expect(written.llm.capabilityOverrides["nvidia"]).toEqual({
+      "deepseek-ai/deepseek-v4.1-flash": { supportsTools: true },
+    });
+  });
+
   it("writes the config file owner-only and repairs an existing mode", async () => {
     const configPath = "/tmp/config-mode.json";
     const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);

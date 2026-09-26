@@ -197,7 +197,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 }
 ```
 
-Keys are exact server-facing model IDs. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
 Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
 
