@@ -4,7 +4,7 @@ import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
-import { withLock } from "@/core/utils/storage";
+import { withLock, toError } from "@/core/utils/storage";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
@@ -763,7 +763,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               return {
                 success: false,
                 result: { errorType, path: target },
-                error: error instanceof Error ? error.message : String(error),
+                error: toError(error).message,
               };
             }
           }),

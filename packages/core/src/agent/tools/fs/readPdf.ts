@@ -87,9 +87,7 @@ function loadRemotePdf(url: string): Effect.Effect<PdfBytes, never> {
       catch: (error) =>
         error instanceof Error && error.name === "AbortError"
           ? new Error(`Download timed out after ${PDF_DOWNLOAD_TIMEOUT_MS}ms.`)
-          : new Error(
-              `Failed to fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+          : new Error(`Failed to fetch ${url}: ${toError(error).message}`),
     }).pipe(Effect.either);
     clearTimeout(timeout);
 
@@ -107,10 +105,7 @@ function loadRemotePdf(url: string): Effect.Effect<PdfBytes, never> {
 
     const bytes = yield* Effect.tryPromise({
       try: () => response.right.arrayBuffer(),
-      catch: (error) =>
-        new Error(
-          `Failed to read response body: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Failed to read response body: ${toError(error).message}`),
     }).pipe(Effect.either);
     if (bytes._tag === "Left") return pdfFailure(bytes.left.message);
 

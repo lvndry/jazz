@@ -740,7 +740,7 @@ This command will be executed on your system. Only approve commands you trust.`;
                 stdout: "",
                 stderr: "",
                 exitCode: -1,
-                error: error instanceof Error ? error.message : String(error),
+                error: toError(error).message,
               }),
             ),
           );
@@ -772,7 +772,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             },
           };
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = toError(error).message;
           return {
             success: false,
             result: null,

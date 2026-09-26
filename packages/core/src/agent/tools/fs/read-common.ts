@@ -92,7 +92,7 @@ export function pdfExtensionError(filePath: string, hint: string): ToolExecution
 
 /** True if a pdf.js/pdf-parse error indicates the PDF is encrypted and needs (or rejected) a password. */
 export function isPdfPasswordError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = toError(error).message;
   return /password/i.test(message) || /encrypted/i.test(message);
 }
 
@@ -111,7 +111,7 @@ export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfPar
         result: {
           success: false,
           result: null,
-          error: `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
+          error: `${failurePrefix}: ${toError(error).message}`,
         },
       }),
     ),

@@ -17,6 +17,7 @@
  */
 
 import { MAX_PROGRESS_RESULT_CHARS } from "@/core/types/tools";
+import { isRecord } from "@/core/utils/is-record";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -51,10 +52,6 @@ type StripFn = (result: Record<string, unknown>) => void;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function safeStringify(value: unknown): string {
   try {

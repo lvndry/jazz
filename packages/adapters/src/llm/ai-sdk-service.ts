@@ -76,6 +76,7 @@ import { convertToLLMError } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { sanitize } from "@jazz/core/utils/string";
 import {
   createOpenRouter,
@@ -1550,7 +1551,7 @@ class AISDKService implements LLMService {
       catch: (error) =>
         new LLMConfigurationError({
           provider: providerName,
-          message: `Failed to refresh provider configuration: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to refresh provider configuration: ${toError(error).message}`,
         }),
     }).pipe(
       Effect.flatMap(() => this.getProviderModels(providerName)),

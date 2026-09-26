@@ -6,6 +6,7 @@ import {
   type PluginRegistryService,
 } from "@jazz/core/interfaces/plugin-registry";
 import { PluginRegistryError } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 import { parsePluginManifest } from "./manifest-schema";
 import { PluginRegistryServiceImpl, pluginConsentDigest } from "./plugin-registry-service";
@@ -40,7 +41,7 @@ function toInstalled(record: PluginStateRecord): InstalledPluginRecord {
 function failure(operation: string, cause: unknown): PluginRegistryError {
   return new PluginRegistryError({
     operation,
-    message: cause instanceof Error ? cause.message : String(cause),
+    message: toError(cause).message,
     cause,
   });
 }

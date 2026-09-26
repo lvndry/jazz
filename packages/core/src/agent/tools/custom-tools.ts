@@ -14,6 +14,7 @@ import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
 import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "./base-tool";
 import {
   appendCapped,
@@ -95,7 +96,7 @@ function runCustomToolCommand(
     } catch (spawnError) {
       resolve({
         ok: false,
-        error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+        error: toError(spawnError).message,
       });
       return;
     }
@@ -123,7 +124,7 @@ function runCustomToolCommand(
     });
 
     child.on("error", (error) => {
-      finish({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      finish({ ok: false, error: toError(error).message });
     });
 
     child.on("close", (code) => {

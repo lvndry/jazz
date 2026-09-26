@@ -38,6 +38,7 @@ import {
   type WorkspaceContextHandler,
   type WorkspaceContextInput,
 } from "@/core/types/plugin";
+import { toError } from "@/core/utils/storage";
 import {
   validateDecisionRequest,
   validateDecisionResult,
@@ -375,10 +376,7 @@ export function createPluginSession(
                       )
                     : result;
               } catch (error) {
-                options.reportFailure?.(
-                  manifest.id,
-                  error instanceof Error ? error.message : String(error),
-                );
+                options.reportFailure?.(manifest.id, toError(error).message);
                 return abstainedBatch(provider.id, request, "provider failed");
               } finally {
                 reservedCostUSD -= bound ?? 0;
@@ -408,10 +406,7 @@ export function createPluginSession(
                 validateSkillRouteDistribution(input, outcome.distribution);
               return outcome;
             } catch (error) {
-              options.reportFailure?.(
-                registration.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
+              options.reportFailure?.(registration.pluginId, toError(error).message);
               return abstainedRoute("plugin handler failed");
             }
           }),
@@ -426,10 +421,7 @@ export function createPluginSession(
                 await deadline((signal) => registration.handler(input, { signal }), timeoutMs),
               );
             } catch (error) {
-              options.reportFailure?.(
-                registration.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
+              options.reportFailure?.(registration.pluginId, toError(error).message);
               return abstainedPolicy("plugin policy handler failed");
             }
           }),
@@ -449,10 +441,7 @@ export function createPluginSession(
               );
               return validateCompactToolsOutcome(input, outcome);
             } catch (error) {
-              options.reportFailure?.(
-                registration.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
+              options.reportFailure?.(registration.pluginId, toError(error).message);
               return abstainedCompact("plugin handler failed");
             }
           }),
@@ -481,10 +470,7 @@ export function createPluginSession(
                   return `[${pluginNameById.get(pluginId) ?? pluginId}]\n${content.slice(0, MAX_PLUGIN_WORKSPACE_CONTENT_CHARS)}`;
                 } catch (error) {
                   disabledWorkspace.add(pluginId);
-                  options.reportFailure?.(
-                    pluginId,
-                    error instanceof Error ? error.message : String(error),
-                  );
+                  options.reportFailure?.(pluginId, toError(error).message);
                   return undefined;
                 }
               }),
@@ -515,10 +501,7 @@ export function createPluginSession(
                 toolTimeoutMs,
               );
             } catch (error) {
-              options.reportFailure?.(
-                registered.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
+              options.reportFailure?.(registered.pluginId, toError(error).message);
               return toolError(`tool ${name} failed`);
             }
           }),
@@ -552,13 +535,8 @@ export function createPluginSession(
                 return toolError(`tool ${name} returned an invalid approval proposal`);
               return { ...result, prepared: JSON.parse(serialized) as JsonValue };
             } catch (error) {
-              options.reportFailure?.(
-                registered.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
-              return toolError(
-                `tool ${name} preparation failed: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              options.reportFailure?.(registered.pluginId, toError(error).message);
+              return toolError(`tool ${name} preparation failed: ${toError(error).message}`);
             }
           }),
         executePreparedTool: (name, args, prepared, cwd) =>
@@ -578,13 +556,8 @@ export function createPluginSession(
                     toolTimeoutMs,
                   );
             } catch (error) {
-              options.reportFailure?.(
-                registered.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
-              return toolError(
-                `tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              options.reportFailure?.(registered.pluginId, toError(error).message);
+              return toolError(`tool ${name} failed: ${toError(error).message}`);
             }
           }),
         emitLifecycle: (event: LifecycleEvent) =>
@@ -604,10 +577,7 @@ export function createPluginSession(
                     timeoutMs,
                   );
                 } catch (error) {
-                  options.reportFailure?.(
-                    registered.pluginId,
-                    error instanceof Error ? error.message : String(error),
-                  );
+                  options.reportFailure?.(registered.pluginId, toError(error).message);
                 }
               }),
             );
@@ -625,10 +595,7 @@ export function createPluginSession(
                 timeoutMs,
               );
             } catch (error) {
-              options.reportFailure?.(
-                registered.pluginId,
-                error instanceof Error ? error.message : String(error),
-              );
+              options.reportFailure?.(registered.pluginId, toError(error).message);
               return {};
             }
           }),

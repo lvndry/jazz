@@ -20,6 +20,7 @@ import {
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { Duration, Effect } from "effect";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import {
@@ -92,7 +93,7 @@ function runClaimedJob(claimed: ClaimedJob) {
         onFailure: (error) => ({
           success: false,
           result: null,
-          error: error instanceof Error ? error.message : String(error),
+          error: toError(error).message,
         }),
       }),
     );

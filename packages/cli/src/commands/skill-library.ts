@@ -218,7 +218,7 @@ export function installSkillCommand(
         new FileSystemError({
           path: target.path,
           operation: "write",
-          reason: error instanceof Error ? error.message : String(error),
+          reason: toError(error).message,
           suggestion: "Check that ~/.jazz/skills is writable and the name is not already taken.",
         }),
     });

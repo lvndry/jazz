@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -123,7 +124,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
             Effect.succeed({
               success: false,
               result: null,
-              error: `mv failed: ${error instanceof Error ? error.message : String(error)}`,
+              error: `mv failed: ${toError(error).message}`,
             }),
           ),
         );

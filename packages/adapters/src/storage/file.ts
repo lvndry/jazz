@@ -14,7 +14,7 @@ import {
 import type { Agent, AgentConfig } from "@jazz/core/types/index";
 import { parseJson } from "@jazz/core/utils/json";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
-import { writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { writeFileStringAtomic, toError } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 
 /**
@@ -77,8 +77,7 @@ export class FileStorageService implements StorageService {
       });
     }
 
-    const reason =
-      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
+    const reason = toError(error).message;
 
     return new StorageError({
       operation: "read",

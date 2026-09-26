@@ -7,6 +7,7 @@
  * Usage: bun write-bridge-config.ts <path-to-config.json>
  */
 
+import { toError } from "@jazz/core/utils/storage";
 import { applyBridgeConfigFile } from "./bridge-config-file";
 
 const configPath = process.argv[2];
@@ -19,7 +20,7 @@ let applied: readonly string[];
 try {
   applied = applyBridgeConfigFile(configPath);
 } catch (error) {
-  console.error(`write-bridge-config: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`write-bridge-config: ${toError(error).message}`);
   process.exit(1);
 }
 

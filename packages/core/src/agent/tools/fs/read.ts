@@ -14,6 +14,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { attachMediaFile } from "./attach-media";
 import { fileSnapshot } from "./file-snapshot";
@@ -386,7 +387,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
           return {
             success: false,
             result: null,
-            error: `readFile failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `readFile failed: ${toError(error).message}`,
           };
         }
       }),
