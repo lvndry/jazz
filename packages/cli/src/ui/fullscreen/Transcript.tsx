@@ -86,7 +86,6 @@ export interface Segment {
   readonly italic?: boolean;
   readonly underline?: boolean;
   readonly strikethrough?: boolean;
-  /** Target URL, emitted as a terminal hyperlink so the span is clickable. */
   readonly link?: string;
 }
 
