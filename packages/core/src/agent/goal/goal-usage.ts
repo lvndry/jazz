@@ -115,21 +115,30 @@ export function remainingCaps(
 }
 
 /**
- * Raise every cap so the goal has one default budget's worth of room beyond what it has used.
- * This is the explicit budget change a budget-limited goal waits for.
+ * Raise every cap so the goal has one default budget's worth of room beyond what it has used,
+ * counting a parked run's spend that is not folded into the goal yet: extending from recorded
+ * usage alone would leave that run still over the cap. This is the explicit budget change a
+ * budget-limited goal waits for.
  */
-export function extendBudget(goal: Pick<GoalRecord, "budget" | "usage">): GoalBudget {
+export function extendBudget(
+  goal: Pick<GoalRecord, "budget" | "usage">,
+  inFlight: RunSpend = { totalTokens: 0, activeDurationMs: 0 },
+): GoalBudget {
   const { budget, usage } = goal;
+  const spentUSD = (usage.costUSD ?? 0) + (inFlight.costUSD ?? 0);
   const maxCostUSD =
     budget.maxCostUSD === undefined
       ? undefined
-      : Math.max(budget.maxCostUSD, (usage.costUSD ?? 0) + (DEFAULT_GOAL_BUDGET.maxCostUSD ?? 0));
+      : Math.max(budget.maxCostUSD, spentUSD + (DEFAULT_GOAL_BUDGET.maxCostUSD ?? 0));
   return {
     maxCycles: Math.max(budget.maxCycles, usage.cycles + DEFAULT_GOAL_BUDGET.maxCycles),
-    maxTokens: Math.max(budget.maxTokens, usage.totalTokens + DEFAULT_GOAL_BUDGET.maxTokens),
+    maxTokens: Math.max(
+      budget.maxTokens,
+      usage.totalTokens + inFlight.totalTokens + DEFAULT_GOAL_BUDGET.maxTokens,
+    ),
     maxDurationMs: Math.max(
       budget.maxDurationMs,
-      usage.activeDurationMs + DEFAULT_GOAL_BUDGET.maxDurationMs,
+      usage.activeDurationMs + inFlight.activeDurationMs + DEFAULT_GOAL_BUDGET.maxDurationMs,
     ),
     ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
     ...(budget.maxIterationsPerCycle !== undefined

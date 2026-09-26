@@ -108,7 +108,7 @@ export function decideResume(
       };
       if (remainingCaps(goal, latestRun?.spend).kind === "limit") {
         return write(
-          { ...waiting, budget: extendBudget(goal) },
+          { ...waiting, budget: extendBudget(goal, latestRun?.spend) },
           "The budget ran out while the run waited; it was extended by one default budget.",
         );
       }
