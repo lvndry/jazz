@@ -29,6 +29,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "new", args };
     case "fork":
       return { type: "fork", args };
+    case "detach":
+      return { type: "detach", args };
     case "help":
       return { type: "help", args };
     case "clear":

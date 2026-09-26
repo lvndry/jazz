@@ -23,10 +23,6 @@ const writeFileParameters = z
   .object({
     path: z.string().min(1).describe("Absolute or relative to the working directory."),
     content: z.string().describe("The complete file; anything omitted is deleted."),
-    createDirs: z
-      .boolean()
-      .optional()
-      .describe("Create missing parent directories (default false)."),
   })
   .strict();
 
@@ -43,7 +39,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     name: "write_file",
     disclosure: "public",
     description:
-      "Create a UTF-8 file or replace one entirely. To change part of a file, use edit_file. Set createDirs to create missing parent directories.",
+      "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),
@@ -55,7 +51,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const options = args.createDirs ? " (will create parent directories)" : "";
 
         // Check if file exists and read original content for preview diff
         const fileExists = yield* fs
@@ -78,7 +73,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         // to chat bridges like Telegram. Keep it to what is about to happen. Do not append
         // keyboard hints such as "Press Ctrl+O to preview" — most approvers have no
         // keyboard, and the TUI already renders its own hint from `previewDiff` below.
-        let message = `About to write ${args.content.length} characters to file: ${target}${options}`;
+        let message = `About to write ${args.content.length} characters to file: ${target}`;
 
         if (!isNewFile && originalContent.length > 0) {
           message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
@@ -110,13 +105,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
               .pipe(Effect.catchAll(() => Effect.succeed(false)));
 
             if (!parentExists) {
-              if (args.createDirs !== true) {
-                return {
-                  success: false,
-                  result: null,
-                  error: `Parent directory does not exist: ${parentDir}. Pass createDirs: true to create it.`,
-                };
-              }
               yield* fs.makeDirectory(parentDir, { recursive: true });
             }
           }

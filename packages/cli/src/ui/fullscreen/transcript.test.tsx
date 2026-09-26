@@ -376,6 +376,22 @@ describe("the measure", () => {
     expect(frame).toContain("director");
   });
 
+  it("puts the agent marker on the first line of text when the reply opens with newlines", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: "\n\nThe diagrams directory was created.\n\n",
+      },
+    ];
+    const rows = transcriptRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
+    const first = rows[0];
+    expect(first?.gutter[0]?.text).toBe(getGlyphs().diamond);
+    expect(first?.content.map((segment) => segment.text).join("")).toContain("diagrams directory");
+    expect(rows.at(-1)?.content.length).toBeGreaterThan(0);
+  });
+
   it("does not eat a short header when leftover width would have kept it", () => {
     const long = "x".repeat(70);
     const blocks: readonly Block[] = [

@@ -77,16 +77,17 @@ The [guides](docs/guides/index.md) walk through complete setups.
 
 ## Where it runs
 
-| Surface              | How you run it                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| Terminal             | `jazz`                                                                             |
-| Scripts & pipes      | `jazz run --json --agent dev "…"`                                                  |
-| Cron / launchd       | `jazz workflow schedule <name>`                                                    |
-| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                    |
-| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up`            |
-| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`              |
-| iMessage             | `jazz imessage` (hosted Photon line) or `jazz imessage --local` (your Mac account) |
-| WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`                |
+| Surface              | How you run it                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| Terminal             | `jazz`                                                                              |
+| Scripts & pipes      | `jazz run --json --agent dev "…"`                                                   |
+| Cron / launchd       | `jazz workflow schedule <name>`                                                     |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                     |
+| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up`             |
+| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`               |
+| iMessage             | `jazz imessage` (hosted Photon line) or `jazz imessage --local` (your Mac account)  |
+| WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`                 |
+| Your SSH server      | [`/detach <host>`](docs/features/detach.md) in chat, then `jazz detach attach <id>` |
 
 Slack, Google Chat, or your own app work the same way. See
 [Chat platforms](docs/surfaces/chat.md).

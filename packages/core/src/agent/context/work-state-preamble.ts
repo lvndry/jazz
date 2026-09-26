@@ -15,6 +15,16 @@ import { readJournal } from "./work-journal";
  * agent mid-task and is habitually optimistic about what was finished.
  */
 
+const WORK_STATE_PREAMBLE_HEADING = "## Recovered context from earlier in this conversation\n\n";
+
+/**
+ * Whether a message is a preamble this module built. Callers that persist a run's messages
+ * drop it, so the next resume rebuilds a fresh one instead of stacking copies.
+ */
+export function isWorkStatePreamble(message: ChatMessage): boolean {
+  return message.role === "assistant" && message.content.startsWith(WORK_STATE_PREAMBLE_HEADING);
+}
+
 /** Ceiling on the preamble, so restoring context cannot itself consume the window. */
 export const WORK_STATE_PREAMBLE_TOKEN_BUDGET = 2_000;
 
@@ -59,7 +69,7 @@ export function buildWorkStatePreamble(
       return {
         role: "assistant",
         content:
-          "## Recovered context from earlier in this conversation\n\n" +
+          WORK_STATE_PREAMBLE_HEADING +
           "History before this point was compacted away. These are the records written at " +
           "the time. Treat them as claims to verify, not as established fact — check the " +
           "current state before relying on anything reported as finished.\n\n" +

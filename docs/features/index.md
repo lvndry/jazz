@@ -50,6 +50,12 @@ Every tool declares risk, disclosure, and egress properties. Jazz can withhold a
 
 Jazz warns the model as iteration, time, token, cost, or context budgets fill. It compacts old history, preserves recent tool-call structure, and gives the agent working state that survives context loss. Read [Long-running work](./long-running-work.md).
 
+## Continue on your own server
+
+Hand a chat conversation to a server you own with `/detach`, close the laptop, then watch it
+live, answer its approvals, and bring it back with its file changes from any machine. See
+[Continue on your server](./detach.md).
+
 ## Keep continuity
 
 A stable conversation key restores earlier messages across invocations. Durable memory is opt-in and scoped per agent. Working state records what the current job has established without pretending unfinished work is long-term memory. See [Conversations and memory](../concepts/conversations-and-memory.md).

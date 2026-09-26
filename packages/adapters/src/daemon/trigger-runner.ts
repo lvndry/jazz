@@ -16,6 +16,7 @@ import { runInProcessScheduledWorkflows } from "@jazz/core/workflows/catch-up";
 import { Effect } from "effect";
 import { runDueJobs } from "@/adapters/daemon/job-worker";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
+import { runDueDetachedJobs } from "@/adapters/detach/job";
 import { sweepDueReminders } from "@/adapters/reminder-service";
 import { sweepDueWakeTriggers } from "@/adapters/wake-trigger-service";
 
@@ -83,6 +84,7 @@ export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}
       yield* sendDesktopNotification("Jazz reminder", reminder.text);
     }
 
+    yield* runDueDetachedJobs().pipe(Effect.catchAll(() => Effect.void));
     yield* runDueJobs().pipe(Effect.catchAll(() => Effect.void));
   });
 }
