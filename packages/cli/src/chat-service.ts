@@ -52,6 +52,7 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
+import { toError } from "@jazz/core/utils/storage";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
@@ -301,7 +302,7 @@ export class ChatServiceImpl implements ChatService {
                 return Effect.succeed("/exit");
               }
               // Re-throw other errors, ensuring it's an Error instance
-              return Effect.fail(error instanceof Error ? error : new Error(String(error)));
+              return Effect.fail(toError(error));
             }),
           );
           // Whatever the user submitted supersedes the seeded queue content.

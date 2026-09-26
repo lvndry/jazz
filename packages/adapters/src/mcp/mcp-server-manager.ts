@@ -40,6 +40,7 @@ import type {
 } from "@jazz/core/types/mcp";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { retryWithBackoff } from "@jazz/core/utils/mcp";
+import { toError } from "@jazz/core/utils/storage";
 import type { Transport } from "@modelcontextprotocol/client";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -295,7 +296,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
         yield* Effect.tryPromise({
           try: () => client.connect(transport as Transport),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(
           Effect.timeoutFail({
             duration: `${CONNECT_TIMEOUT_MS} millis`,
@@ -399,7 +400,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       yield* Effect.tryPromise({
         try: () => connection.client.close(),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.catchAll(() =>
           manager.logger.warn("MCP client close failed", { errorType: "close_failed" }),
@@ -448,7 +449,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
             return collected;
           },
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }),
         { maxRetries: 2, initialDelayMs: 500, maxDelayMs: 5000 },
       ).pipe(
@@ -514,7 +515,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
                 }
               : undefined,
           ),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.timeoutFail({
           duration: `${CALL_TIMEOUT_MS} millis`,
@@ -602,7 +603,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
           return collected;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
@@ -638,7 +639,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       const result = yield* Effect.tryPromise({
         try: () => connection.client.getPrompt({ name: promptName, arguments: args }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
@@ -790,7 +791,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
           return collected;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
@@ -825,7 +826,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
 
       const result = yield* Effect.tryPromise({
         try: () => connection.client.readResource({ uri }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         Effect.mapError(
           (error: unknown) =>
@@ -869,7 +870,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
             mimeType: template.mimeType,
           }));
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         // A server may advertise `resources` without implementing templates, so
         // a failure here means "none", not a broken server.
@@ -907,7 +908,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
           });
           return result.completion.values;
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(
         // Completion is a convenience: a server that does not implement it
         // should cost the user a picker, not the whole prompt.

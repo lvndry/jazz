@@ -18,7 +18,7 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
-import { withLock } from "@jazz/core/utils/storage";
+import { withLock, toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
   agentConversationLockPath,
@@ -44,9 +44,7 @@ function ensureLockDirectory(lockPath: string): Effect.Effect<void, Error, FileS
     const fs = yield* FileSystem.FileSystem;
     yield* fs
       .makeDirectory(path.dirname(lockPath), { recursive: true })
-      .pipe(
-        Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
-      );
+      .pipe(Effect.mapError(toError));
   });
 }
 

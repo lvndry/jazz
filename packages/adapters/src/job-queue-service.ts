@@ -102,7 +102,7 @@ function readBatchFile(
 
     const content = yield* fs
       .readFileString(filePath)
-      .pipe(Effect.catchAll((e) => Effect.fail(toError(e))));
+      .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
     try {
       return JSON.parse(content) as JobBatchRecord;
     } catch {

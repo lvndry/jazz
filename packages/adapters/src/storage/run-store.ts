@@ -20,6 +20,7 @@ import {
 } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
 /** Run ids are UUIDs; anything else came from outside and must not reach a path join. */
@@ -215,7 +216,7 @@ export class InMemoryRunStore implements RunStore {
         this.records.set(runId, updated);
         return updated;
       },
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     });
   }
 
@@ -310,7 +311,7 @@ export class FileRunStore implements RunStore {
           await nodeFs.mkdir(this.directory, { recursive: true });
           return acquireRunLock(this.lockPathFor(runId));
         },
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }),
       () => use,
       (release) => Effect.promise(() => release()),
@@ -347,11 +348,11 @@ export class FileRunStore implements RunStore {
         }
         const updated = yield* Effect.try({
           try: () => withState(existing, next, this.clock()),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         yield* Effect.tryPromise({
           try: () => this.writeRecordFile(updated),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         return updated;
       }),
@@ -382,7 +383,7 @@ export class FileRunStore implements RunStore {
         if (recovered !== undefined) {
           yield* Effect.tryPromise({
             try: () => this.writeRecordFile(withState(current, recovered, now)),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           });
           return "reparked" as const;
         }
@@ -390,7 +391,7 @@ export class FileRunStore implements RunStore {
         if (isExpired(current, now)) {
           yield* Effect.tryPromise({
             try: () => this.writeRecordFile(withState(current, ABANDONED, now)),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           });
           return "abandoned" as const;
         }
@@ -401,7 +402,7 @@ export class FileRunStore implements RunStore {
         ) {
           yield* Effect.tryPromise({
             try: () => nodeFs.rm(this.pathFor(runId), { force: true }),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           });
           return "deleted" as const;
         }

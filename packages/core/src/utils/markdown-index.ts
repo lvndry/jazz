@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { Effect } from "effect";
 import glob from "fast-glob";
 import matter from "gray-matter";
+import { toError } from "@/core/utils/storage";
 
 export interface NamedIndexItem {
   readonly name: string;
@@ -35,7 +36,7 @@ export function scanMarkdownIndex<T>(
   return Effect.gen(function* () {
     const stat = yield* Effect.tryPromise({
       try: () => fs.stat(options.dir),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     }).pipe(Effect.catchAll(() => Effect.succeed(null)));
 
     if (!stat || !stat.isDirectory()) {
@@ -56,7 +57,7 @@ export function scanMarkdownIndex<T>(
           suppressErrors: true,
           dot: options.dot ?? false,
         }),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     });
 
     const items: T[] = [];
@@ -64,7 +65,7 @@ export function scanMarkdownIndex<T>(
       try {
         const content = yield* Effect.tryPromise({
           try: () => fs.readFile(match, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         const { data } = matter(content);
 
@@ -96,7 +97,7 @@ export function loadCachedIndex<T>(
 ): Effect.Effect<readonly T[], Error> {
   return Effect.tryPromise({
     try: () => fs.readFile(options.cachePath, "utf-8"),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   }).pipe(
     Effect.map((content) => JSON.parse(content) as readonly T[]),
     Effect.catchAll(() =>
@@ -105,12 +106,12 @@ export function loadCachedIndex<T>(
 
         yield* Effect.tryPromise({
           try: () => fs.mkdir(path.dirname(options.cachePath), { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(
           Effect.flatMap(() =>
             Effect.tryPromise({
               try: () => fs.writeFile(options.cachePath, JSON.stringify(items, null, 2)),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              catch: toError,
             }),
           ),
           Effect.catchAll(() => Effect.void),

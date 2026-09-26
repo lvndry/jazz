@@ -22,6 +22,7 @@ import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { CommandRiskInput, CompactToolsInput, SkillRouteInput } from "@jazz/core/types/plugin";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 export interface PluginCommandOptions {
@@ -51,7 +52,7 @@ function resolvePluginSource(source: string): string {
 function attempt<T>(operation: () => Promise<T>): Effect.Effect<T, Error> {
   return Effect.tryPromise({
     try: operation,
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   });
 }
 

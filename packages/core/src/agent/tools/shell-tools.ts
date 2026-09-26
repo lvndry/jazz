@@ -11,6 +11,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
+import { toError } from "@/core/utils/storage";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -561,7 +562,7 @@ export function runShellCommand(input: {
         detached: false,
       });
     } catch (spawnError) {
-      finish(Effect.fail(spawnError instanceof Error ? spawnError : new Error(String(spawnError))));
+      finish(Effect.fail(toError(spawnError)));
       return;
     }
 

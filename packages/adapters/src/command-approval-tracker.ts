@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
-import { writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { writeFileStringAtomic, toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 /**
@@ -52,7 +52,7 @@ export function loadCommandApprovals(): Effect.Effect<
           (e as { _tag: string })._tag === "SystemError" &&
           (e as { reason?: string }).reason === "NotFound"
             ? Effect.succeed("")
-            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+            : Effect.fail(toError(e)),
         ),
       );
 

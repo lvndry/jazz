@@ -21,6 +21,7 @@ import type {
   RegistrySkillMetadata,
 } from "@jazz/core/types/skill-registry";
 import { getGlobalSkillsDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import chalk from "chalk";
 import { Effect } from "effect";
 
@@ -181,7 +182,7 @@ export function installSkillCommand(
 
     const existing = yield* Effect.tryPromise({
       try: () => lstat(target.directory),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     }).pipe(Effect.catchAll(() => Effect.succeed(null)));
     if (existing !== null) {
       return yield* Effect.fail(

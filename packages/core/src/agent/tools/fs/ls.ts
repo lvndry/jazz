@@ -4,6 +4,7 @@ import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
@@ -133,7 +134,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         // Build glob pattern — we always want everything, filtering happens post-glob
         const entries = yield* Effect.tryPromise({
           try: () => glob("**", globOptions),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
 
         const results: { path: string; name: string; type: "file" | "dir" }[] = [];

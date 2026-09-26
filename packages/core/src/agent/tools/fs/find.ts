@@ -5,6 +5,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
@@ -180,7 +181,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           const entries = yield* Effect.tryPromise({
             try: () => glob(globPattern, globOptions),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           });
 
           const results: { path: string; name: string; type: "file" | "dir"; mtimeMs: number }[] =

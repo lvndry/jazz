@@ -8,6 +8,7 @@
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
+import { toError } from "@/core/utils/storage";
 
 /**
  * Raised when a virtual path violates containment or syntax rules.
@@ -94,7 +95,7 @@ function isMissingPathError(error: unknown): boolean {
 function isSymlink(candidatePath: string): Effect.Effect<boolean, Error> {
   return Effect.tryPromise({
     try: () => nodeFs.lstat(candidatePath),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   }).pipe(
     Effect.map((stat) => stat.isSymbolicLink()),
     Effect.catchIf(isMissingPathError, () => Effect.succeed(false)),

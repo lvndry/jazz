@@ -68,6 +68,7 @@ import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { toError } from "@jazz/core/utils/storage";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
@@ -1223,7 +1224,7 @@ function handleCopyCommand(
 
     yield* Effect.tryPromise({
       try: () => copyToClipboard(lastResponse),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     }).pipe(
       Effect.flatMap(() =>
         Effect.all([

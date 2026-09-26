@@ -5,6 +5,7 @@
 
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { toError } from "@jazz/core/utils/storage";
 import { auth, discoverOAuthServerInfo } from "@modelcontextprotocol/client";
 import type {
   OAuthClientProvider,
@@ -445,7 +446,7 @@ export function authorizeServer(
         listener.close();
       }
     },
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   });
 }
 

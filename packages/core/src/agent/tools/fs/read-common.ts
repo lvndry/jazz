@@ -5,6 +5,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import { buildKeyFromContext } from "../context-utils";
 
 export type FsToolDeps = FileSystem.FileSystem | FileSystemContextService;
@@ -98,7 +99,7 @@ export function isPdfPasswordError(error: unknown): boolean {
 export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfParser, never> {
   return Effect.tryPromise({
     try: () => import("pdf-parse"),
-    catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    catch: toError,
   }).pipe(
     Effect.map((pdfModule): LoadedPdfParser => ({
       kind: "ok",

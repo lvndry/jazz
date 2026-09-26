@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { toError } from "@/core/utils/storage";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { fetchWithUserAgentFallback } from "../user-agent-fetch";
 import {
@@ -259,7 +260,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
         return yield* Effect.gen(function* () {
           const textResult = yield* Effect.tryPromise({
             try: () => pdfParser.getText(parseParams),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           }).pipe(Effect.either);
           if (textResult._tag === "Left") {
             const parseError = textResult.left;
@@ -280,7 +281,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
           let extractedTables: Array<{ pageNumber: number; rows: string[][] }> = [];
           const tableResult = yield* Effect.tryPromise({
             try: () => pdfParser.getTable(parseParams as { partial?: number[] }),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           }).pipe(Effect.either);
           if (tableResult._tag === "Right") {
             const built = buildTablesSection(
@@ -301,7 +302,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
           const infoResult = yield* Effect.tryPromise({
             try: () => pdfParser.getInfo(),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+            catch: toError,
           }).pipe(Effect.either);
           const pageCount =
             infoResult._tag === "Right" ? (infoResult.right as { total?: number }).total || 0 : 0;
@@ -334,7 +335,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
           Effect.ensuring(
             Effect.tryPromise({
               try: () => pdfParser.destroy(),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              catch: toError,
             }).pipe(Effect.catchAll(() => Effect.void)),
           ),
           Effect.catchAll((error: Error) =>

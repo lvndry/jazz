@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option, Ref } from "effect";
 import matter from "gray-matter";
+import { toError } from "@/core/utils/storage";
 import { PluginRuntimeServiceTag } from "../interfaces/plugin-runtime.js";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
 import {
@@ -253,7 +254,7 @@ export class SkillsLive implements SkillService {
         // Parse SKILL.md
         const content = yield* Effect.tryPromise({
           try: () => fs.readFile(skillMdPath, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         const parsed = matter(content);
 
@@ -320,7 +321,7 @@ export class SkillsLive implements SkillService {
 
         return yield* Effect.tryPromise({
           try: () => fs.readFile(sectionPath, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
       }.bind(this),
     );

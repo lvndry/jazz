@@ -29,6 +29,7 @@ import {
   requireValidAgentId,
   withLock,
   writeFileStringAtomic,
+  toError,
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
@@ -146,10 +147,10 @@ export class WorkspaceServiceImpl implements WorkspaceService {
       const rawRoot = path.join(baseWorkspaceDirectory, agentId);
       yield* fs
         .makeDirectory(rawRoot, { recursive: true })
-        .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: toError,
       });
     });
   }
@@ -191,7 +192,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
         const content = yield* fs
           .readFileString(target)
-          .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+          .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
         const lines = content.split("\n");
         const totalLines = lines.length;
 
@@ -301,9 +302,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
           if (occurrenceLines.length === 0) {
@@ -362,9 +361,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
           const lines = content.split("\n");
 
           if (insertLine < 0 || insertLine > lines.length) {
@@ -428,9 +425,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           yield* fs
             .remove(target, { recursive: true })
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           return {
             success: true,
@@ -479,14 +474,10 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           yield* fs
             .makeDirectory(path.dirname(destination), { recursive: true })
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
           yield* fs
             .rename(source, destination)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           return {
             success: true,

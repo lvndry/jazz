@@ -16,6 +16,7 @@ import { parseGoalRecord, type GoalId, type GoalRecord } from "@jazz/core/agent/
 import { isTerminalGoal, transitionGoal } from "@jazz/core/agent/goal/goal-state";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
 import { getGoalsDirectory } from "@jazz/core/utils/paths";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
 const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -37,10 +38,6 @@ function assertGoalId(value: string): void {
   if (!isGoalId(value)) {
     throw new Error(`"${value}" is not a usable goal id.`);
   }
-}
-
-function normalizeError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -253,7 +250,7 @@ export class InMemoryGoalStore implements GoalStore {
         this.records.set(record.goalId, record);
         return structuredClone(record);
       },
-      catch: normalizeError,
+      catch: toError,
     });
   }
 
@@ -290,7 +287,7 @@ export class InMemoryGoalStore implements GoalStore {
         this.records.set(goalId, updated);
         return structuredClone(updated);
       },
-      catch: normalizeError,
+      catch: toError,
     });
   }
 }
@@ -433,7 +430,7 @@ export class FileGoalStore implements GoalStore {
     try {
       return await this.readFile(goalId);
     } catch (error) {
-      console.error(`[goals] Skipping goal "${goalId}": ${normalizeError(error).message}`);
+      console.error(`[goals] Skipping goal "${goalId}": ${toError(error).message}`);
       return undefined;
     }
   }
@@ -535,7 +532,7 @@ export class FileGoalStore implements GoalStore {
           return structuredClone(record);
         });
       },
-      catch: normalizeError,
+      catch: toError,
     });
   }
 
@@ -545,7 +542,7 @@ export class FileGoalStore implements GoalStore {
     }
     return Effect.tryPromise({
       try: () => this.readFile(goalId),
-      catch: normalizeError,
+      catch: toError,
     }).pipe(Effect.catchAll((error) => Effect.die(error)));
   }
 
@@ -577,7 +574,7 @@ export class FileGoalStore implements GoalStore {
         }
         return selectRecords(records, filter).map((record) => structuredClone(record));
       },
-      catch: normalizeError,
+      catch: toError,
     }).pipe(Effect.catchAll((error) => Effect.die(error)));
   }
 
@@ -606,7 +603,7 @@ export class FileGoalStore implements GoalStore {
           return structuredClone(updated);
         });
       },
-      catch: normalizeError,
+      catch: toError,
     });
   }
 }

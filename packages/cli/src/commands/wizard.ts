@@ -13,6 +13,7 @@ import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { agentDetailFields } from "./agent-details";
@@ -296,7 +297,7 @@ export function wizardCommand() {
 
     yield* terminal.log("");
     yield* Effect.sync(() => process.exit(0));
-  }).pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+  }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
 /**

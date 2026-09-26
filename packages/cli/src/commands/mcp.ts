@@ -21,6 +21,7 @@ import {
   type MCPServerManager,
 } from "@jazz/core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { toError } from "@jazz/core/utils/storage";
 import { Effect, Option } from "effect";
 import { z } from "zod";
 import * as fmt from "@/cli/utils/list-format";
@@ -235,7 +236,7 @@ export function addMcpServerCommand(
     if (!process.stdin.isTTY) {
       const stdinContent = yield* Effect.tryPromise({
         try: () => readStdin(),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(Effect.catchAll(() => Effect.succeed("")));
       if (stdinContent.trim() === "") {
         yield* terminal.warn("No input received from stdin.");
