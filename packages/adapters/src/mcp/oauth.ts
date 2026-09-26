@@ -3,7 +3,7 @@
  * redirect listener and stores the resulting tokens/client info in the OS keyring.
  */
 
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { auth, discoverOAuthServerInfo } from "@modelcontextprotocol/client";
 import type {
   OAuthClientProvider,

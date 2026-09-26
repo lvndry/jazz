@@ -39,8 +39,8 @@ import {
   type MemoryEntryIdentity,
 } from "@/core/memory/source-trust";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
-import { toError } from "@/core/utils/storage";
 import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 

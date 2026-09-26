@@ -38,13 +38,13 @@ import type {
   JobRecord,
 } from "@jazz/core/interfaces/job-queue-service";
 import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
+import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import {
   requireValidAgentId,
   requireValidStorageKey,
   withLock,
   writeFileStringAtomic,
-  toError,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 

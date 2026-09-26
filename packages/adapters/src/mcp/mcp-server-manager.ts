@@ -39,8 +39,8 @@ import type {
   MCPToolResult,
 } from "@jazz/core/types/mcp";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
+import { toError } from "@jazz/core/utils/errors";
 import { retryWithBackoff } from "@jazz/core/utils/mcp";
-import { toError } from "@jazz/core/utils/storage";
 import type { Transport } from "@modelcontextprotocol/client";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";

@@ -11,7 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Effect, Option } from "effect";
 import * as plist from "plist";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { escapeShellArg, getLaunchdPath } from "../workflows/scheduler-service";

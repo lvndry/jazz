@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 

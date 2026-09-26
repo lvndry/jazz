@@ -7,7 +7,7 @@ import {
   type SkillMetadata,
   type SkillService,
 } from "@/core/skills/skill-service";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 
 /**
  * Create skill tools with skill_name constrained to discovered skill names.

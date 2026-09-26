@@ -6,7 +6,7 @@
  * stays unknown for the rest of the goal once any run had no pricing.
  */
 
-import type { RunRecord } from "@/core/agent/run/run-record";
+import { addRunSpend, type RunSpend } from "@/core/agent/run/run-spend";
 import type { GoalBudget, GoalLimit, GoalRecord, GoalUsage } from "./goal-record";
 
 /**
@@ -22,32 +22,8 @@ export const DEFAULT_GOAL_BUDGET: GoalBudget = {
   maxCostUSD: 5,
 };
 
-export interface RunSpend {
-  readonly totalTokens: number;
-  /** Undefined when the run's provider has no pricing. */
-  readonly costUSD?: number;
-  readonly activeDurationMs: number;
-}
-
-export function runSpend(
-  run: Pick<RunRecord, "totalTokens" | "costUSD" | "activeDurationMs">,
-): RunSpend {
-  return {
-    totalTokens: run.totalTokens ?? 0,
-    ...(run.costUSD !== undefined ? { costUSD: run.costUSD } : {}),
-    activeDurationMs: run.activeDurationMs ?? 0,
-  };
-}
-
 export function addSpend(usage: GoalUsage, spend: RunSpend): GoalUsage {
-  const costKnown = usage.costKnown && spend.costUSD !== undefined;
-  return {
-    cycles: usage.cycles,
-    totalTokens: usage.totalTokens + spend.totalTokens,
-    activeDurationMs: usage.activeDurationMs + spend.activeDurationMs,
-    costKnown,
-    ...(costKnown ? { costUSD: (usage.costUSD ?? 0) + (spend.costUSD ?? 0) } : {}),
-  };
+  return addRunSpend(usage, spend);
 }
 
 /** The first cap the goal has reached, or undefined while it may start another cycle. */

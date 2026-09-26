@@ -30,9 +30,9 @@ import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
+import { toError } from "@jazz/core/utils/errors";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
-import { toError } from "@jazz/core/utils/storage";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import {
   expandableFileMutationPayload,

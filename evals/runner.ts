@@ -45,8 +45,8 @@ import {
   type EvalTask,
   type SampleRecord,
 } from "./types";
+import { toError } from "../packages/core/src/utils/errors";
 import { getJazzHomeDirectory } from "../packages/core/src/utils/paths";
-import { toError } from "../packages/core/src/utils/storage";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 const TASKS_DIR = join(REPO_ROOT, "evals", "tasks");

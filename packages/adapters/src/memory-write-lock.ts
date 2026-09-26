@@ -5,7 +5,8 @@
  */
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { toError, withLock } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
+import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 export const MEMORY_WRITE_LOCK_FILENAME = ".write.lock";

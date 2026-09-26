@@ -16,9 +16,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { NetworkError, ValidationError } from "@jazz/core/types/errors";
+import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect, Option } from "effect";
 
 /** Where the library is published. Overridable with JAZZ_LIBRARY_URL, for staging and tests. */

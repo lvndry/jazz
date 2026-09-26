@@ -22,7 +22,7 @@ import type {
   GoalRecordInput,
 } from "../../../packages/core/src/agent/goal/goal-record";
 import type { ApprovalPolicyLevel } from "../../../packages/core/src/types/tools";
-import { toError } from "../../../packages/core/src/utils/storage";
+import { toError } from "../../../packages/core/src/utils/errors";
 import { reportFilePath, spawnJazz } from "../../run-jazz";
 import {
   emptyResult,

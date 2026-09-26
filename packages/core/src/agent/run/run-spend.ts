@@ -13,6 +13,7 @@ import type { Agent } from "@/core/types";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { UsageCostPricing, UsageCostTokens } from "@/core/utils/usage-cost";
 import { computeUsageCostUSD } from "@/core/utils/usage-cost";
+import type { RunRecord } from "./run-record";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 
 export function runSpendUSD(
@@ -101,4 +102,47 @@ export function agentRunSpend(
     response.costIncomplete === true,
   );
   return spendOf(totalTokens, known ? (response.costUSD ?? 0) : undefined);
+}
+
+/** What one run spent, as its run record reports it. */
+export interface RunSpend {
+  readonly totalTokens: number;
+  /** Undefined when the run's provider has no pricing. */
+  readonly costUSD?: number;
+  readonly activeDurationMs: number;
+}
+
+export function runSpend(
+  run: Pick<RunRecord, "totalTokens" | "costUSD" | "activeDurationMs">,
+): RunSpend {
+  return {
+    totalTokens: run.totalTokens ?? 0,
+    ...(run.costUSD !== undefined ? { costUSD: run.costUSD } : {}),
+    activeDurationMs: run.activeDurationMs ?? 0,
+  };
+}
+
+/** Spend accumulated across runs by something that outlives them (a goal, a loop). */
+export interface SpendTotals {
+  readonly totalTokens: number;
+  /** Omitted while any contributing run has unknown pricing. */
+  readonly costUSD?: number;
+  readonly costKnown: boolean;
+  readonly activeDurationMs: number;
+}
+
+/**
+ * Fold one run's spend into running totals. Totals only grow, and once any run had no
+ * pricing the cost stays unknown: a partial sum reported as the total would understate it.
+ */
+export function addRunSpend<Totals extends SpendTotals>(totals: Totals, spend: RunSpend): Totals {
+  const costKnown = totals.costKnown && spend.costUSD !== undefined;
+  const { costUSD: _previousCost, ...rest } = totals;
+  return {
+    ...rest,
+    totalTokens: totals.totalTokens + spend.totalTokens,
+    activeDurationMs: totals.activeDurationMs + spend.activeDurationMs,
+    costKnown,
+    ...(costKnown ? { costUSD: (totals.costUSD ?? 0) + (spend.costUSD ?? 0) } : {}),
+  } as Totals;
 }

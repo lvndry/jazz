@@ -13,7 +13,8 @@
 
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { toError, writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 const LEDGER_FILENAME = ".source-ledger.json";

@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { Effect } from "effect";
 import glob from "fast-glob";
 import matter from "gray-matter";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 
 export interface NamedIndexItem {
   readonly name: string;

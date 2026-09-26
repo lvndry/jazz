@@ -31,9 +31,9 @@ import {
   type ToolExecutionResult,
   type ToolRiskLevel,
 } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
-import { toError } from "@/core/utils/storage";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import {
   emitToolInvocation,

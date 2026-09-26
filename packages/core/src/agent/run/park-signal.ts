@@ -16,7 +16,7 @@
 import { Cause, Data, Effect, Option } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalOutcome } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import type { PendingInput } from "./run-state";
 
 export class RunParkRequested extends Data.TaggedError("RunParkRequested")<{

@@ -7,8 +7,9 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { MAX_RUN_HISTORY_RECORDS } from "@/core/constants/agent";
+import { toError } from "@/core/utils/errors";
 import { getGlobalUserDataDirectory } from "@/core/utils/paths";
-import { withLock, writeFileStringAtomic, toError } from "@/core/utils/storage";
+import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
 
 /**
  * Record of a single workflow run.

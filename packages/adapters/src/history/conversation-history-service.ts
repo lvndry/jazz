@@ -19,7 +19,8 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { withLock, toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
+import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
   agentConversationLockPath,

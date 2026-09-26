@@ -22,8 +22,8 @@ import type {
   RegistryWorkflowEntry,
 } from "@jazz/core/types/workflow-registry";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
+import { toError } from "@jazz/core/utils/errors";
 import { getGlobalWorkflowsDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { renameWorkflowDefinition } from "@jazz/core/workflows/workflow-utils";
 import chalk from "chalk";

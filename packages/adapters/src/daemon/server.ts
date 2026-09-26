@@ -41,6 +41,7 @@ import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -80,10 +81,10 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
@@ -120,6 +121,7 @@ export type DaemonRequirements =
   | PersonaService
   | RunStoreTag
   | GoalStoreTag
+  | LoopStoreTag
   | ToolRegistry
   | ToolRequirements
   // A threaded webhook reads its conversation before the run and writes it after, so the

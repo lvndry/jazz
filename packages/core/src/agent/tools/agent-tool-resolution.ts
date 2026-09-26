@@ -30,6 +30,7 @@ import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-regis
 import type { Agent } from "@/core/types";
 import type { PersonaToolProfile } from "@/core/types/persona";
 import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
+import { END_LOOP_TOOL_NAME } from "./loop";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
 /**
@@ -55,18 +56,22 @@ export function toolDenials(
 
 /**
  * Everything a run may not use: the agent's and persona's denials, plus `propose_goal` unless
- * the surface shows proposals to a person who can accept them. Elsewhere (a workflow, a
+ * the surface shows proposals to a person who can accept them, and `end_loop` unless a loop
+ * started the run (anywhere else there is no loop for it to end). Elsewhere (a workflow, a
  * webhook, a bot, a goal's own cycles) a proposal would sit unseen, and the rest of the run
  * would lose its tools, since a saved proposal ends the agent's work for the turn.
  */
 export function runToolDenials(
   agent: Agent,
   toolProfile: PersonaToolProfile | undefined,
-  surface: { readonly offersGoalProposals?: boolean },
+  surface: { readonly offersGoalProposals?: boolean; readonly inLoop?: boolean },
 ): ReadonlySet<string> {
   const denied = new Set(toolDenials(agent, toolProfile));
   if (surface.offersGoalProposals !== true) {
     denied.add(PROPOSE_GOAL_TOOL_NAME);
+  }
+  if (surface.inLoop !== true) {
+    denied.add(END_LOOP_TOOL_NAME);
   }
   return denied;
 }

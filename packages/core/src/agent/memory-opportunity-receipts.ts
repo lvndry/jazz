@@ -13,9 +13,10 @@ import { Effect } from "effect";
 import type { MemoryEntrySnapshot } from "@/core/interfaces/memory-service";
 import { formatPreferenceLine } from "@/core/memory/preference-line";
 import type { ChatMessage } from "@/core/types/message";
+import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
 import { getMemoryReceiptsDirectory } from "@/core/utils/paths";
-import { isValidStorageKey, toError, withLock, writeFileStringAtomic } from "@/core/utils/storage";
+import { isValidStorageKey, withLock, writeFileStringAtomic } from "@/core/utils/storage";
 
 /** Newest receipts kept per entry; `jazz memory explain` reads within this window. */
 export const MAX_RECEIPTS_PER_ENTRY = 128;

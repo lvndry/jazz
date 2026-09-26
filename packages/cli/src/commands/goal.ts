@@ -29,7 +29,7 @@ import {
   type ApprovalPolicyLevel,
 } from "@jazz/core/types/tools";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";

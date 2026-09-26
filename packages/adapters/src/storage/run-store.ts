@@ -19,8 +19,8 @@ import {
   type RunState,
 } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
+import { toError } from "@jazz/core/utils/errors";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 import { writeJsonFileDurably } from "./durable-file";
 import { acquireFileLock } from "./file-lock";

@@ -7,11 +7,12 @@
  * interrupts a working run.
  */
 
+import { runSpend, type RunSpend } from "@/core/agent/run/run-spend";
 import type { RunState } from "@/core/agent/run/run-state";
 import type { ApprovalPolicyLevel } from "@/core/types/tools";
 import { settleCycle } from "./goal-reconcile";
 import { asInput, withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
-import { extendBudget, reachedLimit, remainingCaps, runSpend, type RunSpend } from "./goal-usage";
+import { extendBudget, reachedLimit, remainingCaps } from "./goal-usage";
 
 export type GoalControl = "pause" | "resume" | "cancel";
 

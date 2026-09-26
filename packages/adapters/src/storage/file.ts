@@ -12,9 +12,10 @@ import {
   StorageNotFoundError,
 } from "@jazz/core/types/errors";
 import type { Agent, AgentConfig } from "@jazz/core/types/index";
+import { toError } from "@jazz/core/utils/errors";
 import { parseJson } from "@jazz/core/utils/json";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
-import { writeFileStringAtomic, toError } from "@jazz/core/utils/storage";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 
 /**
