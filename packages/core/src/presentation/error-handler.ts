@@ -27,6 +27,17 @@ export interface ErrorDisplay {
  */
 function generateSuggestions(error: JazzError): ErrorDisplay {
   switch (error._tag) {
+    case "PluginNotInstalledError": {
+      const source = /^[A-Za-z0-9][A-Za-z0-9._/:@-]*$/.test(error.pluginId)
+        ? error.pluginId
+        : "'" + error.pluginId.replaceAll("'", "'\"'\"'") + "'";
+      return {
+        title: "Plugin not installed",
+        message: `${error.pluginId} isn't installed yet.`,
+        suggestion: `Install it first:\n   jazz plugin add ${source}`,
+      };
+    }
+
     case "AgentNotFoundError": {
       return {
         title: "Agent Not Found",

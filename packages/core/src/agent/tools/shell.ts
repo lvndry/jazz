@@ -158,6 +158,12 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
     reason:
       "accepting a goal (`jazz goal accept`, `jazz goal start --yes`) is the user's decision, not an agent's",
   },
+  // A parked run stopped to ask the user; an agent answering it would grant itself the step.
+  {
+    pattern: /\bjazz\s+(?:goal|runs)\s+(?:approve|answer)\b/,
+    reason:
+      "approving or answering a parked run (`jazz runs approve`, `jazz goal answer`) is the user's decision, not an agent's",
+  },
   // File-system destruction (rm with any -r/-f flag combination, root paths,
   // home, or wildcards)
   {

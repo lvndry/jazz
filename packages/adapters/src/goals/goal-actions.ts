@@ -15,6 +15,7 @@ import {
   type ControlDecision,
   type GoalControl,
 } from "@jazz/core/agent/goal/goal-controls";
+import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
 import {
   goalDraftSchema,
@@ -27,8 +28,13 @@ import {
   type GoalBudget,
   type GoalPlan,
   type GoalRecord,
+  type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
-import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
+import {
+  CLAIMED_GOAL_STATES,
+  isGoalClaimed,
+  WAITING_ON_USER_GOAL_STATES,
+} from "@jazz/core/agent/goal/goal-state";
 import { addSpend, DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
 import { agentRunSpend, priceOneOffCall, type CallSpend } from "@jazz/core/agent/run/run-spend";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
@@ -39,8 +45,9 @@ import type { Agent } from "@jazz/core/types";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
+import type { ProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
-import { settleStoppingGoal } from "@/adapters/daemon/goal-worker";
+import { resumeGoalAwareRun, settleStoppingGoal } from "@/adapters/daemon/goal-worker";
 
 /**
  * The read-only feasibility pass before a proposal: a few tool rounds, then report. Every
@@ -64,7 +71,13 @@ export interface PlanningSpend {
 }
 
 export type GoalProposal =
-  | { readonly kind: "plan"; readonly plan: GoalPlan; readonly spend: PlanningSpend }
+  | {
+      readonly kind: "plan";
+      readonly plan: GoalPlan;
+      /** The handle the planner suggested; made unique when the goal is created. */
+      readonly name: string;
+      readonly spend: PlanningSpend;
+    }
   | {
       readonly kind: "questions";
       readonly questions: readonly string[];
@@ -72,13 +85,103 @@ export type GoalProposal =
     }
   | { readonly kind: "failed"; readonly reason: string };
 
-/** A goal this installation owns, or undefined for a missing or foreign one. */
-export function getOwnedGoal(goalId: string) {
-  return Effect.flatMap(GoalStoreTag, (store) =>
-    Effect.map(store.get(goalId), (goal) =>
-      goal === undefined || goal.ownerInstanceId !== getGoalOwnerInstanceId() ? undefined : goal,
-    ),
-  );
+/** Shortest id prefix accepted in place of a whole goal id. */
+const MIN_GOAL_ID_PREFIX = 4;
+
+/**
+ * A goal this installation owns, by its name, its id, or a prefix of its id that names only
+ * one goal, so whatever a listing shows can be typed back. Undefined for a missing or foreign
+ * goal.
+ */
+export function getOwnedGoal(handle: string) {
+  return Effect.gen(function* () {
+    const store = yield* GoalStoreTag;
+    const owner = getGoalOwnerInstanceId();
+    const exact = yield* store.get(handle);
+    if (exact !== undefined) {
+      return exact.ownerInstanceId === owner ? exact : undefined;
+    }
+    const owned = yield* store.list({ ownerInstanceId: owner });
+    const named = owned.find((goal) => goal.name === handle);
+    if (named !== undefined || handle.length < MIN_GOAL_ID_PREFIX) {
+      return named;
+    }
+    const matches = owned.filter((goal) => goal.goalId.startsWith(handle));
+    return matches.length === 1 ? matches[0] : undefined;
+  });
+}
+
+/** What a goal waiting on the user is waiting for: the approval it asks for, or its question. */
+export function pendingGoalInput(goal: GoalRecord) {
+  return Effect.gen(function* () {
+    if (goal.state.kind !== "awaiting-input" || goal.cycle === undefined) {
+      return undefined;
+    }
+    const runs = yield* RunStoreTag;
+    const run = yield* runs.get(goal.cycle.runId);
+    if (run?.state.kind !== "input-required") {
+      return undefined;
+    }
+    const pending = run.state.pending;
+    const described =
+      pending.kind === "tool-approval"
+        ? pending.request.message
+        : pending.kind === "question"
+          ? pending.request.question
+          : "a file to be picked";
+    return { kind: pending.kind, runId: run.runId, described } as const;
+  });
+}
+
+export type GoalAnswer =
+  | { readonly kind: "approve" }
+  | { readonly kind: "reject"; readonly note?: string }
+  | { readonly kind: "answer"; readonly response: string };
+
+/**
+ * Answer what a goal is waiting on. The rest of its cycle runs in the calling process, so from
+ * chat it runs in front of the user, and settles the goal however it ends.
+ */
+export function answerGoal(goalId: string, answer: GoalAnswer) {
+  return Effect.gen(function* () {
+    const goal = yield* getOwnedGoal(goalId);
+    if (goal === undefined) {
+      return { kind: "refused", reason: `No goal with id "${goalId}".` } as const;
+    }
+    const pending = yield* pendingGoalInput(goal);
+    if (pending === undefined) {
+      return { kind: "refused", reason: "It is not waiting for an answer from you." } as const;
+    }
+    const wantsApproval = pending.kind === "tool-approval";
+    if (wantsApproval !== (answer.kind !== "answer")) {
+      return {
+        kind: "refused",
+        reason: wantsApproval
+          ? "It is waiting for an approval, not an answer: approve or reject it."
+          : "It is waiting for an answer to its question, not an approval.",
+      } as const;
+    }
+    const resumed = yield* resumeGoalAwareRun({
+      runId: pending.runId,
+      outcome:
+        answer.kind === "answer"
+          ? { kind: "question", value: { kind: "answered", response: answer.response } }
+          : {
+              kind: "approval",
+              value:
+                answer.kind === "approve"
+                  ? { approved: true }
+                  : {
+                      approved: false,
+                      ...(answer.note !== undefined ? { userMessage: answer.note } : {}),
+                    },
+            },
+    });
+    if (resumed.kind === "blocked") {
+      return { kind: "refused", reason: resumed.reason } as const;
+    }
+    return { kind: "answered", goal: (yield* getOwnedGoal(goal.goalId)) ?? goal } as const;
+  });
 }
 
 /** Goals this installation owns, narrowed by `filter`. */
@@ -195,7 +298,7 @@ export function proposeGoal(options: {
     const proposal: GoalProposal =
       draft.kind === "question"
         ? { kind: "questions", questions: draft.questions, spend }
-        : { kind: "plan", plan: draft.plan, spend };
+        : { kind: "plan", plan: draft.plan, name: draft.name, spend };
     return proposal;
   });
 }
@@ -211,30 +314,28 @@ export function activateGoal(options: {
   readonly request: string;
   readonly plan: GoalPlan;
   readonly spend: PlanningSpend;
+  /** The suggested handle; made unique here. */
+  readonly name?: string;
   /** Absolute directory the goal works in. */
   readonly workingDirectory: string;
   readonly sourceConversationId?: string;
   readonly budget?: Partial<GoalBudget>;
-  /** The authority the user grants with the acceptance. */
+  /** The authority the user grants with the acceptance, for running unattended. */
   readonly approvalPolicy?: ApprovalPolicyLevel;
+  /** The chat that runs its cycles in front of the user instead. */
+  readonly attendedBy?: ProcessOwner;
 }) {
   return Effect.gen(function* () {
     const store = yield* GoalStoreTag;
-    if (options.sourceConversationId !== undefined) {
-      const existing = yield* listOwnedGoals({
-        sourceConversationId: options.sourceConversationId,
-        states: CLAIMED_GOAL_STATES,
-      });
-      if (existing[0] !== undefined) {
-        return {
-          kind: "refused",
-          reason: `This conversation already has active goal ${existing[0].goalId}.`,
-        } as const;
-      }
+    const blocking = yield* blockingGoal(options.sourceConversationId);
+    if (blocking !== undefined) {
+      return { kind: "refused", reason: busyReason(blocking), blocking } as const;
     }
+    const name = yield* chooseGoalName(options.name);
     const proposed = yield* store.create(
       newProposedGoal({
         agentId: options.agent.id,
+        name,
         workingDirectory: options.workingDirectory,
         sourceConversationId: options.sourceConversationId,
         request: options.request,
@@ -252,7 +353,7 @@ export function activateGoal(options: {
       return { kind: "refused", reason: acceptance.reason } as const;
     }
     const saved = yield* store
-      .compareAndSet(proposed.goalId, proposed.version, acceptance.next)
+      .compareAndSet(proposed.goalId, proposed.version, runBy(acceptance.next, options))
       .pipe(Effect.either);
     if (saved._tag === "Left") {
       const cancel = decideCancel(proposed);
@@ -265,6 +366,50 @@ export function activateGoal(options: {
     }
     return { kind: "active", goal: saved.right } as const;
   });
+}
+
+/**
+ * The goal already under way in a conversation, which keeps another from starting there:
+ * a conversation runs one goal at a time.
+ */
+function blockingGoal(sourceConversationId: string | undefined, except?: string) {
+  return Effect.gen(function* () {
+    if (sourceConversationId === undefined) {
+      return undefined;
+    }
+    const claimed = yield* listOwnedGoals({ sourceConversationId, states: CLAIMED_GOAL_STATES });
+    return claimed.find((goal) => goal.goalId !== except);
+  });
+}
+
+function busyReason(blocking: GoalRecord): string {
+  return `This conversation is already working on goal ${blocking.name ?? blocking.goalId}; a conversation runs one goal at a time.`;
+}
+
+/** A goal set going, marked with who runs it: the attending chat, or the daemon with a grant. */
+function runBy(
+  next: GoalRecordInput,
+  runner: { readonly approvalPolicy?: ApprovalPolicyLevel; readonly attendedBy?: ProcessOwner },
+): GoalRecordInput {
+  const { attendedBy: _attendedBy, ...rest } = next;
+  return {
+    ...rest,
+    ...(runner.attendedBy !== undefined ? { attendedBy: runner.attendedBy } : {}),
+    ...(runner.approvalPolicy !== undefined ? { approvalPolicy: runner.approvalPolicy } : {}),
+  };
+}
+
+/** The conversations with a goal that can go no further until the user acts on it. */
+export function conversationsWaitingOnUser() {
+  return Effect.map(
+    listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES }),
+    (goals) =>
+      new Set(
+        goals
+          .map((goal) => goal.sourceConversationId)
+          .filter((conversationId): conversationId is string => conversationId !== undefined),
+      ),
+  );
 }
 
 /** Goals the agent proposed in a conversation that still wait for the user's answer. */
@@ -285,6 +430,13 @@ export type GoalActionOutcome =
       /** `missing`: no such goal here. `changed`: it moved past the caller's version. */
       readonly cause: "missing" | "changed" | "refused";
       readonly reason: string;
+    }
+  | {
+      readonly kind: "refused";
+      /** Another goal is under way in the same conversation. */
+      readonly cause: "busy";
+      readonly reason: string;
+      readonly blocking: GoalRecord;
     };
 
 function refused(cause: "missing" | "changed" | "refused", reason: string): GoalActionOutcome {
@@ -294,8 +446,13 @@ function refused(cause: "missing" | "changed" | "refused", reason: string): Goal
 /**
  * Apply an action to a goal this installation owns. `expectedVersion` refuses the action when
  * the goal changed since the caller read it; `planRevision` is the plan revision an `accept`
- * approves, the current one by default, and `approvalPolicy` the authority it grants. A stop that lands on an already-parked cycle is
- * settled before returning, so the goal returned is the one the user will see next.
+ * approves, the current one by default.
+ *
+ * An `accept` or `resume` sets the goal going, and says in the same write who runs it:
+ * `attendedBy` is the chat that runs its cycles in front of the user, and without it the
+ * daemon runs them with `approvalPolicy`, the authority granted for running unattended. A
+ * stop that lands on an already-parked cycle is settled before returning, so the goal
+ * returned is the one the user will see next.
  */
 export function controlGoal(
   goalId: string,
@@ -304,6 +461,7 @@ export function controlGoal(
     readonly expectedVersion?: number;
     readonly planRevision?: number;
     readonly approvalPolicy?: ApprovalPolicyLevel;
+    readonly attendedBy?: ProcessOwner;
     readonly guidance?: string;
   } = {},
 ) {
@@ -338,9 +496,21 @@ export function controlGoal(
     if (decision.kind === "refused") {
       return refused("refused", decision.reason);
     }
-    const saved = yield* store
-      .compareAndSet(goal.goalId, goal.version, decision.next)
-      .pipe(Effect.either);
+    const startsIt = action === "accept" || action === "resume";
+    const next = startsIt ? runBy(decision.next, options) : decision.next;
+    const blocking = startsIt
+      ? yield* blockingGoal(goal.sourceConversationId, goal.goalId)
+      : undefined;
+    if (blocking !== undefined && isGoalClaimed(next.state)) {
+      const busy: GoalActionOutcome = {
+        kind: "refused",
+        cause: "busy",
+        reason: busyReason(blocking),
+        blocking,
+      };
+      return busy;
+    }
+    const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.either);
     if (saved._tag === "Left") {
       return refused("refused", `Could not update goal ${goal.goalId}: ${saved.left.message}`);
     }

@@ -44,6 +44,13 @@ export const CLAIMED_GOAL_STATES = [
 
 const CLAIMED_KINDS = new Set<GoalStateKind>(CLAIMED_GOAL_STATES);
 
+/** States in which a goal can go no further until the user answers, reviews, or extends it. */
+export const WAITING_ON_USER_GOAL_STATES = [
+  "awaiting-input",
+  "review-required",
+  "budget-limited",
+] as const satisfies readonly GoalStateKind[];
+
 export function isGoalClaimed(state: GoalState): boolean {
   return CLAIMED_KINDS.has(state.kind);
 }

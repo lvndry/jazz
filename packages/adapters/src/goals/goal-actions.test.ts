@@ -1,5 +1,5 @@
 import { getGoalOwnerInstanceId } from "@jazz/core/agent/goal/goal-owner";
-import { testGoalPlan, testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
+import { testGoal, testGoalPlan, testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
@@ -10,7 +10,12 @@ import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-r
 import type { Agent } from "@jazz/core/types";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { activateGoal, controlGoal, proposeGoal } from "@jazz/adapters/goals/goal-actions";
+import {
+  activateGoal,
+  controlGoal,
+  getOwnedGoal,
+  proposeGoal,
+} from "@jazz/adapters/goals/goal-actions";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 
@@ -22,6 +27,7 @@ const LOCAL_AGENT = {
 
 const DRAFT = JSON.stringify({
   kind: "plan",
+  name: "fix-header-test",
   objective: "Header test passes",
   successCriteria: ["The header test passes"],
   constraints: [],
@@ -174,5 +180,51 @@ describe("activating a goal", () => {
     expect(activation.kind).toBe("refused");
     const stored = await run(goals, goals.list({}));
     expect(stored.map((goal) => goal.state.kind)).toEqual(["canceled"]);
+  });
+});
+
+describe("naming and running goals", () => {
+  const CHAT = { pid: 4242, host: "box" };
+
+  it("finds a goal by its name as well as its id", async () => {
+    const goals = new InMemoryGoalStore();
+    const owner = getGoalOwnerInstanceId();
+    await run(goals, goals.create(testGoal({ ownerInstanceId: owner, name: "detach-to-prod" })));
+    expect((await run(goals, getOwnedGoal("detach-to-prod")))?.goalId).toBe("goal-1");
+    expect((await run(goals, getOwnedGoal("goal-")))?.goalId).toBe("goal-1");
+    expect(await run(goals, getOwnedGoal("nothing-here"))).toBeUndefined();
+  });
+
+  it("names the goal already under way when a second would start in the same chat", async () => {
+    const goals = new InMemoryGoalStore();
+    const owner = getGoalOwnerInstanceId();
+    await run(goals, goals.create(testGoal({ ownerInstanceId: owner, name: "first-goal" })));
+    await run(
+      goals,
+      goals.create(testProposedGoal({ goalId: "goal-2", ownerInstanceId: owner, name: "second" })),
+    );
+    const outcome = await run(goals, controlGoal("goal-2", "accept", { attendedBy: CHAT }));
+    expect(outcome).toMatchObject({ kind: "refused", cause: "busy" });
+    if (outcome.kind === "refused" && outcome.cause === "busy") {
+      expect(outcome.blocking.goalId).toBe("goal-1");
+      expect(outcome.reason).toContain("first-goal");
+    }
+  });
+
+  it("marks an accepted goal as run by the chat, and a handoff as run by the daemon with its grant", async () => {
+    const goals = new InMemoryGoalStore();
+    const owner = getGoalOwnerInstanceId();
+    await run(goals, goals.create(testProposedGoal({ ownerInstanceId: owner })));
+    const accepted = await run(goals, controlGoal("goal-1", "accept", { attendedBy: CHAT }));
+    expect(accepted.kind === "applied" && accepted.goal.attendedBy).toEqual(CHAT);
+    expect(accepted.kind === "applied" && accepted.goal.approvalPolicy).toBeUndefined();
+
+    await run(goals, controlGoal("goal-1", "pause"));
+    const handedOff = await run(
+      goals,
+      controlGoal("goal-1", "resume", { approvalPolicy: "low-risk" }),
+    );
+    expect(handedOff.kind === "applied" && handedOff.goal.attendedBy).toBeUndefined();
+    expect(handedOff.kind === "applied" && handedOff.goal.approvalPolicy).toBe("low-risk");
   });
 });

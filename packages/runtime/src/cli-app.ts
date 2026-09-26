@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import type { GoalAnswer } from "@jazz/adapters/goals/goal-actions";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
@@ -1581,6 +1582,39 @@ function registerGoalCommand(program: Command): void {
       ),
     );
   }
+
+  const answerAction =
+    (toAnswer: (text: string) => GoalAnswer) =>
+    (id: string, text: string[], options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          load().then((mod) =>
+            mod.answerGoalCommand({
+              id,
+              answer: toAnswer(text.join(" ").trim()),
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      );
+  goalCommand
+    .command("approve <goal>")
+    .description("Allow the step a goal is waiting on; the rest of its cycle runs here")
+    .option("--json", "Emit a single JSON envelope")
+    .action((id: string, options: { json?: boolean }) =>
+      answerAction(() => ({ kind: "approve" }))(id, [], options),
+    );
+  goalCommand
+    .command("reject <goal> [why...]")
+    .description("Refuse the step a goal is waiting on; the reason goes to the agent")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((why) => ({ kind: "reject", ...(why.length > 0 ? { note: why } : {}) })));
+  goalCommand
+    .command("answer <goal> <answer...>")
+    .description("Answer the question a goal is waiting on")
+    .option("--json", "Emit a single JSON envelope")
+    .action(answerAction((response) => ({ kind: "answer", response })));
 
   for (const [control, description] of [
     ["pause", "Stop starting new cycles; a running cycle finishes first"],

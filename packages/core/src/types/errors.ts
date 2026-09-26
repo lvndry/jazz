@@ -5,6 +5,15 @@ import { Data } from "effect";
  * Using Effect's Data.TaggedError for proper error handling
  */
 
+/** A plugin lifecycle command requires installation before it can proceed. */
+export class PluginNotInstalledError extends Data.TaggedError("PluginNotInstalledError")<{
+  readonly pluginId: string;
+}> {
+  override get message(): string {
+    return `Plugin is not installed: ${this.pluginId}`;
+  }
+}
+
 // Agent Errors
 export class AgentNotFoundError extends Data.TaggedError("AgentNotFoundError")<{
   readonly agentId: string;
@@ -322,6 +331,7 @@ export type MCPError =
   | MCPServerNameParseError;
 
 export type JazzError =
+  | PluginNotInstalledError
   | AgentNotFoundError
   | AgentAlreadyExistsError
   | AgentExecutionError

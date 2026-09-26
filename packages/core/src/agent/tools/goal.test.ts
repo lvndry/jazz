@@ -6,6 +6,7 @@ import type { ToolExecutionContext } from "@/core/types/tools";
 import { createProposeGoalTool, planFromProposal } from "./goal";
 
 const PROPOSAL = {
+  name: "migrate-recipes",
   objective: "Every recipe in recipes/ uses the new frontmatter format",
   successCriteria: ["`bun run check-recipes` reports 0 invalid files"],
   steps: [
@@ -23,6 +24,7 @@ function recordingStore(): { store: GoalStore; created: Omit<GoalRecord, "versio
         created.push(record);
         return { ...record, version: 1 };
       }),
+    list: () => Effect.succeed(created.map((record) => ({ ...record, version: 1 }))),
   } as unknown as GoalStore;
   return { store, created };
 }

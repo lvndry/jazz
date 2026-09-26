@@ -12,6 +12,11 @@ import { Effect } from "effect";
 
 const runsInFlight = new Set<string>();
 
+/** Whether `owner` names this very process. */
+export function isThisProcess(owner: ProcessOwner | undefined): boolean {
+  return owner !== undefined && owner.pid === process.pid && owner.host === hostname();
+}
+
 /**
  * Whether a claimed run is still being worked on. This process's own in-flight set is checked
  * first, so a hostname change mid-run cannot make it disown a run it is executing.
@@ -23,7 +28,7 @@ export function claimOwnerStatus(
   if (runsInFlight.has(runId)) {
     return "alive";
   }
-  if (owner.pid === process.pid && owner.host === hostname()) {
+  if (isThisProcess(owner)) {
     return "gone";
   }
   return localOwnerStatus(owner);

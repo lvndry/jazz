@@ -10,10 +10,12 @@
 
 import {
   activateGoal,
+  answerGoal,
   controlGoal,
   getOwnedGoal,
   listOwnedGoals,
   proposeGoal,
+  type GoalAnswer,
   type GoalProposal,
 } from "@jazz/adapters/goals/goal-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
@@ -30,7 +32,8 @@ import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { describeGoalStart, ensureDaemonRunning } from "@/cli/commands/daemon";
-import { describeGoal, describePlan } from "@/cli/goals/describe-goal";
+import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";
+import { describeGoalNow, describePlan } from "@/cli/goals/describe-goal";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 function reportProposal(json: boolean, proposal: Exclude<GoalProposal, { kind: "failed" }>): void {
@@ -176,12 +179,13 @@ export function startGoalCommand(options: StartGoalOptions) {
 export function listGoalsCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
     const goals = yield* listOwnedGoals();
+    const described = yield* Effect.forEach(goals, (goal) => describeGoalNow(goal, "cli"));
     emitEnvelope(
       options.json,
       { ok: true, goals },
-      goals.length === 0 ? "No goals." : goals.flatMap((goal) => describeGoal(goal)).join("\n"),
+      goals.length === 0 ? "No goals." : described.join("\n\n"),
     );
-  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }
 
 export function showGoalCommand(options: { readonly id: string; readonly json: boolean }) {
@@ -194,9 +198,9 @@ export function showGoalCommand(options: { readonly id: string; readonly json: b
     emitEnvelope(
       options.json,
       { ok: true, goal },
-      [...describeGoal(goal), "", describePlan(goal.plan)].join("\n"),
+      `${yield* describeGoalNow(goal, "cli")}\n\n${describePlan(goal.plan)}`,
     );
-  }).pipe(Effect.provide(makeFileGoalStoreLayer()));
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }
 
 /** Start (`accept`) or drop (`decline`) a goal the agent proposed. */
@@ -234,6 +238,30 @@ export function decideProposedGoalCommand(options: {
       options.json,
       { ok: true, goal: outcome.goal, daemon: daemon.kind },
       describeGoalStart(options.id, daemon),
+    );
+  }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
+}
+
+/** `jazz goal approve|reject|answer`: answer what a goal waits on; the daemon carries on after. */
+export function answerGoalCommand(options: {
+  readonly id: string;
+  readonly answer: GoalAnswer;
+  readonly json: boolean;
+}) {
+  return Effect.gen(function* () {
+    if (options.answer.kind !== "reject" && isAgentStartedProcess()) {
+      failEnvelope(options.json, AGENT_ANSWER_REFUSAL);
+      return;
+    }
+    const answered = yield* answerGoal(options.id, options.answer);
+    if (answered.kind === "refused") {
+      failEnvelope(options.json, answered.reason);
+      return;
+    }
+    emitEnvelope(
+      options.json,
+      { ok: true, goal: answered.goal },
+      yield* describeGoalNow(answered.goal, "cli"),
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
 }

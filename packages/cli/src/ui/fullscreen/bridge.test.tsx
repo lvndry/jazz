@@ -1585,6 +1585,95 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["provider-3"]);
   });
 
+  it("submits typed filter text on a select that accepts a typed answer", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).not.toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    const partial = rendered.captureCharFrame();
+    expect(partial).toContain("main");
+    expect(partial).toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ster");
+    const noMatch = rendered.captureCharFrame();
+    expect(noMatch).toContain("master");
+    expect(noMatch).not.toContain("No matching options");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["master"]);
+    expect(selected).toEqual([]);
+  });
+
+  it("still resolves the matching choice first when a typed answer is offered", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(selected).toEqual(["main"]);
+    expect(typed).toEqual([]);
+  });
+
+  it("moves onto the typed answer row with the arrow keys", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [{ label: "main", value: "main" }],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["ma"]);
+  });
+
   it("navigates the wizard menu with arrows and selects with enter", async () => {
     // The wizard menu renders through Home, which is content passed *into*
     // App as overrideContent rather than returned in App's place — because

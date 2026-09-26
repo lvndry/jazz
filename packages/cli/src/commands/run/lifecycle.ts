@@ -14,6 +14,7 @@ import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { Effect } from "effect";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
@@ -109,6 +110,17 @@ export function showRunCommand(options: { readonly runId: string; readonly json:
  * rest of the run takes. It can park again — a run that needed two approvals reports the
  * second one the same way the first was reported.
  */
+function grantsSomething(outcome: ResumeRunOptions["outcome"]): boolean {
+  return outcome.kind !== "approval" || outcome.value.approved;
+}
+
+/**
+ * Why a Jazz agent may not approve or answer a parked run: it would be granting itself the
+ * step the run stopped to ask the user about. Rejecting grants nothing, so it stays allowed.
+ */
+export const AGENT_ANSWER_REFUSAL =
+  "Approving or answering a parked run is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
+
 export function answerRunCommand(options: {
   readonly runId: string;
   /** Unused when `response` or `filePath` answers a question or file picker instead. */
@@ -147,6 +159,9 @@ export function answerRunCommand(options: {
           };
   const fail = (message: string) => Effect.sync(() => failEnvelope(options.json, message));
   return Effect.gen(function* () {
+    if (grantsSomething(outcome) && isAgentStartedProcess()) {
+      return yield* fail(AGENT_ANSWER_REFUSAL);
+    }
     const result = yield* resumeGoalAwareRun({ runId: options.runId, outcome });
     if (result.kind === "blocked") {
       return yield* fail(result.reason);

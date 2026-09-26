@@ -1,8 +1,10 @@
 import os from "node:os";
+import { conversationsWaitingOnUser } from "@jazz/adapters/goals/goal-actions";
 import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
@@ -92,8 +94,15 @@ export function wizardCommand() {
       }
 
       if (hasConversationHistory) {
+        const waiting = yield* conversationsWaitingOnUser().pipe(
+          Effect.provide(makeFileGoalStoreLayer()),
+          Effect.catchAll(() => Effect.succeed(new Set<string>())),
+        );
         menuOptions.push({
-          label: "Resume conversation",
+          label:
+            waiting.size === 0
+              ? "Resume conversation"
+              : `Resume conversation (${String(waiting.size)} waiting for you)`,
           value: "resume-conversation",
         });
       }
