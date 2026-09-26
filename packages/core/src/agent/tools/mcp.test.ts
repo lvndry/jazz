@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { ToolExecutionContext } from "@/core/types";
 import type { MCPTool } from "@/core/types/mcp";
-import { registerMCPServerTools } from "./mcp-tools";
+import { registerMCPServerTools } from "./mcp";
 
 const serverConfig = { name: "probe", type: "stdio" } as unknown as MCPServerConfig;
 

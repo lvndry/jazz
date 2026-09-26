@@ -14,7 +14,7 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/too
 // legitimate here even though core production code may never import adapters: this is the one
 // sanctioned exception (see docs/internals/code-map.md), and it's what lets these tests assert
 // against real recorded ledger entries rather than a mock.
-import { createAskPeerTool, createRequestClarificationTool } from "./peer-tools";
+import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 
 let jazzHome: string;
 let previousHome: string | undefined;

@@ -49,7 +49,7 @@ mock.module("@/core/utils/models-dev", () => ({
 }));
 
 // Imported after mock.module so the tool's catalog lookup sees the stub.
-const { createPerceptionTools, describeGeneratedMedia } = await import("./perception-tools");
+const { createPerceptionTools, describeGeneratedMedia } = await import("./perception");
 
 const parentAgent: Agent = {
   id: "agent-parent",

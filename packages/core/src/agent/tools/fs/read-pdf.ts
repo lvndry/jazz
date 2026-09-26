@@ -331,7 +331,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
             Effect.succeed({
               success: false,
               result: null,
-              error: `readPdf failed: ${error.message}`,
+              error: `read_pdf failed: ${error.message}`,
             } satisfies ToolExecutionResult),
           ),
         );

@@ -9,7 +9,7 @@ import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { quotedSentenceKeys } from "@/core/memory/source-trust";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
-import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
+import { createManageMemoryTool, createViewMemoryTool } from "./memory";
 
 const context: ToolExecutionContext = {
   agentId: "agent-1",

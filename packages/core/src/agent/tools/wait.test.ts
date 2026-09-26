@@ -7,7 +7,7 @@ import { SHELL_COMMAND_MAX_TIMEOUT_MS, WAIT_FOR_MIN_INTERVAL_MS } from "@/core/c
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { createWaitTools, type WaitForOutcome } from "./wait-tools";
+import { createWaitTools, type WaitForOutcome } from "./wait";
 
 const fileSystemContext: FileSystemContextService = {
   getCwd: () => Effect.succeed(process.cwd()),

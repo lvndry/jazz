@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createWebSearchTool, DEFAULT_MAX_RESULTS, type WebSearchArgs } from "./web-search-tools";
+import { createWebSearchTool, DEFAULT_MAX_RESULTS, type WebSearchArgs } from "./web-search";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { AppConfig } from "../../types";

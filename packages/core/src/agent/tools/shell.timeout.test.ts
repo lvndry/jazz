@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createShellCommandTools, runShellCommand } from "./shell-tools";
+import { createShellCommandTools, runShellCommand } from "./shell";
 import { SHELL_COMMAND_MAX_TIMEOUT_MS } from "../../constants/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 

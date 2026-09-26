@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isSupportedContentType } from "./web-fetch-tools";
+import { isSupportedContentType } from "./web-fetch";
 
 describe("isSupportedContentType", () => {
   test("accepts every text/* subtype, with or without parameters", () => {

@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { isDangerousCommand, matchForbiddenCommand } from "./shell-tools";
+import { isDangerousCommand, matchForbiddenCommand } from "./shell";
 
 describe("shell denylist — blocks dangerous commands", () => {
   describe("rm with destructive flags", () => {

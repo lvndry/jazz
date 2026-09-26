@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
-import { createReadPdfTool } from "./readPdf";
+import { createReadPdfTool } from "./read-pdf";
 import { runTool } from "./test-helpers";
 
 const tool = createReadPdfTool();

@@ -19,7 +19,7 @@ import { createSanitizedEnv } from "@/core/utils/env";
 import { defineApprovalTool, makeZodValidator, type ApprovalToolPair } from "./base-tool";
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-import { denylistBlockedError, runShellCommand } from "./shell-tools";
+import { denylistBlockedError, runShellCommand } from "./shell";
 
 export type WaitToolDeps = FileSystemContextService | LoggerService | FileSystem.FileSystem;
 

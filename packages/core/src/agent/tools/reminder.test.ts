@@ -8,7 +8,7 @@ import {
   createAddReminderTool,
   createCancelReminderTool,
   createListRemindersTool,
-} from "./reminder-tools";
+} from "./reminder";
 
 const context: ToolExecutionContext = { agentId: "agent-1" };
 

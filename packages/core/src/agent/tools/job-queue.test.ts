@@ -8,7 +8,7 @@ import {
   type JobQueueService,
   type JobRecord,
 } from "@/core/interfaces/job-queue-service";
-import { createJobQueueTools } from "./job-queue-tools";
+import { createJobQueueTools } from "./job-queue";
 
 function job(overrides: Partial<JobRecord> & Pick<JobRecord, "id" | "command">): JobRecord {
   return {

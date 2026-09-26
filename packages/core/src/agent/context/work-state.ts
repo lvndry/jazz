@@ -27,7 +27,7 @@ import { getWorkStateDirectory } from "@/core/utils/paths";
  * structured documents far more reliably than they rewrite paragraphs.
  *
  * The list of work itself is deliberately absent. It lives in todos
- * (`../tools/todo-tools.ts`), which are the same thing rendered in the interface — keeping
+ * (`../tools/todo.ts`), which are the same thing rendered in the interface — keeping
  * a second list here left the model to guess which one to update.
  */
 

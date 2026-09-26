@@ -107,7 +107,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
           return {
             success: false,
             result: null,
-            error: `pdfPageCount failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `pdf_page_count failed: ${error instanceof Error ? error.message : String(error)}`,
           };
         }
       }),

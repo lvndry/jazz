@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { ToolExecutionContext } from "@/core/types/tools";
-import { createListTodosTool, createManageTodosTool } from "./todo-tools";
+import { createListTodosTool, createManageTodosTool } from "./todo";
 
 const manageTodos = createManageTodosTool();
 const listTodos = createListTodosTool();

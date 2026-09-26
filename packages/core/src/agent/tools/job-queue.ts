@@ -18,7 +18,7 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-import { denylistBlockedError } from "./shell-tools";
+import { denylistBlockedError } from "./shell";
 
 type JobQueueToolDeps = JobQueueService | FileSystemContextService | FileSystem.FileSystem;
 

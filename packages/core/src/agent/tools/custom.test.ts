@@ -23,7 +23,7 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import type { Agent, CustomToolDefinition } from "@/core/types/agent";
 import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { registerCustomToolsForAgent } from "./custom-tools";
+import { registerCustomToolsForAgent } from "./custom";
 import { createToolRegistryLayer } from "./tool-registry";
 
 // ---------------------------------------------------------------------------

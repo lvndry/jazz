@@ -11,7 +11,7 @@ import {
   createCompositionTool,
   MISSING_BROWSER_ERROR,
   resolveBrowserExecutablePath,
-} from "./web-app-tools";
+} from "./web-app";
 
 const context: ToolExecutionContext = { agentId: "agent-1" };
 

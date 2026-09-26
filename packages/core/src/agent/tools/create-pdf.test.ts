@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { pdfFilenameFromTitle, resolvePdfOutputPath } from "./pdf-tools";
+import { pdfFilenameFromTitle, resolvePdfOutputPath } from "./create-pdf";
 
 describe("pdfFilenameFromTitle", () => {
   it("slugifies a title", () => {

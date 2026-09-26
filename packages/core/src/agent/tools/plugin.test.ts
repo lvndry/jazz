@@ -8,7 +8,7 @@ import {
   adaptPluginToolToJazz,
   pluginJazzToolName,
   type PluginToolApprovalInvoker,
-} from "./plugin-tools";
+} from "./plugin";
 
 const context = { agentId: "test-agent" } as ToolExecutionContext;
 

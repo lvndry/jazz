@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { readWorkState } from "@/core/agent/context/work-state";
 import type { ToolExecutionContext } from "@/core/types/tools";
-import { createUpdateWorkStateTool } from "./work-state-tools";
+import { createUpdateWorkStateTool } from "./work-state";
 
 const tool = createUpdateWorkStateTool();
 

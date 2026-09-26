@@ -5,7 +5,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
-import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell-tools";
+import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";

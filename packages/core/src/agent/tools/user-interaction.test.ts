@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
-import { userInteractionTools } from "./user-interaction-tools";
+import { userInteractionTools } from "./user-interaction";
 
 const askUserQuestion = userInteractionTools.find((tool) => tool.name === "ask_user_question");
 const askFilePicker = userInteractionTools.find((tool) => tool.name === "ask_file_picker");

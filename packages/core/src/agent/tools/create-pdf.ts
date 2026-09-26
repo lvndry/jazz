@@ -28,7 +28,7 @@ import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
   resolveBrowserExecutablePath,
-} from "./web-app-tools";
+} from "./web-app";
 
 export const MISSING_BROWSER_FOR_PDF_ERROR =
   "create_pdf needs a Chrome or Chromium install to render the page, and none was found. " +

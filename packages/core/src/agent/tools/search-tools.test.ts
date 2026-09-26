@@ -4,14 +4,10 @@ import { z } from "zod";
 import { JOB_TIMEOUT_MINUTES } from "@/core/constants/job-queue";
 import { ToolRegistryTag, type Tool, type ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext } from "@/core/types/tools";
-import { createJobQueueTools } from "./job-queue-tools";
-import {
-  createSearchToolsTool,
-  MAX_SEARCH_TOOLS_RESULTS,
-  rankToolsByQuery,
-} from "./search-tools-tool";
+import { createJobQueueTools } from "./job-queue";
+import { createSearchToolsTool, MAX_SEARCH_TOOLS_RESULTS, rankToolsByQuery } from "./search-tools";
 import { createToolRegistryLayer } from "./tool-registry";
-import { createRegisterTriggerTool } from "./wake-trigger-tools";
+import { createRegisterTriggerTool } from "./wake-trigger";
 
 /** The exact text `search_tools` indexes, read off the shipping tool rather than restated here. */
 function enqueueBatchSummary(): string {

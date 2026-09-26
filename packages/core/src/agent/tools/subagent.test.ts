@@ -14,7 +14,7 @@ import type {
 import type { Agent } from "@/core/types";
 import { AgentRunner } from "../agent-runner";
 import type { AgentRunnerOptions } from "../types";
-import { createSubagentTools } from "./subagent-tools";
+import { createSubagentTools } from "./subagent";
 
 const mockLogger = {
   debug: () => Effect.void,
@@ -840,7 +840,7 @@ describe("spawn_subagent iteration budget", () => {
 
 describe("spawn_subagent presentation", () => {
   it("does not import the TUI from core", async () => {
-    const source = await bunFile(new URL("./subagent-tools.ts", import.meta.url)).text();
+    const source = await bunFile(new URL("./subagent.ts", import.meta.url)).text();
     expect(source).not.toContain("@/cli/");
   });
 
