@@ -143,4 +143,19 @@ describe("the OS sandbox's network", () => {
     expect(modelNetworkPorts(["ollama"], {})).toEqual([11434]);
     expect(modelNetworkPorts(["openai", "openrouter"], {})).toEqual([443]);
   });
+
+  /** The regression: a server set by VLLM_BASE_URL was refused because only config was read. */
+  it("opens the port of a model server set in the environment", () => {
+    const previous = process.env["VLLM_BASE_URL"];
+    process.env["VLLM_BASE_URL"] = "http://10.0.0.5:9123/v1";
+    try {
+      expect(modelNetworkPorts(["vllm"], {})).toEqual([9123]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env["VLLM_BASE_URL"];
+      } else {
+        process.env["VLLM_BASE_URL"] = previous;
+      }
+    }
+  });
 });

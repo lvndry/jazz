@@ -3,7 +3,13 @@ import { join } from "node:path";
 import type { JudgeFn } from "./checks";
 import { EVAL_CONFIG } from "./config";
 import { parseEnvelope, spawnJazz } from "./run-jazz";
-import { createSandbox, modelNetworkPorts, readLlmConfig, removeSandbox } from "./sandbox";
+import {
+  createSandbox,
+  modelCredentials,
+  modelNetworkPorts,
+  readLlmConfig,
+  removeSandbox,
+} from "./sandbox";
 import { getJazzHomeDirectory } from "../packages/core/src/utils/paths";
 
 /** Pearson correlation. Returns 0 on length mismatch or zero variance. */
@@ -54,22 +60,19 @@ export function makeJudge(
     const provider = (
       JSON.parse(readFileSync(agentFile, "utf-8")) as { config?: { llmProvider?: string } }
     ).config?.llmProvider;
+    const providers = provider === undefined ? [] : [provider];
     const sandbox = createSandbox(
       "judge",
       [],
-      modelNetworkPorts(
-        provider === undefined ? [] : [provider],
-        readLlmConfig(getJazzHomeDirectory()),
-      ),
+      modelNetworkPorts(providers, readLlmConfig(getJazzHomeDirectory())),
+      await modelCredentials(providers),
     );
     try {
       mkdirSync(join(sandbox.jazzHome, "agents"), { recursive: true });
       copyFileSync(agentFile, join(sandbox.jazzHome, "agents", `${agentId}.json`));
-      // The judge's provider key usually lives in the OS keyring, so the keyring stays on.
-      const { JAZZ_DISABLE_KEYRING: _keyringOff, ...environment } = sandbox.environment;
       const proc = spawnJazz(
         ["run", prompt, "--agent", agentId, "--json", "--timeout", String(timeoutMs)],
-        { environment, stdout: "pipe", stderr: "ignore" },
+        { environment: sandbox.environment, stdout: "pipe", stderr: "ignore" },
       );
       const stdout = await new Response(proc.stdout).text();
       await proc.exited;
