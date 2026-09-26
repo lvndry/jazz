@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option, Ref } from "effect";
 import matter from "gray-matter";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { PluginRuntimeServiceTag } from "../interfaces/plugin-runtime.js";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
 import {

@@ -9,7 +9,7 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import {
   addRunRecord,
   lastCompletedRunAt,

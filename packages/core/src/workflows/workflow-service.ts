@@ -9,9 +9,9 @@ import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
 import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
-import { toError } from "@/core/utils/storage";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 

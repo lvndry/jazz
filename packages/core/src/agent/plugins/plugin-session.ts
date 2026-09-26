@@ -38,7 +38,7 @@ import {
   type WorkspaceContextHandler,
   type WorkspaceContextInput,
 } from "@/core/types/plugin";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import {
   validateDecisionRequest,
   validateDecisionResult,

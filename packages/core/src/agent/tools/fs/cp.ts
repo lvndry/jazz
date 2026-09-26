@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import {
   defineApprovalTool,
   makeZodValidator,

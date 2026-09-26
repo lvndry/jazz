@@ -16,9 +16,9 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@jazz/core/types/persona";
+import { toError } from "@jazz/core/utils/errors";
 import { scanMarkdownIndex } from "@jazz/core/utils/markdown-index";
 import { getBuiltinPersonasDirectory, getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 import matter from "gray-matter";
 

@@ -16,7 +16,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WorkspaceService, WorkspaceViewOutcome } from "@/core/interfaces/workspace-service";
 import { WorkspaceServiceTag } from "@/core/interfaces/workspace-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type WorkspaceToolDeps = WorkspaceService | FileSystem.FileSystem;

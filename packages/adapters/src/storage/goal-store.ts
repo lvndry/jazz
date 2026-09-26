@@ -15,8 +15,8 @@ import {
 } from "@jazz/core/agent/goal/goal-record";
 import { isGoalClaimed, isTerminalGoal, transitionGoal } from "@jazz/core/agent/goal/goal-state";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
+import { toError } from "@jazz/core/utils/errors";
 import { getGoalsDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 import {
   FileRecords,

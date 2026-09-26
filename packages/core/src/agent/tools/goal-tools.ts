@@ -23,7 +23,7 @@ import {
 import { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 export const PROPOSE_GOAL_TOOL_NAME = "propose_goal";

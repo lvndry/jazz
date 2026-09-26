@@ -8,8 +8,8 @@
  */
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { toError } from "@/core/utils/errors";
 import { getJazzSchedulerInvocation } from "@/core/utils/runtime";
-import { toError } from "@/core/utils/storage";
 
 export interface SpawnJobWorkerResult {
   readonly spawned: boolean;

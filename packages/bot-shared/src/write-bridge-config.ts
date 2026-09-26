@@ -7,7 +7,7 @@
  * Usage: bun write-bridge-config.ts <path-to-config.json>
  */
 
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { applyBridgeConfigFile } from "./bridge-config-file";
 
 const configPath = process.argv[2];

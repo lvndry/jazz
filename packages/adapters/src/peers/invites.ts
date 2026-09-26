@@ -32,7 +32,7 @@ import {
   type PeerInviteRecord,
   type RedeemInviteOutcome,
 } from "@jazz/core/types/peer-invite";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect, Layer } from "effect";
 import { upsertPeer } from "@/adapters/peers/config";
 import { getPeersDirectory } from "@/adapters/peers/ledger";

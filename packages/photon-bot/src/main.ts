@@ -5,7 +5,7 @@
  * anything - `jazz imessage` loads it to call `startBridge` itself.
  */
 
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { startBridge } from "./bridge";
 
 void startBridge().catch((error: unknown) => {

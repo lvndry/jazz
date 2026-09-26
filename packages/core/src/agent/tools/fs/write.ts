@@ -4,7 +4,7 @@ import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,

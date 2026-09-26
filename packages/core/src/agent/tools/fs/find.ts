@@ -5,7 +5,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";

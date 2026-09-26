@@ -78,10 +78,10 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";

@@ -68,6 +68,7 @@ import {
   type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
 import type { ToolCall } from "@jazz/core/types/tools";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import { convertToLLMError } from "@jazz/core/utils/llm-error";
@@ -78,7 +79,6 @@ import {
   formatProviderDisplayName,
   isChatGPTSignedIn,
 } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { sanitize } from "@jazz/core/utils/string";
 import {
   createOpenRouter,

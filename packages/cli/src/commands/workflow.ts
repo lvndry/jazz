@@ -9,8 +9,8 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
+import { toError } from "@jazz/core/utils/errors";
 import { agentModelString } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import {
   getCatchUpCandidates,
   runCatchUpForWorkflows,

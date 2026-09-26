@@ -29,8 +29,8 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 

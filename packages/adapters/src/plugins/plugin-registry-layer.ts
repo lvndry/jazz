@@ -6,7 +6,7 @@ import {
   type PluginRegistryService,
 } from "@jazz/core/interfaces/plugin-registry";
 import { PluginRegistryError } from "@jazz/core/types/plugin";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect, Layer } from "effect";
 import { parsePluginManifest } from "./manifest-schema";
 import { PluginRegistryServiceImpl, pluginConsentDigest } from "./plugin-registry-service";

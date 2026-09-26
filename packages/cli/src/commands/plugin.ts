@@ -21,9 +21,9 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { CommandRiskInput, CompactToolsInput, SkillRouteInput } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { toError } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 export interface PluginCommandOptions {

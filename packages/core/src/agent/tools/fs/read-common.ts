@@ -5,7 +5,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { toError } from "@/core/utils/storage";
+import { toError } from "@/core/utils/errors";
 import { buildKeyFromContext } from "../context-utils";
 
 export type FsToolDeps = FileSystem.FileSystem | FileSystemContextService;

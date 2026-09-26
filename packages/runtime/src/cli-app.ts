@@ -19,8 +19,8 @@ import {
 import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
+import { toError } from "@jazz/core/utils/errors";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { toError } from "@jazz/core/utils/storage";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
 

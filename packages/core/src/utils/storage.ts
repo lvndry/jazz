@@ -15,6 +15,7 @@ import {
   FILE_LOCK_TIMEOUT_MS,
 } from "@/core/constants/agent";
 import type { StorageConfig } from "../types";
+import { toError } from "./errors";
 import { getGlobalUserDataDirectory } from "./paths";
 
 const AGENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -102,11 +103,6 @@ export interface AtomicFileWriteOptions {
   readonly tempPrefix: string;
   /** File mode applied when creating the sibling temporary file. */
   readonly mode?: number;
-}
-
-/** Normalize an unknown failure into an `Error`, keeping it when it already is one. */
-export function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 function isAlreadyExistsError(error: PlatformError): boolean {

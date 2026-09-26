@@ -36,7 +36,7 @@ import type { Agent } from "@jazz/core/types";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { record as recordLedger } from "./ledger";
 

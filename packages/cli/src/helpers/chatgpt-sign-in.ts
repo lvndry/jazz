@@ -12,7 +12,7 @@ import {
 } from "@jazz/adapters/llm/chatgpt";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 
 type SignInMethod = "browser" | "device" | "back";

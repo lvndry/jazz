@@ -12,7 +12,7 @@
 
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { toError } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
 import { writeJsonFileDurably } from "./durable-file";
 import { withFileLock } from "./file-lock";
 
