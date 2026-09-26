@@ -59,7 +59,8 @@ export function extractJsonObject(content: string, requiredKey: string): unknown
   for (
     let start = trimmed.lastIndexOf("{", end);
     start >= 0;
-    start = trimmed.lastIndexOf("{", start - 1)
+    // lastIndexOf clamps a negative start to 0 and would find the same brace forever.
+    start = start === 0 ? -1 : trimmed.lastIndexOf("{", start - 1)
   ) {
     try {
       const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
