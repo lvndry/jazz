@@ -43,6 +43,7 @@ function stubConfig(overrides: {
 function stubLlm(supportsNative: boolean): LLMService {
   return {
     supportsNativeWebSearch: () => Effect.succeed(supportsNative),
+    resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
   } as unknown as LLMService;
 }
 

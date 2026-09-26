@@ -192,6 +192,31 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(anthropicProvider?.configured).toBe(false);
     });
 
+    it("resolves the reasoning control a request would use, including operator overrides", async () => {
+      const override = {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisable: false,
+      } as const;
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return {
+          overridden: yield* llmService.resolveReasoningControl("nvidia", "qwen/qwen3-thinking"),
+          builtin: yield* llmService.resolveReasoningControl("vllm", "any-model"),
+        };
+      });
+      const result = await runWithTestLayers(
+        testEffect,
+        createTestConfigLayer({
+          capabilityOverrides: { nvidia: { "qwen/qwen3-thinking": { reasoning: override } } },
+        }),
+      );
+      expect(result.overridden).toEqual(override);
+      expect(result.builtin).toMatchObject({
+        transport: "openai-compatible.chat.reasoning-effort",
+      });
+    });
+
     it("detects an NVIDIA NIM key from the NIM_API_KEY alias", async () => {
       const savedNvidia = process.env["NVIDIA_API_KEY"];
       const savedNim = process.env["NIM_API_KEY"];
@@ -1019,6 +1044,7 @@ describe("AI SDK Service - Unit Tests", () => {
         getProvider: () =>
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
+        resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
       } as unknown as LLMService;
 
       // Verify that consuming the response gives a typed LLMError
@@ -1067,6 +1093,7 @@ describe("AI SDK Service - Unit Tests", () => {
         getProvider: () =>
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
+        resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
       } as unknown as LLMService;
 
       // Verify that consuming the stream gives a typed LLMError

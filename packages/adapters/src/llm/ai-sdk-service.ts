@@ -109,7 +109,10 @@ import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import { saveModelGeneratedFiles } from "./generated-files";
-import { resolveModelCapabilities } from "./model-capabilities/resolver";
+import {
+  resolveModelCapabilities,
+  type ResolvedModelCapabilities,
+} from "./model-capabilities/resolver";
 import {
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -1526,6 +1529,37 @@ class AISDKService implements LLMService {
     );
   }
 
+  private resolveCapabilities(
+    providerName: ProviderName,
+    modelId: ModelName,
+    modelInfo: ModelInfo | undefined,
+  ): ResolvedModelCapabilities {
+    const operator = this.config.llmConfig?.capabilityOverrides?.[providerName]?.[modelId];
+    return resolveModelCapabilities({
+      provider: providerName,
+      modelId,
+      catalog: {
+        ...(modelInfo?.isReasoningModel !== undefined && {
+          supportsReasoning: modelInfo.isReasoningModel,
+        }),
+        ...(modelInfo?.supportsTools !== undefined && {
+          supportsTools: modelInfo.supportsTools,
+        }),
+      },
+      ...(operator !== undefined && { operator }),
+    });
+  }
+
+  readonly resolveReasoningControl = (
+    providerName: ProviderName,
+    modelId: string,
+  ): Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never> =>
+    Effect.promise(async () => {
+      await this.refreshRuntimeConfigIfChanged();
+      const modelInfo = await this.resolveModelInfo(providerName, modelId);
+      return this.resolveCapabilities(providerName, modelId, modelInfo).reasoning;
+    });
+
   /** Log once per provider, model, and requested level when the model cannot honor it as asked. */
   private reportReasoningClamp(
     providerName: ProviderName,
@@ -1740,22 +1774,11 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
         // STEP 6: Tools selection
         // Check if the selected model supports tools
         // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
@@ -2032,22 +2055,11 @@ class AISDKService implements LLMService {
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
-        const resolvedCapabilities = resolveModelCapabilities({
-          provider: providerName,
-          modelId: options.model,
-          catalog: {
-            ...(modelInfo?.isReasoningModel !== undefined && {
-              supportsReasoning: modelInfo.isReasoningModel,
-            }),
-            ...(modelInfo?.supportsTools !== undefined && {
-              supportsTools: modelInfo.supportsTools,
-            }),
-          },
-          ...(this.config.llmConfig?.capabilityOverrides?.[providerName]?.[options.model] !==
-            undefined && {
-            operator: this.config.llmConfig.capabilityOverrides[providerName][options.model]!,
-          }),
-        });
+        const resolvedCapabilities = this.resolveCapabilities(
+          providerName,
+          options.model,
+          modelInfo,
+        );
         this.reportReasoningClamp(
           providerName,
           options.model,

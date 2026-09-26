@@ -8,6 +8,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
 import {
@@ -23,6 +24,7 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
+import { describeReasoningAdjustment } from "@/cli/helpers/reasoning";
 import {
   ONE_SHOT_EXIT,
   formatOneShotError,
@@ -329,6 +331,19 @@ export function runAgentOnceCommand(
             },
           }
         : agent;
+
+    if (options.reasoning !== undefined) {
+      const control = yield* (yield* LLMServiceTag).resolveReasoningControl(
+        agent.config.llmProvider,
+        agent.config.llmModel,
+      );
+      const adjustment = describeReasoningAdjustment(options.reasoning, control);
+      if (adjustment) {
+        process.stderr.write(
+          `Warning: --reasoning ${options.reasoning}: ${agent.config.llmProvider}/${agent.config.llmModel}: ${adjustment}\n`,
+        );
+      }
+    }
 
     const ephemeral = options.ephemeral === true;
     const conversationKey = ephemeral ? undefined : options.conversationId?.trim();

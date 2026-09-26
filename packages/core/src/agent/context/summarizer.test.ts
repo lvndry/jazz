@@ -90,6 +90,7 @@ const mockLLMService: LLMService = {
   createStreamingChatCompletion: () =>
     Effect.fail(new LLMRequestError({ provider: "openai", message: "Not implemented in mock" })),
   supportsNativeWebSearch: () => Effect.succeed(false),
+  resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
   fetchVllmServerModel: () => Effect.succeed({}),
