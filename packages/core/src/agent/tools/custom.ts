@@ -205,9 +205,11 @@ function buildRecordTool(
  * would silently apply the WRONG agent's allowlist (e.g. leaking a token the
  * declaring agent was never granted, or scrubbing one it was).
  *
- * Command tools spawn arbitrary processes on every invocation with no
- * interactive approval step, so they are always registered `high-risk`
- * regardless of what the command itself does.
+ * Command tools spawn arbitrary processes on every invocation, so they are
+ * always registered `high-risk` regardless of what the command itself does.
+ * The executor gates them like any plain tool above `read-only`: they ask
+ * first, and run unasked only under the `high-risk` policy or when the tool
+ * is on the run's auto-approved tool list.
  */
 function buildCommandTool(
   definition: CustomToolDefinition & { readonly handler: CustomToolCommandHandler },

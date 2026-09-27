@@ -21,6 +21,7 @@ import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { childRunAuthority } from "./child-run-authority";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 
@@ -220,7 +221,10 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
         "Delegate a self-contained task to a child agent with a fresh context; only its final answer comes back. Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting stops at depth 3.",
       parameters: spawnSubagentSchema,
       hidden: false,
-      riskLevel: "low-risk",
+      // Spawning grants nothing: the child holds at most this run's tools under this run's
+      // policy (`childRunAuthority`), and every call it makes is gated as if made here.
+      peerGrantRequired: true,
+      riskLevel: "read-only",
       validate: makeZodValidator(spawnSubagentSchema),
       handler: (args: SpawnSubagentArgs, context) =>
         Effect.gen(function* () {
@@ -351,19 +355,8 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                   },
                 }
               : {}),
-            // Cap the child at the parent's own effective tools.
-            ...(context.effectiveToolNames
-              ? { toolAllowlist: [...context.effectiveToolNames] }
-              : {}),
+            ...childRunAuthority(context),
             subagentDepth: currentDepth + 1,
-            ...(context.egressTaint ? { egressTaint: context.egressTaint } : {}),
-            ...(context.getAutoApprovePolicy
-              ? { autoApprovePolicy: context.getAutoApprovePolicy }
-              : {}),
-            ...(context.autoApprovedCommands
-              ? { autoApprovedCommands: context.autoApprovedCommands }
-              : {}),
-            ...(context.autoApprovedTools ? { autoApprovedTools: context.autoApprovedTools } : {}),
             ...(context.onAutoApproveCommand
               ? { onAutoApproveCommand: context.onAutoApproveCommand }
               : {}),

@@ -21,6 +21,13 @@ const TOOLS: readonly TierCandidateTool[] = [
   { name: "write_file", riskLevel: "high-risk", disclosure: "public", egress: false },
   { name: "execute_command", riskLevel: "unknown", disclosure: "private", egress: false },
   { name: "manage_memory", riskLevel: "low-risk", disclosure: "private", egress: false },
+  {
+    name: "manage_todos",
+    riskLevel: "read-only",
+    disclosure: "private",
+    egress: false,
+    peerGrantRequired: true,
+  },
 ];
 
 function allowed(tier: string, allow: readonly string[] = []): readonly string[] {
@@ -40,6 +47,11 @@ describe("what a tier permits among read-only tools", () => {
     expect(allowed("internal")).toEqual(["get_time", "ls"]);
     expect(allowed("internal")).not.toContain("read_file");
     expect(allowed("internal")).not.toContain("view_memory");
+  });
+
+  it("withholds a read-only tool marked peerGrantRequired until allow names it", () => {
+    expect(allowed("private")).not.toContain("manage_todos");
+    expect(allowed("private", ["manage_todos"])).toContain("manage_todos");
   });
 
   it("adds the operator's own material only at private", () => {

@@ -1,9 +1,8 @@
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
-import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { CommonSuggestions } from "@jazz/core/presentation/error-handler";
-import { AgentNotFoundError } from "@jazz/core/types/errors";
+import { AgentNotFoundError, InteractiveTerminalRequiredError } from "@jazz/core/types/errors";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { Effect } from "effect";
 import packageJson from "../../../../package.json";
@@ -90,17 +89,18 @@ export function chatWithAIAgentCommand(
 
     // Start the chat session using the chat service
     const chatService = yield* ChatServiceTag;
-    yield* chatService.startChatSession(agent, options).pipe(
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          const logger = yield* LoggerServiceTag;
-          yield* logger.error("Chat session error", { errorType: "session_failed" });
-          yield* terminal.error(`Chat session error: ${String(error)}`);
-          return yield* Effect.void;
-        }),
-      ),
+    const sessionEnd = yield* chatService.startChatSession(agent, options).pipe(
       // Don't leave a stale agent name in the tab title after the session.
       Effect.ensuring(Effect.ignore(terminal.setTitle("🎷 Jazz"))),
     );
+    if (sessionEnd.reason === "end-of-input" && sessionEnd.messagesReceived === 0) {
+      return yield* Effect.fail(
+        new InteractiveTerminalRequiredError({
+          command: "jazz agent chat",
+          message: "no messages arrived on stdin, and there is no terminal to type them in.",
+          suggestion: `Run it in a terminal, or pipe messages on stdin, one per line: echo "hello" | jazz agent chat ${agent.id}`,
+        }),
+      );
+    }
   });
 }

@@ -119,6 +119,7 @@ function makeLayers(
     presentCompletion: mock(() => Effect.void),
     writeOutput: mock(() => Effect.void),
     writeBlankLine: mock(() => Effect.void),
+    writeError: mock(() => Effect.void),
     formatToolExecutionStart: mock(() => Effect.succeed("")),
     formatToolExecutionComplete: mock(() => Effect.succeed("")),
     formatToolResult: mock(() => ""),
@@ -149,7 +150,7 @@ function makeLayers(
       Effect.succeed(
         name === "danger"
           ? dangerTool
-          : { ...dangerTool, name, approvalExecuteToolName: undefined },
+          : { ...dangerTool, name, riskLevel: "read-only", approvalExecuteToolName: undefined },
       ),
     ),
     getToolDefinitions: mock(() =>
@@ -321,9 +322,9 @@ describe("park and resume, through the real loop", () => {
 
 describe("what an unattended run may do without being asked", () => {
   /**
-   * The regression: with nobody reachable, `shouldAutoApprove` used to clear nothing at all,
-   * so a run woken by a finished job batch parked on its first `git status` and the work
-   * never happened. Being unattended decides prompt-or-park, not what needs approving.
+   * With nobody reachable, a run granted the `read-only` tier still clears a read-only
+   * gated tool: a run woken by a finished job batch must not park on its first
+   * `git status`. Being unattended decides prompt-or-park, not what needs approving.
    */
   it("runs a read-only gated tool rather than parking on it", async () => {
     executions = [];
@@ -336,6 +337,7 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-read-only",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL], "read-only"))) as Effect.Effect<
         unknown,
         unknown
@@ -359,6 +361,7 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-read-only-batch",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(
         Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL], "read-only")),
       ) as Effect.Effect<unknown, unknown>,
@@ -380,6 +383,7 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-high-risk",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,
     );
 

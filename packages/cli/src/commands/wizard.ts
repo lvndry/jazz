@@ -25,6 +25,7 @@ import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
@@ -53,6 +54,14 @@ type MenuAction =
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
  */
 export function wizardCommand() {
+  return requireInteractiveTerminal(
+    "jazz",
+    'Run `jazz` in a terminal. From a script, use `jazz run --agent <id> "<prompt>"`, or pipe messages to `jazz agent chat <agent>`, one per line.',
+  ).pipe(Effect.zipRight(wizardSession()));
+}
+
+/** The home menu loop, once a terminal that can prompt is known to be present. */
+function wizardSession() {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     const configService = yield* AgentConfigServiceTag;
