@@ -1,6 +1,14 @@
+/**
+ * Exercises tool dispatch, reachability, approval policies and parked-batch ordering with
+ * isolated service layers. Real media tools verify that approval preflight cannot start a
+ * companion run; only the model boundary is stubbed to avoid external calls.
+ */
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it } from "bun:test";
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { describe, expect, it, spyOn } from "bun:test";
+import { Cause, Deferred, Effect, Either, Exit, Fiber, Layer, Option } from "effect";
 import { ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -29,8 +37,11 @@ import { type SkillService, SkillServiceTag } from "../../skills/skill-service";
 import { GenerationInterruptedError } from "../../types/errors";
 import type { DisplayConfig } from "../../types/output";
 import type { StreamEvent } from "../../types/streaming";
+import type { ToolExecutionContext } from "../../types/tools";
 import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types/tools";
+import { AgentRunner } from "../agent-runner";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createPerceptionTools } from "../tools/perception";
 
 /** Result shape of executeToolCall / executeToolCalls items */
 type ToolCallExecutionResult = {
@@ -1428,4 +1439,140 @@ describe("plain tools are gated on their risk level", () => {
     expect(write.requests).toHaveLength(1);
     expect(write.executed).toEqual([]);
   });
+});
+
+describe("bound media during approval preflight", () => {
+  for (const toolName of ["generate_media", "analyze_media"] as const) {
+    it(`${toolName} runs once after a sibling approval is answered, never while parking`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), "jazz-media-preflight-"));
+      const mediaPath = join(directory, "input.png");
+      await writeFile(
+        mediaPath,
+        Buffer.concat([
+          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+          Buffer.from([0, 0, 0, 13]),
+          Buffer.from("IHDR"),
+          Buffer.from([0, 0, 0, 1, 0, 0, 0, 1]),
+          Buffer.alloc(9),
+        ]),
+      );
+      const child = spyOn(AgentRunner, "runRecursive").mockImplementation(() =>
+        Effect.succeed({
+          content: "a red circle",
+          conversationId: "child",
+          artifacts: [
+            {
+              kind: "image",
+              path: mediaPath,
+              mediaType: "image/png",
+              tool: "ollama/painter",
+              source: "model",
+            },
+          ],
+        }),
+      );
+      let siblingExecutions = 0;
+      const tools = createPerceptionTools();
+      const registry = {
+        getTool: (name: string) =>
+          Effect.succeed(
+            tools.find((tool) => tool.name === name) ?? { name, riskLevel: "high-risk" },
+          ),
+        executeTool: (
+          name: string,
+          args: Record<string, unknown>,
+          context: ToolExecutionContext,
+        ) => {
+          const tool = tools.find((candidate) => candidate.name === name);
+          if (tool !== undefined) return tool.execute(args, context);
+          return Effect.sync(() => {
+            siblingExecutions++;
+            return { success: true, result: "done" };
+          });
+        },
+      } as unknown as ToolRegistry;
+      const presentation = {
+        ...mockPresentationService,
+        canPromptForApproval: () => false,
+        openEphemeralRegion: () => Effect.succeed("region"),
+        appendEphemeralRegion: () => Effect.void,
+        collapseEphemeralRegion: () => Effect.void,
+      } as PresentationService;
+      const calls: readonly ToolCall[] = [
+        {
+          id: "media",
+          type: "function",
+          function: {
+            name: toolName,
+            arguments: JSON.stringify(
+              toolName === "generate_media"
+                ? { modality: "image", prompt: "a red circle" }
+                : { modality: "image", task: "describe", mediaPaths: [mediaPath] },
+            ),
+          },
+        },
+        { id: "sibling", type: "function", function: { name: "mutate", arguments: "{}" } },
+      ];
+      const context: ToolExecutionContext = {
+        agentId: "parent",
+        parkWhenUnattended: true,
+        effectiveToolNames: new Set([...tools.map((tool) => tool.name), "mutate"]),
+        getAutoApprovePolicy: () => false,
+        parentAgent: {
+          id: "parent",
+          name: "parent",
+          description: "",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          config: {
+            persona: "default",
+            llmProvider: "ollama",
+            llmModel: "text",
+            companions: {
+              "generate:image": "ollama/painter",
+              "analyze:image": "ollama/vision",
+            },
+          },
+        },
+      };
+      const run = (runContext: ToolExecutionContext, batch = calls) =>
+        Effect.runPromise(
+          ToolExecutor.executeToolCalls(
+            batch,
+            runContext,
+            { ...displayConfig, showToolExecution: false },
+            null,
+            makeRunMetrics(),
+            "parent",
+            "conv",
+            "parent",
+          ).pipe(Effect.provide(makeTestLayer({ registry, presentation })), Effect.either),
+        );
+      try {
+        const parked = await run(context);
+        expect(parked._tag).toBe("Left");
+        expect(child).not.toHaveBeenCalled();
+        expect(siblingExecutions).toBe(0);
+        const resumed = await run({
+          ...context,
+          resolvedApprovals: new Map([["sibling", { approved: true }]]),
+        });
+        expect(resumed._tag).toBe("Right");
+        if (Either.isRight(resumed))
+          expect(resumed.right.map((result) => result.success)).toEqual([true, true]);
+        expect(child).toHaveBeenCalledTimes(1);
+        expect(siblingExecutions).toBe(1);
+        const standalone = await run({ ...context, getAutoApprovePolicy: () => "high-risk" }, [
+          calls[0]!,
+        ]);
+        expect(standalone._tag).toBe("Right");
+        if (Either.isRight(standalone))
+          expect(standalone.right.map((result) => result.success)).toEqual([true]);
+        expect(child).toHaveBeenCalledTimes(2);
+      } finally {
+        child.mockRestore();
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+  }
 });

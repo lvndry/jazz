@@ -936,6 +936,7 @@ export class ToolExecutor {
             const probe = yield* ToolExecutor.executeTool(name, args, {
               ...context,
               toolCallId: toolCall.id,
+              approvalPhase: "preflight",
             }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
             if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
             if (!isRequestBoundToTool(toolMeta, probe.result)) continue;

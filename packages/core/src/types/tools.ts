@@ -353,6 +353,13 @@ export interface ToolExecutionContext {
    */
   readonly parkWhenUnattended?: boolean;
   /**
+   * The executor is collecting approval proposals before any call in a batch runs.
+   * Tools may validate and describe a request, but must not perform the operation.
+   * A tool with standing consent returns no approval request in this phase and executes
+   * only on the later ordinary call. Set by the executor, never accepted from tool args.
+   */
+  readonly approvalPhase?: "preflight";
+  /**
    * Told, as it happens, what this run is doing.
    *
    * For a caller that is not in the room: a webhook holds one HTTP request open and returns

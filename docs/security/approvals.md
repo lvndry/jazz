@@ -163,6 +163,11 @@ Over the daemon's HTTP API, approving or answering a parked run also needs the o
 Rejecting needs only the daemon token. See
 [granting authority over HTTP](../concepts/daemon.md#granting-authority-over-http).
 
+Before parking a batch, Jazz gathers its approval requests without running any operations.
+A configured media companion counts as standing consent, but analysis or generation waits
+until every call in the batch has its answer. The companion runs once when execution proceeds;
+checking whether the batch needs approval does not invoke the media companion.
+
 Park only where somebody will actually look.
 
 ## Related
