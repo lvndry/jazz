@@ -2341,7 +2341,8 @@ function resolveMcpServerStatus(
     const enabled = config.enabled !== false;
     const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
     const usesOAuth = isHttpConfig(config) && !config.headers;
-    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+    const storedAuth =
+      usesOAuth && isHttpConfig(config) ? yield* hasStoredAuth(config.name, config.url) : false;
 
     const kind: McpStatusKind = !enabled
       ? "disabled"
@@ -2505,7 +2506,8 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        yield* clearServerAuth(config.name);
+        if (!isHttpConfig(config)) return;
+        yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
       }

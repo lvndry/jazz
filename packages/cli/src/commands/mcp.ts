@@ -530,7 +530,10 @@ export function removeMcpServerCommand(
     // Touch only this server's key rather than rewriting the whole override
     // map, so a concurrent edit to another server is not clobbered.
     yield* configService.set(`mcpServers.${selected}`, { enabled: false });
-    yield* clearServerAuth(selected);
+    const removed = mcpServers[selected];
+    if (removed !== undefined && isHttpConfig(removed)) {
+      yield* clearServerAuth(selected, removed.url);
+    }
 
     yield* terminal.success(`Removed MCP server: ${selected}`);
   });
@@ -678,14 +681,22 @@ export function authMcpServerCommand(name: string): Effect.Effect<void, never, M
 export function logoutMcpServerCommand(name: string): Effect.Effect<void, never, McpCommandDeps> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
 
-    const stored = yield* hasStoredAuth(name);
+    const mcpServers = yield* configService.getOrElse<McpServersRecord>("mcpServers", {});
+    const serverConfig = mcpServers[name];
+    if (serverConfig === undefined || !isHttpConfig(serverConfig)) {
+      yield* terminal.info(`No stored credentials for "${name}".`);
+      return;
+    }
+
+    const stored = yield* hasStoredAuth(name, serverConfig.url);
     if (!stored) {
       yield* terminal.info(`No stored credentials for "${name}".`);
       return;
     }
 
-    yield* clearServerAuth(name);
+    yield* clearServerAuth(name, serverConfig.url);
     yield* terminal.success(`Cleared stored credentials for ${name}.`);
   });
 }
