@@ -1,3 +1,4 @@
+import { CHOICE_CALLBACK_PREFIX, createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import {
   bold,
   code,
@@ -9,12 +10,7 @@ import {
   text,
 } from "@jazz/bot-shared/surface";
 import { describe, expect, test } from "bun:test";
-import {
-  CHOICE_CALLBACK_PREFIX,
-  createChoiceTokens,
-  renderRichText,
-  telegramPieces,
-} from "./surface";
+import { renderRichText, telegramPieces } from "./surface";
 
 describe("renderRichText", () => {
   test("maps spans onto Telegram's HTML flavour", () => {

@@ -6,6 +6,8 @@
  * messages under Telegram's per-message limit.
  */
 
+import { splitForSurface } from "@jazz/bot-shared/surface";
+
 // Telegram's hard limit is 4096; split lower so HTML tags/entities added by
 // markdown rendering can't push a chunk over the limit.
 const TELEGRAM_SPLIT_LENGTH = 3500;
@@ -73,23 +75,15 @@ export function markdownToTelegramHtml(markdown: string): string {
   return text;
 }
 
+/** Split Markdown under Telegram's limit, keeping code fences balanced in every chunk. */
 export function splitForTelegram(text: string): string[] {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
     return ["(empty response)"];
   }
-
-  const chunks: string[] = [];
-  let remaining = trimmed;
-  while (remaining.length > TELEGRAM_SPLIT_LENGTH) {
-    const window = remaining.slice(0, TELEGRAM_SPLIT_LENGTH);
-    const lastNewline = window.lastIndexOf("\n");
-    const splitAt = lastNewline > TELEGRAM_SPLIT_LENGTH * 0.5 ? lastNewline : window.length;
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt);
-  }
-  chunks.push(remaining);
-  return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
+  return splitForSurface(trimmed, TELEGRAM_SPLIT_LENGTH)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 0);
 }
 
 /**

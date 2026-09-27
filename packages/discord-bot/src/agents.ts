@@ -19,13 +19,11 @@ import {
   type AgentConfig,
   type AgentFile,
   agentPath,
-  ensureScopedAgentFrom,
   hasAgentFile,
   readAgentFile,
   syncAgentDisplayNameEverywhere,
-  writeAgentFile,
 } from "@jazz/bot-shared/agent-file";
-import { type ChatSandbox, chatHome, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
+import { chatHome } from "@jazz/bot-shared/chat-sandbox";
 
 export type { AgentConfig, AgentFile };
 export { agentPath, readAgentFile };
@@ -51,26 +49,6 @@ export function channelIdFromAgentId(agentId: string): string | null {
 export function hasChatAgent(dataDir: string, channelId: string): boolean {
   const agentId = agentIdForChannel(channelId);
   return hasAgentFile(chatHome(dataDir, agentId), agentId);
-}
-
-export function ensureChatAgent(
-  dataDir: string,
-  sandbox: ChatSandbox,
-  channelId: string,
-  baseAgentId: string,
-): AgentFile {
-  return ensureScopedAgentFrom(
-    dataDir,
-    sandbox.home,
-    agentIdForChannel(channelId),
-    baseAgentId,
-    sandboxOwnership(sandbox),
-  );
-}
-
-/** Write an agent file into a conversation's own home, leaving it owned by that conversation. */
-export function writeChatAgentFile(sandbox: ChatSandbox, agent: AgentFile): void {
-  writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
 }
 
 /**

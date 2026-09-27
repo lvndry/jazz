@@ -1,6 +1,6 @@
 import { isJazzBinaryPath } from "@jazz/bot-shared/jazz-binary";
 import { describe, expect, test } from "bun:test";
-import { promptFrom, questionFromSelfText } from "./bridge";
+import { createCursorTracker, promptFrom, questionFromSelfText } from "./bridge";
 
 describe("isJazzBinaryPath", () => {
   test("recognises the npm-installed binary", () => {
@@ -66,5 +66,24 @@ describe("promptFrom", () => {
     // starts with the quote, so every reply was silently dropped.
     expect(questionFromSelfText(promptFrom(message), "jazz")).toBeUndefined();
     expect(questionFromSelfText(message.text, "jazz")).toBe("what time is it");
+  });
+});
+
+describe("the self trigger is a word", () => {
+  test("a word that only starts with the trigger is not a question", () => {
+    expect(questionFromSelfText("jazzy weather today", "jazz")).toBeUndefined();
+    expect(questionFromSelfText("Jazz, what's up", "jazz")).toBe("what's up");
+    expect(questionFromSelfText("jazz: remind me", "jazz")).toBe("remind me");
+  });
+});
+
+describe("createCursorTracker", () => {
+  test("moves only past messages that were handled", () => {
+    const cursor = createCursorTracker();
+    cursor.started(10);
+    cursor.started(11);
+    // 11 finished first, but 10 is still open: resume from before 10.
+    expect(cursor.finished(11)).toBe(9);
+    expect(cursor.finished(10)).toBe(11);
   });
 });

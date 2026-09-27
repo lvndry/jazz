@@ -10,10 +10,11 @@
  * `callback_data` and nothing else, and the ids the agent mints for its prompts
  * are long enough that a naive `"<promptId>:<choiceId>"` can overflow it — after
  * which Telegram rejects the whole keyboard and the person is left with a
- * question they cannot answer. So buttons carry a short token and the pair it
- * stands for is kept here.
+ * question they cannot answer. So buttons carry a short token
+ * (`bot-shared/choice-tokens.ts`) and the pair it stands for is kept in memory.
  */
 
+import { type ChoiceRef, createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import {
   type ChatId,
   type Choice,
@@ -39,16 +40,6 @@ export const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
 /** Telegram's hard per-message limit is 4096; the splitter stays under it. */
 const TELEGRAM_MAX_CHARS = 3_500;
 
-/**
- * How many choice tokens to remember.
- *
- * A token is only useful while its keyboard is on screen and its run is alive,
- * but an abandoned keyboard is never cleaned up by anyone, so the map is capped
- * and the oldest entries fall out. Generous enough that a tap on anything from
- * a recent conversation still resolves.
- */
-const CHOICE_TOKEN_LIMIT = 1_000;
-
 const CAPABILITIES: SurfaceCapabilities = {
   editMessages: true,
   buttons: true,
@@ -59,52 +50,23 @@ const CAPABILITIES: SurfaceCapabilities = {
   maxMessageChars: TELEGRAM_MAX_CHARS,
 };
 
-/** What a tapped button stands for. */
-export interface ChoiceRef {
-  readonly promptId: string;
-  readonly choiceId: string;
-}
-
-/** The `callback_data` prefix this surface owns; other prefixes route elsewhere. */
-export const CHOICE_CALLBACK_PREFIX = "ch";
-
 /**
- * The short tokens buttons carry, and what each stands for.
- *
- * Separate from the surface so the encoding and its eviction can be tested
- * without a bot token or a network — this is the part that decides whether a
- * tap resolves the right prompt, and it is worth being sure of.
+ * How long a Bot API call may take. Without a bound a half-open connection stalls the call
+ * for Bun's five-minute default, and with it the chat's whole send queue.
  */
-export interface ChoiceTokens {
-  mint(ref: ChoiceRef): string;
-  read(callbackData: string): ChoiceRef | undefined;
-  readonly size: number;
-}
+const REQUEST_TIMEOUT_MS = 20_000;
+/** An upload carries a file, so it gets longer. */
+const UPLOAD_TIMEOUT_MS = 60_000;
+/** A long poll holds the request open for its own `timeout` seconds; this is the margin. */
+const LONG_POLL_MARGIN_MS = 15_000;
 
-export function createChoiceTokens(limit: number = CHOICE_TOKEN_LIMIT): ChoiceTokens {
-  const refs = new Map<string, ChoiceRef>();
-  let next = 0;
-
-  return {
-    mint(ref: ChoiceRef): string {
-      const token = (next++).toString(36);
-      refs.set(token, ref);
-      // Insertion-ordered, so the first key is the oldest.
-      if (refs.size > limit) {
-        const oldest = refs.keys().next();
-        if (!oldest.done) refs.delete(oldest.value);
-      }
-      return `${CHOICE_CALLBACK_PREFIX}:${token}`;
-    },
-    read(callbackData: string): ChoiceRef | undefined {
-      const [prefix, token] = callbackData.split(":");
-      if (prefix !== CHOICE_CALLBACK_PREFIX || token === undefined) return undefined;
-      return refs.get(token);
-    },
-    get size() {
-      return refs.size;
-    },
-  };
+/** The deadline for one call: a long poll's own wait plus a margin, or the usual bound. */
+export function requestTimeoutMs(method: string, payload: Record<string, unknown>): number {
+  const pollSeconds = payload["timeout"];
+  if (method === "getUpdates" && typeof pollSeconds === "number") {
+    return pollSeconds * 1000 + LONG_POLL_MARGIN_MS;
+  }
+  return REQUEST_TIMEOUT_MS;
 }
 
 export interface TelegramSurfaceOptions {
@@ -249,6 +211,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(requestTimeoutMs(method, payload)),
         }),
     });
 
@@ -387,6 +350,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
           fetch(`${apiBase}/bot${options.botToken}/sendPhoto`, {
             method: "POST",
             body: form,
+            signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
           }),
       });
     },

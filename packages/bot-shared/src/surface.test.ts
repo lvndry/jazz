@@ -99,3 +99,22 @@ describe("renderChoicesAsText", () => {
     ).toBe("1. Accept\n2. Reject");
   });
 });
+
+describe("splitForSurface with code", () => {
+  test("a cut inside a code block closes and reopens the fence with its language", () => {
+    const code = Array.from({ length: 30 }, (_, index) => `  const value${index} = ${index};`).join(
+      "\n",
+    );
+    const chunks = splitForSurface(`Intro\n\n\`\`\`ts\n${code}\n\`\`\`\n\nAfter the code.`, 300);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(300);
+      const fences = chunk.split("\n").filter((row) => row.trim().startsWith("```")).length;
+      expect(fences % 2).toBe(0);
+    }
+    expect(chunks[1]?.startsWith("```ts\n")).toBe(true);
+    expect(chunks.at(-1)?.endsWith("After the code.")).toBe(true);
+    // Indentation inside the code survives the cut.
+    expect(chunks.slice(1).join("\n")).toContain("  const value");
+  });
+});

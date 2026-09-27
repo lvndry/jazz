@@ -265,6 +265,41 @@ export function parseEnvelope(stdout: string): JazzEnvelope | undefined {
 }
 
 /**
+ * A kill deadline that stops counting while the run waits on a person.
+ *
+ * Jazz extends its own `--timeout` while it is parked on an approval or a question, so a
+ * human taking five minutes to tap Approve does not use up the agent's budget. The bridge's
+ * kill timer has to do the same, or the tap lands on a process it already killed.
+ */
+export function createKillTimer(
+  onExpire: () => void,
+  budgetMs: number,
+): { pause(): void; resume(): void; stop(): void } {
+  let remainingMs = budgetMs;
+  let startedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(onExpire, remainingMs);
+  let stopped = false;
+  return {
+    pause() {
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      timer = undefined;
+      remainingMs -= Date.now() - startedAt;
+    },
+    resume() {
+      if (stopped || timer !== undefined) return;
+      startedAt = Date.now();
+      timer = setTimeout(onExpire, Math.max(0, remainingMs));
+    },
+    stop() {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
+/**
  * Spawn the turn and return immediately with handles onto it.
  *
  * Returning before the run finishes is the point: an approval or a question
@@ -281,11 +316,19 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
 
   let cancelled = false;
   let lastSpend: RunSpend | undefined;
-  const timeout = setTimeout(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
+  const killTimer = createKillTimer(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
+  /** Prompts the run is parked on, by id; the kill timer is paused while any are open. */
+  const waitingOnHuman = new Set<string>();
+  const humanAnswered = (id: string): void => {
+    waitingOnHuman.delete(id);
+    if (waitingOnHuman.size === 0) killTimer.resume();
+  };
 
   const stderrTail: string[] = [];
   const stderrDone = streamLines(child.stderr, (rawLine) => {
-    if (stderrTail.length < STDERR_TAIL_LINES) stderrTail.push(rawLine);
+    // The last lines, not the first: a crash is at the end of the stream.
+    stderrTail.push(rawLine);
+    if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
     const trimmed = rawLine.trim();
     if (!trimmed.startsWith("{")) return;
     let event: JazzEvent;
@@ -299,9 +342,13 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     lastSpend = runSpendFromEvent(event) ?? lastSpend;
     handlers.onEvent?.(event);
     if (event.type === "approval_required" && event.toolCallId) {
+      waitingOnHuman.add(event.toolCallId);
+      killTimer.pause();
       handlers.onApprovalRequired?.(event);
     }
     if (event.type === "user_input_required" && event.requestId) {
+      waitingOnHuman.add(event.requestId);
+      killTimer.pause();
       handlers.onUserInputRequired?.(event);
     }
   });
@@ -334,7 +381,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       stderrDone,
       child.exited,
     ]);
-    clearTimeout(timeout);
+    killTimer.stop();
 
     const envelope = parseEnvelope(stdout);
     if (envelope === undefined) {
@@ -353,10 +400,13 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     approve: async (decisions) => {
       for (const { toolCallId, approved } of decisions) {
         await writeStdin({ type: "approval_decision", toolCallId, approved });
+        humanAnswered(toolCallId);
       }
     },
-    answerQuestion: (requestId, response) =>
-      writeStdin({ type: "user_input_response", requestId, response }),
+    answerQuestion: async (requestId, response) => {
+      await writeStdin({ type: "user_input_response", requestId, response });
+      humanAnswered(requestId);
+    },
     cancel: () => {
       cancelled = true;
       child.kill();

@@ -33,6 +33,7 @@ import {
   planCompositionDelivery,
 } from "./answer";
 import { approvalPolicyFor } from "./approval-mode-store";
+import { type RunLimits, runLimitsFromEnv } from "./bridge-env";
 import {
   addAutoApprovedCommand,
   type ChatSandbox,
@@ -61,7 +62,7 @@ import {
   type Surface,
 } from "./surface";
 import { tzForChat } from "./timezone-store";
-import { createCommands, operatorOnlyMessage } from "./turn-commands";
+import { createCommands, operatorOnlyMessage, parseCommand } from "./turn-commands";
 import {
   capBlockMessage,
   dailyCostCapBlockReason,
@@ -166,6 +167,11 @@ export interface TurnConfig {
    * is passed in rather than swapped underneath.
    */
   readonly startRun?: typeof startJazzRun;
+  /**
+   * Agent runs this runner has in flight at once across every conversation, and messages
+   * a conversation may have waiting behind its run. Defaults to `runLimitsFromEnv()`.
+   */
+  readonly limits?: RunLimits;
 }
 
 /** Who sent a message, in the surface's own id space (a user id, a phone number, a handle). */
@@ -207,6 +213,19 @@ export const REJECT_CHOICE_ID = "reject";
 export const ALWAYS_ALLOW_CHOICE_ID = "always";
 export const APPROVE_ALL_CHOICE_ID = "approve-all";
 export const REJECT_ALL_CHOICE_ID = "reject-all";
+
+/** Told to anyone with a run in flight, or writing in, while the bridge shuts down. */
+const RESTARTING_NOTICE: RichText = [
+  plainLine("⚠️ The bridge is restarting, so your request was stopped. Send it again in a minute."),
+];
+/** How often a shutdown checks whether the runs it cancelled have wound down. */
+const SHUTDOWN_POLL_MS = 100;
+
+/** `/stop` or `/cancel`, with or without a bot name. */
+function isStopCommand(text: string): boolean {
+  const command = parseCommand(text)?.command;
+  return command === "stop" || command === "cancel";
+}
 
 /** What the ⏹ Cancel button under the progress display answers. */
 export const CANCEL_PROMPT_ID = "run:cancel";
@@ -361,6 +380,12 @@ export interface TurnRunner {
   send(chatId: ChatId, body: RichText): Promise<void>;
   /** Whether a run is in flight, for a bridge that wants to show it. */
   busy(chatId: ChatId): boolean;
+  /**
+   * Stop taking messages, tell everyone with a run in flight that it was stopped, cancel
+   * those runs, and resolve once they have wound down (or `graceMs` has passed). For a
+   * bridge that is shutting down.
+   */
+  shutdown(graceMs: number): Promise<void>;
 }
 
 export function createTurnRunner(config: TurnConfig): TurnRunner {
@@ -370,6 +395,36 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const buttons = surface.capabilities.buttons;
   const canRedrawChoices =
     buttons && surface.capabilities.editMessages && surface.setChoices !== undefined;
+
+  const limits = config.limits ?? runLimitsFromEnv();
+  let runningCount = 0;
+  const waitingForSlot: (() => void)[] = [];
+  let stopping = false;
+
+  /**
+   * Take one of the process-wide run slots, telling the person once when they have to wait
+   * for one. The returned function gives it back.
+   */
+  const acquireRunSlot = async (chatId: ChatId): Promise<() => void> => {
+    if (runningCount >= limits.maxConcurrentRuns) {
+      await send(chatId, [
+        plainLine(
+          `⏳ Busy with ${runningCount} other conversations; yours starts as soon as one finishes.`,
+        ),
+      ]).catch(() => undefined);
+      while (runningCount >= limits.maxConcurrentRuns) {
+        await new Promise<void>((resolve) => waitingForSlot.push(resolve));
+      }
+    }
+    runningCount += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      runningCount -= 1;
+      waitingForSlot.shift()?.();
+    };
+  };
 
   const stateFor = (chatId: ChatId): ChatState => {
     const existing = states.get(chatId);
@@ -587,8 +642,10 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // another person's request.
     if (state.requester !== senderId) return false;
 
-    // A free-text question has no options, so whatever they say next is it.
+    // A free-text question has no options, so whatever they say next is it, except a
+    // command, which is still a command.
     if (pending.kind === "question" && pending.choices.length === 0) {
+      if (parseCommand(reply) !== undefined && commands.isCommand(reply)) return false;
       await settle(chatId, pending, reply);
       return true;
     }
@@ -620,7 +677,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   // --- The run -------------------------------------------------------------
 
   const answer = async (message: InboundMessage): Promise<void> => {
-    const { chatId, text: prompt } = message;
+    const { chatId } = message;
     const capBlock = dailyCostCapBlockReason(
       await todayUsage(config.jazzHome, config.spendOrigin),
       config.dailyCostCapUsd,
@@ -642,7 +699,25 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const incognito =
       config.incognitoFile !== undefined &&
       isIncognito(config.jazzHome, config.incognitoFile, chatId);
-    const runLog = createRunLog(sandbox.home, conversation);
+    const releaseSlot = await acquireRunSlot(chatId);
+    try {
+      // Opened once the run can start, so the log's clock is the run's, not the wait's.
+      const runLog = createRunLog(sandbox.home, conversation);
+      await runAndAnswer(message, state, sandbox, conversation, incognito, runLog);
+    } finally {
+      releaseSlot();
+    }
+  };
+
+  const runAndAnswer = async (
+    message: InboundMessage,
+    state: ChatState,
+    sandbox: ChatSandbox,
+    conversation: string,
+    incognito: boolean,
+    runLog: ReturnType<typeof createRunLog>,
+  ): Promise<void> => {
+    const { chatId, text: prompt } = message;
     const reporter = createProgressReporter({
       surface,
       chatId,
@@ -840,6 +915,45 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     return { outcome: "answered", count: approvals.length };
   };
 
+  /**
+   * Run one message's handling so that a failure answers that message and leaves the rest
+   * of the conversation's queue to run. Without it one throw stranded every message queued
+   * behind it, unanswered, until something else arrived.
+   */
+  const handleSafely = async (
+    message: InboundMessage,
+    work: () => Promise<void>,
+  ): Promise<void> => {
+    try {
+      await work();
+    } catch (error) {
+      console.error(`Handling a message in ${message.chatId} failed: ${String(error)}`);
+      await send(message.chatId, [
+        plainLine("⚠️ Something went wrong handling your message. Try again in a moment."),
+      ]).catch((notifyError: unknown) =>
+        console.error(`Could not tell ${message.chatId} it failed: ${String(notifyError)}`),
+      );
+    }
+  };
+
+  /** `/stop` and `/cancel` stop the run; any other immediate command is an ordinary one. */
+  const handleImmediate = async (message: InboundMessage): Promise<void> => {
+    if (!isStopCommand(message.text)) {
+      await commands.handle(message);
+      return;
+    }
+    const outcome = cancel(message.chatId, message.senderId);
+    await send(message.chatId, [
+      plainLine(
+        outcome === "cancelled"
+          ? "⏹ Stopping the current run."
+          : outcome === "idle"
+            ? "Nothing is running."
+            : "Only the person who started this run, or an operator, can stop it.",
+      ),
+    ]);
+  };
+
   const runner: TurnRunner = {
     busy: (chatId) => stateFor(chatId).busy,
     send,
@@ -902,8 +1016,26 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     async handle(message: InboundMessage): Promise<void> {
       const state = stateFor(message.chatId);
 
+      if (stopping) {
+        await send(message.chatId, RESTARTING_NOTICE).catch(() => undefined);
+        return;
+      }
+
       if (state.busy) {
+        // A command about the conversation itself is answered now, not after the run.
+        if (commands.answersImmediately(message.text)) {
+          await handleSafely(message, () => handleImmediate(message));
+          return;
+        }
         if (await resolveTypedReply(message)) return;
+        if (state.queue.length >= limits.maxQueuedMessages) {
+          await send(message.chatId, [
+            plainLine(
+              `⚠️ ${state.queue.length} messages are already waiting behind the current answer, so this one was dropped. Send it again once that answer arrives, or /stop it.`,
+            ),
+          ]).catch(() => undefined);
+          return;
+        }
         state.queue.push(message);
         return;
       }
@@ -912,11 +1044,32 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       try {
         let next: InboundMessage | undefined = message;
         while (next !== undefined) {
-          if (!(await commands.handle(next))) await answer(next);
+          const current = next;
+          await handleSafely(current, async () => {
+            if (isStopCommand(current.text)) {
+              await handleImmediate(current);
+              return;
+            }
+            if (!(await commands.handle(current))) await answer(current);
+          });
           next = state.queue.shift();
         }
       } finally {
         state.busy = false;
+      }
+    },
+
+    async shutdown(graceMs: number): Promise<void> {
+      stopping = true;
+      const inFlight = [...states.entries()].filter(([, state]) => state.run !== undefined);
+      for (const [chatId, state] of inFlight) {
+        state.queue.length = 0;
+        await send(chatId, RESTARTING_NOTICE).catch(() => undefined);
+        state.run?.cancel();
+      }
+      const deadline = Date.now() + graceMs;
+      while (Date.now() < deadline && [...states.values()].some((state) => state.busy)) {
+        await Bun.sleep(SHUTDOWN_POLL_MS);
       }
     },
   };

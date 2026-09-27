@@ -1,127 +1,79 @@
 /**
  * Discord → Jazz bridge.
  *
- * Gateway websocket in, `jazz run --json` out. Per-channel memory comes from
- * `--conversation`; per-channel model/persona from a cloned agent file
- * (`dc_<channel_id>.json`). Guild channels are mention-gated and, by default,
- * bound to a thread so one conversation doesn't swallow the whole room.
+ * Gateway websocket in, the shared turn runner (`@jazz/bot-shared/turn`) from there: one run
+ * at a time per conversation, the edited progress message with ⏹ Cancel, approvals with
+ * Approve all, questions, the command set and its pickers, reminders, incognito, and the
+ * answer. What is here is what only Discord has: the gateway and REST transport, who is
+ * allowed in and when a guild message counts as addressed to the bot, binding a mention to
+ * a thread, slash commands, acknowledging interactions inside Discord's three seconds,
+ * inbound attachments, and the contextual suggestion buttons under an answer.
+ *
+ * Per-channel memory and model/persona live in the channel's own agent (`dc_<channel id>`).
+ * Guild channels are mention-gated and, by default, bound to a thread so one conversation
+ * doesn't swallow the whole room.
  *
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync } from "node:fs";
-import { removeAgentFile } from "@jazz/bot-shared/agent-file";
-import { answerNotices, formatTokenCount } from "@jazz/bot-shared/answer";
-import {
-  APPROVAL_MODE_LABELS,
-  type ApprovalMode,
-  approvalModeFor,
-  approvalPolicyFor,
-  describeApprovalMode,
-  setApprovalMode,
-} from "@jazz/bot-shared/approval-mode-store";
-import {
-  bridgeRunEnv,
-  type ChatSandbox,
-  ensureChatSandbox,
-  listChatSandboxes,
-  SANDBOX_UMASK,
-  sandboxCommand,
-  sandboxEnv,
-  sandboxOwnership,
-} from "@jazz/bot-shared/chat-sandbox";
+import { envFlag } from "@jazz/bot-shared/bridge-env";
+import { ensureChatSandbox, SANDBOX_UMASK, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 import {
   compositionIdFromPath,
-  compositionLinkPath,
   type CompositionLinks,
   createCompositionLinks,
-  readCompositionImage,
 } from "@jazz/bot-shared/compositions";
 import {
-  type JazzComposition,
-  type JazzEnvelope,
-  type JazzSuccessEnvelope,
-  JAZZ_RUN_EVENT_CATEGORIES,
-  writeStdinFrame,
-} from "@jazz/bot-shared/jazz-run";
-import { listPersonaNames } from "@jazz/bot-shared/personas";
-import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
-import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
-import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+  createSuggestionStore,
+  generateSuggestions,
+  removeSuggestAgents,
+  SUGGESTION_PROMPT_PREFIX,
+} from "@jazz/bot-shared/dynamic-suggestions";
+import { createHealthState, type HealthState, healthResponse } from "@jazz/bot-shared/health";
+import { saveInboundMedia } from "@jazz/bot-shared/inbound-media";
+import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answer";
-import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
+import { line, plainLine, subtle, text } from "@jazz/bot-shared/surface";
 import {
-  conversationKey,
-  isIncognito,
-  setIncognito,
-  startNewConversation,
-} from "@jazz/bot-shared/session-store";
-import {
-  formatWhen,
-  hasChatTz,
-  isValidTimeZone,
-  setTzForChat,
-  tzForChat,
-} from "@jazz/bot-shared/timezone-store";
-import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
-import {
-  capBlockMessage,
-  dailyCostCapBlockReason,
-  recordRunUsage,
-  runSpend,
-  runSpendFromEvent,
-  spendFields,
-  todayUsage,
-  type RunSpend,
-} from "@jazz/bot-shared/usage-store";
-import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { parseProviderModel } from "@jazz/core/utils/provider-model";
+  type ChoiceOutcome,
+  createTurnRunner,
+  type TurnConfig,
+  type TurnRunner,
+} from "@jazz/bot-shared/turn";
+import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import {
   type AccessConfig,
   hasAnyAllowlist,
   isSenderAllowed,
   messageMentionsUser,
-  parseCommand,
   parseSnowflakeList,
   shouldRespond,
   stripBotMention,
 } from "./access";
 import {
   agentIdForChannel,
-  agentPath,
   channelIdFromAgentId,
-  ensureChatAgent,
   hasChatAgent,
-  readAgentFile,
   syncAgentDisplayName,
-  writeChatAgentFile,
 } from "./agents";
 import {
-  actionRow,
-  BUTTON_DANGER,
-  BUTTON_SECONDARY,
-  BUTTON_SUCCESS,
-  type DiscordInteraction,
-  type DiscordMessage,
   bulkOverwriteGlobalCommands,
   bulkOverwriteGuildCommands,
-  button,
-  CALLBACK_CHANNEL_MESSAGE,
   CALLBACK_DEFERRED_CHANNEL_MESSAGE,
   CALLBACK_DEFERRED_UPDATE,
-  CALLBACK_UPDATE_MESSAGE,
   CHANNEL_TYPE_DM,
   CHANNEL_TYPE_GROUP_DM,
   connectGateway,
   createThreadFromMessage,
-  editMessage,
-  editOriginalInteraction,
-  FLAG_EPHEMERAL,
+  deleteOriginalInteraction,
+  type DiscordAttachment,
+  type DiscordInteraction,
+  type DiscordMessage,
+  ephemeralFollowup,
   getChannel,
-  getOriginalInteraction,
   INTERACTION_APPLICATION_COMMAND,
   INTERACTION_MESSAGE_COMPONENT,
   INTERACTION_PING,
@@ -129,69 +81,37 @@ import {
   interactionUserId,
   isRespondableMessage,
   isThreadChannelType,
-  patchMessage,
-  sendAttachment,
-  sendMessage,
-  stringSelect,
-  triggerTyping,
   type SlashCommand,
 } from "./discord";
-import {
-  neutralizeBroadcastMentions,
-  renderDiscordMarkdown,
-  spoilerBlock,
-  splitForDiscord,
-  threadNameFromPrompt,
-} from "./discord-md";
+import { threadNameFromPrompt } from "./discord-md";
+import { createDiscordSurface, type DiscordSurface } from "./surface";
 
-const TZ_FILE = "dc-tz.json";
-/** Names this bridge's runs in the spend ledger; its daily cap counts only these. */
-const SPEND_ORIGIN = "discord";
-const COMPOSITIONS_FILE = "dc-compositions.json";
-const EPOCHS_FILE = "dc-sessions.json";
+const STORE_FILES = {
+  timezone: "dc-tz.json",
+  sessions: "dc-sessions.json",
+  mode: "dc-mode.json",
+} as const;
 const INCOGNITO_FILE = "dc-incognito.json";
-const MODE_FILE = "dc-mode.json";
+const COMPOSITIONS_FILE = "dc-compositions.json";
+const SUGGEST_AGENT_ID = "dc_suggest";
+const MEDIA_DIRECTORY = "dc-media";
 
-// The text the progress message is created with. The reporter starts from it so
-// its first render is not sent as an edit to identical content.
-const PROGRESS_INITIAL_TEXT = "🤔 **Working…**";
-const PROGRESS_MIN_INTERVAL_MS = 2_000;
-const PROGRESS_MAX_TOOLS_SHOWN = 8;
-// The reasoning log goes out inside a spoiler, which costs four characters;
-// budget under the 1900 the answer splitter uses so a part plus its heading
-// stays clear of Discord's 2000 hard limit without splitting mid-spoiler.
+/** Discord's own spoiler blocks carry the reasoning, so it can afford a few parts. */
 const REASONING_PART_CHARS = 1_700;
-// A long agentic run would otherwise post a wall of spoilers; past this the
-// tail is dropped and the final part says how much.
 const REASONING_MAX_PARTS = 4;
-const BRIDGE_STARTED_AT = Date.now();
 
-const activeRuns = new Map<
-  string,
-  {
-    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
-    cancelled: boolean;
-    channelId: string;
-    /** Whose message started the run: the one person who answers its prompts. */
-    requesterId: string;
-  }
->();
-interface PendingApproval {
-  toolCallId: string;
-  channelId: string;
-  messageId: string;
-  runToken: string;
-  /**
-   * The outstanding-approval count this message's buttons currently show.
-   * Approval events arrive concurrently, so a message can be sent with a count
-   * that is already stale by the time it registers; comparing against this is
-   * what tells a refresh which messages genuinely need patching.
-   */
-  shownCount: number;
-}
+/**
+ * Largest attachment downloaded for the agent. Discord's default upload cap for a server
+ * without boosts; a larger file is refused with a message rather than fetched.
+ */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
-const pendingApprovals = new Map<string, PendingApproval>();
-const incognitoHistory = new Map<string, unknown[]>();
+/**
+ * Discord asks for a heartbeat about every 41 seconds and acknowledges each one, so a
+ * working gateway beats at least that often. Three missed acknowledgements is a gateway
+ * that is not getting through.
+ */
+const GATEWAY_STALE_AFTER_MS = 3 * 45_000;
 
 interface ChannelMeta {
   readonly type: number;
@@ -199,14 +119,12 @@ interface ChannelMeta {
   readonly guildId: string | undefined;
 }
 
-const channelCache = new Map<string, ChannelMeta>();
-
-interface BridgeConfig extends AccessConfig {
+export interface BridgeConfig extends AccessConfig {
   readonly botToken: string;
   /**
-   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`) and to answer
-   * parked runs with /approve and /deny. Being allowed to talk to the bot is not enough: with a
-   * guild allowlist that is the whole server.
+   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`). Being
+   * allowed to talk to the bot is not enough: with a guild allowlist that is the whole
+   * server.
    */
   readonly operatorIds: ReadonlySet<string>;
   readonly createThreads: boolean;
@@ -223,11 +141,7 @@ interface BridgeConfig extends AccessConfig {
   readonly port: number;
   readonly dailyCostCapUsd: number;
   readonly dynamicCta: boolean;
-  /**
-   * Attach the run's full reasoning under the answer as click-to-reveal
-   * spoilers. The live progress line only ever shows a rolling tail, and that
-   * message is overwritten when the answer lands.
-   */
+  /** Attach the run's full reasoning under the answer as click-to-reveal spoilers. */
   readonly showReasoning: boolean;
   readonly publicBaseUrl: string | undefined;
 }
@@ -243,12 +157,6 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value.trim();
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(): BridgeConfig {
@@ -299,925 +207,28 @@ function loadConfig(): BridgeConfig {
   };
 }
 
-/**
- * The conversation's own sandbox, created on first contact.
- *
- * Cheap to call per message: after the first one everything it does is an
- * existence check.
- */
-function sandboxForChannel(config: BridgeConfig, channelId: string): ChatSandbox {
-  return ensureChatSandbox(config.jazzHome, agentIdForChannel(channelId));
+/** Everything the gateway handlers need, built once at start. */
+export interface Bridge {
+  readonly config: BridgeConfig;
+  readonly health: HealthState;
+  readonly surface: DiscordSurface;
+  readonly runner: TurnRunner;
+  readonly compositions: CompositionLinks;
+  /** Channel id → what the access decision needs about it. */
+  readonly channels: Map<string, ChannelMeta>;
+  /** Looks a channel up over REST on a cache miss. A seam for tests. */
+  readonly fetchChannel: (channelId: string) => Promise<ChannelMeta>;
 }
 
-let publishedCompositions: CompositionLinks | undefined;
-
-/** The web apps this bridge has handed out links to, served by opaque id. */
-function compositionLinks(config: BridgeConfig): CompositionLinks {
-  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
-  return publishedCompositions;
-}
-
-function formatUptime(ms: number): string {
-  const totalMinutes = Math.floor(ms / 60_000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
-  return parts.join(" ");
-}
-
-function newRunToken(): string {
-  return Math.random().toString(36).slice(2, 10);
-}
-
-/**
- * Input and output split out, since a single total hides that the input is
- * the whole conversation plus tool schemas re-sent on every loop iteration.
- */
-function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | undefined {
-  const promptTokens = usage?.promptTokens ?? 0;
-  const completionTokens = usage?.completionTokens ?? 0;
-  if (promptTokens === 0 && completionTokens === 0) return undefined;
-  const cacheReadTokens = usage?.cacheReadTokens ?? 0;
-  const cached = cacheReadTokens > 0 ? ` (${formatTokenCount(cacheReadTokens)} cached)` : "";
-  return [
-    `-# Input: ${formatTokenCount(promptTokens)}${cached}`,
-    `-# Output: ${formatTokenCount(completionTokens)}`,
-  ].join("\n");
-}
-
-async function resolveChannel(config: BridgeConfig, channelId: string): Promise<ChannelMeta> {
-  const cached = channelCache.get(channelId);
+async function resolveChannel(bridge: Bridge, channelId: string): Promise<ChannelMeta> {
+  const cached = bridge.channels.get(channelId);
   if (cached !== undefined) return cached;
-  const fetched = await getChannel(config.botToken, channelId);
-  const meta: ChannelMeta = {
-    type: fetched?.type ?? 0,
-    parentId: fetched?.parent_id ?? undefined,
-    guildId: fetched?.guild_id,
-  };
-  channelCache.set(channelId, meta);
+  const meta = await bridge.fetchChannel(channelId);
+  bridge.channels.set(channelId, meta);
   return meta;
 }
 
-function rememberChannel(channelId: string, meta: ChannelMeta): void {
-  channelCache.set(channelId, meta);
-}
-
-async function sendReply(
-  config: BridgeConfig,
-  channelId: string,
-  text: string,
-  extras: Record<string, unknown> = {},
-): Promise<string | undefined> {
-  const chunks = splitForDiscord(neutralizeBroadcastMentions(text));
-  let lastId: string | undefined;
-  for (const [index, chunk] of chunks.entries()) {
-    const isLast = index === chunks.length - 1;
-    const sent = await sendMessage(config.botToken, channelId, chunk, isLast ? extras : {});
-    lastId = sent?.id ?? lastId;
-  }
-  return lastId;
-}
-
-function cancelComponents(runToken: string): unknown[] {
-  return [actionRow([button(`x:${runToken}`, "⏹ Cancel", BUTTON_DANGER)])];
-}
-
-function approvalComponents(token: string, runToken: string, pendingCount: number): unknown[] {
-  const rows: unknown[] = [
-    actionRow([
-      button(`a:${token}:1`, "✅ Accept", BUTTON_SUCCESS),
-      button(`a:${token}:0`, "❌ Reject", BUTTON_DANGER),
-    ]),
-  ];
-  // A parallel batch of tool calls asks for approval one message each; clicking
-  // through five of them is the common case, so offer a single click that
-  // clears the whole batch once there is more than one outstanding.
-  if (pendingCount > 1) {
-    rows.push(
-      actionRow([
-        button(`aa:${runToken}:1`, `⚡ Approve all ${pendingCount}`, BUTTON_SUCCESS),
-        button(`aa:${runToken}:0`, `🚫 Reject all ${pendingCount}`, BUTTON_DANGER),
-      ]),
-    );
-  }
-  return rows;
-}
-
-/**
- * Answer the run's blocked approval prompts over its stdin pipe. Bun's FileSink
- * buffers writes, so flush() pushes them through now rather than waiting for the
- * buffer to fill — a batch decision must reach a parked run immediately.
- */
-async function writeApprovalDecisions(
-  run: { child: Bun.Subprocess<"pipe", "pipe", "pipe"> },
-  decisions: readonly { toolCallId: string; approved: boolean }[],
-): Promise<void> {
-  try {
-    for (const { toolCallId, approved } of decisions) {
-      await run.child.stdin.write(
-        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
-      );
-    }
-    await run.child.stdin.flush();
-  } catch (error) {
-    console.error(`Failed to write approval decision: ${String(error)}`);
-  }
-}
-
-function pendingApprovalsForRun(runToken: string): [string, PendingApproval][] {
-  return [...pendingApprovals].filter(([, pending]) => pending.runToken === runToken);
-}
-
-/**
- * Rewrite the buttons on a run's outstanding approval messages so their
- * "Approve all N" count matches reality. Called whenever the outstanding set
- * changes: a new request arriving makes the count climb, and resolving one
- * makes it fall — down to a single request, where the batch buttons disappear
- * again.
- */
-async function refreshApprovalComponents(config: BridgeConfig, runToken: string): Promise<void> {
-  const outstanding = pendingApprovalsForRun(runToken);
-  for (const [token, pending] of outstanding) {
-    if (pending.shownCount === outstanding.length) continue;
-    pending.shownCount = outstanding.length;
-    await patchMessage(config.botToken, pending.channelId, pending.messageId, {
-      components: approvalComponents(token, runToken, outstanding.length),
-    }).catch(() => undefined);
-  }
-}
-
-function modeComponents(current: ApprovalMode): unknown[] {
-  const modes: ApprovalMode[] = ["safe", "yolo"];
-  return [
-    actionRow(
-      modes.map((mode) =>
-        button(
-          `md:${mode}`,
-          `${mode === current ? "✅ " : ""}${APPROVAL_MODE_LABELS[mode]}`,
-          mode === "yolo" ? BUTTON_DANGER : BUTTON_SUCCESS,
-        ),
-      ),
-    ),
-  ];
-}
-
-function modeExplanation(mode: ApprovalMode, configuredPolicy: string): string {
-  return describeApprovalMode(mode, configuredPolicy, {
-    bold: (text) => `**${text}**`,
-    code: (text) => `\`${text}\``,
-  });
-}
-
-function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string {
-  return (
-    `✅ Mode → **${APPROVAL_MODE_LABELS[mode]}**\n${modeExplanation(mode, configuredPolicy)}` +
-    (mode === "yolo" ? "\nSend `/mode mode:safe` to turn approvals back on." : "")
-  );
-}
-
-/** Why a click on someone else's prompt did nothing. */
-const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
-
-/** The refusal for an operator-only action, naming the clicker's id for the operator. */
-function operatorOnlyMarkdown(userId: string, what: string): string {
-  return renderDiscordMarkdown(operatorOnlyMessage(userId, what, "DISCORD_OPERATOR_IDS"));
-}
-
-function followupComponents(): unknown[] {
-  const buttons = Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) =>
-    button(`f:${key}`, option.label, BUTTON_SECONDARY),
-  );
-  const rows: unknown[] = [];
-  for (let index = 0; index < buttons.length; index += 5) {
-    rows.push(actionRow(buttons.slice(index, index + 5)));
-  }
-  return rows;
-}
-
-interface JazzEvent {
-  readonly type: string;
-  /** `run_spend`: what the run has spent so far. */
-  readonly costUSD?: number;
-  readonly costIncomplete?: boolean;
-  readonly totalTokens?: number;
-  readonly toolName?: string;
-  readonly content?: string;
-  readonly approved?: boolean;
-  readonly task?: string;
-  readonly toolCallId?: string;
-  readonly message?: string;
-  readonly previewDiff?: string;
-}
-
-async function streamLines(
-  stream: ReadableStream<Uint8Array>,
-  onLine: (line: string) => void,
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex >= 0) {
-        onLine(buffer.slice(0, newlineIndex));
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
-      }
-    }
-    if (buffer.length > 0) onLine(buffer);
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-function createProgressReporter(
-  config: BridgeConfig,
-  channelId: string,
-  messageId: string,
-  runToken: string,
-  runLog: RunLog,
-) {
-  const tools: string[] = [];
-  const subagents: string[] = [];
-  const declined: string[] = [];
-  let reasoning = "";
-  let writing = false;
-  let rounds = 0;
-  let lastText = PROGRESS_INITIAL_TEXT;
-  let lastEditAt = 0;
-  let editing = false;
-
-  const render = (): string => {
-    const lines = [PROGRESS_INITIAL_TEXT];
-    const thought = reasoningSnippet(reasoning);
-    if (thought) lines.push(`💭 ${thought}`);
-    for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
-      lines.push(`🔧 \`${tool}\``);
-    }
-    for (const task of subagents.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
-      lines.push(`🤖 ${task}`);
-    }
-    for (const tool of declined) {
-      lines.push(`⛔ \`${tool}\` declined (needs approval)`);
-    }
-    // A run that goes round and round looks identical to a slow one from the
-    // outside; the count is what makes a loop visible without reading logs.
-    if (rounds > 1) lines.push(`↻ round ${rounds}`);
-    if (writing) lines.push("✍️ writing the answer…");
-    return neutralizeBroadcastMentions(lines.join("\n"));
-  };
-
-  const edit = async (text: string, components: unknown[]): Promise<void> => {
-    if (text === lastText || editing) return;
-    editing = true;
-    lastText = text;
-    lastEditAt = Date.now();
-    try {
-      await editMessage(config.botToken, channelId, messageId, text, { components });
-    } finally {
-      editing = false;
-    }
-  };
-
-  return {
-    onEvent(event: JazzEvent): void {
-      runLog.event(event);
-      switch (event.type) {
-        case "tools_detected":
-          // One per model response that asked for tools, so one per loop round.
-          rounds += 1;
-          break;
-        case "thinking_chunk":
-          if (typeof event.content === "string") reasoning += event.content;
-          break;
-        case "tool_execution_start":
-          if (typeof event.toolName === "string") tools.push(event.toolName);
-          break;
-        case "subagent_start":
-          subagents.push(event.task?.trim() || "sub-agent");
-          break;
-        case "approval_resolved":
-          if (event.approved === false && typeof event.toolName === "string") {
-            declined.push(event.toolName);
-          }
-          break;
-        case "text_start":
-        case "text_chunk":
-          writing = true;
-          break;
-      }
-      if (Date.now() - lastEditAt >= PROGRESS_MIN_INTERVAL_MS) {
-        void edit(render(), cancelComponents(runToken));
-      }
-    },
-    finish: (summary: string): Promise<void> => edit(summary, []),
-    toolsUsed: (): string[] => [...new Set(tools)],
-    rounds: (): number => rounds,
-    // The progress bubble only ever showed a rolling tail; this is everything
-    // the model thought, for the spoiler log attached to the answer.
-    reasoningLog: (): string => reasoning,
-  };
-}
-
-const APPROVAL_MESSAGE_MAX_CHARS = 500;
-const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
-
-/**
- * Attach a run's full reasoning under the answer as click-to-reveal spoilers.
- * Sent as its own messages rather than appended to the answer so the answer
- * keeps its follow-up buttons and its own splitting untouched.
- */
-async function sendReasoningLog(
-  config: BridgeConfig,
-  channelId: string,
-  reasoning: string,
-): Promise<void> {
-  const parts = splitReasoning(reasoning, {
-    budget: REASONING_PART_CHARS,
-    maxParts: REASONING_MAX_PARTS,
-  });
-  for (const [index, part] of parts.entries()) {
-    const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
-    await sendReply(config, channelId, `💭 **Reasoning**${counter}\n${spoilerBlock(part)}`);
-  }
-}
-
-async function sendApprovalRequest(
-  config: BridgeConfig,
-  channelId: string,
-  runToken: string,
-  event: JazzEvent,
-): Promise<void> {
-  const toolCallId = event.toolCallId;
-  if (!toolCallId) return;
-
-  const token = newRunToken();
-  const toolName = event.toolName ?? "tool";
-  const message = (event.message ?? "").slice(0, APPROVAL_MESSAGE_MAX_CHARS);
-  const lines = ["⚠️ **Approval needed**", `\`${toolName}\``];
-  if (message.length > 0) lines.push(message);
-  if (event.previewDiff) {
-    const diff = event.previewDiff.slice(0, APPROVAL_PREVIEW_DIFF_MAX_CHARS);
-    lines.push("```diff", diff, "```");
-  }
-
-  // One more than what is already outstanding: this request is about to join
-  // them, and the buttons have to be built before the message is sent.
-  const shownCount = pendingApprovalsForRun(runToken).length + 1;
-  const sent = await sendMessage(config.botToken, channelId, lines.join("\n"), {
-    components: approvalComponents(token, runToken, shownCount),
-  });
-  if (sent === undefined) return;
-
-  pendingApprovals.set(token, {
-    toolCallId,
-    channelId,
-    messageId: sent.id,
-    runToken,
-    shownCount,
-  });
-  await refreshApprovalComponents(config, runToken);
-}
-
-async function runJazz(
-  config: BridgeConfig,
-  channelId: string,
-  requesterId: string,
-  prompt: string,
-  onEvent: (event: JazzEvent) => void,
-  runToken: string,
-): Promise<JazzEnvelope> {
-  const incognito = isIncognito(config.jazzHome, INCOGNITO_FILE, channelId);
-  const priorIncognitoMessages = incognito ? incognitoHistory.get(channelId) : undefined;
-  const sandbox = sandboxForChannel(config, channelId);
-  const child = Bun.spawn(
-    sandboxCommand(sandbox, [
-      config.jazzBinary,
-      "run",
-      "--no-tui",
-      "--json",
-      "--events",
-      JAZZ_RUN_EVENT_CATEGORIES,
-      "--interactive-stdin",
-      "--input-stdin",
-      "--agent",
-      agentIdForChannel(channelId),
-      "--approval-policy",
-      approvalPolicyFor(config.jazzHome, MODE_FILE, channelId, config.approvalPolicy),
-      ...(config.autoApproveTools.length > 0
-        ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
-        : []),
-      "--timezone",
-      tzForChat(config.jazzHome, TZ_FILE, channelId),
-      ...(incognito
-        ? ["--ephemeral"]
-        : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, channelId)]),
-      "--timeout",
-      String(config.runTimeoutMs),
-    ]),
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "pipe",
-      env: bridgeRunEnv(sandbox, process.env, "discord"),
-    },
-  );
-  activeRuns.set(runToken, { child, cancelled: false, channelId, requesterId });
-  // The message and an incognito transcript go in the stdin frame, never on
-  // argv, where `ps` shows them to every account on the host.
-  await writeStdinFrame(child, {
-    prompt,
-    ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
-      ? { history: priorIncognitoMessages }
-      : {}),
-  });
-
-  const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
-  const stderrTail: string[] = [];
-  let lastSpend: RunSpend | undefined;
-  const stderrDone = streamLines(child.stderr, (line) => {
-    if (stderrTail.length < 50) stderrTail.push(line);
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) return;
-    try {
-      const event = JSON.parse(trimmed) as JazzEvent;
-      if (typeof event.type === "string") {
-        lastSpend = runSpendFromEvent(event) ?? lastSpend;
-        onEvent(event);
-      }
-      if (event.type === "approval_required" && event.toolCallId) {
-        void sendApprovalRequest(config, channelId, runToken, event).catch((error) =>
-          console.error(`Failed to send approval request for ${channelId}: ${String(error)}`),
-        );
-      }
-    } catch {
-      // Non-event stderr line — ignore.
-    }
-  });
-
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    stderrDone,
-    child.exited,
-  ]);
-  clearTimeout(timeout);
-
-  const lastJsonLine = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("{"))
-    .at(-1);
-
-  if (lastJsonLine === undefined) {
-    console.error(
-      `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
-    );
-    return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
-  }
-
-  try {
-    const envelope = JSON.parse(lastJsonLine) as JazzEnvelope;
-    if (incognito && envelope.ok) {
-      incognitoHistory.set(channelId, envelope.messages ?? []);
-    }
-    return envelope.ok || envelope.costKnown !== undefined
-      ? envelope
-      : { ...envelope, ...spendFields(lastSpend) };
-  } catch (error) {
-    console.error(`Failed to parse Jazz envelope: ${String(error)}\nLine: ${lastJsonLine}`);
-    return { ok: false, error: "Could not parse the agent response.", ...spendFields(lastSpend) };
-  }
-}
-
-async function deliverComposition(
-  config: BridgeConfig,
-  channelId: string,
-  composition: JazzComposition,
-): Promise<void> {
-  const home = sandboxForChannel(config, channelId).home;
-  if (composition.mode === "static") {
-    // Read from this conversation's own compositions, whatever path the envelope claims.
-    const image = readCompositionImage(home, composition);
-    if (image === undefined) {
-      console.error(
-        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
-      );
-      return;
-    }
-    await sendAttachment(
-      config.botToken,
-      channelId,
-      new Blob([image.bytes], { type: "image/png" }),
-      image.filename,
-      composition.title,
-    );
-    return;
-  }
-
-  if (config.publicBaseUrl === undefined) {
-    await sendReply(
-      config,
-      channelId,
-      "⚠️ Generated an interactive UI, but no public URL is configured " +
-        "(set `DISCORD_PUBLIC_BASE_URL`) — can't open it.",
-    );
-    return;
-  }
-
-  const linkId = compositionLinks(config).publish(agentIdForChannel(channelId), composition);
-  if (linkId === undefined) {
-    console.error(`create_composition returned unusable names (id=${composition.id})`);
-    return;
-  }
-  const url = `${config.publicBaseUrl}${compositionLinkPath(linkId)}`;
-  await sendReply(config, channelId, `Open **${composition.title}**: ${url}`);
-}
-
-async function handleMessage(
-  config: BridgeConfig,
-  channelId: string,
-  requesterId: string,
-  text: string,
-  progressMessageId?: string,
-  replyToMessageId?: string,
-): Promise<void> {
-  ensureChatAgent(
-    config.jazzHome,
-    sandboxForChannel(config, channelId),
-    channelId,
-    config.baseAgentId,
-  );
-
-  const replyReference =
-    replyToMessageId !== undefined ? { message_reference: { message_id: replyToMessageId } } : {};
-
-  const capBlockReason = dailyCostCapBlockReason(
-    await todayUsage(config.jazzHome, SPEND_ORIGIN),
-    config.dailyCostCapUsd,
-  );
-  if (capBlockReason !== undefined) {
-    await sendReply(
-      config,
-      channelId,
-      capBlockMessage(capBlockReason, config.dailyCostCapUsd),
-      replyReference,
-    );
-    return;
-  }
-
-  await triggerTyping(config.botToken, channelId);
-
-  const runToken = newRunToken();
-  let messageId = progressMessageId;
-  if (messageId === undefined) {
-    // When this run was kicked off by a follow-up/suggestion tap, the
-    // progress bubble (and, below, the final answer) reply to the message
-    // that carried the button so the thread stays visibly anchored to what
-    // it's a follow-up to.
-    const sent = await sendMessage(config.botToken, channelId, PROGRESS_INITIAL_TEXT, {
-      components: cancelComponents(runToken),
-      ...replyReference,
-    });
-    messageId = sent?.id;
-  } else {
-    await editMessage(config.botToken, channelId, messageId, PROGRESS_INITIAL_TEXT, {
-      components: cancelComponents(runToken),
-    });
-  }
-
-  // Opened before the run so a crash or timeout still leaves a record: the
-  // conversation transcript is only written once a run completes.
-  const runLog = createRunLog(
-    config.jazzHome,
-    conversationKey(config.jazzHome, EPOCHS_FILE, channelId),
-  );
-  let runLogged = false;
-  const reporter =
-    messageId !== undefined
-      ? createProgressReporter(config, channelId, messageId, runToken, runLog)
-      : undefined;
-
-  try {
-    const envelope = await runJazz(
-      config,
-      channelId,
-      requesterId,
-      text,
-      (event) => reporter?.onEvent(event),
-      runToken,
-    );
-    const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
-    runLog.finish({
-      ok: envelope.ok,
-      cancelled,
-      rounds: reporter?.rounds() ?? 0,
-      toolsUsed: reporter?.toolsUsed() ?? [],
-      ...(envelope.ok ? {} : { error: envelope.error }),
-    });
-    runLogged = true;
-    await recordRunUsage(
-      config.jazzHome,
-      SPEND_ORIGIN,
-      agentIdForChannel(channelId),
-      runSpend(envelope, undefined),
-    );
-
-    if (cancelled) {
-      await reporter?.finish("⏹ **Cancelled**");
-      return;
-    }
-
-    if (envelope.ok) {
-      if (envelope.costKnown === undefined) {
-        console.error(
-          "Envelope has no costKnown field (jazz binary predates it); treating cost as known — upgrade jazz so unpriced runs pause the daily cap.",
-        );
-      }
-      const costKnown = envelope.costKnown !== false;
-      const used = reporter?.toolsUsed() ?? [];
-      const parts = ["✅ **Done**"];
-      if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));
-      if (envelope.costUSD > 0) {
-        parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
-      } else if (!costKnown) {
-        parts.push("price unavailable");
-      }
-      const usageLines = formatUsageLines(envelope.tokenUsage);
-      await reporter?.finish(
-        usageLines === undefined ? parts.join(" · ") : `${parts.join(" · ")}\n${usageLines}`,
-      );
-      const answerMessageId = await sendReply(config, channelId, envelope.answer, {
-        components: followupComponents(),
-        ...replyReference,
-      });
-      if (config.dynamicCta && answerMessageId !== undefined) {
-        void upgradeToDynamicCtas(config, channelId, answerMessageId, text, envelope.answer);
-      }
-      const notices = answerNotices(envelope);
-      if (notices.length > 0) {
-        await sendReply(config, channelId, notices.join("\n"), replyReference);
-      }
-      if (config.showReasoning) {
-        await sendReasoningLog(config, channelId, reporter?.reasoningLog() ?? "");
-      }
-      if (envelope.composition) {
-        await deliverComposition(config, channelId, envelope.composition);
-      }
-    } else {
-      await reporter?.finish("⚠️ **Failed**");
-      await sendReply(config, channelId, `⚠️ ${envelope.error}`, replyReference);
-    }
-  } finally {
-    // A throw anywhere above would otherwise leave the log with no outcome line,
-    // which is exactly the run someone will come looking for.
-    if (!runLogged) {
-      runLog.finish({
-        ok: false,
-        error: "handler threw before the run reported an outcome",
-        rounds: reporter?.rounds() ?? 0,
-        toolsUsed: reporter?.toolsUsed() ?? [],
-      });
-    }
-    activeRuns.delete(runToken);
-    for (const [token, pending] of pendingApprovals) {
-      if (pending.runToken === runToken) pendingApprovals.delete(token);
-    }
-  }
-}
-
-interface Suggestion {
-  label: string;
-  prompt: string;
-}
-
-const GO_DEEPER_OPTION: Suggestion = {
-  label: "🔍 Go deeper",
-  prompt:
-    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
-};
-const SHORTER_OPTION: Suggestion = {
-  label: "✂️ Shorter",
-  prompt:
-    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
-};
-const SIMPLER_OPTION: Suggestion = {
-  label: "🧑‍🏫 Explain simpler",
-  prompt:
-    "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
-};
-const EXAMPLE_OPTION: Suggestion = {
-  label: "💡 Example",
-  prompt: "Give a concrete, real-world example that illustrates your previous answer.",
-};
-
-const FOLLOWUP_OPTIONS: Record<string, Suggestion> = {
-  deeper: GO_DEEPER_OPTION,
-  shorter: SHORTER_OPTION,
-  simpler: SIMPLER_OPTION,
-  example: EXAMPLE_OPTION,
-};
-
-/**
- * If the model's suggestions dropped the mandatory "Go deeper" option, or came
- * back short (parse failures, a sparse reply), pad with the static fallbacks
- * so callers always get exactly 3 with "Go deeper" first — the fallback is
- * only ever a safety net for a misbehaving model, not the normal path.
- */
-function ensureThreeWithGoDeeper(items: Suggestion[]): Suggestion[] {
-  const hasGoDeeper = items.some((item) => /deeper/i.test(item.label));
-  let result = hasGoDeeper ? items : [GO_DEEPER_OPTION, ...items];
-  const fallbackPool = [SHORTER_OPTION, SIMPLER_OPTION, EXAMPLE_OPTION];
-  for (const fallback of fallbackPool) {
-    if (result.length >= 3) break;
-    result = [...result, fallback];
-  }
-  return result.slice(0, 3);
-}
-
-const SUGGESTION_STORE_MAX = 500;
-const suggestionStore = new Map<string, Suggestion[]>();
-
-function storeSuggestions(items: Suggestion[]): string {
-  const token = newRunToken();
-  suggestionStore.set(token, items);
-  while (suggestionStore.size > SUGGESTION_STORE_MAX) {
-    const oldest = suggestionStore.keys().next().value;
-    if (oldest === undefined) break;
-    suggestionStore.delete(oldest);
-  }
-  return token;
-}
-
-function suggestionComponents(token: string, items: Suggestion[]): unknown[] {
-  return items.map((item, index) =>
-    actionRow([button(`s:${token}:${index}`, item.label, BUTTON_SECONDARY)]),
-  );
-}
-
-async function jazzJson(
-  config: BridgeConfig,
-  sandbox: ChatSandbox,
-  agentId: string,
-  prompt: string,
-  extraArgs: string[],
-): Promise<JazzEnvelope> {
-  const child = Bun.spawn(
-    sandboxCommand(sandbox, [
-      config.jazzBinary,
-      "run",
-      "--no-tui",
-      "--json",
-      "--input-stdin",
-      "--agent",
-      agentId,
-      ...extraArgs,
-    ]),
-    {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: sandboxEnv(sandbox, process.env, "discord"),
-    },
-  );
-  await writeStdinFrame(child, { prompt });
-  await child.stdin.end();
-  const timeout = setTimeout(() => child.kill(), 90_000);
-  const [stdout] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  clearTimeout(timeout);
-  const line = stdout
-    .split("\n")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.startsWith("{"))
-    .at(-1);
-  if (line === undefined) return { ok: false, error: "no output" };
-  try {
-    return JSON.parse(line) as JazzEnvelope;
-  } catch {
-    return { ok: false, error: "unparseable output" };
-  }
-}
-
-const SUGGEST_AGENT_ID = "dc_suggest";
-
-function ensureSuggestAgent(config: BridgeConfig, sandbox: ChatSandbox): void {
-  if (existsSync(agentPath(sandbox.home, SUGGEST_AGENT_ID))) return;
-  const template = readAgentFile(config.jazzHome, config.baseAgentId);
-  template.id = SUGGEST_AGENT_ID;
-  template.name = SUGGEST_AGENT_ID;
-  template.config["tools"] = [];
-  template.config.reasoning = "disable";
-  writeChatAgentFile(sandbox, template);
-}
-
-async function generateSuggestions(
-  config: BridgeConfig,
-  channelId: string,
-  question: string,
-  answer: string,
-): Promise<Suggestion[]> {
-  const sandbox = sandboxForChannel(config, channelId);
-  ensureSuggestAgent(config, sandbox);
-  const metaPrompt =
-    `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
-    "Propose EXACTLY 3 useful next actions the user might tap. Reply with ONLY a JSON array — no " +
-    "prose, no code fences:\n" +
-    '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
-    'send if tapped, written first-person as the user"}]\n' +
-    'Make them specific to THIS exchange. The first entry must always be a "🔍 Go deeper" style ' +
-    "option that asks for more detail, specifics, and nuance on the same answer.";
-  const envelope = await jazzJson(config, sandbox, SUGGEST_AGENT_ID, metaPrompt, [
-    "--reasoning",
-    "disable",
-    "--max-iterations",
-    "1",
-    "--approval-policy",
-    "read-only",
-    "--timeout",
-    "60000",
-  ]);
-  if (!envelope.ok) return [];
-
-  const match = /\[[\s\S]*\]/.exec(envelope.answer);
-  if (!match) return [];
-  try {
-    const parsed = JSON.parse(match[0]) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const items: Suggestion[] = [];
-    for (const entry of parsed) {
-      if (entry && typeof entry === "object") {
-        const record = entry as { label?: unknown; prompt?: unknown };
-        if (
-          typeof record.label === "string" &&
-          typeof record.prompt === "string" &&
-          record.label.trim().length > 0 &&
-          record.prompt.trim().length > 0
-        ) {
-          items.push({
-            label: record.label.trim().slice(0, 40),
-            prompt: record.prompt.trim().slice(0, 500),
-          });
-        }
-      }
-      if (items.length >= 3) break;
-    }
-    return ensureThreeWithGoDeeper(items);
-  } catch {
-    return [];
-  }
-}
-
-async function upgradeToDynamicCtas(
-  config: BridgeConfig,
-  channelId: string,
-  messageId: string,
-  question: string,
-  answer: string,
-): Promise<void> {
-  try {
-    const items = await generateSuggestions(config, channelId, question, answer);
-    console.log(`[cta] channel ${channelId}: ${items.length} contextual suggestion(s)`);
-    if (items.length === 0) return;
-    const token = storeSuggestions(items);
-    await patchMessage(config.botToken, channelId, messageId, {
-      components: suggestionComponents(token, items),
-    });
-  } catch (error) {
-    console.error(`Dynamic CTA generation failed: ${String(error)}`);
-  }
-}
-
-const HELP_TEXT = [
-  "I'm your Jazz assistant. Mention me in a server (or just talk here in DMs) and I'll answer.",
-  "",
-  "Commands:",
-  "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
-    "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
-  "`/persona` — pick my persona / style",
-  "`/mode` — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. `/mode mode:yolo`",
-  "`/new` — start a fresh conversation (clears earlier context)",
-  "`/incognito` — start a private conversation (nothing saved) until `/new`",
-  "`/remind <when> <text>` — e.g. `/remind when:30m text:take pizza out`",
-  "  …or just say it: “remind me to call the dentist in 2 hours”",
-  "`/reminders` — list and cancel your reminders",
-  "`/tz` — set your timezone so reminder times are local (e.g. `/tz zone:Europe/Paris`)",
-  "`/status` — model, today's usage, uptime",
-  "`/approve <runId>`, `/deny <runId> [why]`: answer a parked run a notification told you about (operator only)",
-  "`/help` — show this",
-  "",
-  "In a server I only reply when mentioned, when you reply to me, or in a thread I already joined.",
-].join("\n");
+// --- Slash commands -------------------------------------------------------
 
 const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "help", description: "Show available commands" },
@@ -1231,7 +242,7 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "persona", description: "Pick my persona / style" },
   {
     name: "mode",
-    description: "Safe (ask before risky tools) or yolo (never ask)",
+    description: "Safe (ask before risky tools) or yolo (never ask; operators only)",
     options: [
       {
         name: "mode",
@@ -1248,13 +259,7 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: "tz",
     description: "Show or set your timezone",
-    options: [
-      {
-        name: "zone",
-        description: "IANA timezone, e.g. Europe/Paris",
-        type: 3,
-      },
-    ],
+    options: [{ name: "zone", description: "IANA timezone, e.g. Europe/Paris", type: 3 }],
   },
   {
     name: "remind",
@@ -1271,279 +276,36 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
 ];
 
-/** Cancel one of this conversation's reminders, written back to its own uid. */
-function cancelReminderForChannel(
-  config: BridgeConfig,
-  channelId: string,
-  id: string,
-): Promise<boolean> {
-  const sandbox = sandboxForChannel(config, channelId);
-  return cancelReminder(sandbox.home, agentIdForChannel(channelId), id, sandboxOwnership(sandbox));
-}
-
-function listPersonas(config: BridgeConfig): Promise<string[]> {
-  return listPersonaNames(config.jazzHome, config.builtinPersonasDir);
-}
-
-interface CommandResult {
-  readonly content: string;
-  readonly components?: unknown[];
-  readonly runPrompt?: string;
-}
-
-async function handleCommand(
-  config: BridgeConfig,
-  channelId: string,
-  requesterId: string,
-  command: string,
-  args: string,
-): Promise<CommandResult> {
-  const sandbox = sandboxForChannel(config, channelId);
-  const agent = ensureChatAgent(config.jazzHome, sandbox, channelId, config.baseAgentId);
-
-  if (command === "remind") {
-    const trimmed = args.trim();
-    if (trimmed.length === 0) {
-      return {
-        content:
-          "Usage: `/remind when:<when> text:<text>`\n" +
-          "Examples: `30m take pizza out`, `18:00 standup`, `tomorrow 09:00 gym`, `2026-08-25 20:00 pack shoes`",
-      };
-    }
-    return { content: "Setting that reminder…", runPrompt: `Add a reminder: ${trimmed}` };
-  }
-
-  if (command === "tz" || command === "timezone") {
-    const requested = args.trim();
-    if (requested.length === 0) {
-      const current = tzForChat(config.jazzHome, TZ_FILE, channelId);
-      const suffix = hasChatTz(config.jazzHome, TZ_FILE, channelId)
-        ? ""
-        : " (default — not set by you yet)";
-      return {
-        content:
-          `🌍 Your timezone: \`${current}\`${suffix}\n` +
-          `Local time now: ${formatWhen(Date.now(), current)}\n\n` +
-          "Change it with `/tz zone:Europe/Paris` (an IANA name like `America/New_York`, `Asia/Tokyo`).",
-      };
-    }
-    if (!isValidTimeZone(requested)) {
-      return {
-        content:
-          `I don't recognise “${requested}”. Use an IANA name such as ` +
-          "`Europe/Paris`, `America/New_York`, or `Asia/Tokyo`.",
-      };
-    }
-    setTzForChat(config.jazzHome, TZ_FILE, channelId, requested);
-    return {
-      content:
-        `✅ Timezone set to \`${requested}\`. Local time now: ${formatWhen(Date.now(), requested)}.\n` +
-        "Reminders will use this from now on.",
-    };
-  }
-
-  if (command === "reminders") {
-    const mine = readReminders(
-      sandboxForChannel(config, channelId).home,
-      agentIdForChannel(channelId),
-    ).sort((left, right) => left.fireAt - right.fireAt);
-    if (mine.length === 0) {
-      return { content: "No reminders set. Use `/remind when:<when> text:<text>`." };
-    }
-    const tz = tzForChat(config.jazzHome, TZ_FILE, channelId);
-    const rows = mine
-      .slice(0, 25)
-      .map((reminder) =>
-        actionRow([
-          button(
-            `r:${reminder.id}`,
-            `❌ ${formatWhen(reminder.fireAt, tz)} — ${reminder.text.slice(0, 24)}`,
-            BUTTON_DANGER,
-          ),
-        ]),
-      );
-    return { content: `Pending reminders (tap to cancel · times in ${tz}):`, components: rows };
-  }
-
-  if (command === "new" || command === "reset") {
-    const wasIncognito = isIncognito(config.jazzHome, INCOGNITO_FILE, channelId);
-    if (wasIncognito) {
-      setIncognito(config.jazzHome, INCOGNITO_FILE, channelId, false);
-      incognitoHistory.delete(channelId);
-    }
-    startNewConversation(config.jazzHome, EPOCHS_FILE, channelId);
-    return {
-      content: wasIncognito
-        ? "🆕 Incognito conversation ended and discarded. Back to normal — your model and persona stay the same."
-        : "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
-    };
-  }
-
-  if (command === "incognito") {
-    setIncognito(config.jazzHome, INCOGNITO_FILE, channelId, true);
-    incognitoHistory.delete(channelId);
-    return {
-      content:
-        "🕶️ Incognito mode on — nothing from this conversation is saved to history or memory. Send `/new` to end it.",
-    };
-  }
-
-  if (command === "status") {
-    const day = await todayUsage(config.jazzHome, SPEND_ORIGIN);
-    const cap = config.dailyCostCapUsd;
-    const lines = [
-      "📊 **Status**",
-      ...(isIncognito(config.jazzHome, INCOGNITO_FILE, channelId)
-        ? ["🕶️ Incognito — nothing being saved right now"]
-        : []),
-      `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoning})`,
-      `Timezone: \`${tzForChat(config.jazzHome, TZ_FILE, channelId)}\`${hasChatTz(config.jazzHome, TZ_FILE, channelId) ? "" : " (default)"}`,
-      `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, channelId)]}`,
-      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
-      `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
-      `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
-    ];
-    return { content: lines.join("\n") };
-  }
-
-  if (command === "model") {
-    const requested = args.trim();
-    if (requested.length > 0) {
-      const parsed = parseProviderModel(requested);
-      if (parsed === null) {
-        return {
-          content:
-            `⚠️ Usage: \`/model provider/model\`, e.g. \`/model openai/gpt-5.2\`.\n` +
-            `Providers: ${AVAILABLE_PROVIDERS.join(", ")}`,
-        };
-      }
-      const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
-      agent.config.llmProvider = parsed.provider;
-      agent.config.llmModel = parsed.model;
-      if (metadata !== undefined) {
-        agent.config.reasoning = metadata.isReasoningModel ? "medium" : "disable";
-      }
-      writeChatAgentFile(sandbox, agent);
-      return {
-        content:
-          `✅ Model → ${parsed.provider}/${parsed.model}` +
-          (metadata !== undefined
-            ? `\nReasoning: ${agent.config.reasoning}`
-            : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
-      };
-    }
-
-    const provider = agent.config.llmProvider;
-    if (!(AVAILABLE_PROVIDERS as readonly string[]).includes(provider)) {
-      return {
-        content:
-          `⚠️ Unknown provider \`${provider}\` on this conversation's agent. ` +
-          "Set one with `/model provider/model`.",
-      };
-    }
-    const models = await listModelsForProvider(provider as ProviderName);
-    if (models.length === 0) {
-      return {
-        content:
-          `⚠️ No models available for \`${provider}\` right now — check its API key is set. ` +
-          "Switch provider directly with `/model provider/model`, e.g. `/model openai/gpt-5.2`.",
-      };
-    }
-    const options = models.slice(0, 25).map((model) => ({
-      label: model.id,
-      value: model.id,
-      default: model.id === agent.config.llmModel,
-    }));
-    return {
-      content: `Pick a ${provider} model, or use /model provider/model to switch provider:`,
-      components: [actionRow([stringSelect("m", "Model", options)])],
-    };
-  }
-
-  if (command === "mode") {
-    const requested = args.trim().toLowerCase();
-    if (requested.length > 0) {
-      if (requested !== "safe" && requested !== "yolo") {
-        return {
-          content:
-            "⚠️ Usage: `/mode safe` or `/mode yolo`, or send `/mode` on its own to pick from buttons.",
-        };
-      }
-      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
-        return { content: operatorOnlyMarkdown(requesterId, "Turning approvals off") };
-      }
-      setApprovalMode(config.jazzHome, MODE_FILE, channelId, requested);
-      return { content: modeConfirmation(requested, config.approvalPolicy) };
-    }
-    const current = approvalModeFor(config.jazzHome, MODE_FILE, channelId);
-    return {
-      content: [
-        `Current mode: **${APPROVAL_MODE_LABELS[current]}**`,
-        "",
-        modeExplanation("safe", config.approvalPolicy),
-        modeExplanation("yolo", config.approvalPolicy),
-      ].join("\n"),
-      components: modeComponents(current),
-    };
-  }
-
-  if (command === "persona") {
-    const personas = await listPersonas(config);
-    const options = personas.slice(0, 25).map((persona) => ({
-      label: persona,
-      value: persona,
-      default: persona === agent.config.persona,
-    }));
-    return {
-      content: "Pick a persona:",
-      components: [actionRow([stringSelect("p", "Persona", options)])],
-    };
-  }
-
-  return { content: HELP_TEXT };
-}
-
-async function applyModelChoice(
-  config: BridgeConfig,
-  channelId: string,
-  model: string,
-): Promise<string> {
-  const sandbox = sandboxForChannel(config, channelId);
-  const agent = ensureChatAgent(config.jazzHome, sandbox, channelId, config.baseAgentId);
-  const models = await listModelsForProvider(agent.config.llmProvider as ProviderName);
-  const reasoning = models.find((entry) => entry.id === model)?.isReasoningModel
-    ? "medium"
-    : "disable";
-  agent.config.llmModel = model;
-  agent.config.reasoning = reasoning;
-  writeChatAgentFile(sandbox, agent);
-  return `✅ Model → ${model}\nReasoning: ${reasoning}`;
-}
-
-function applyPersonaChoice(config: BridgeConfig, channelId: string, persona: string): string {
-  const sandbox = sandboxForChannel(config, channelId);
-  const agent = ensureChatAgent(config.jazzHome, sandbox, channelId, config.baseAgentId);
-  agent.config.persona = persona;
-  writeChatAgentFile(sandbox, agent);
-  return `✅ Persona → ${persona}`;
-}
-
 function slashOption(interaction: DiscordInteraction, name: string): string | undefined {
-  const options = interaction.data?.options ?? [];
-  const match = options.find((option) => option.name === name);
+  const match = (interaction.data?.options ?? []).find((option) => option.name === name);
   return typeof match?.value === "string" ? match.value : undefined;
 }
 
+/** A slash command as the text command the runner already understands. */
+export function slashCommandText(interaction: DiscordInteraction): string {
+  const name = interaction.data?.name ?? "help";
+  const args =
+    name === "remind"
+      ? `${slashOption(interaction, "when") ?? ""} ${slashOption(interaction, "text") ?? ""}`
+      : name === "tz"
+        ? (slashOption(interaction, "zone") ?? "")
+        : name === "mode"
+          ? (slashOption(interaction, "mode") ?? "")
+          : "";
+  return `/${name} ${args}`.trim();
+}
+
+// --- Access ---------------------------------------------------------------
+
 function accessContextForMessage(
+  bridge: Bridge,
   message: DiscordMessage,
   meta: ChannelMeta,
   botUserId: string,
-  dataDir: string,
 ): Parameters<typeof isSenderAllowed>[1] {
-  const isDm = meta.type === CHANNEL_TYPE_DM;
   const isThread = isThreadChannelType(meta.type);
   return {
-    isDm,
+    isDm: meta.type === CHANNEL_TYPE_DM,
     isThread,
     userId: message.author.id,
     channelId: message.channel_id,
@@ -1553,148 +315,20 @@ function accessContextForMessage(
       messageMentionsUser(message.content, botUserId) ||
       (message.mentions ?? []).some((user) => user.id === botUserId),
     replyToBot: message.referenced_message?.author?.id === botUserId,
-    threadHasSession: isThread && hasChatAgent(dataDir, message.channel_id),
+    threadHasSession: isThread && hasChatAgent(bridge.config.jazzHome, message.channel_id),
   };
-}
-
-async function bindThreadIfNeeded(
-  config: BridgeConfig,
-  message: DiscordMessage,
-  meta: ChannelMeta,
-  prompt: string,
-): Promise<{ channelId: string; meta: ChannelMeta }> {
-  const isDm = meta.type === CHANNEL_TYPE_DM;
-  const isThread = isThreadChannelType(meta.type);
-  if (isDm || isThread || !config.createThreads) {
-    return { channelId: message.channel_id, meta };
-  }
-  const thread = await createThreadFromMessage(
-    config.botToken,
-    message.channel_id,
-    message.id,
-    threadNameFromPrompt(prompt),
-  );
-  if (thread === undefined) {
-    return { channelId: message.channel_id, meta };
-  }
-  const threadMeta: ChannelMeta = {
-    type: thread.type,
-    parentId: message.channel_id,
-    guildId: message.guild_id ?? meta.guildId,
-  };
-  rememberChannel(thread.id, threadMeta);
-  return { channelId: thread.id, meta: threadMeta };
-}
-
-async function dispatchMessage(
-  config: BridgeConfig,
-  runtime: Runtime,
-  message: DiscordMessage,
-): Promise<void> {
-  if (message.author.id === runtime.botUserId) return;
-  if (message.author.bot === true) return;
-  if (!isRespondableMessage(message)) return;
-
-  const meta = await resolveChannel(config, message.channel_id);
-  if (meta.type === CHANNEL_TYPE_GROUP_DM) return;
-
-  const context = accessContextForMessage(message, meta, runtime.botUserId, config.jazzHome);
-  if (!isSenderAllowed(config, context)) {
-    console.warn(
-      `Ignoring message from non-allowed user ${message.author.id} in ${message.channel_id}`,
-    );
-    return;
-  }
-  if (!shouldRespond(config, context)) return;
-
-  if (message.content.trim().length === 0) {
-    if (context.mentionedBot) {
-      await sendReply(
-        config,
-        message.channel_id,
-        "I can see you mentioned me but not the text — enable the **Message Content Intent** for this bot in the Discord developer portal.",
-      );
-    }
-    return;
-  }
-
-  const stripped = stripBotMention(message.content, runtime.botUserId);
-  if (stripped.length === 0) return;
-
-  const parsed = parseCommand(stripped);
-  if (parsed !== undefined && isRunAnswerCommand(parsed.command)) {
-    const reply = await answerRunFromChat({
-      command: parsed.command,
-      args: parsed.args,
-      senderId: message.author.id,
-      operatorIds: config.operatorIds,
-      operatorSettingName: "DISCORD_OPERATOR_IDS",
-      jazzBinary: config.jazzBinary,
-      onAccepted: (runId) =>
-        sendReply(config, message.channel_id, `⏳ Answering run \`${runId}\`…`),
-    });
-    await sendReply(config, message.channel_id, reply);
-    return;
-  }
-  const known = new Set([
-    "help",
-    "status",
-    "new",
-    "reset",
-    "incognito",
-    "model",
-    "persona",
-    "mode",
-    "remind",
-    "reminders",
-    "tz",
-    "timezone",
-  ]);
-
-  try {
-    if (parsed !== undefined && known.has(parsed.command)) {
-      const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-      const result = await handleCommand(
-        config,
-        bound.channelId,
-        message.author.id,
-        parsed.command,
-        parsed.args,
-      );
-      await sendReply(config, bound.channelId, result.content, {
-        ...(result.components !== undefined ? { components: result.components } : {}),
-      });
-      if (result.runPrompt !== undefined) {
-        await handleMessage(config, bound.channelId, message.author.id, result.runPrompt);
-      }
-      return;
-    }
-
-    const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-    await handleMessage(config, bound.channelId, message.author.id, stripped);
-  } catch (error) {
-    console.error(`Handling failed for ${message.channel_id}: ${String(error)}`);
-    await sendReply(
-      config,
-      message.channel_id,
-      "⚠️ Something went wrong handling your message.",
-    ).catch((replyError) =>
-      console.error(`Failed to notify ${message.channel_id}: ${String(replyError)}`),
-    );
-  }
 }
 
 function senderAllowedForInteraction(
-  config: BridgeConfig,
+  bridge: Bridge,
   interaction: DiscordInteraction,
   meta: ChannelMeta,
 ): boolean {
   const userId = interactionUserId(interaction);
   if (userId === undefined) return false;
-  const isDm = meta.type === CHANNEL_TYPE_DM || interaction.guild_id === undefined;
   const isThread = isThreadChannelType(meta.type);
-  return isSenderAllowed(config, {
-    isDm,
+  return isSenderAllowed(bridge.config, {
+    isDm: meta.type === CHANNEL_TYPE_DM || interaction.guild_id === undefined,
     isThread,
     userId,
     channelId: interaction.channel_id ?? "",
@@ -1702,321 +336,302 @@ function senderAllowedForInteraction(
     guildId: interaction.guild_id ?? meta.guildId,
     mentionedBot: true,
     replyToBot: false,
-    threadHasSession: isThread && hasChatAgent(config.jazzHome, interaction.channel_id ?? ""),
+    threadHasSession:
+      isThread && hasChatAgent(bridge.config.jazzHome, interaction.channel_id ?? ""),
   });
 }
 
-async function dispatchSlash(
-  config: BridgeConfig,
+async function bindThreadIfNeeded(
+  bridge: Bridge,
+  message: DiscordMessage,
+  meta: ChannelMeta,
+  prompt: string,
+): Promise<string> {
+  const isThread = isThreadChannelType(meta.type);
+  if (meta.type === CHANNEL_TYPE_DM || isThread || !bridge.config.createThreads) {
+    return message.channel_id;
+  }
+  const thread = await createThreadFromMessage(
+    bridge.config.botToken,
+    message.channel_id,
+    message.id,
+    threadNameFromPrompt(prompt),
+  );
+  if (thread === undefined) return message.channel_id;
+  bridge.channels.set(thread.id, {
+    type: thread.type,
+    parentId: message.channel_id,
+    guildId: message.guild_id ?? meta.guildId,
+  });
+  return thread.id;
+}
+
+// --- Attachments ----------------------------------------------------------
+
+/**
+ * Download a message's attachments into the conversation's home and return their paths,
+ * plus a line for each one that could not be fetched.
+ */
+async function saveAttachments(
+  bridge: Bridge,
+  channelId: string,
+  attachments: readonly DiscordAttachment[],
+): Promise<{ readonly paths: string[]; readonly failures: string[] }> {
+  const sandbox = ensureChatSandbox(bridge.config.jazzHome, agentIdForChannel(channelId));
+  const paths: string[] = [];
+  const failures: string[] = [];
+  for (const attachment of attachments) {
+    if (typeof attachment.size === "number" && attachment.size > MAX_ATTACHMENT_BYTES) {
+      failures.push(`${attachment.filename} is over 25 MB`);
+      continue;
+    }
+    try {
+      const response = await fetch(attachment.url);
+      if (!response.ok) {
+        failures.push(`${attachment.filename} (download failed with ${response.status})`);
+        continue;
+      }
+      paths.push(
+        saveInboundMedia({
+          home: sandbox.home,
+          directoryName: MEDIA_DIRECTORY,
+          fileName: inboundMediaFileName(
+            attachment.id,
+            attachment.filename,
+            attachment.content_type,
+          ),
+          bytes: new Uint8Array(await response.arrayBuffer()),
+          ownership: sandboxOwnership(sandbox),
+          nowMs: Date.now(),
+        }),
+      );
+    } catch (error) {
+      failures.push(`${attachment.filename} (${String(error)})`);
+    }
+  }
+  return { paths, failures };
+}
+
+// --- Dispatch -------------------------------------------------------------
+
+export async function dispatchMessage(
+  bridge: Bridge,
   runtime: Runtime,
-  interaction: DiscordInteraction,
+  message: DiscordMessage,
 ): Promise<void> {
-  const channelId = interaction.channel_id;
-  if (channelId === undefined) {
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_CHANNEL_MESSAGE,
-      data: { content: "I need a channel to reply in.", flags: FLAG_EPHEMERAL },
-    });
+  if (message.author.id === runtime.botUserId) return;
+  if (message.author.bot === true) return;
+  if (!isRespondableMessage(message)) return;
+
+  const meta = await resolveChannel(bridge, message.channel_id);
+  if (meta.type === CHANNEL_TYPE_GROUP_DM) return;
+
+  const context = accessContextForMessage(bridge, message, meta, runtime.botUserId);
+  if (!isSenderAllowed(bridge.config, context)) {
+    console.warn(
+      `Ignoring message from non-allowed user ${message.author.id} in ${message.channel_id}`,
+    );
     return;
   }
-  const meta = await resolveChannel(config, channelId);
-  if (!senderAllowedForInteraction(config, interaction, meta)) {
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_CHANNEL_MESSAGE,
-      data: { content: "You're not on the allowlist for this bot.", flags: FLAG_EPHEMERAL },
-    });
-    return;
-  }
+  if (!shouldRespond(bridge.config, context)) return;
 
-  const name = interaction.data?.name ?? "help";
-  let args = "";
-  if (name === "remind") {
-    const when = slashOption(interaction, "when") ?? "";
-    const text = slashOption(interaction, "text") ?? "";
-    args = `${when} ${text}`.trim();
-  } else if (name === "tz") {
-    args = slashOption(interaction, "zone") ?? "";
-  } else if (name === "mode") {
-    args = slashOption(interaction, "mode") ?? "";
-  }
-
-  const needsDefer = name === "model" || name === "remind";
-  if (needsDefer) {
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_DEFERRED_CHANNEL_MESSAGE,
-    });
-  }
-
-  const invokerId = interactionUserId(interaction) ?? "";
-  const result = await handleCommand(config, channelId, invokerId, name, args);
-
-  if (needsDefer) {
-    if (result.runPrompt !== undefined) {
-      const original = await getOriginalInteraction(runtime.applicationId, interaction.token);
-      await handleMessage(config, channelId, invokerId, result.runPrompt, original?.id);
-      return;
+  const attachments = message.attachments ?? [];
+  const stripped = stripBotMention(message.content, runtime.botUserId);
+  if (stripped.length === 0 && attachments.length === 0) {
+    if (context.mentionedBot && message.content.trim().length === 0) {
+      await bridge.runner.send(message.channel_id, [
+        line(
+          text(
+            "I can see you mentioned me but not the text — enable the Message Content Intent for this bot in the Discord developer portal.",
+          ),
+        ),
+      ]);
     }
-    await editOriginalInteraction(runtime.applicationId, interaction.token, {
-      content: neutralizeBroadcastMentions(result.content),
-      ...(result.components !== undefined ? { components: result.components } : {}),
-    });
     return;
   }
 
-  await interactionCallback(interaction.id, interaction.token, {
-    type: CALLBACK_CHANNEL_MESSAGE,
-    data: {
-      content: neutralizeBroadcastMentions(result.content),
-      allowed_mentions: { parse: [] },
-      ...(result.components !== undefined ? { components: result.components } : {}),
-    },
-  });
+  const parsed = parseCommand(stripped);
+  if (parsed !== undefined && isRunAnswerCommand(parsed.command)) {
+    const reply = await answerRunFromChat({
+      command: parsed.command,
+      args: parsed.args,
+      senderId: message.author.id,
+      operatorIds: bridge.config.operatorIds,
+      operatorSettingName: "DISCORD_OPERATOR_IDS",
+      jazzBinary: bridge.config.jazzBinary,
+      onAccepted: (runId) =>
+        bridge.runner.send(message.channel_id, [plainLine(`⏳ Answering run ${runId}…`)]),
+    });
+    await bridge.runner.send(message.channel_id, [plainLine(reply)]);
+    return;
+  }
+
+  try {
+    const channelId = await bindThreadIfNeeded(bridge, message, meta, stripped || "attachment");
+    const { paths, failures } = await saveAttachments(bridge, channelId, attachments);
+    if (failures.length > 0) {
+      await bridge.runner.send(channelId, [
+        plainLine(`⚠️ I couldn't fetch ${failures.join(", ")}.`),
+      ]);
+    }
+    const prompt = [stripped || (paths.length > 0 ? "Look at this." : ""), ...paths]
+      .filter((part) => part.length > 0)
+      .join("\n\n");
+    if (prompt.length === 0) return;
+    await bridge.runner.handle({ chatId: channelId, senderId: message.author.id, text: prompt });
+  } catch (error) {
+    console.error(`Handling failed for ${message.channel_id}: ${String(error)}`);
+    await bridge.runner
+      .send(message.channel_id, [plainLine("⚠️ Something went wrong handling your message.")])
+      .catch((replyError) =>
+        console.error(`Failed to notify ${message.channel_id}: ${String(replyError)}`),
+      );
+  }
 }
 
-async function dispatchComponent(
-  config: BridgeConfig,
+const suggestions = createSuggestionStore();
+
+/** What the clicker is told, when their click did not simply work. */
+function noticeFor(outcome: ChoiceOutcome, userId: string): string | undefined {
+  switch (outcome) {
+    case "answered":
+      return undefined;
+    case "expired":
+      return "This already expired or the run finished.";
+    case "not-requester":
+      return "Only the person who asked can answer this.";
+    case "not-operator":
+      return `Only this bot's operator can do that. Your id is \`${userId}\`; the operator adds it to \`DISCORD_OPERATOR_IDS\`.`;
+  }
+}
+
+async function handleSuggestionClick(
+  bridge: Bridge,
+  channelId: string,
+  userId: string,
+  messageId: string,
+  token: string,
+  choiceId: string,
+): Promise<ChoiceOutcome> {
+  const item = suggestions.get(token)?.[Number.parseInt(choiceId, 10)];
+  if (item === undefined) return "expired";
+  await bridge.surface.setChoices(channelId, messageId, []);
+  // A bot cannot post as the clicker, so the echo is attributed subtext rather than a
+  // plain line that reads as the bot talking to itself.
+  await bridge.surface.send(channelId, {
+    body: [subtle(text(`<@${userId}> · ${item.label}`))],
+    replyTo: messageId,
+  });
+  void bridge.runner
+    .handle({ chatId: channelId, senderId: userId, text: item.prompt, replyTo: messageId })
+    .catch((error: unknown) => console.error(`Suggestion follow-up failed: ${String(error)}`));
+  return "answered";
+}
+
+/**
+ * A click on a button or select menu.
+ *
+ * Acknowledged first, before anything that can take time (a channel lookup, a model list, a
+ * run): Discord fails the interaction after three seconds without one. Anything the clicker
+ * needs to be told afterwards goes as an ephemeral follow-up.
+ */
+export async function dispatchComponent(
+  bridge: Bridge,
   interaction: DiscordInteraction,
 ): Promise<void> {
-  const channelId = interaction.channel_id ?? interaction.message?.channel_id;
-  const messageId = interaction.message?.id;
-  const customId = interaction.data?.custom_id ?? "";
-  if (channelId === undefined || messageId === undefined) {
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_CHANNEL_MESSAGE,
-      data: { content: "Missing message context.", flags: FLAG_EPHEMERAL },
-    });
-    return;
-  }
-
-  const meta = await resolveChannel(config, channelId);
-  if (!senderAllowedForInteraction(config, interaction, meta)) {
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_CHANNEL_MESSAGE,
-      data: { content: "You're not on the allowlist for this bot.", flags: FLAG_EPHEMERAL },
-    });
-    return;
-  }
-
-  const parts = customId.split(":");
-  const kind = parts[0];
-  const clickerId = interactionUserId(interaction) ?? "";
-  /** Tell the clicker why nothing happened, in a reply only they see. */
-  const refuse = (content: string): Promise<unknown> =>
-    interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_CHANNEL_MESSAGE,
-      data: { content, flags: FLAG_EPHEMERAL },
-    });
-
-  if (kind === "s") {
-    const items = suggestionStore.get(parts[1] ?? "");
-    const index = Number.parseInt(parts[2] ?? "", 10);
-    const item = items !== undefined && Number.isInteger(index) ? items[index] : undefined;
-    if (!item) {
-      await interactionCallback(interaction.id, interaction.token, {
-        type: CALLBACK_CHANNEL_MESSAGE,
-        data: {
-          content: "That suggestion expired — just ask me directly.",
-          flags: FLAG_EPHEMERAL,
-        },
-      });
-      return;
-    }
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { components: [] },
-    });
-    // A bot cannot post as the clicker, so the echo is attributed subtext
-    // rather than a plain line that reads as the bot talking to itself.
-    const requesterId = interactionUserId(interaction);
-    const echo = requesterId === undefined ? item.label : `<@${requesterId}> · ${item.label}`;
-    await sendReply(config, channelId, `-# ${echo}`, {
-      message_reference: { message_id: messageId },
-    });
-    void handleMessage(config, channelId, clickerId, item.prompt, undefined, messageId).catch(
-      (error) => console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
-    );
-    return;
-  }
-
-  if (kind === "x") {
-    const runToken = parts[1] ?? "";
-    const found = activeRuns.get(runToken);
-    const run = found?.channelId === channelId ? found : undefined;
-    if (run && run.requesterId !== clickerId && !config.operatorIds.has(clickerId)) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (run) {
-      run.cancelled = true;
-      run.child.kill();
-    }
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { content: run ? "⏹ Cancelling…" : "Already finished.", components: [] },
-    });
-    for (const [token, pending] of pendingApprovals) {
-      if (pending.runToken !== runToken) continue;
-      pendingApprovals.delete(token);
-      await patchMessage(config.botToken, pending.channelId, pending.messageId, {
-        components: [],
-      }).catch(() => undefined);
-    }
-    return;
-  }
-
-  if (kind === "a") {
-    const token = parts[1] ?? "";
-    const approved = parts[2] === "1";
-    const found = pendingApprovals.get(token);
-    const pending = found?.channelId === channelId ? found : undefined;
-    const run = pending ? activeRuns.get(pending.runToken) : undefined;
-    if (run && run.requesterId !== clickerId) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (!pending || !run) {
-      await interactionCallback(interaction.id, interaction.token, {
-        type: CALLBACK_CHANNEL_MESSAGE,
-        data: {
-          content: "This approval already expired or the run finished.",
-          flags: FLAG_EPHEMERAL,
-        },
-      });
-      return;
-    }
-    pendingApprovals.delete(token);
-    await writeApprovalDecisions(run, [{ toolCallId: pending.toolCallId, approved }]);
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: {
-        content: approved ? "✅ Approved" : "❌ Rejected",
-        components: [],
-      },
-    });
-    // One fewer outstanding: the survivors' "Approve all N" counts are now
-    // stale, and the last one left should lose the batch buttons entirely.
-    await refreshApprovalComponents(config, pending.runToken);
-    return;
-  }
-
-  if (kind === "aa") {
-    const runToken = parts[1] ?? "";
-    const approved = parts[2] === "1";
-    const outstanding = pendingApprovalsForRun(runToken);
-    const found = activeRuns.get(runToken);
-    const run = found?.channelId === channelId ? found : undefined;
-    if (run && run.requesterId !== clickerId) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (outstanding.length === 0 || !run) {
-      await interactionCallback(interaction.id, interaction.token, {
-        type: CALLBACK_CHANNEL_MESSAGE,
-        data: {
-          content: "Those approvals already expired or the run finished.",
-          flags: FLAG_EPHEMERAL,
-        },
-      });
-      return;
-    }
-    for (const [outstandingToken] of outstanding) pendingApprovals.delete(outstandingToken);
-    await writeApprovalDecisions(
-      run,
-      outstanding.map(([, pending]) => ({ toolCallId: pending.toolCallId, approved })),
-    );
-    const verdict = approved ? "✅ Approved" : "❌ Rejected";
-    // Only the clicked message can be answered through the interaction, and the
-    // batch verdict goes there. Its siblings keep the text describing the tool
-    // they were asking about — that is the record of what this click approved —
-    // and lose only their buttons, which no longer resolve anything.
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { content: `${verdict} — ${outstanding.length} tool calls`, components: [] },
-    });
-    for (const [, pending] of outstanding) {
-      if (pending.messageId === messageId) continue;
-      await patchMessage(config.botToken, pending.channelId, pending.messageId, {
-        components: [],
-      }).catch(() => undefined);
-    }
-    return;
-  }
-
-  if (kind === "md") {
-    const mode: ApprovalMode = parts[1] === "yolo" ? "yolo" : "safe";
-    if (mode === "yolo" && !config.operatorIds.has(clickerId)) {
-      await refuse(operatorOnlyMarkdown(clickerId, "Turning approvals off"));
-      return;
-    }
-    setApprovalMode(config.jazzHome, MODE_FILE, channelId, mode);
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { content: modeConfirmation(mode, config.approvalPolicy), components: [] },
-    });
-    return;
-  }
-
-  if (kind === "f") {
-    const option = FOLLOWUP_OPTIONS[parts[1] ?? ""];
-    if (!option) {
-      await interactionCallback(interaction.id, interaction.token, {
-        type: CALLBACK_DEFERRED_UPDATE,
-      });
-      return;
-    }
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { components: [] },
-    });
-    await sendReply(config, channelId, option.label, {
-      message_reference: { message_id: messageId },
-    });
-    void handleMessage(config, channelId, clickerId, option.prompt, undefined, messageId).catch(
-      (error) => console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
-    );
-    return;
-  }
-
-  if (kind === "r") {
-    const cancelled = await cancelReminderForChannel(config, channelId, parts[1] ?? "");
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: {
-        content: cancelled ? "Reminder cancelled." : "Reminder not found.",
-        components: [],
-      },
-    });
-    return;
-  }
-
-  if (kind === "m" || kind === "p") {
-    const value = interaction.data?.values?.[0];
-    if (value === undefined) {
-      await interactionCallback(interaction.id, interaction.token, {
-        type: CALLBACK_CHANNEL_MESSAGE,
-        data: { content: "Nothing selected.", flags: FLAG_EPHEMERAL },
-      });
-      return;
-    }
-    const confirmation =
-      kind === "m"
-        ? await applyModelChoice(config, channelId, value)
-        : applyPersonaChoice(config, channelId, value);
-    await interactionCallback(interaction.id, interaction.token, {
-      type: CALLBACK_UPDATE_MESSAGE,
-      data: { content: confirmation, components: [] },
-    });
-    return;
-  }
-
   await interactionCallback(interaction.id, interaction.token, {
     type: CALLBACK_DEFERRED_UPDATE,
   });
+  const notify = (content: string): Promise<void> =>
+    ephemeralFollowup(interaction.application_id, interaction.token, content);
+
+  const channelId = interaction.channel_id ?? interaction.message?.channel_id;
+  const messageId = interaction.message?.id;
+  const userId = interactionUserId(interaction);
+  if (channelId === undefined || messageId === undefined || userId === undefined) return;
+
+  const meta = await resolveChannel(bridge, channelId);
+  if (!senderAllowedForInteraction(bridge, interaction, meta)) {
+    await notify("You're not on the allowlist for this bot.");
+    return;
+  }
+
+  // A select menu's picked value is the token; a button's is its custom id.
+  const payload = interaction.data?.values?.[0] ?? interaction.data?.custom_id ?? "";
+  const choice = bridge.surface.readChoice(payload);
+  let outcome: ChoiceOutcome;
+  if (choice === undefined) {
+    // Components drawn before a restart, or by an earlier version of the bridge.
+    outcome = "expired";
+  } else if (choice.promptId.startsWith(SUGGESTION_PROMPT_PREFIX)) {
+    outcome = await handleSuggestionClick(
+      bridge,
+      channelId,
+      userId,
+      messageId,
+      choice.promptId.slice(SUGGESTION_PROMPT_PREFIX.length),
+      choice.choiceId,
+    );
+  } else {
+    outcome = await bridge.runner.deliverChoice({
+      chatId: channelId,
+      promptId: choice.promptId,
+      choiceId: choice.choiceId,
+      senderId: userId,
+      messageRef: messageId,
+    });
+  }
+  const notice = noticeFor(outcome, userId);
+  if (notice !== undefined) await notify(notice);
 }
 
-async function dispatchInteraction(
-  config: BridgeConfig,
-  runtime: Runtime,
+/**
+ * A slash command, handed to the runner as the text command it stands for.
+ *
+ * Deferred first, inside Discord's three seconds; the runner then answers in the channel
+ * like any other command, and the deferred placeholder is removed once it has.
+ */
+export async function dispatchSlash(
+  bridge: Bridge,
+  interaction: DiscordInteraction,
+): Promise<void> {
+  await interactionCallback(interaction.id, interaction.token, {
+    type: CALLBACK_DEFERRED_CHANNEL_MESSAGE,
+    data: { flags: 64 },
+  });
+  const channelId = interaction.channel_id;
+  const userId = interactionUserId(interaction);
+  if (channelId === undefined || userId === undefined) {
+    await ephemeralFollowup(
+      interaction.application_id,
+      interaction.token,
+      "I need a channel to reply in.",
+    );
+    return;
+  }
+  const meta = await resolveChannel(bridge, channelId);
+  if (!senderAllowedForInteraction(bridge, interaction, meta)) {
+    await ephemeralFollowup(
+      interaction.application_id,
+      interaction.token,
+      "You're not on the allowlist for this bot.",
+    );
+    return;
+  }
+  const turn = bridge.runner.handle({
+    chatId: channelId,
+    senderId: userId,
+    text: slashCommandText(interaction),
+  });
+  // A command answers in a moment; one that starts a run (/remind) is shown by its own
+  // progress message, so the placeholder goes as soon as the reply is under way.
+  await Promise.race([turn, Bun.sleep(1_000)]);
+  await deleteOriginalInteraction(interaction.application_id, interaction.token);
+  await turn;
+}
+
+export async function dispatchInteraction(
+  bridge: Bridge,
   interaction: DiscordInteraction,
 ): Promise<void> {
   if (interaction.type === INTERACTION_PING) {
@@ -2024,26 +639,26 @@ async function dispatchInteraction(
     return;
   }
   if (interaction.type === INTERACTION_APPLICATION_COMMAND) {
-    await dispatchSlash(config, runtime, interaction);
+    await dispatchSlash(bridge, interaction);
     return;
   }
   if (interaction.type === INTERACTION_MESSAGE_COMPONENT) {
-    await dispatchComponent(config, interaction);
+    await dispatchComponent(bridge, interaction);
   }
 }
 
-function startHealthServer(config: BridgeConfig): void {
+function startHealthServer(bridge: Bridge): void {
   Bun.serve({
-    port: config.port,
+    port: bridge.config.port,
     fetch(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
-        return new Response("ok", { status: 200 });
+        return healthResponse(bridge.health);
       }
       const compositionId =
         request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
       if (compositionId !== undefined) {
-        const page = compositionLinks(config).page(compositionId);
+        const page = bridge.compositions.page(compositionId);
         return page === undefined
           ? new Response("not found", { status: 404 })
           : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -2051,19 +666,107 @@ function startHealthServer(config: BridgeConfig): void {
       return new Response("not found", { status: 404 });
     },
   });
-  console.log(`Health server listening on :${config.port}`);
+  console.log(`Health server listening on :${bridge.config.port}`);
 }
 
-function start(): void {
+/**
+ * Wire the surface, the runner and the web-app store together for one configuration.
+ *
+ * `startRun` and `fetchChannel` are test seams: substitutes for spawning `jazz run` and for
+ * looking a channel up over REST.
+ */
+export function createBridge(
+  config: BridgeConfig,
+  surface: DiscordSurface,
+  seams: {
+    readonly startRun?: TurnConfig["startRun"];
+    readonly fetchChannel?: (channelId: string) => Promise<ChannelMeta>;
+  } = {},
+): Bridge {
+  const compositions = createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  const runner = createTurnRunner({
+    surface,
+    ...(seams.startRun === undefined ? {} : { startRun: seams.startRun }),
+    jazzBinary: config.jazzBinary,
+    jazzHome: config.jazzHome,
+    baseAgentId: config.baseAgentId,
+    builtinPersonasDir: config.builtinPersonasDir,
+    approvalPolicy: config.approvalPolicy,
+    autoApproveTools: config.autoApproveTools,
+    runTimeoutMs: config.runTimeoutMs,
+    dailyCostCapUsd: config.dailyCostCapUsd,
+    showReasoning: config.showReasoning,
+    reasoningPartChars: REASONING_PART_CHARS,
+    reasoningMaxParts: REASONING_MAX_PARTS,
+    files: STORE_FILES,
+    spendOrigin: "discord",
+    incognitoFile: INCOGNITO_FILE,
+    agentIdFor: agentIdForChannel,
+    operators: config.operatorIds,
+    operatorSettingName: "DISCORD_OPERATOR_IDS",
+    ...(config.publicBaseUrl === undefined
+      ? {}
+      : { compositionServer: { publicBaseUrl: config.publicBaseUrl, links: compositions } }),
+    publicUrlSettingName: "DISCORD_PUBLIC_BASE_URL",
+    extraHelp: [
+      "/approve <runId>, /deny <runId> [why]: answer a parked run (operator only)",
+      "",
+      "In a server I only reply when mentioned, when you reply to me, or in a thread I already joined.",
+    ],
+    ...(config.dynamicCta
+      ? {
+          onAnswered: async (turn) => {
+            if (turn.messageRef === undefined) return;
+            const items = await generateSuggestions({
+              jazzBinary: config.jazzBinary,
+              jazzHome: config.jazzHome,
+              baseAgentId: config.baseAgentId,
+              suggestAgentId: SUGGEST_AGENT_ID,
+              surfaceName: surface.name,
+              sandbox: ensureChatSandbox(config.jazzHome, agentIdForChannel(turn.chatId)),
+              question: turn.question,
+              answer: turn.answer,
+            });
+            console.log(`[cta] channel ${turn.chatId}: ${items.length} contextual suggestion(s)`);
+            // Keep the static follow-ups already attached when the model gave nothing.
+            if (items.length === 0) return;
+            const token = suggestions.put(items);
+            await surface.setChoices(
+              turn.chatId,
+              turn.messageRef,
+              items.map((item, index) => ({ id: String(index), label: item.label })),
+              `${SUGGESTION_PROMPT_PREFIX}${token}`,
+            );
+          },
+        }
+      : {}),
+  });
+  return {
+    config,
+    surface,
+    runner,
+    compositions,
+    health: createHealthState(GATEWAY_STALE_AFTER_MS),
+    channels: new Map(),
+    fetchChannel:
+      seams.fetchChannel ??
+      (async (channelId) => {
+        const fetched = await getChannel(config.botToken, channelId);
+        return {
+          type: fetched?.type ?? 0,
+          parentId: fetched?.parent_id ?? undefined,
+          guildId: fetched?.guild_id,
+        };
+      }),
+  };
+}
+
+export function startBridge(): void {
   const config = loadConfig();
-  // Everything this process and its agents write stays off-limits to anyone
-  // outside the operator group — the data directory is shared with whoever
-  // else is on the host.
+  // Everything this process and its agents write stays off-limits to anyone outside the
+  // operator group — the data directory is shared with whoever else is on the host.
   process.umask(SANDBOX_UMASK);
 
-  // Seeded here rather than by the entrypoint, which used to sed a JSON
-  // template into place on every restart - overwriting a model or persona the
-  // operator had changed. This writes it once and then leaves it alone.
   if (
     ensureSeedAgent(config.jazzHome, {
       id: config.baseAgentId,
@@ -2079,22 +782,21 @@ function start(): void {
         `reasoning=${config.reasoning}) into ${config.jazzHome}/agents`,
     );
   }
-  for (const home of [
-    config.jazzHome,
-    ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
-  ]) {
-    removeAgentFile(home, SUGGEST_AGENT_ID);
-  }
-  startHealthServer(config);
+  removeSuggestAgents(config.jazzHome, SUGGEST_AGENT_ID);
+
+  const bridge = createBridge(config, createDiscordSurface({ botToken: config.botToken }));
+  startHealthServer(bridge);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => channelIdFromAgentId(agentId) ?? undefined,
-    send: (channelId, body) => sendReply(config, channelId, renderDiscordMarkdown(body)),
+    send: (channelId, body) => bridge.runner.send(channelId, body),
   });
 
   let runtime: Runtime | undefined;
 
-  connectGateway(config.botToken, {
+  const gateway = connectGateway(config.botToken, {
+    onHealthy: () => bridge.health.beat(),
+    onFatal: (code, why) => bridge.health.fail(`gateway closed with ${code}: ${why}`),
     onReady(info) {
       runtime = { botUserId: info.userId, applicationId: info.applicationId };
       syncAgentDisplayName(config.jazzHome, config.baseAgentId, info.username);
@@ -2119,20 +821,14 @@ function start(): void {
     },
     onMessage(message) {
       if (runtime === undefined) return;
-      void dispatchMessage(config, runtime, message);
+      void dispatchMessage(bridge, runtime, message);
     },
     onInteraction(interaction) {
-      if (runtime === undefined) return;
-      void dispatchInteraction(config, runtime, interaction).catch((error) =>
+      void dispatchInteraction(bridge, interaction).catch((error) =>
         console.error(`Interaction handling failed: ${String(error)}`),
       );
     },
   });
-}
 
-try {
-  start();
-} catch (error) {
-  console.error(`Bridge failed to start: ${String(error)}`);
-  process.exit(1);
+  installShutdown({ runner: bridge.runner, stopIntake: () => gateway.stop() });
 }
