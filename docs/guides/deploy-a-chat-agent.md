@@ -370,13 +370,27 @@ provider offers. Reasoning effort is set automatically either way.
 
 ## Keeping it updated
 
-The Telegram and Discord bots ship an `auto-update.sh` that fast-forwards the checkout to `origin/main`,
-rebuilds only if something changed, and rolls back if the new build doesn't come up
-healthy. Install it as an hourly cron job (adjust the path to where you cloned the repo):
+The Telegram and Discord bots ship an `auto-update.sh` that moves the checkout to the newest
+Jazz release tag (`vX.Y.Z`) once one is published, rebuilds only if something changed, and
+rolls back if the new build doesn't come up healthy. It never moves backwards: a checkout
+that is already ahead of the newest release (for example one that used to follow `main`)
+stays where it is until the next release passes it. Install it as an hourly cron job (adjust
+the path to where you cloned the repo):
 
 ```bash
 (crontab -l 2>/dev/null; echo "30 * * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
+
+To run every commit merged to a branch instead of releases, set `JAZZ_DEPLOY_BRANCH` in the
+cron entry. The script then fast-forwards to `origin/<branch>` on every run:
+
+```bash
+(crontab -l 2>/dev/null; echo "30 * * * * JAZZ_DEPLOY_BRANCH=main $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+```
+
+Before moving the checkout, either way, the script stashes tracked edits (untracked files such
+as a local `docker-compose.override.yml` or `.env` are left alone) and names any commits that
+exist only on that box, so nothing goes quietly missing.
 
 Swap `telegram-bot` for `discord-bot` to update the other one. A sibling executable
 `notify.sh` (present in both directories) posts the outcome (success, rollback, or a
