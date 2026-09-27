@@ -11,6 +11,7 @@ import {
   recordMemoryRecall,
   VIEW_MEMORY_TOOL_NAME,
 } from "@/core/agent/memory-recall-log";
+import { isEmptyCompletion } from "@/core/agent/run/answer-outcome";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { PROPOSE_GOAL_TOOL_NAME } from "@/core/agent/tools/goal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
@@ -553,11 +554,12 @@ function finalizeRun(
       stalled,
     } = input;
     const capped = costCapped || tokenCapped || durationCapped;
+    const iterationLimited = !finished && !capped && !interrupted;
     let iterationsUsed = input.iterationsUsed;
 
     if (!finished) {
-      iterationsUsed = capped ? input.iterationsUsed : maxIterations;
-      if (!capped) {
+      iterationsUsed = iterationLimited ? maxIterations : input.iterationsUsed;
+      if (iterationLimited) {
         yield* observer.onIterationLimit(agentName, maxIterations);
       }
     } else if (
@@ -612,6 +614,7 @@ function finalizeRun(
       ...(costCapped ? { costCapped: true } : {}),
       ...(tokenCapped ? { tokenCapped: true } : {}),
       ...(durationCapped ? { durationCapped: true } : {}),
+      ...(iterationLimited ? { iterationLimited: true } : {}),
       ...(stalled ? { stalled: true } : {}),
     };
   });
@@ -1634,6 +1637,9 @@ function runIteration(
     }
 
     if (completion.toolsDisabled) {
+      if (state.response.toolsDisabled !== true) {
+        yield* observer.onToolsDisabled(agent.name, provider, model);
+      }
       state.response = { ...state.response, toolsDisabled: true };
     }
 
@@ -1693,10 +1699,12 @@ function runIteration(
     const visibleContent = completion.content?.trim().length
       ? completion.content
       : (completion.reasoning ?? completion.content);
+    const emptyCompletion = isEmptyCompletion(visibleContent, completion.usage);
     state.response = {
       ...state.response,
       content: visibleContent,
       ...(completion.finishReason !== undefined ? { finishReason: completion.finishReason } : {}),
+      ...(emptyCompletion ? { emptyCompletion: true } : {}),
       ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
       // Media the model itself returned, joining anything tools produced earlier in the run.
       ...(completion.artifacts && completion.artifacts.length > 0
@@ -1710,6 +1718,9 @@ function runIteration(
       yield* strategy.presentResponse(agent.name, visibleContent, completion);
     } else if (!options.internal) {
       yield* strategy.presentResponse(agent.name, visibleContent, completion);
+      if (completion.finishReason === "length" || completion.finishReason === "content-filter") {
+        yield* observer.onAnswerIncomplete(agent.name, completion.finishReason);
+      }
       yield* observer.onCompletion(agent.name);
       yield* strategy.onComplete(agent.name, completion);
     }
