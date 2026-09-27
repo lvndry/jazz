@@ -17,6 +17,7 @@ import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logg
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect } from "effect";
 
 /**
@@ -71,7 +72,7 @@ export function logMessageToSession(
   return Effect.tryPromise({
     try: async () => {
       const logsDir = getLogsDirectory();
-      await mkdir(logsDir, { recursive: true });
+      await mkdir(logsDir, { recursive: true, mode: stateDirectoryMode() });
       // The same mapping the LoggerService uses. Deriving the filename a second way here
       // is what split one conversation's transcript lines from its tool and metric lines.
       const logFilePath = path.join(
@@ -82,7 +83,7 @@ export function logMessageToSession(
       const role = message.role.toUpperCase();
       const content = message.content || "";
       const line = `[${timestamp}] [${role}] ${content}\n`;
-      await appendFile(logFilePath, line, { encoding: "utf8" });
+      await appendFile(logFilePath, line, { encoding: "utf8", mode: stateFileMode() });
     },
     catch: () => undefined, // Silently fail - logging should not break the chat session
   }).pipe(Effect.catchAll(() => Effect.void));

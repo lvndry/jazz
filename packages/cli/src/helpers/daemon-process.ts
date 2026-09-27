@@ -7,6 +7,7 @@ import * as nodeFs from "node:fs/promises";
 import path from "node:path";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { isProcessAlive } from "@jazz/core/utils/process";
 
 export function daemonPidPath(port: number): string {
@@ -15,7 +16,7 @@ export function daemonPidPath(port: number): string {
 
 export async function writeDaemonPid(port: number, pid: number): Promise<void> {
   const file = daemonPidPath(port);
-  await nodeFs.mkdir(path.dirname(file), { recursive: true });
+  await nodeFs.mkdir(path.dirname(file), { recursive: true, mode: stateDirectoryMode() });
   await nodeFs.writeFile(file, `${String(pid)}\n`, { encoding: "utf-8", mode: 0o600 });
 }
 

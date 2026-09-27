@@ -15,7 +15,7 @@ export interface RunDeadline {
    * before the wait began is never allowed to fire while still waiting.
    */
   readonly extend: (minMs: number) => void;
-  /** Effect that fails once the deadline passes. Race this against the run. */
+  /** Effect that fails once the deadline passes. Race it against the run with `Effect.raceFirst`. */
   readonly watch: Effect.Effect<never, Error>;
 }
 

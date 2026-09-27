@@ -4,12 +4,12 @@
  * run status.
  */
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import { z } from "zod";
 import { MAX_RUN_HISTORY_RECORDS } from "@/core/constants/agent";
-import { toError } from "@/core/utils/errors";
 import { getGlobalUserDataDirectory } from "@/core/utils/paths";
-import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
+import { readStateFile, recordListKind, writeStateFile } from "@/core/utils/state-file";
+import { withLock } from "@/core/utils/storage";
 
 /**
  * Record of a single workflow run.
@@ -83,53 +83,41 @@ function getLockPath(): string {
   return path.join(getGlobalUserDataDirectory(), "run-history.lock");
 }
 
-/**
- * Load the run history from disk.
- * Returns empty array if the file does not exist (e.g. no workflows run yet) or is invalid.
- */
-export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const historyPath = getHistoryPath();
+const WorkflowRunRecordSchema: z.ZodType<WorkflowRunRecord> = z.object({
+  workflowName: z.string().min(1),
+  scheduleLabel: z.string().exactOptional(),
+  startedAt: z.string(),
+  completedAt: z.string().exactOptional(),
+  status: z.enum(["running", "completed", "failed", "skipped"]),
+  error: z.string().exactOptional(),
+  triggeredBy: z.enum(["manual", "scheduled"]),
+  costUSD: z.number().exactOptional(),
+  tokenUsage: z.object({ promptTokens: z.number(), completionTokens: z.number() }).exactOptional(),
+});
 
-    const content = yield* fs
-      .readFileString(historyPath)
-      .pipe(
-        Effect.catchAll((e) =>
-          e &&
-          typeof e === "object" &&
-          "_tag" in e &&
-          (e as { _tag: string })._tag === "SystemError" &&
-          (e as { reason?: string }).reason === "NotFound"
-            ? Effect.succeed("")
-            : Effect.fail(toError(e)),
-        ),
-      );
+const RUN_HISTORY_FILE_KIND = recordListKind("workflow runs", "runs", WorkflowRunRecordSchema);
 
-    if (content === "") return [];
-
-    try {
-      const history = JSON.parse(content) as WorkflowRunRecord[];
-      return Array.isArray(history) ? history : [];
-    } catch {
-      return [];
-    }
-  });
+/** Read the history while holding its lock; a corrupt file is quarantined and reads as empty. */
+function readRunHistoryLocked(): Effect.Effect<WorkflowRunRecord[], Error> {
+  return readStateFile(getHistoryPath(), RUN_HISTORY_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
+    Effect.map((history) => history ?? []),
+  );
 }
 
 /**
- * Save the run history to disk using atomic write (temp file + rename).
+ * Load the run history from disk: empty when no workflow has run yet, or when the file was
+ * corrupt and has been moved aside. A history written by a newer Jazz fails rather than reading
+ * as empty, because an empty history makes every schedule look missed.
  */
-function saveRunHistory(
-  history: WorkflowRunRecord[],
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const historyPath = getHistoryPath();
-    yield* writeFileStringAtomic(fs, historyPath, JSON.stringify(history, null, 2), {
-      tempPrefix: "run-history",
-    });
-  });
+export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error> {
+  return withLock(getLockPath(), readRunHistoryLocked());
+}
+
+/**
+ * Save the run history to disk durably (temp file, fsync, rename). Callers hold the lock.
+ */
+function saveRunHistory(history: WorkflowRunRecord[]): Effect.Effect<void, Error> {
+  return writeStateFile(getHistoryPath(), RUN_HISTORY_FILE_KIND, history);
 }
 
 /**
@@ -137,13 +125,11 @@ function saveRunHistory(
  * Keeps only the last N records to prevent unbounded growth.
  * Uses file locking to prevent race conditions.
  */
-export function addRunRecord(
-  record: WorkflowRunRecord,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+export function addRunRecord(record: WorkflowRunRecord): Effect.Effect<void, Error> {
   return withLock(
     getLockPath(),
     Effect.gen(function* () {
-      const history = yield* loadRunHistory();
+      const history = yield* readRunHistoryLocked();
 
       // Add the new record
       history.push(record);
@@ -163,11 +149,11 @@ export function addRunRecord(
 export function updateLatestRunRecord(
   workflowName: string,
   update: Partial<WorkflowRunRecord>,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<void, Error> {
   return withLock(
     getLockPath(),
     Effect.gen(function* () {
-      const history = yield* loadRunHistory();
+      const history = yield* readRunHistoryLocked();
 
       // Find the most recent record for this workflow that is still running
       for (let i = history.length - 1; i >= 0; i--) {
@@ -187,7 +173,7 @@ export function updateLatestRunRecord(
  */
 export function getWorkflowHistory(
   workflowName: string,
-): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
+): Effect.Effect<WorkflowRunRecord[], Error> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
     return history.filter((r) => r.workflowName === workflowName);
@@ -197,9 +183,7 @@ export function getWorkflowHistory(
 /**
  * Get the most recent runs (across all workflows), ordered oldest to newest.
  */
-export function getRecentRuns(
-  limit = 20,
-): Effect.Effect<WorkflowRunRecord[], Error, FileSystem.FileSystem> {
+export function getRecentRuns(limit = 20): Effect.Effect<WorkflowRunRecord[], Error> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
     return history.slice(-limit);

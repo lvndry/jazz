@@ -43,7 +43,19 @@ import {
   type DaemonRequirements,
 } from "./server";
 
-const LOOPBACK = { port: 0, host: "127.0.0.1" };
+/**
+ * A loopback daemon holding an operator token, which every request below presents, so a route's
+ * own behaviour is what is under test. Which requests need it is `operator-grants.test.ts`.
+ */
+const LOOPBACK = { port: 0, host: "127.0.0.1", operatorToken: "operator-only" };
+
+/** A daemon that grants over HTTP, and the headers of a request that may ask it to. */
+const OPERATED = { ...LOOPBACK, token: "s3cret", operatorToken: "operator-only" };
+const OPERATOR_HEADERS = {
+  authorization: "Bearer s3cret",
+  "content-type": "application/json",
+  "x-jazz-operator-token": "operator-only",
+};
 
 /**
  * Runs a handler effect against a store, with no agent stack behind it.
@@ -59,7 +71,9 @@ function runnerFor(store: InMemoryRunStore) {
 }
 
 function request(method: string, path: string, init?: RequestInit): Request {
-  return new Request(`http://localhost${path}`, { method, ...init });
+  const headers = new Headers(init?.headers);
+  headers.set("x-jazz-operator-token", "operator-only");
+  return new Request(`http://localhost${path}`, { method, ...init, headers });
 }
 
 /** A JSON write, since every persona route takes one. */
@@ -166,10 +180,10 @@ describe("the daemon's routes", () => {
   });
 
   it("refuses to accept a goal without the plan revision being accepted", async () => {
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
     const response = await handle(
       request("POST", "/goals/goal-1/accept", {
-        headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+        headers: OPERATOR_HEADERS,
         body: JSON.stringify({ version: 1 }),
       }),
     );
@@ -177,11 +191,11 @@ describe("the daemon's routes", () => {
   });
 
   it("refuses an approval policy outside the known tiers or off an accept", async () => {
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
     const post = (path: string, body: unknown) =>
       handle(
         request("POST", path, {
-          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          headers: OPERATOR_HEADERS,
           body: JSON.stringify(body),
         }),
       );
@@ -204,7 +218,7 @@ describe("the daemon's routes", () => {
     const agents = {
       getAgent: () => Effect.succeed(agentFixture()),
     } as unknown as AgentService;
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+    const handle = makeHandler(OPERATED, (effect) =>
       Effect.runPromise(
         effect.pipe(
           Effect.provideService(LoopStoreTag, loops),
@@ -215,7 +229,7 @@ describe("the daemon's routes", () => {
     const post = (path: string, body: unknown) =>
       handle(
         request("POST", path, {
-          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          headers: OPERATOR_HEADERS,
           body: JSON.stringify(body),
         }),
       );
@@ -377,7 +391,7 @@ describe("the daemon's routes", () => {
     expect(response.status).toBe(299);
   });
 
-  it("returns 404 for malformed webhook URL encoding", async () => {
+  it("answers malformed webhook URL encoding like any unknown webhook", async () => {
     const handle = makeWebhookHandler(
       async () => [],
       async () => undefined,
@@ -385,7 +399,7 @@ describe("the daemon's routes", () => {
         throw new Error("runEffect should not be called");
       },
     );
-    expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(404);
+    expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(401);
   });
 
   it("sees a webhook added after the daemon started, without a restart", async () => {
@@ -395,9 +409,8 @@ describe("the daemon's routes", () => {
     const handle = makeWebhookHandler(
       async () => webhooks,
       async () => "webhook-secret",
-      async () => {
-        throw new Error("runEffect should not be called");
-      },
+      async () => new Response("reached the runner", { status: 299 }) as never,
+      { claimDelivery: async () => "fresh" },
     );
 
     const before = await handle(
@@ -406,18 +419,19 @@ describe("the daemon's routes", () => {
         body: "hello",
       }),
     );
-    expect(before.status).toBe(404);
+    // An unknown name answers exactly as a bad token does, so names cannot be probed.
+    expect(before.status).toBe(401);
+    expect(await before.json()).toEqual({ ok: false, error: "unauthorized" });
 
     webhooks.push({ name: "late", agentId: "default", promptTemplate: "Process {{payload}}" });
 
-    // Now found, so authorization runs — the 401 here is the token check, not the lookup.
     const after = await handle(
       request("POST", "/webhooks/late", {
-        headers: { authorization: "Bearer wrong" },
+        headers: { authorization: "Bearer webhook-secret" },
         body: "hello",
       }),
     );
-    expect(after.status).toBe(401);
+    expect(after.status).toBe(299);
   });
 
   it("refuses a thread key on a webhook that is not threaded", async () => {
@@ -531,7 +545,7 @@ describe("which conversation a webhook fire belongs to", () => {
     const first = webhookConversationId(ephemeral, undefined);
     const second = webhookConversationId(ephemeral, undefined);
 
-    expect(first).toStartWith("trigger-hook-");
+    expect(first).toStartWith("webhook-hook-");
     expect(second).not.toBe(first);
   });
 
@@ -544,7 +558,7 @@ describe("which conversation a webhook fire belongs to", () => {
   });
 
   it("resumes the same conversation for one thread key", () => {
-    expect(webhookConversationId(threaded, "room-7")).toBe("trigger-hook-room-7");
+    expect(webhookConversationId(threaded, "room-7")).toBe("webhook-4-hook-room-7");
     expect(webhookConversationId(threaded, "room-7")).toBe(
       webhookConversationId(threaded, "room-7"),
     );
@@ -557,9 +571,23 @@ describe("which conversation a webhook fire belongs to", () => {
   });
 
   it("shares one thread across keyless fires rather than falling back to ephemeral", () => {
-    expect(webhookConversationId(threaded, undefined)).toBe("trigger-hook");
+    expect(webhookConversationId(threaded, undefined)).toBe("webhook-4-hook");
     expect(webhookConversationId(threaded, undefined)).toBe(
       webhookConversationId(threaded, undefined),
+    );
+  });
+
+  it("never gives two webhooks' threads one conversation", () => {
+    // `gh` with thread `admin-x` and `gh-admin` with thread `x` read the same id when the name
+    // and key were joined with a bare dash, which let one door read the other's history.
+    const shortName: WebhookConfig = { ...threaded, name: "gh" };
+    const longName: WebhookConfig = { ...threaded, name: "gh-admin" };
+
+    expect(webhookConversationId(shortName, "admin-x")).not.toBe(
+      webhookConversationId(longName, "x"),
+    );
+    expect(webhookConversationId(shortName, "admin")).not.toBe(
+      webhookConversationId(longName, undefined),
     );
   });
 
@@ -803,8 +831,7 @@ function runnerForWritableAgents(seed: readonly Agent[] = []) {
 }
 
 function jsonRequest(method: string, path: string, body: unknown): Request {
-  return new Request(`http://localhost${path}`, {
-    method,
+  return request(method, path, {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -912,8 +939,7 @@ describe("creating an agent over HTTP", () => {
     expect(
       (
         await handle(
-          new Request("http://localhost/agents", {
-            method: "POST",
+          request("POST", "/agents", {
             headers: { "content-type": "application/json" },
             body: "not json at all",
           }),
@@ -927,8 +953,7 @@ describe("creating an agent over HTTP", () => {
     const handle = makeHandler(LOOPBACK, run);
 
     const response = await handle(
-      new Request("http://localhost/agents", {
-        method: "POST",
+      request("POST", "/agents", {
         headers: { "content-length": "999999", "content-type": "application/json" },
         body: JSON.stringify({ name: "big" }),
       }),

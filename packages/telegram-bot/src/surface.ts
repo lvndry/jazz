@@ -18,6 +18,7 @@ import {
   type ChatId,
   type Choice,
   type MessageRef,
+  type OutgoingFile,
   type OutgoingMessage,
   renderPlain,
   type RichText,
@@ -25,9 +26,15 @@ import {
   type SurfaceCapabilities,
 } from "@jazz/bot-shared/surface";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
-import { escapeHtml, expandableBlockquote, splitForTelegram } from "./telegram-html";
+import {
+  escapeHtml,
+  expandableBlockquote,
+  markdownToTelegramHtml,
+  splitForTelegram,
+} from "./telegram-html";
 
-const TELEGRAM_API_BASE = "https://api.telegram.org";
+/** Telegram's hosted Bot API; `TELEGRAM_API_BASE_URL` points a bridge at a self-hosted one. */
+export const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
 
 /** Telegram's hard per-message limit is 4096; the splitter stays under it. */
 const TELEGRAM_MAX_CHARS = 3_500;
@@ -102,12 +109,16 @@ export function createChoiceTokens(limit: number = CHOICE_TOKEN_LIMIT): ChoiceTo
 
 export interface TelegramSurfaceOptions {
   readonly botToken: string;
+  /** The Bot API origin. Defaults to Telegram's own. */
+  readonly apiBase?: string;
 }
 
 export function renderRichText(body: RichText): string {
   return body
     .map((block) => {
       switch (block.kind) {
+        case "markdown":
+          return markdownToTelegramHtml(block.text);
         case "subtle":
         case "line":
           // Telegram has no subtext style; these lines were already plain here,
@@ -131,7 +142,89 @@ export function renderRichText(body: RichText): string {
     .join("\n");
 }
 
+/** One message's worth of a body, in HTML and as the plain words to fall back to. */
+interface MessagePiece {
+  readonly html: string;
+  readonly plain: string;
+}
+
+/** Telegram rejects a message longer than this, whatever the splitter aimed for. */
+const TELEGRAM_HARD_LIMIT = 4_096;
+
+/**
+ * Convert one Markdown chunk, halving it at a line break until its HTML fits. Dense markup
+ * (every word bold) can grow a chunk past the hard limit after conversion.
+ */
+function pushMarkdown(pieces: MessagePiece[], chunk: string): void {
+  const html = markdownToTelegramHtml(chunk);
+  if (html.length <= TELEGRAM_HARD_LIMIT || chunk.length < 2) {
+    pieces.push({ html, plain: chunk });
+    return;
+  }
+  const middle = Math.floor(chunk.length / 2);
+  const breakAt = chunk.lastIndexOf("\n", middle);
+  const cut = breakAt > 0 ? breakAt : middle;
+  pushMarkdown(pieces, chunk.slice(0, cut).trim());
+  pushMarkdown(pieces, chunk.slice(cut).trim());
+}
+
+/**
+ * Cut a body into messages under Telegram's limit without cutting inside markup.
+ *
+ * Model prose (a `markdown` block) is split as Markdown and each piece converted on its
+ * own, so no HTML tag is ever cut in two. Everything else is short bridge text rendered
+ * whole. Adjacent pieces are then packed back together while they fit.
+ */
+export function telegramPieces(body: RichText): MessagePiece[] {
+  const pieces: MessagePiece[] = [];
+  let pending: RichText[number][] = [];
+  const flush = (): void => {
+    if (pending.length === 0) return;
+    const html = renderRichText(pending);
+    const plain = renderPlain(pending);
+    const htmlChunks = splitForTelegram(html);
+    // Bridge-built text is short; the rare over-long one is split as before.
+    if (htmlChunks.length === 1) {
+      pieces.push({ html, plain });
+    } else {
+      for (const chunk of htmlChunks) pieces.push({ html: chunk, plain: chunk });
+    }
+    pending = [];
+  };
+  for (const block of body) {
+    if (block.kind !== "markdown") {
+      pending.push(block);
+      continue;
+    }
+    flush();
+    for (const chunk of splitForTelegram(block.text)) {
+      pushMarkdown(pieces, chunk);
+    }
+  }
+  flush();
+
+  const packed: MessagePiece[] = [];
+  for (const piece of pieces) {
+    const last = packed.at(-1);
+    if (last !== undefined && last.html.length + 1 + piece.html.length <= TELEGRAM_MAX_CHARS) {
+      packed[packed.length - 1] = {
+        html: `${last.html}\n${piece.html}`,
+        plain: `${last.plain}\n${piece.plain}`,
+      };
+    } else {
+      packed.push(piece);
+    }
+  }
+  return packed;
+}
+
 export interface TelegramSurface extends Surface {
+  setChoices(
+    chatId: ChatId,
+    ref: MessageRef,
+    choices: readonly Choice[],
+    promptId?: string,
+  ): Promise<void>;
   /** Resolve a tapped button back to the prompt and option it stood for. */
   readChoice(callbackData: string): ChoiceRef | undefined;
   /** Post an arbitrary Bot API call, for the parts of the bridge that are not the core's. */
@@ -140,6 +233,7 @@ export interface TelegramSurface extends Surface {
 
 export function createTelegramSurface(options: TelegramSurfaceOptions): TelegramSurface {
   const choiceTokens = createChoiceTokens();
+  const apiBase = options.apiBase ?? DEFAULT_TELEGRAM_API_BASE;
 
   const call = (
     method: string,
@@ -151,7 +245,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       chatId: typeof payload["chat_id"] === "number" ? payload["chat_id"] : undefined,
       bestEffort,
       send: () =>
-        fetch(`${TELEGRAM_API_BASE}/bot${options.botToken}/${method}`, {
+        fetch(`${apiBase}/bot${options.botToken}/${method}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
@@ -217,14 +311,18 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
 
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
       const base = payloadFor(chatId, message);
-      const chunks = splitForTelegram(renderRichText(message.body));
+      const pieces = telegramPieces(message.body);
       let lastMessageId: number | undefined;
 
-      for (const [index, chunk] of chunks.entries()) {
+      for (const [index, piece] of pieces.entries()) {
         // The keyboard belongs on the last chunk only: a person scrolling a
         // split answer should find the buttons at the end of it, not halfway.
-        const isLast = index === chunks.length - 1;
-        const payload = { ...base, text: chunk, ...(isLast ? {} : { reply_markup: undefined }) };
+        const isLast = index === pieces.length - 1;
+        const payload = {
+          ...base,
+          text: piece.html,
+          ...(isLast ? {} : { reply_markup: undefined }),
+        };
         const sent = await call("sendMessage", payload);
 
         if (isRenderingRejection(sent)) {
@@ -233,7 +331,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
           // an answer the agent already paid to compute.
           const plain = await call("sendMessage", {
             ...payload,
-            text: renderPlain(message.body),
+            text: piece.plain,
             parse_mode: undefined,
           });
           lastMessageId = messageIdOf(plain) ?? lastMessageId;
@@ -242,6 +340,23 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
         lastMessageId = messageIdOf(sent) ?? lastMessageId;
       }
       return lastMessageId === undefined ? undefined : String(lastMessageId);
+    },
+
+    async setChoices(
+      chatId: ChatId,
+      ref: MessageRef,
+      choices: readonly Choice[],
+      promptId?: string,
+    ): Promise<void> {
+      await call(
+        "editMessageReplyMarkup",
+        {
+          chat_id: Number.parseInt(chatId, 10),
+          message_id: Number.parseInt(ref, 10),
+          reply_markup: keyboardFor(choices, promptId),
+        },
+        true,
+      );
     },
 
     async edit(chatId: ChatId, ref: MessageRef, message: OutgoingMessage): Promise<void> {
@@ -258,17 +373,18 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       );
     },
 
-    async sendFile(chatId: ChatId, filePath: string, caption?: string): Promise<void> {
+    async sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
       const form = new FormData();
       form.append("chat_id", String(Number.parseInt(chatId, 10)));
-      form.append("photo", Bun.file(filePath), filePath.split("/").at(-1) ?? "image.png");
+      // The bytes the core read from where it confined the file; the path is never reopened.
+      form.append("photo", new Blob([file.bytes], { type: "image/png" }), file.filename);
       if (caption !== undefined) form.append("caption", caption);
 
       await dispatchTelegramRequest({
         method: "sendPhoto",
         chatId: Number.parseInt(chatId, 10),
         send: () =>
-          fetch(`${TELEGRAM_API_BASE}/bot${options.botToken}/sendPhoto`, {
+          fetch(`${apiBase}/bot${options.botToken}/sendPhoto`, {
             method: "POST",
             body: form,
           }),

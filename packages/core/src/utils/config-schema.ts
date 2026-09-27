@@ -57,10 +57,18 @@ import {
 } from "@/core/types/model-capabilities";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
+import type { DoorLimits, RunBudget } from "@/core/types/remote-door";
 import type { StreamingConfig } from "@/core/types/streaming";
-import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
+import type {
+  WebhookConfig,
+  WebhookConversationMode,
+  WebhookSignature,
+  WebhookSignatureFormat,
+} from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { isRecord } from "@/core/utils/is-record";
+import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
+import { closestMatch } from "@/core/utils/string";
 
 /**
  * `T` with every property optional, all the way down. A file is a partial override, so this is what
@@ -370,7 +378,7 @@ const contextSchema = z.strictObject(contextShape).superRefine((context, refinem
     refinement.addIssue({
       code: "custom",
       path: ["warnThresholdRatio"],
-      message: "must be below compactThresholdRatio",
+      message: "a number below compactThresholdRatio",
     });
   }
 });
@@ -387,12 +395,49 @@ const mcpOverrideShape = {
 /** The value under one `mcpServers.<name>` key: the enabled/trusted override Jazz owns. */
 const mcpOverrideSchema = z.strictObject(mcpOverrideShape);
 
+const runBudgetShape = {
+  maxTokens: positiveWholeNumber.exactOptional(),
+  maxCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
+  maxDurationMs: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<RunBudget>;
+
+/** The limits every remote door's config carries. See `DoorLimits`. */
+const doorLimitsShape = {
+  budget: z.strictObject(runBudgetShape).exactOptional(),
+  maxConcurrentRuns: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<DoorLimits>;
+
+/**
+ * Refuse a door whose name reads the same secret environment variable as an earlier door of the
+ * same kind. Otherwise `JAZZ_WEBHOOK_TOKEN_A_B` would authenticate both `a.b` and `a_b`.
+ */
+function distinctSecretEnvVars(
+  doors: readonly { readonly name: string }[],
+  refinement: z.RefinementCtx,
+): void {
+  const firstBySuffix = new Map<string, string>();
+  doors.forEach((door, index) => {
+    const suffix = secretEnvVarSuffix(door.name);
+    const earlier = firstBySuffix.get(suffix);
+    if (earlier === undefined) {
+      firstBySuffix.set(suffix, door.name);
+      return;
+    }
+    refinement.addIssue({
+      code: "custom",
+      path: [index, "name"],
+      message: `a name distinct from "${earlier}" once case and punctuation are ignored`,
+    });
+  });
+}
+
 const peerShape = {
   name: z.string().min(1),
   url: text.exactOptional(),
   disclosure: z.enum(DISCLOSURE_TIERS).exactOptional(),
   persona: text.exactOptional(),
   allow: names.exactOptional(),
+  ...doorLimitsShape,
 } satisfies SchemaShape<PeerConfig>;
 
 const hostShape = {
@@ -416,6 +461,15 @@ const webhookShape = {
   ]).exactOptional(),
   disclosure: z.enum(DISCLOSURE_TIERS).exactOptional(),
   allow: names.exactOptional(),
+  signature: z
+    .strictObject({
+      format: exhaustiveEnum<WebhookSignatureFormat>()(["hmac-sha256"]),
+      header: z.string().min(1).exactOptional(),
+      prefix: text.exactOptional(),
+    } satisfies SchemaShape<WebhookSignature>)
+    .exactOptional(),
+  deliveryIdHeader: z.string().min(1).exactOptional(),
+  ...doorLimitsShape,
 } satisfies SchemaShape<WebhookConfig>;
 
 const configFileShape = {
@@ -439,9 +493,12 @@ const configFileShape = {
   context: contextSchema.exactOptional(),
   workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
-  peers: z.array(z.strictObject(peerShape)).exactOptional(),
+  peers: z.array(z.strictObject(peerShape)).superRefine(distinctSecretEnvVars).exactOptional(),
   hosts: z.array(z.strictObject(hostShape)).exactOptional(),
-  webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
+  webhooks: z
+    .array(z.strictObject(webhookShape))
+    .superRefine(distinctSecretEnvVars)
+    .exactOptional(),
   daemon: z
     .strictObject({
       token: text.exactOptional(),
@@ -595,36 +652,6 @@ function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
 }
 
-function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let diagonal = previous[0] as number;
-    previous[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const above = previous[j] as number;
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      previous[j] = Math.min(above + 1, (previous[j - 1] as number) + 1, diagonal + cost);
-      diagonal = above;
-    }
-  }
-  return previous[right.length] as number;
-}
-
-/** The known key a typo most plausibly meant, if any is close enough to be worth suggesting. */
-function closestKey(typed: string, known: readonly string[]): string | undefined {
-  const lowered = typed.toLowerCase();
-  let best: string | undefined;
-  let bestDistance = Math.max(1, Math.floor(typed.length / 3)) + 1;
-  for (const candidate of known) {
-    const distance = editDistance(lowered, candidate.toLowerCase());
-    if (distance < bestDistance) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 function knownKeysAt(path: Path): readonly string[] {
   const schema = schemaAt(path);
   const inner = schema === undefined ? undefined : unwrap(schema);
@@ -757,7 +784,7 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         for (const key of issue.keys) {
           const path = [...issue.path, key];
           const removed = removalPath(path);
-          const suggestion = closestKey(key, known);
+          const suggestion = closestMatch(key, known);
           issues.push({
             kind: "unknown-key",
             path: formatConfigPath(path),
@@ -776,7 +803,9 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
-        expected: describeExpected(schemaAt(issue.path, working)),
+        // A refinement names its own rule; a structural issue is described from the schema.
+        expected:
+          issue.code === "custom" ? issue.message : describeExpected(schemaAt(issue.path, working)),
         actual,
       });
       removals.push(removed);
@@ -865,7 +894,7 @@ function suggestPath(segments: readonly string[]): string | undefined {
     const prefix = segments.slice(0, depth);
     const segment = segments[depth] as string;
     if (schemaAt([...prefix, segment]) !== undefined) continue;
-    const guess = closestKey(segment, knownKeysAt(prefix));
+    const guess = closestMatch(segment, knownKeysAt(prefix));
     if (guess === undefined) return undefined;
     const suggested = [...prefix, guess, ...segments.slice(depth + 1)];
     return schemaAt(suggested) === undefined ? undefined : joinConfigPath(suggested);

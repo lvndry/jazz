@@ -31,9 +31,9 @@ Reaching for a higher policy to admit a single command is the wrong move. Use
 ## 3. Bound the blast radius in time and money
 
 Set `maxCostUSD`, `maxTokens`, `maxDurationMs`, and a sensible `maxIterations`. An unattended run
-with no cost cap is a run whose worst case is your credit limit. Remember that caps are checked
-between iterations, so pick numbers with headroom, and use an external `--timeout` when you need
-a hard wall. See [budgets](../concepts/budgets.md).
+with no cost cap is a run whose worst case is your credit limit. Cost and token caps are checked
+between iterations, so pick numbers with headroom. `maxDurationMs` and `--timeout` are hard walls:
+they stop running commands and model calls where they are. See [budgets](../concepts/budgets.md).
 
 ## 4. Decide what happens at a gate
 

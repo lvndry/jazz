@@ -44,6 +44,11 @@ config, an IFTTT applet, a proxy you do not administer.
 Treat whoever presents it as owner-equivalent and a leaked field in somebody else's SaaS console
 becomes a shell on your machine. Peers get the same treatment, for the same reason.
 
+So a caller's run is a stranger's run in every respect, not only its tools. It gets none of your
+context (standing preferences, AGENTS.md, files named by a path in its text), a per-door budget
+and concurrency cap, and the same boundary again if it parks and you approve it later.
+[Surface access](./surface-access.md#webhooks-and-peers) has the details.
+
 ## How the ceiling is computed
 
 A caller holds a **disclosure tier** and an **allow list**, and they do different jobs:

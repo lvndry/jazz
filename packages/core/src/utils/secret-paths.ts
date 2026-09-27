@@ -8,7 +8,7 @@
  * - `secrets.json`, the no-keyring secret store (`getSecretsFilePath`);
  * - the global config file (`getGlobalConfigFilePath`), which holds `daemon.token` when no
  *   keyring is available;
- * - the lock and temp files written beside them while they change.
+ * - the lock, temp, and quarantined files written beside them while they change.
  *
  * Each location comes from the same `paths.ts` function the writer uses, so the list cannot
  * drift from where the files really are. Paths are compared as given and after `realpath`, so a
@@ -108,6 +108,15 @@ export function loadSecretPathRules(
       for (const entry of locations) {
         if (folded === entry.folded) {
           return entry.label;
+        }
+        if (
+          !entry.directory &&
+          path.dirname(folded) === path.dirname(entry.folded) &&
+          ((path.basename(folded).startsWith(`.${path.basename(entry.folded)}-`) &&
+            folded.endsWith(".tmp")) ||
+            folded.startsWith(`${entry.folded}.corrupt-`))
+        ) {
+          return `${entry.label} temporary or quarantined copy`;
         }
         if (entry.directory && folded.startsWith(`${entry.folded}${path.sep}`)) {
           return entry.label;

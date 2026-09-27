@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { terminateProcessGroup } from "@/core/utils/process";
 import { parseShellCommandLine, type ShellWord } from "@/core/utils/shell-syntax";
 
 /**
@@ -127,6 +128,8 @@ export function execCommand(
     child.on("error", (err) => {
       resume(Effect.fail(err));
     });
+
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }
 
@@ -180,6 +183,8 @@ export function execCommandWithStdin(
       child.stdin.write(stdin);
       child.stdin.end();
     }
+
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }
 
@@ -240,5 +245,7 @@ export function execCommandWithStdinCapturingOutput(
       child.stdin.write(stdin);
       child.stdin.end();
     }
+
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }

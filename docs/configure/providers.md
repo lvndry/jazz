@@ -215,9 +215,9 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 ## Slow first tokens from local models
 
-Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
+Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds once output is flowing, 120000 by default, and reports `Provider stream produced no additional part for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-Most hosted providers answer well inside two minutes, but NVIDIA NIM can queue a request for over three minutes before its first token. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+The wait for the first token has its own budget: five minutes, or `llm.streamIdleTimeoutMs` when that is higher. That covers NVIDIA NIM, which can queue a request for over three minutes, and large reasoning models that prefill for a long time. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can take longer still, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000
@@ -237,9 +237,16 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 - Authentication errors: confirm the agent's provider ID matches the key you supplied and inspect `jazz config show` for the resolved non-secret configuration.
 - Stream idle errors say whether the provider produced no first part or stopped between parts. The
-  former points to queuing, model loading, or prompt prefill; the latter means generation had
-  already started. Local servers that legitimately need longer can set
-  `llm.streamIdleTimeoutMs` or `JAZZ_STREAM_IDLE_TIMEOUT_MS`; the default is 120000 ms.
+  former points to queuing, model loading, or prompt prefill (allowed five minutes); the latter
+  means generation had already started (allowed 120000 ms). Local servers that legitimately need
+  longer can set `llm.streamIdleTimeoutMs` or `JAZZ_STREAM_IDLE_TIMEOUT_MS`.
+- Retries: each model call gets `maxRetries` retries in total. After three streaming failures the
+  remaining attempts use a plain request; a rate limit (429) keeps streaming. Backoff is jittered
+  and follows the provider's `Retry-After`; a provider asking for more than two minutes fails the
+  call instead of waiting.
+- "Prompt is too long": Jazz compacts the conversation (or trims it when it cannot compact) and
+  retries once. A second rejection fails the run; lower the agent's `maxContextTokens` to match
+  what the server really holds.
 - Unknown model: rerun agent editing after the provider catalog is reachable; do not copy a model name from an old documentation page.
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.

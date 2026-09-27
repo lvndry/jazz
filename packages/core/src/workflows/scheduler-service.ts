@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { Context, Effect, Layer, Option } from "effect";
 import * as plist from "plist";
 import { toError } from "@/core/utils/errors";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { describeCronSchedule, isValidCronExpression } from "../utils/cron";
@@ -449,7 +450,7 @@ function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> 
   return Effect.gen(function* () {
     const schedulesDir = getSchedulesDirectory();
     yield* Effect.tryPromise({
-      try: () => fs.mkdir(schedulesDir, { recursive: true }),
+      try: () => fs.mkdir(schedulesDir, { recursive: true, mode: stateDirectoryMode() }),
       catch: toError,
     });
     const files = yield* Effect.tryPromise({ try: () => fs.readdir(schedulesDir), catch: toError });
@@ -512,7 +513,8 @@ abstract class MetadataScheduler implements SchedulerService {
 
         const entry: ScheduleRequest = { ...request, schedule };
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
+          try: () =>
+            fs.mkdir(getSchedulesDirectory(), { recursive: true, mode: stateDirectoryMode() }),
           catch: toError,
         });
         yield* Effect.tryPromise({
@@ -532,7 +534,10 @@ abstract class MetadataScheduler implements SchedulerService {
           scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
-          try: () => fs.writeFile(this.metadataPath(stored), JSON.stringify(stored, null, 2)),
+          try: () =>
+            fs.writeFile(this.metadataPath(stored), JSON.stringify(stored, null, 2), {
+              mode: stateFileMode(),
+            }),
           catch: toError,
         });
         return stored;

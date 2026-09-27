@@ -143,6 +143,11 @@ export function getLoopsDirectory(): string {
   return path.join(getJazzHomeDirectory(), "loops");
 }
 
+/** Returns the directory holding one file per webhook: the delivery ids it has already run. */
+export function getWebhookDeliveriesDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "webhooks", "deliveries");
+}
+
 /**
  * Returns the directory for per-agent memory shared across invocation surfaces.
  */

@@ -1,6 +1,20 @@
-import { bold, code, codeBlock, line, plainLine, quote, text } from "@jazz/bot-shared/surface";
+import {
+  bold,
+  code,
+  codeBlock,
+  line,
+  markdown,
+  plainLine,
+  quote,
+  text,
+} from "@jazz/bot-shared/surface";
 import { describe, expect, test } from "bun:test";
-import { CHOICE_CALLBACK_PREFIX, createChoiceTokens, renderRichText } from "./surface";
+import {
+  CHOICE_CALLBACK_PREFIX,
+  createChoiceTokens,
+  renderRichText,
+  telegramPieces,
+} from "./surface";
 
 describe("renderRichText", () => {
   test("maps spans onto Telegram's HTML flavour", () => {
@@ -77,5 +91,31 @@ describe("choice tokens", () => {
     expect(tokens.read(first)).toBeUndefined();
     expect(tokens.read(second)?.promptId).toBe("tc2");
     expect(tokens.read(third)?.promptId).toBe("tc3");
+  });
+});
+
+describe("telegramPieces", () => {
+  test("a short answer and its trailer go out as one message", () => {
+    const pieces = telegramPieces([markdown("**Done** it"), plainLine(""), plainLine("$0.01")]);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]?.html).toBe("<b>Done</b> it\n\n$0.01");
+  });
+
+  test("a long answer is split as Markdown, so no piece cuts a tag in half", () => {
+    const paragraph = `${"**word** ".repeat(40)}\n`;
+    const pieces = telegramPieces([markdown(paragraph.repeat(40))]);
+    expect(pieces.length).toBeGreaterThan(1);
+    for (const piece of pieces) {
+      // Telegram's hard limit; the splitter cuts Markdown lower to leave room for tags.
+      expect(piece.html.length).toBeLessThanOrEqual(4_096);
+      const opened = piece.html.match(/<b>/g)?.length ?? 0;
+      const closed = piece.html.match(/<\/b>/g)?.length ?? 0;
+      expect(opened).toBe(closed);
+    }
+  });
+
+  test("keeps the plain words beside each piece for a rendering fallback", () => {
+    const pieces = telegramPieces([markdown("**bold**")]);
+    expect(pieces[0]?.plain).toBe("**bold**");
   });
 });

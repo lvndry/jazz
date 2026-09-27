@@ -13,6 +13,7 @@
  */
 
 import type { TokenUsage } from "@/core/interfaces/telemetry";
+import type { RemoteCaller, RunBudget } from "@/core/types/remote-door";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { RunId, RunState } from "./run-state";
 
@@ -43,10 +44,28 @@ export interface RunRecord {
   /** Where the run worked, restored on resume instead of the resuming process's directory. */
   readonly workingDirectory?: string;
   /**
+   * The rest of the boundary the run started inside, restored exactly on resume. Answering one
+   * approval must not hand a webhook's run the agent's whole toolset, its operator context, or
+   * an unlimited budget.
+   */
+  readonly boundary?: RunRecordBoundary;
+  /**
    * Set when nobody could be asked while it started (the daemon, a headless run), as opposed
    * to a chat. The daemon's daily spend cap counts only these.
    */
   readonly unattended?: boolean;
+}
+
+/** The limits beyond the approval policy that a resumed run gets back. */
+export interface RunRecordBoundary {
+  /** The ceiling on the run's toolset. Absent means the agent's own tools. */
+  readonly toolAllowlist?: readonly string[];
+  readonly withholdInteractiveTools?: boolean;
+  readonly disablePersistence?: boolean;
+  /** Set when a remote door started the run. A remote run without a `toolAllowlist` is refused. */
+  readonly remoteCaller?: RemoteCaller;
+  /** The caps the whole run shares. A resumed segment gets what the earlier ones left. */
+  readonly budget?: RunBudget;
 }
 
 /**
@@ -69,6 +88,7 @@ export function createRunRecord(input: {
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
   readonly workingDirectory?: string;
+  readonly boundary?: RunRecordBoundary;
   readonly unattended?: boolean;
 }): RunRecord {
   const timestamp = input.now.toISOString();
@@ -86,6 +106,9 @@ export function createRunRecord(input: {
       : {}),
     ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
     ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
+    ...(input.boundary !== undefined && Object.keys(input.boundary).length > 0
+      ? { boundary: input.boundary }
+      : {}),
     ...(input.unattended === true ? { unattended: true } : {}),
   };
 }

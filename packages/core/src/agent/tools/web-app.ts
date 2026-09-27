@@ -8,6 +8,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
@@ -209,12 +210,12 @@ export function createCompositionTool(
         const fs = yield* FileSystem.FileSystem;
         const sessionId = storageSafeSegment(context.conversationId ?? context.agentId);
         const dir = getCompositionsDirectory(sessionId);
-        yield* fs.makeDirectory(dir, { recursive: true });
+        yield* fs.makeDirectory(dir, { recursive: true, mode: stateDirectoryMode() });
 
         const id = shortuuid.generate();
         const htmlPath = yield* nextCompositionPath(fs, dir, args.title);
         const filename = htmlPath.slice(dir.length + 1);
-        yield* fs.writeFileString(htmlPath, args.html);
+        yield* fs.writeFileString(htmlPath, args.html, { mode: stateFileMode() });
 
         const htmlArtifact: GeneratedArtifact = {
           kind: "html",

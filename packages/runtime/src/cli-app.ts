@@ -21,6 +21,8 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { securePrivateHome } from "@jazz/core/utils/private-home";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
@@ -143,7 +145,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-duration-ms <ms>",
-      "Abort the run once elapsed wall-clock time reaches this many milliseconds. The agent gets pressure nudges at 50/80/90% elapsed, then the run stops between iterations.",
+      "Stop the run once elapsed wall-clock time reaches this many milliseconds, wherever it is: a model call or a running tool is interrupted. The agent gets pressure nudges at 50/80/90% elapsed. Sub-agents run under what is left.",
       parsePositiveInt("--max-duration-ms"),
     )
     .option(
@@ -906,8 +908,9 @@ function registerDetachCommands(program: Command): void {
 }
 
 /**
- * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
- * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ * Register `jazz webhook token|forget-token|secret|forget-secret`: minting a webhook's bearer
+ * token or signing secret instead of asking somebody to invent one, the way
+ * `jazz daemon set-token` already does for the daemon.
  */
 function registerWebhookCommands(program: Command): void {
   const webhookCommand = program
@@ -931,6 +934,29 @@ function registerWebhookCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("secret <name>")
+    .description(
+      "Generate and store the secret a webhook's sender signs bodies with (GitHub's webhook secret), printing it once",
+    )
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookSecretCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-secret <name>")
+    .description("Remove a webhook's stored signing secret")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookSecretCommand(name)),
         cliRuntimeOptions(program),
       ),
     );
@@ -1659,6 +1685,28 @@ function registerDaemonCommand(program: Command): void {
     .action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetDaemonTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("operator-token")
+    .description(
+      "Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve a run), store it in the OS keyring, and print it once",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-operator-token")
+    .description("Remove the operator token, so the daemon grants nothing over HTTP")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetOperatorTokenCommand()),
         cliRuntimeOptions(program),
       ),
     );
@@ -2792,14 +2840,22 @@ function registerWorkflowCommands(program: Command): void {
 }
 
 /**
- * Create and configure the CLI application
- *
- * Sets up the Commander.js program with all available commands including:
- * - Agent management (create, list, get, edit, delete, chat)
- * - Configuration management (get, set, show)
- * - MCP server management
- * - Update command
+ * Keep `$JAZZ_HOME` private to this account before the command writes into it. A failure is
+ * reported, never fatal: the command the user asked for still runs.
  */
+function secureJazzHome(): void {
+  try {
+    const report = securePrivateHome();
+    if (report.failures > 0) {
+      process.stderr.write(
+        `Could not make ${report.failures} item(s) in ${getJazzHomeDirectory()} private to this account; other accounts on this machine may be able to read them.\n`,
+      );
+    }
+  } catch (error) {
+    process.stderr.write(`Could not make the Jazz home private: ${toError(error).message}\n`);
+  }
+}
+
 /**
  * The first command-line operand (a subcommand name, typo or not), skipping the
  * program's own options and the values they take. `jazz --no-tui` and
@@ -2835,6 +2891,15 @@ export function firstOperand(program: Command, args: readonly string[]): string 
   return undefined;
 }
 
+/**
+ * Create and configure the CLI application
+ *
+ * Sets up the Commander.js program with all available commands including:
+ * - Agent management (create, list, get, edit, delete, chat)
+ * - Configuration management (get, set, show)
+ * - MCP server management
+ * - Update command
+ */
 export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
@@ -2872,6 +2937,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     if (opts["dataDir"]) {
       process.env["JAZZ_HOME"] = path.resolve(opts["dataDir"] as string);
     }
+    secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
   });
 

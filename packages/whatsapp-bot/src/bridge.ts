@@ -374,7 +374,7 @@ export async function startBridge(): Promise<void> {
     showReasoning: config.showReasoning,
     files: STORE_FILES,
     agentIdFor: agentIdForChat,
-    isOperator: (senderId) => config.operatorNumbers.has(senderId),
+    operators: config.operatorNumbers,
     operatorSettingName: "WHATSAPP_OPERATOR_NUMBERS",
   });
 

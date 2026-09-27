@@ -44,6 +44,10 @@ describe("loadSecretPathRules", () => {
       path.join(jazzHome, ".secrets.lock"),
       path.join(jazzHome, ".secrets.lock", "inner"),
       path.join(jazzHome, ".secrets-123-abc.tmp"),
+      path.join(jazzHome, ".secrets.json-123-abc.tmp"),
+      path.join(jazzHome, ".config.json-123-abc.tmp"),
+      path.join(jazzHome, "secrets.json.corrupt-2026-09-27"),
+      path.join(jazzHome, "config.json.corrupt-2026-09-27"),
       path.join(jazzHome, ".chatgpt-credential.lock"),
     ]) {
       expect(rules.reasonFor(secret)).toBeString();
@@ -68,6 +72,8 @@ describe("loadSecretPathRules", () => {
     process.env["JAZZ_CONFIG_PATH"] = elsewhere;
     const rules = loadSecretPathRules({ platform: "linux" });
     expect(rules.reasonFor(elsewhere)).toBeString();
+    expect(rules.reasonFor(path.join(root, ".elsewhere.json-123-abc.tmp"))).toBeString();
+    expect(rules.reasonFor(`${elsewhere}.corrupt-2026-09-27`)).toBeString();
     expect(rules.reasonFor(path.join(jazzHome, "config.json"))).toBeUndefined();
   });
 
