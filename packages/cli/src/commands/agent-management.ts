@@ -314,9 +314,8 @@ export function deleteAgentCommand(
     const agent = yield* getAgentByIdentifier(agentIdentifier);
 
     if (options.skipConfirmation !== true) {
-      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) resolves
-      // confirm() with the default (false) without asking, which would silently
-      // abort — require an explicit --yes instead.
+      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) cannot ask,
+      // so require an explicit --yes instead of silently aborting.
       if (terminal.isInteractive !== true) {
         return yield* Effect.fail(
           new CLIError({

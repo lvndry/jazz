@@ -86,7 +86,7 @@ export interface CommandResult {
   /** New agent if agent was switched */
   newAgent?: Agent;
   /** New auto-approve policy for tool calls (set by /mode command) */
-  newAutoApprovePolicy?: AutoApprovePolicy | false;
+  newAutoApprovePolicy?: AutoApprovePolicy;
   /** Command prefix to add to auto-approved commands list */
   addAutoApprovedCommand?: string;
   /** Command prefix to remove from auto-approved commands list */

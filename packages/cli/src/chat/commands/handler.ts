@@ -79,6 +79,11 @@ import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
+import {
+  chatModeForPolicy,
+  policyForChatMode,
+  type ChatApprovalMode,
+} from "@/cli/chat/approval-mode";
 import { describeTier } from "@/cli/commands/peers";
 import {
   cancelDetachTransfer,
@@ -2499,7 +2504,8 @@ function resolveMcpServerStatus(
     const enabled = config.enabled !== false;
     const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
     const usesOAuth = isHttpConfig(config) && !config.headers;
-    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+    const storedAuth =
+      usesOAuth && isHttpConfig(config) ? yield* hasStoredAuth(config.name, config.url) : false;
 
     const kind: McpStatusKind = !enabled
       ? "disabled"
@@ -2588,10 +2594,12 @@ function mcpServerActions(status: McpServerStatus): readonly { name: string; val
   if (status.usesOAuth && status.hasStoredAuth) {
     actions.push({ name: "Forget stored credentials", value: "logout" });
   }
-  actions.push({
-    name: status.config.trusted === true ? "Untrust" : "Trust",
-    value: "toggle-trust",
-  });
+  if (status.config.definedIn !== "project") {
+    actions.push({
+      name: status.config.trusted === true ? "Untrust" : "Trust",
+      value: "toggle-trust",
+    });
+  }
   actions.push({ name: "Disable", value: "disable" });
   actions.push({ name: "Back", value: "back" });
   return actions;
@@ -2663,7 +2671,8 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        yield* clearServerAuth(config.name);
+        if (!isHttpConfig(config)) return;
+        yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
       }
@@ -2905,16 +2914,8 @@ function handleModeCommand(
       return { shouldContinue: true, removeAutoApprovedCommand: pattern };
     }
 
-    if (modeArg === "safe") {
-      yield* terminal.success("Switched to safe mode — all tool calls require approval");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: false as const };
-    }
-
-    if (modeArg === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
+    if (modeArg === "safe" || modeArg === "yolo") {
+      return yield* switchChatMode(terminal, modeArg);
     }
 
     if (modeArg) {
@@ -2932,15 +2933,17 @@ function handleModeCommand(
         "Tip: /mode allow <cmd> auto-approves a command prefix; /mode disallow removes it.",
       ),
     );
-    const isSafe = !currentPolicy;
-    const isYolo = currentPolicy === true || currentPolicy === "high-risk";
-    const selected = yield* terminal.select<string>("Select tool approval mode:", {
+    const current = chatModeForPolicy(currentPolicy);
+    const selected = yield* terminal.select<ChatApprovalMode>("Select tool approval mode:", {
       choices: [
         {
-          name: `safe — require approval for every tool call${isSafe ? " (current)" : ""}`,
+          name: `safe: ask before high-risk tool calls${current === "safe" ? " (current)" : ""}`,
           value: "safe",
         },
-        { name: `yolo — auto-approve all tool calls${isYolo ? " (current)" : ""}`, value: "yolo" },
+        {
+          name: `yolo: auto-approve all tool calls${current === "yolo" ? " (current)" : ""}`,
+          value: "yolo",
+        },
       ],
     });
 
@@ -2968,15 +2971,22 @@ function handleModeCommand(
       return { shouldContinue: true };
     }
 
-    if (selected === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
-    }
+    return yield* switchChatMode(terminal, selected);
+  });
+}
 
-    yield* terminal.success("Switched to safe mode — all tool calls require approval");
+function switchChatMode(
+  terminal: TerminalService,
+  mode: ChatApprovalMode,
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    yield* terminal.success(
+      mode === "yolo"
+        ? "Switched to yolo mode: all tool calls auto-approved"
+        : "Switched to safe mode: high-risk tool calls require approval",
+    );
     yield* terminal.log("");
-    return { shouldContinue: true, newAutoApprovePolicy: false as const };
+    return { shouldContinue: true, newAutoApprovePolicy: policyForChatMode(mode) };
   });
 }
 

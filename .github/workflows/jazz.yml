@@ -57,9 +57,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # Per-run spend ceiling passed as --max-cost-usd; timeout-minutes on each job is the hard stop.
+  JAZZ_MAX_COST_USD: "2"
+
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: write
       issues: write
@@ -233,6 +238,7 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -252,6 +258,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -275,11 +282,12 @@ jobs:
           cat workflows/code-review/WORKFLOW.md
 
       - name: Snapshot PR context
-        # Pre-fetch PR metadata (title, body, labels, conversation comments,
-        # review summaries, inline review comments) into a static JSON file the
-        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
-        # agent or shell while still letting it answer "what does the PR claim
-        # to do? what's already been said in review?".
+        # Pre-fetch PR metadata (title, body, labels, and the comments, reviews and
+        # inline review comments of trusted authors) into a static JSON file the agent
+        # reads via read_file. The agent never holds GITHUB_TOKEN: the checkout does not
+        # persist it, and only this step and the github-script steps receive it. Anyone
+        # can comment on a public PR, so only OWNER/MEMBER/COLLABORATOR comments and the
+        # workflow's own github-actions reviews reach the agent.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -292,7 +300,12 @@ jobs:
                > /tmp/pr-base.json \
              && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
                   > /tmp/pr-review-comments.json; then
-            jq -s '.[0] + {reviewComments: .[1]}' \
+            jq -s '
+              def trusted: ((.authorAssociation // .author_association) | IN("OWNER", "MEMBER", "COLLABORATOR"))
+                or ((.author.login // .user.login) | IN("github-actions", "github-actions[bot]"));
+              .[0] + {comments: (.[0].comments | map(select(trusted))),
+                      reviews: (.[0].reviews | map(select(trusted))),
+                      reviewComments: (.[1] | map(select(trusted)))}' \
               /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
           else
             echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
@@ -329,13 +342,25 @@ jobs:
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            exit 1
+            echo "No model provider API key is configured." > /tmp/jazz-error.txt
+            : > /tmp/jazz-review.txt
+            echo 1 > /tmp/jazz-review-exit
+            exit 0
           fi
-          jazz workflow run code-review --auto-approve --agent ci-reviewer --json --events tools | tee /tmp/jazz-review.txt
+          jazz workflow run code-review --auto-approve --agent ci-reviewer \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
+          # A failed run prints {"ok":false,"error":...}; keep its cause (keys redacted) for the
+          # PR comment and the job summary instead of reporting an unparseable answer.
+          error="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-review.txt 2>/dev/null \
+            | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
+          if [ -n "$error" ]; then
+            printf '%s\n' "$error" > /tmp/jazz-error.txt
+            printf '### Jazz Code Review\n\nSkipped: %s\n' "$error" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Post review comments
         if: always()
@@ -400,8 +425,19 @@ jobs:
             } catch (_) {}
 
             if (jazzExitCode !== 0) {
-              core.warning(`jazz code review exited with status ${jazzExitCode} (provider error or rate limit); posted a could-not-run notice instead of a verdict.`);
-              await postOrUpdate(`## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit). See the [workflow run](${runUrl}) for the job log. Re-run the workflow to retry.${modelLabel}`);
+              let cause = '';
+              try {
+                cause = fs.readFileSync('/tmp/jazz-error.txt', 'utf8').trim();
+              } catch (_) {}
+              const detail = cause ? `\n\n> ${cause.split('\n').join('\n> ')}` : '';
+              const headline = /authentication|api key/i.test(cause) ? 'provider authentication failed' : 'the run failed';
+              await postOrUpdate(`## Jazz Code Review\n\n⚠️ Review skipped: ${headline}.${detail}\n\nSee the [workflow run](${runUrl}) for the job log.${modelLabel}`);
+              // A throttled provider only warns; a broken setup (bad or missing key) fails the job.
+              if (/rate.?limit|429|too many requests/i.test(cause)) {
+                core.warning(`Jazz code review skipped: ${cause}`);
+              } else {
+                core.setFailed(`Jazz code review skipped: ${headline}.`);
+              }
               return;
             }
 
@@ -639,6 +675,7 @@ jobs:
     # and the two jazz jobs don't burst the same provider account concurrently.
     needs: [resolve]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -659,6 +696,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -713,7 +751,12 @@ jobs:
                > /tmp/pr-base.json \
              && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
                   > /tmp/pr-review-comments.json; then
-            jq -s '.[0] + {reviewComments: .[1]}' \
+            jq -s '
+              def trusted: ((.authorAssociation // .author_association) | IN("OWNER", "MEMBER", "COLLABORATOR"))
+                or ((.author.login // .user.login) | IN("github-actions", "github-actions[bot]"));
+              .[0] + {comments: (.[0].comments | map(select(trusted))),
+                      reviews: (.[0].reviews | map(select(trusted))),
+                      reviewComments: (.[1] | map(select(trusted)))}' \
               /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
           else
             echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
@@ -755,8 +798,19 @@ jobs:
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          jazz workflow run pr-assistant --auto-approve --agent pr-assistant --json --events tools \
-            | tee /tmp/jazz-pr-assistant.txt
+          set +e
+          jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-pr-assistant.txt
+          status="${PIPESTATUS[0]}"
+          # A failed run prints {"ok":false,"error":...}; keep its cause (keys redacted) for the
+          # PR comment and the job summary instead of reporting an unparseable answer.
+          error="$(jq -r 'select(.ok == false) | .error // "the run stopped for an approval nobody can give in CI"' /tmp/jazz-pr-assistant.txt 2>/dev/null \
+            | sed -E 's/(sk|rk|pk)-[A-Za-z0-9_*-]{6,}/[redacted key]/g')"
+          if [ -n "$error" ]; then
+            printf '%s\n' "$error" > /tmp/jazz-error.txt
+            printf '### Jazz PR Assistant\n\nSkipped: %s\n' "$error" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
       - name: Post PR comment
         if: always()
@@ -818,7 +872,14 @@ jobs:
 
             const extracted = extractAnswer(output);
             let commentBody;
-            if (!extracted || !extracted.body.trim()) {
+            let cause = '';
+            try {
+              cause = fs.readFileSync('/tmp/jazz-error.txt', 'utf8').trim();
+            } catch (_) {}
+            if (cause) {
+              commentBody = `⚠️ Answer skipped: the run failed.\n\n> ${cause.split('\n').join('\n> ')}\n\n` +
+                `See the [workflow run](${runUrl}) for details.`;
+            } else if (!extracted || !extracted.body.trim()) {
               commentBody = `_The Jazz assistant didn't produce a usable answer. ` +
                 `See the [workflow run](${runUrl}) for details._`;
             } else if (extracted.strict) {

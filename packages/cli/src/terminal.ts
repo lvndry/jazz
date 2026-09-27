@@ -13,6 +13,7 @@ import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
 import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
+import { createLineSource, type LineSource } from "@/cli/stdin-lines";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
@@ -534,18 +535,63 @@ export class InkTerminalService implements TerminalService {
   }
 }
 
+/** Where the plain terminal reads answers and writes output. Defaults to the process streams. */
+export interface PlainTerminalStreams {
+  readonly input?: NodeJS.ReadableStream & { readonly isTTY?: boolean };
+  readonly output?: { write(chunk: string): unknown };
+  readonly errorOutput?: { write(chunk: string): unknown };
+}
+
 /**
- * Plain Terminal Service for non-TTY environments (CI, piped output, cron).
+ * Plain Terminal Service for non-TTY environments (CI, piped output, cron) and
+ * print-and-exit modes (`--no-tui`, raw and quiet output).
  *
- * Writes directly to stdout without Ink, avoiding the raw mode error that
- * occurs when Ink tries to call setRawMode on a non-TTY stdin.
- * Interactive prompts return sensible defaults (empty string, false, first choice).
+ * Writes without Ink, avoiding the raw mode error that occurs when Ink tries to
+ * call setRawMode on a non-TTY stdin. Regular output goes to stdout; errors,
+ * warnings and debug lines go to stderr so a pipeline's data stays clean.
+ *
+ * Prompts never invent an answer. `ask` and `password` read the next line from
+ * stdin and resolve `undefined` once stdin has ended. Menus and confirmations
+ * (`select`, `search`, `checkbox`, `confirm`) cannot be answered from a line
+ * stream, so they report that on stderr and resolve `undefined`, which every
+ * caller treats as a cancellation.
  */
 export class PlainTerminalService implements TerminalService {
   readonly isInteractive = false;
 
+  private readonly input: NodeJS.ReadableStream & { readonly isTTY?: boolean };
+  private readonly output: { write(chunk: string): unknown };
+  private readonly errorOutput: { write(chunk: string): unknown };
+  private lineSource: LineSource | undefined;
+
+  constructor(streams: PlainTerminalStreams = {}) {
+    this.input = streams.input ?? process.stdin;
+    this.output = streams.output ?? process.stdout;
+    this.errorOutput = streams.errorOutput ?? process.stderr;
+  }
+
   private write(message: string): void {
-    process.stdout.write(`${message}\n`);
+    this.output.write(`${message}\n`);
+  }
+
+  private writeError(message: string): void {
+    this.errorOutput.write(`${message}\n`);
+  }
+
+  /** Read one line, echoing the prompt to stderr only when a person is typing it. */
+  private readLine(message: string): Promise<string | undefined> {
+    if (this.input.isTTY === true) {
+      this.errorOutput.write(`${message} `);
+    }
+    this.lineSource ??= createLineSource(this.input);
+    return this.lineSource.next();
+  }
+
+  private unanswerable<T>(message: string): Effect.Effect<T | undefined, never> {
+    return Effect.sync(() => {
+      this.writeError(`⚠ Skipped "${message}": answering it needs an interactive terminal.`);
+      return undefined;
+    });
   }
 
   info(message: string): Effect.Effect<void, never> {
@@ -557,11 +603,11 @@ export class PlainTerminalService implements TerminalService {
   }
 
   error(message: string): Effect.Effect<void, never> {
-    return Effect.sync(() => this.write(`✗ ${message}`));
+    return Effect.sync(() => this.writeError(`✗ ${message}`));
   }
 
   warn(message: string): Effect.Effect<void, never> {
-    return Effect.sync(() => this.write(`⚠ ${message}`));
+    return Effect.sync(() => this.writeError(`⚠ ${message}`));
   }
 
   log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
@@ -579,7 +625,7 @@ export class PlainTerminalService implements TerminalService {
   }
 
   debug(message: string, _meta?: Record<string, unknown>): Effect.Effect<void, never> {
-    return Effect.sync(() => this.write(`[debug] ${message}`));
+    return Effect.sync(() => this.writeError(`[debug] ${message}`));
   }
 
   heading(message: string): Effect.Effect<void, never> {
@@ -598,65 +644,56 @@ export class PlainTerminalService implements TerminalService {
     return Effect.void;
   }
 
-  // Interactive methods return defaults — non-interactive mode cannot prompt
   ask(
-    _message: string,
-    options?: { defaultValue?: string },
+    message: string,
+    options?: Parameters<TerminalService["ask"]>[1],
   ): Effect.Effect<string | undefined, never> {
-    return Effect.succeed(options?.defaultValue ?? undefined);
+    return Effect.promise(async () => {
+      const line = await this.readLine(message);
+      if (line === undefined) {
+        return undefined;
+      }
+      const verdict = options?.validate?.(line) ?? true;
+      if (verdict !== true) {
+        this.writeError(`✗ ${typeof verdict === "string" ? verdict : "Invalid input."}`);
+        return undefined;
+      }
+      return line;
+    });
   }
 
-  password(_message: string): Effect.Effect<string, never> {
-    return Effect.succeed("");
+  password(
+    message: string,
+    options?: { validate?: (input: string) => boolean | string },
+  ): Effect.Effect<string | undefined, never> {
+    return this.ask(message, options);
   }
 
-  select<T = string>(
-    _message: string,
-    options: {
-      choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
-      )[];
-      default?: T;
-    },
-  ): Effect.Effect<T | undefined, never> {
-    if (options.default !== undefined) return Effect.succeed(options.default);
-    const first = options.choices[0];
-    if (!first) return Effect.succeed(undefined);
-    if (typeof first === "string") return Effect.succeed(first as unknown as T);
-    return Effect.succeed(first.value);
+  select<T = string>(message: string, _options?: object): Effect.Effect<T | undefined, never> {
+    return this.unanswerable<T>(message);
   }
 
-  confirm(
-    _message: string,
-    defaultValue: boolean = false,
-  ): Effect.Effect<boolean | undefined, never> {
-    return Effect.succeed(defaultValue);
+  confirm(message: string, _defaultValue?: boolean): Effect.Effect<boolean | undefined, never> {
+    return this.unanswerable<boolean>(message);
   }
 
-  search<T = string>(
-    _message: string,
-    options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
-    },
-  ): Effect.Effect<T | undefined, never> {
-    const first = options.choices[0];
-    if (!first) return Effect.succeed(undefined);
-    if (typeof first === "string") return Effect.succeed(first as unknown as T);
-    return Effect.succeed(first.value);
+  search<T = string>(message: string, _options?: object): Effect.Effect<T | undefined, never> {
+    return this.unanswerable<T>(message);
   }
 
   checkbox<T = string>(
-    _message: string,
-    options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
-      default?: readonly T[];
-    },
+    message: string,
+    _options?: object,
   ): Effect.Effect<readonly T[] | undefined, never> {
-    return Effect.succeed(options.default ?? []);
+    return this.unanswerable<readonly T[]>(message);
   }
 
   setTitle(_title: string): Effect.Effect<void, never> {
     return Effect.void;
+  }
+
+  cleanup(): void {
+    this.lineSource?.close();
   }
 }
 

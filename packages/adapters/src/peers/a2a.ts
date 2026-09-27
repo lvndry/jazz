@@ -356,6 +356,7 @@ export function handleA2ARpc(
         riskLevel: string;
         disclosure: ToolDisclosure;
         egress: boolean;
+        peerGrantRequired?: boolean;
       }[] = [];
       for (const name of reachableNames) {
         const tool = yield* registry.getTool(name);
@@ -364,6 +365,7 @@ export function handleA2ARpc(
           riskLevel: tool.riskLevel,
           disclosure: tool.disclosure,
           egress: tool.egress,
+          ...(tool.peerGrantRequired === true ? { peerGrantRequired: true } : {}),
         });
       }
       return {

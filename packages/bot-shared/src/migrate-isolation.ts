@@ -14,7 +14,7 @@
  * bridge's own `migrate-isolation.ts` is the command-line wrapper around this.
  */
 
-import { existsSync, readdirSync, renameSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, renameSync, rmdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { adoptIntoSandbox, type ChatSandbox, ensureChatSandbox } from "./chat-sandbox";
 
@@ -81,7 +81,10 @@ function isEmptyDirectory(path: string): boolean {
  */
 function adoptTree(sandbox: ChatSandbox, path: string, setMode: SetMode): void {
   adoptIntoSandbox(sandbox, path);
-  const stats = statSync(path);
+  // A link an agent left in its workspace is handed over as a link and never
+  // followed: walking into it would chmod whatever it points at, up to `/`.
+  const stats = lstatSync(path);
+  if (stats.isSymbolicLink()) return;
   const mode = stats.mode & 0o7777;
   if ((mode & 0o007) !== 0) setMode(path, mode & ~0o007);
   if (!stats.isDirectory()) return;

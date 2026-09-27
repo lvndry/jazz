@@ -9,10 +9,10 @@ webhook is the other direction. Something outside knocks, and an agent wakes up.
 issue is opened, a deploy finishes, a form is submitted, and the agent reads it and answers.
 
 This guide builds one end to end: an issue-triage door you can fire with `curl` in five
-minutes, then point GitHub at. By the end you will have used the four things that make a
-webhook different from a `jazz run` in a shell script: a fixed prompt the caller cannot replace,
-a per-door bearer token, a tool ceiling for a caller who is not you, and an optional threaded
-conversation.
+minutes, then point GitHub at. By the end you will have used the things that make a webhook
+different from a `jazz run` in a shell script: a fixed prompt the caller cannot replace, a
+per-door credential (a bearer token, or a signing secret GitHub signs every delivery with), a
+tool ceiling and a budget for a caller who is not you, and an optional threaded conversation.
 
 ## What a webhook is, precisely
 
@@ -23,8 +23,12 @@ POST /webhooks/<name>  →  agent <agentId> runs <promptTemplate>, with the body
 ```
 
 The caller chooses **nothing** except the payload. Not the agent, not the prompt, not the
-tools. The payload arrives inside the prompt clearly marked as data, never spliced in as an
-instruction, the same treatment `web_fetch` output and a peer's reply get.
+tools. The payload arrives inside the prompt between two fence lines drawn at random for each
+fire, so it cannot close the fence early and write text that reads as yours. It is data, never
+spliced in as an instruction, the same treatment `web_fetch` output and a peer's reply get.
+
+The run also gets none of your own context: no standing preferences from memory, no AGENTS.md,
+and no file attached because the payload names a path on your machine.
 
 That is the whole security posture, and it is why a webhook is the right shape for structured
 events from another application. When the other side needs to ask open-ended questions, you
@@ -63,10 +67,19 @@ Four of those fields carry weight:
 
 | Field            | What it decides                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------ |
-| `name`           | The URL (`/webhooks/issue-triage`) and which token unlocks it                        |
+| `name`           | The URL (`/webhooks/issue-triage`) and which credential unlocks it                   |
 | `agentId`        | Which agent wakes, by id or by name                                                  |
 | `promptTemplate` | The entire instruction. `{{payload}}` is where the body lands, quoted as data        |
 | `disclosure`     | The ceiling on what the run may reveal. Defaults to `internal` when you leave it out |
+
+Four more are optional and bound what one sender can cost you:
+
+| Field               | What it decides                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `signature`         | Authenticate by a signature over the body instead of a bearer token. See [step 6](#6-point-github-at-it)             |
+| `deliveryIdHeader`  | The header naming each delivery, so a repeat runs nothing. Defaults to GitHub's `X-GitHub-Delivery`                  |
+| `budget`            | `maxTokens`, `maxCostUSD` and `maxDurationMs` for each run this door starts, including one resumed after an approval |
+| `maxConcurrentRuns` | How many runs may be in flight at once. Defaults to 4; past it the door answers `429` with `Retry-After`             |
 
 Leave `{{payload}}` out and the payload is appended at the end instead, with the same quoting
 and less control over where it sits.
@@ -77,8 +90,8 @@ and a paragraph it cannot.
 
 ## 3. Mint the token
 
-Each door carries its own credential. Jazz generates it, stores it in the OS keyring, and
-prints it exactly once:
+Each door carries its own credential. For a caller you control, like the `curl` below, that is
+a bearer token. Jazz generates it, stores it in the OS keyring, and prints it exactly once:
 
 ```bash
 jazz webhook token issue-triage
@@ -133,21 +146,59 @@ first, a tunnel for a trial or a reverse proxy with TLS for anything lasting, an
 
 Then, in the repository's **Settings → Webhooks → Add webhook**:
 
-- **Payload URL:** `https://<your-host>/webhooks/issue-triage`
-- **Content type:** `application/json`
-- **Secret:** leave empty. Jazz authenticates with the bearer token, not GitHub's HMAC
-- **Events:** _Let me select individual events_ → **Issues**
+GitHub cannot send a bearer token. It signs every delivery instead: an HMAC-SHA256 of the body
+under a secret you share, in `X-Hub-Signature-256`. The secret itself never travels, so anyone
+who sees a delivery still cannot forge the next one. Tell the webhook to expect it:
 
-GitHub does not send an `Authorization` header, so terminate at a proxy that adds it:
-
-```nginx
-location /webhooks/ {
-  proxy_set_header Authorization "Bearer <token>";
-  proxy_pass http://127.0.0.1:4747;
+```json
+{
+  "name": "issue-triage",
+  "agentId": "triage",
+  "promptTemplate": "...",
+  "signature": { "format": "hmac-sha256" }
 }
 ```
 
-That proxy is now the thing holding the credential. Give it the same care as the keyring.
+Then mint the secret. Like the token, it goes to the OS keyring and is printed once:
+
+```bash
+jazz webhook secret issue-triage
+```
+
+In a container, set `JAZZ_WEBHOOK_SECRET_ISSUE_TRIAGE` in the daemon's environment instead.
+
+In the repository's **Settings → Webhooks → Add webhook**:
+
+- **Payload URL:** `https://<your-host>/webhooks/issue-triage`
+- **Content type:** `application/json`
+- **Secret:** the value `jazz webhook secret` printed
+- **Events:** _Let me select individual events_ → **Issues**
+
+A webhook with a `signature` ignores any `Authorization` header, and a body whose signature does
+not match, or that arrives with none, gets `401`. Do not have the proxy add a bearer token: a
+proxy that attaches the credential to every request forwards anyone's request as authenticated.
+
+Once the webhook has a `signature`, the bearer token from step 3 no longer opens it. To test it
+with `curl`, sign the body the way GitHub does:
+
+```bash
+body='{"action":"opened","issue":{"number":412}}'
+signature=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$JAZZ_WEBHOOK_SECRET" | sed 's/^.* //')
+curl -X POST http://127.0.0.1:4747/webhooks/issue-triage \
+  -H "X-Hub-Signature-256: sha256=$signature" \
+  -H "Content-Type: application/json" \
+  -d "$body"
+```
+
+Other senders sign the same way under different names. `signature.header` and
+`signature.prefix` change where Jazz looks, for example
+`{ "format": "hmac-sha256", "header": "x-signature", "prefix": "" }` for a bare hex digest.
+
+**Each delivery runs once.** Jazz remembers the last deliveries per webhook on disk, by
+`X-GitHub-Delivery` (or your `deliveryIdHeader`) and by signature. GitHub does not sign its
+delivery id, so the signature is what stops a captured request from being replayed under a new
+one. A repeat answers `409` and runs nothing. That includes GitHub's **Redeliver** button: to run
+an event again, trigger a new one.
 
 ## Threaded doors, for an ongoing exchange
 
@@ -234,21 +285,37 @@ than hanging:
 { "ok": false, "state": "input-required", "runId": "run_01H...", "pending": "..." }
 ```
 
-Approve it yourself later with `jazz runs approve <runId>`, or leave those tools out.
+Approve it yourself later with `jazz runs approve <runId>`, or leave those tools out. The run
+resumes inside the same boundary it parked in: the same tool list, no operator context, and
+only the budget it had left.
+
+**What one sender can cost you.** Without a `budget`, a webhook's runs fall back to your
+app-wide `maxTokens`, `maxCostUSD` and `maxDurationMs`, which are unset by default. A door that
+anyone holding its credential can fire deserves its own:
+
+```json
+{
+  "name": "issue-triage",
+  "budget": { "maxCostUSD": 0.05, "maxDurationMs": 120000 },
+  "maxConcurrentRuns": 2
+}
+```
 
 ## When it does not work
 
-| Response                  | Meaning                                                                  |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `401 unauthorized`        | Missing, wrong, or un-minted token. Re-run `jazz webhook token <name>`   |
-| `404 not found`           | No webhook by that name in `config.json`. Check spelling, not the daemon |
-| `400 ... is not threaded` | A thread key was sent to an `ephemeral` door                             |
-| `413`                     | Body over 1 MiB                                                          |
-| `202 input-required`      | The run needs an approval. See the `allow` list above                    |
+| Response                  | Meaning                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401 unauthorized`        | No webhook by that name, or a missing, wrong, or un-minted credential. Jazz does not say which, so nobody can list your webhooks by guessing. Check the name, then re-mint the token or secret |
+| `409 already received`    | This delivery id or signature already ran. Send a new event                                                                                                                                    |
+| `400 ... is not threaded` | A thread key was sent to an `ephemeral` door                                                                                                                                                   |
+| `413`                     | Body over 1 MiB                                                                                                                                                                                |
+| `429`                     | `maxConcurrentRuns` runs are already in flight. Retry after `Retry-After` seconds                                                                                                              |
+| `500 the run failed`      | The run itself failed. The cause is in the daemon's log, never in the answer                                                                                                                   |
+| `202 input-required`      | The run needs an approval. See the `allow` list above                                                                                                                                          |
 
 ## Next
 
 - [Webhooks](../concepts/webhooks.md): the concept, and when to prefer a peer
 - [Surface access](../security/surface-access.md): before you expose the daemon
 - [Unattended runs](../security/unattended-runs.md): approvals when nobody is watching
-- [`jazz webhook`](../commands.md): the token commands in full
+- [`jazz webhook`](../commands.md): the token and secret commands in full
