@@ -2431,10 +2431,12 @@ function mcpServerActions(status: McpServerStatus): readonly { name: string; val
   if (status.usesOAuth && status.hasStoredAuth) {
     actions.push({ name: "Forget stored credentials", value: "logout" });
   }
-  actions.push({
-    name: status.config.trusted === true ? "Untrust" : "Trust",
-    value: "toggle-trust",
-  });
+  if (status.config.definedIn !== "project") {
+    actions.push({
+      name: status.config.trusted === true ? "Untrust" : "Trust",
+      value: "toggle-trust",
+    });
+  }
   actions.push({ name: "Disable", value: "disable" });
   actions.push({ name: "Back", value: "back" });
   return actions;
