@@ -4,7 +4,7 @@ description: "Remove Jazz completely: scheduled jobs, the daemon service, chat b
 
 # Uninstalling Jazz
 
-There is no `jazz uninstall` command. Remove things in this order, so nothing keeps firing a
+Jazz has no uninstall command. Remove things in this order, so nothing keeps firing a
 binary that is gone: schedules first, then services, then secrets, then data, then the
 binary.
 
