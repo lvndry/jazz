@@ -12,6 +12,7 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -125,8 +126,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
             }
           }
 
-          // Write the file content
-          yield* fs.writeFileString(target, args.content);
+          // Old content or new, never a truncated file, however the call is stopped.
+          yield* writeFileAtomically(fs, target, args.content);
 
           // Generate diff for terminal output
           const { diff, wasTruncated } = generateDiffWithMetadata(

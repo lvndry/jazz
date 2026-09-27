@@ -10,6 +10,7 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { replacePathAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -77,7 +78,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           };
         }
 
-        // Destination exists: fail unless force; when force, remove first for true overwrite (not merge)
+        // Destination exists: fail unless force; with force it is replaced whole, never merged
         const destExists = yield* fs
           .exists(destination)
           .pipe(Effect.catchAll(() => Effect.succeed(false)));
@@ -90,25 +91,20 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           };
         }
 
-        if (destExists && args.force === true) {
-          yield* fs.remove(destination, { recursive: true });
-        }
-
-        // copy() handles both files and dirs (equivalent to cp -r)
-        return yield* fs
-          .copy(source, destination, {
-            overwrite: args.force === true,
-          })
-          .pipe(
-            Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
-            Effect.catchAll((error) =>
-              Effect.succeed({
-                success: false,
-                result: null,
-                error: `cp failed: ${toError(error).message}`,
-              }),
-            ),
-          );
+        // Copied beside the destination and swapped in whole, so an interrupted copy leaves
+        // the destination as it was: a true overwrite, never a merge or a half-copied tree.
+        return yield* replacePathAtomically(fs, destination, (stagingPath) =>
+          fs.copy(source, stagingPath).pipe(Effect.mapError(toError)),
+        ).pipe(
+          Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
+          Effect.catchAll((error) =>
+            Effect.succeed({
+              success: false,
+              result: null,
+              error: `cp failed: ${toError(error).message}`,
+            }),
+          ),
+        );
       }),
   };
 
