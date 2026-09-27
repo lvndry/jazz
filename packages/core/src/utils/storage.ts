@@ -122,7 +122,8 @@ export function withLock<A, E, R>(
  * Atomically and durably replace a text file (see `writeFileDurably`): a crash
  * leaves the old content or the new, never a torn file. The file and any missing
  * parent directory get Jazz's state modes (owner-only in a private home, see
- * `private-mode.ts`) unless `options.mode` says otherwise.
+ * `private-mode.ts`) unless `options.mode` says otherwise. Cancellation waits for the
+ * write to settle, so an enclosing lock cannot be released while its rename is still pending.
  */
 export function writeFileStringAtomic(
   targetPath: string,
@@ -132,7 +133,7 @@ export function writeFileStringAtomic(
   return Effect.tryPromise({
     try: () => writeFileDurably(targetPath, content, options),
     catch: toError,
-  });
+  }).pipe(Effect.uninterruptible);
 }
 
 /**

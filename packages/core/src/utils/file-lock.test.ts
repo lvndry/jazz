@@ -1,3 +1,7 @@
+/**
+ * Exercises file-lock recovery, process identity and exclusion with real temporary directories.
+ * Run with `bun test packages/core/src/utils/file-lock.test.ts`.
+ */
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +27,13 @@ async function deadPid(): Promise<number> {
 }
 
 describe("acquireFileLock", () => {
+  it("reclaims a previous process whose pid was reused by this process", async () => {
+    const lock = lockPath();
+    plantHolder(lock, { ...currentProcessOwner(), startedAt: Date.now() - 86_400_000 });
+    const release = await acquireFileLock(lock, { maxWaitMs: 200 });
+    await release();
+  });
+
   it("reclaims a lock whose holder process is gone", async () => {
     const lock = lockPath();
     plantHolder(lock, { pid: await deadPid(), host: hostname() });

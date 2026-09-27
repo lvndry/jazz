@@ -42,14 +42,20 @@ that the walk has run.
 
 A home whose directory has the setgid bit is treated as shared with its group on purpose.
 The chat bridges set up each conversation's home that way so the operator can read it, and
-there Jazz keeps group read and removes only the bits for everyone else.
+there Jazz keeps group read and removes only the bits for everyone else. The bridge’s outer
+shared home has setgid and traversal-only access for other accounts (typically `2751`), so
+conversation accounts can reach their own homes under `chats/`. CLI startup leaves that
+operator-managed hierarchy alone; the bridge entrypoint repairs its permissions, preserving
+shared personas and sandbox traversal. Conversation homes (`2750`) still receive CLI repair.
 
 ## Damaged and newer files
 
 State files that are replaced as a whole (`config.json`, agents, memory, run history,
 reminders, wake triggers, job batches, `state.json`) are written to a temporary file, flushed
 to disk, and renamed into place, so a crash or power cut leaves either the old file or the new
-one.
+one. Cancellation waits for an in-flight durable replacement to finish before releasing its
+store lock, so the cancelled write cannot overwrite a later writer. Locks distinguish process
+start times as well as PIDs, including when the current process reuses a crashed holder’s PID.
 
 Reminders, wake triggers, job batches, run history, and `state.json` carry a `schemaVersion`.
 When one of them cannot be read (torn JSON, a wrong shape), Jazz moves it aside to

@@ -30,6 +30,7 @@ import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@/core/utils/private-
 import { currentProcessOwner, localOwnerStatus } from "@/core/utils/process";
 
 const HOLDER_FILE = "owner.json";
+const PROCESS_OWNER = currentProcessOwner();
 
 export interface FileLockOptions {
   /** How long a lock with no readable holder is trusted to be mid-acquisition. */
@@ -100,8 +101,11 @@ function holderProcessKey(holder: LockHolder): string {
 
 /** Whether the holder is this very process, which is alive by definition. */
 function isThisProcess(holder: LockHolder): boolean {
-  const self = currentProcessOwner();
-  return holder.pid === self.pid && holder.host === self.host;
+  return (
+    holder.pid === PROCESS_OWNER.pid &&
+    holder.host === PROCESS_OWNER.host &&
+    holder.startedAt === PROCESS_OWNER.startedAt
+  );
 }
 
 async function isStale(
@@ -174,7 +178,7 @@ export async function acquireFileLock(
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const deadline = Date.now() + (options.maxWaitMs ?? FILE_LOCK_MAX_WAIT_MS);
   const token = randomUUID();
-  const holder: LockHolder = { ...currentProcessOwner(), token };
+  const holder: LockHolder = { ...PROCESS_OWNER, token };
   const seenAlive: LivenessCache = new Map();
   await nodeFs.mkdir(path.dirname(lockDirectory), {
     recursive: true,
