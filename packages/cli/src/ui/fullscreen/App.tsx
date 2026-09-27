@@ -306,6 +306,7 @@ function AppView({
         armedAt.current = Date.now();
         break;
       case "interrupt":
+      case "flush-queue":
         armedAt.current = undefined;
         break;
       case "scroll-transcript":
