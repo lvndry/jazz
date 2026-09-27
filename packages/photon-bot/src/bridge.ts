@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { normalizeHandle, parseHandleList } from "@jazz/bot-shared/handles";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
+import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
@@ -36,7 +37,6 @@ const ALLOW_LIST_ATTEMPTS = 3;
 
 const STORE_FILES = {
   timezone: "ph-tz.json",
-  usage: "ph-usage.json",
   sessions: "ph-sessions.json",
   mode: "ph-mode.json",
 } as const;
@@ -45,6 +45,8 @@ interface BridgeConfig {
   readonly projectId: string;
   readonly projectSecret: string;
   readonly allowedHandles: ReadonlySet<string>;
+  /** Handles allowed to widen a chat's authority (`/mode yolo`). */
+  readonly operatorHandles: ReadonlySet<string>;
   readonly jazzBinary: string;
   readonly jazzHome: string;
   readonly baseAgentId: string;
@@ -219,6 +221,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     projectId: credentials.projectId,
     projectSecret: credentials.projectSecret,
     allowedHandles: allowed,
+    operatorHandles: parseHandleList(process.env["PHOTON_OPERATOR_HANDLES"]?.trim() ?? ""),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     jazzHome,
     baseAgentId: process.env["JAZZ_PHOTON_AGENT"]?.trim() || DEFAULT_BASE_AGENT_ID,
@@ -309,14 +312,6 @@ function readableContent(content: unknown): ReadableContent | undefined {
   return typeof candidate.read === "function" ? (candidate as ReadableContent) : undefined;
 }
 
-/** Extension for a saved file, from its name first and its MIME type second. */
-function extensionFor(media: ReadableContent): string {
-  const fromName = media.name?.split(".").at(-1);
-  if (fromName !== undefined && fromName.length > 0 && fromName !== media.name) return fromName;
-  const subtype = media.mimeType?.split("/").at(-1)?.split(";").at(0);
-  return subtype !== undefined && subtype.length > 0 ? subtype : "bin";
-}
-
 /**
  * Turn one inbound message into the prompt the agent sees.
  *
@@ -339,7 +334,7 @@ export async function promptFrom(
     try {
       const directory = join(jazzHome, MEDIA_DIR);
       mkdirSync(directory, { recursive: true });
-      const path = join(directory, `${message.id}.${extensionFor(media)}`);
+      const path = join(directory, inboundMediaFileName(message.id, media.name, media.mimeType));
       writeFileSync(path, await media.read());
       parts.push(path);
     } catch (error) {
@@ -407,7 +402,10 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "photon",
     agentIdFor: (chatId) => agentIdForSpace(chatId),
+    operators: config.operatorHandles,
+    operatorSettingName: "PHOTON_OPERATOR_HANDLES",
   });
 
   startReminderSweep({
@@ -445,12 +443,13 @@ export async function startBridge(): Promise<void> {
     }
 
     const chatId: ChatId = space.id;
+    const senderId = normalizeHandle(sender);
     spaces.set(chatId, space);
     void promptFrom(message, config.jazzHome)
       .then(async (prompt) => {
         // A reaction or a read receipt carries nothing to answer.
         if (prompt.length === 0) return;
-        await runner.handle(chatId, prompt);
+        await runner.handle({ chatId, senderId, text: prompt });
       })
       .catch((error: unknown) => console.error(`Failed to handle ${message.id}: ${String(error)}`));
   }

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
@@ -25,6 +26,9 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { securePrivateHome } from "@jazz/core/utils/private-home";
+import type { ShutdownSignal } from "@jazz/core/utils/process";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
@@ -56,6 +60,8 @@ interface CliRunOptions {
   readonly skipUpdateCheck?: boolean;
   /** Live until the user leaves. Print-and-exit commands omit this. */
   readonly session?: boolean;
+  /** Report a run a shutdown signal stopped, for commands with a one-envelope stdout. */
+  readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -84,6 +90,16 @@ async function runCliAction(
     console.error("Fatal error:", error);
     throw error;
   }
+}
+
+/**
+ * The one stdout envelope of a `--json` run that a signal stopped: `ok:false`
+ * with `error` and `code` set to `interrupted`, plus which signal it was.
+ */
+function printInterruptedEnvelope(signal: ShutdownSignal): void {
+  process.stdout.write(
+    formatOneShotError("interrupted", { json: true }, 0, { code: "interrupted", signal }),
+  );
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -147,7 +163,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-duration-ms <ms>",
-      "Abort the run once elapsed wall-clock time reaches this many milliseconds. The agent gets pressure nudges at 50/80/90% elapsed, then the run stops between iterations.",
+      "Stop the run once elapsed wall-clock time reaches this many milliseconds, wherever it is: a model call or a running tool is interrupted. The agent gets pressure nudges at 50/80/90% elapsed. Sub-agents run under what is left.",
       parsePositiveInt("--max-duration-ms"),
     )
     .option(
@@ -176,8 +192,8 @@ function registerRunCommand(program: Command): void {
       "Skip Jazz conversation/session persistence: --conversation is ignored (no history load/save) and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
     .option(
-      "--history-json <json>",
-      "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
+      "--input-stdin",
+      'Read the prompt from the first stdin line as JSON: {"prompt": "...", "history": [...]}. `history` (with --ephemeral) is the `messages` field of the previous --ephemeral --json envelope. Keeps a relayed message and transcript off the command line; later stdin lines still carry --interactive-stdin answers.',
     )
     .option(
       "--park",
@@ -217,7 +233,7 @@ function registerRunCommand(program: Command): void {
           noStream?: boolean;
           interactiveStdin?: boolean;
           ephemeral?: boolean;
-          historyJson?: string;
+          inputStdin?: boolean;
           park?: boolean;
           withVision?: string;
           withAudio?: string;
@@ -364,7 +380,7 @@ function registerRunCommand(program: Command): void {
                 ...resolveStreamOption(options, eventCategories),
                 ...(options.interactiveStdin === true ? { interactiveStdin: true } : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
-                ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
+                ...(options.inputStdin === true ? { inputStdin: true } : {}),
                 ...(options.park === true ? { park: true } : {}),
                 ...(companionFlags.some((entry) => entry.value !== undefined)
                   ? {
@@ -378,7 +394,11 @@ function registerRunCommand(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: true, skipUpdateCheck: true },
+          {
+            skipCatchUp: true,
+            skipUpdateCheck: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );
@@ -603,10 +623,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("get <key>")
-    .description("Get a configuration value")
-    .action((key: string) =>
+    .description("Get a configuration value (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((key: string, options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.getConfigCommand(key)),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.getConfigCommand(key, { reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -623,10 +647,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("show")
-    .description("Show all configuration values")
-    .action(() =>
+    .description("Show all configuration values (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.listConfigCommand()),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.listConfigCommand({ reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -902,8 +930,9 @@ function registerDetachCommands(program: Command): void {
 }
 
 /**
- * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
- * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ * Register `jazz webhook token|forget-token|secret|forget-secret`: minting a webhook's bearer
+ * token or signing secret instead of asking somebody to invent one, the way
+ * `jazz daemon set-token` already does for the daemon.
  */
 function registerWebhookCommands(program: Command): void {
   const webhookCommand = program
@@ -927,6 +956,29 @@ function registerWebhookCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("secret <name>")
+    .description(
+      "Generate and store the secret a webhook's sender signs bodies with (GitHub's webhook secret), printing it once",
+    )
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookSecretCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-secret <name>")
+    .description("Remove a webhook's stored signing secret")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookSecretCommand(name)),
         cliRuntimeOptions(program),
       ),
     );
@@ -1598,6 +1650,34 @@ function registerDaemonCommand(program: Command): void {
       ),
     );
 
+  const attention = () => import("@jazz/cli/commands/daemon-attention");
+  daemonCommand
+    .command("pause")
+    .description(
+      "Stop background work from starting (running work finishes; answering still works)",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.pauseDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("resume")
+    .description(
+      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.resumeDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
   daemonCommand
     .command("set-token")
     .description(
@@ -1616,6 +1696,28 @@ function registerDaemonCommand(program: Command): void {
     .action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetDaemonTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("operator-token")
+    .description(
+      "Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve a run), store it in the OS keyring, and print it once",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-operator-token")
+    .description("Remove the operator token, so the daemon grants nothing over HTTP")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetOperatorTokenCommand()),
         cliRuntimeOptions(program),
       ),
     );
@@ -2453,6 +2555,132 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     );
 }
 
+function registerSpendCommand(program: Command): void {
+  program
+    .command("spend")
+    .description("What runs on this machine cost today and this month, by agent and source")
+    .option("--json", "Emit a single JSON envelope { ok, today, thisMonth, ceilings }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/spend").then((mod) =>
+            mod.spendCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+function registerNotifyCommands(program: Command): void {
+  const notifyCommand = program
+    .command("notify")
+    .description("Notify channels: where results, reminders, approvals and failures reach you");
+
+  notifyCommand
+    .command("list")
+    .alias("ls")
+    .description("List the configured notify channels")
+    .option("--json", "Emit a single JSON envelope { ok, channels }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.listNotifyChannelsCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("add <name>")
+    .description("Add or replace a notify channel; asks for its secret on a terminal")
+    .requiredOption("--type <type>", "telegram, discord, webhook or desktop")
+    .option("--chat-id <id>", "Telegram chat id to post in")
+    .option("--channel-id <id>", "Discord channel id, when posting as a bot instead of a webhook")
+    .option("--url <url>", "Webhook endpoint that receives signed JSON")
+    .option("--api-base-url <url>", "Self-hosted Telegram Bot API or Discord API base URL")
+    .option(
+      "--events <list>",
+      "Comma-separated: reminder, approval-needed, unattended-failed, spend-ceiling (default: all)",
+    )
+    .option(
+      "--approve-from-chat",
+      "A running Jazz bridge serves this chat, so approval requests offer /approve",
+    )
+    .action(
+      (
+        name: string,
+        options: {
+          type: string;
+          chatId?: string;
+          channelId?: string;
+          url?: string;
+          apiBaseUrl?: string;
+          events?: string;
+          approveFromChat?: boolean;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/notify").then((mod) =>
+              mod.addNotifyChannelCommand({
+                name,
+                type: options.type,
+                ...(options.chatId !== undefined ? { chatId: options.chatId } : {}),
+                ...(options.channelId !== undefined ? { channelId: options.channelId } : {}),
+                ...(options.url !== undefined ? { url: options.url } : {}),
+                ...(options.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
+                ...(options.events !== undefined ? { events: options.events } : {}),
+                ...(options.approveFromChat === true ? { approveFromChat: true } : {}),
+              }),
+            ),
+          cliRuntimeOptions(program),
+        ),
+    );
+
+  notifyCommand
+    .command("test <name>")
+    .description("Send a test message through one channel and report what it answered")
+    .option("--json", "Emit a single JSON envelope { ok, channel }")
+    .action((name: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.testNotifyChannelCommand({ channel: name, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("outbox")
+    .description("Show notifications waiting to be delivered, and why the failed ones failed")
+    .option("--json", "Emit a single JSON envelope { ok, notifications }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.notifyOutboxCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("retry")
+    .description("Retry notifications that stopped retrying, and deliver the outbox now")
+    .option("--json", "Emit a single JSON envelope { ok, rearmed, delivered, failed }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.retryNotifyOutboxCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 function registerRunsCommands(program: Command): void {
   const runsCommand = program
     .command("runs")
@@ -2727,7 +2955,12 @@ function registerWorkflowCommands(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json, session: true },
+          {
+            skipCatchUp: isWorkflowRunCommand,
+            skipUpdateCheck: json,
+            session: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );
@@ -2850,6 +3083,58 @@ function registerWorkflowCommands(program: Command): void {
 }
 
 /**
+ * Keep `$JAZZ_HOME` private to this account before the command writes into it. A failure is
+ * reported, never fatal: the command the user asked for still runs.
+ */
+function secureJazzHome(): void {
+  try {
+    const report = securePrivateHome();
+    if (report.failures > 0) {
+      process.stderr.write(
+        `Could not make ${report.failures} item(s) in ${getJazzHomeDirectory()} private to this account; other accounts on this machine may be able to read them.\n`,
+      );
+    }
+  } catch (error) {
+    process.stderr.write(`Could not make the Jazz home private: ${toError(error).message}\n`);
+  }
+}
+
+/**
+ * The first command-line operand (a subcommand name, typo or not), skipping the
+ * program's own options and the values they take. `jazz --no-tui` and
+ * `jazz --data-dir ~/work` have none, so they open the interactive home;
+ * `jazz agent list` and `jazz agnt` do, so Commander routes or rejects them.
+ */
+export function firstOperand(program: Command, args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === "--") {
+      return args[index + 1];
+    }
+    if (arg === "-" || !arg.startsWith("-")) {
+      return arg;
+    }
+    if (arg.includes("=")) {
+      continue;
+    }
+    const option = program.options.find(
+      (candidate) => candidate.long === arg || candidate.short === arg,
+    );
+    const next = args[index + 1];
+    const takesValue =
+      option !== undefined &&
+      (option.required || (option.optional && next !== undefined && !next.startsWith("-")));
+    if (takesValue) {
+      index += 1;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Create and configure the CLI application
  *
  * Sets up the Commander.js program with all available commands including:
@@ -2858,7 +3143,7 @@ function registerWorkflowCommands(program: Command): void {
  * - MCP server management
  * - Update command
  */
-export function createCLIApp(): Command {
+export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
   program
@@ -2895,6 +3180,7 @@ export function createCLIApp(): Command {
     if (opts["dataDir"]) {
       process.env["JAZZ_HOME"] = path.resolve(opts["dataDir"] as string);
     }
+    secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
   });
 
@@ -2921,9 +3207,11 @@ export function createCLIApp(): Command {
   registerPendingWorkCommands(program);
   registerPeersCommands(program);
   registerRunsCommands(program);
+  registerSpendCommand(program);
+  registerNotifyCommands(program);
   registerWorkflowCommands(program);
 
-  if (process.argv.length <= 2) {
+  if (firstOperand(program, argv.slice(2)) === undefined) {
     program.action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/wizard").then((mod) => mod.wizardCommand()),

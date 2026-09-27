@@ -11,6 +11,7 @@ import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record
 import type { RunState } from "@jazz/core/agent/run/run-state";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
@@ -20,7 +21,9 @@ import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { recordSpend } from "@jazz/core/spend/ledger";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { SpendConfig } from "@jazz/core/types/spend";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import {
@@ -46,7 +49,14 @@ interface Harness {
   prompts: AgentRunnerOptions[];
 }
 
-function harness(repair?: string): Harness {
+/** A config service whose app config carries the given spend ceilings and nothing else. */
+function configWithSpend(spend?: SpendConfig): AgentConfigService {
+  return {
+    appConfig: Effect.succeed({ ...(spend !== undefined ? { spend } : {}) }),
+  } as unknown as AgentConfigService;
+}
+
+function harness(repair?: string, spend?: SpendConfig): Harness {
   const goals = new InMemoryGoalStore();
   const runs = new InMemoryRunStore();
   const agents = {
@@ -69,6 +79,7 @@ function harness(repair?: string): Harness {
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(LoggerServiceTag, silentLogger),
+    Layer.succeed(AgentConfigServiceTag, configWithSpend(spend)),
     Layer.succeed(FileSystemContextServiceTag, {
       setCwd: (key: { conversationId?: string }, directory: string) =>
         Effect.sync(() => {
@@ -186,10 +197,51 @@ async function current(test: Harness): Promise<GoalRecord> {
 const placedIn: { conversationId: string; directory: string }[] = [];
 
 describe("runDueGoals", () => {
+  it("holds the next cycle back while a spend ceiling covering the goal is reached", async () => {
+    const cappedAgent = "spend-capped-goal-agent";
+    const test = harness(undefined, { agents: { [cappedAgent]: { dayUSD: 0.5 } } });
+    await Effect.runPromise(
+      recordSpend({
+        agentId: cappedAgent,
+        source: "goal",
+        costUSD: 0.5,
+        costKnown: true,
+        tokens: 1,
+      }),
+    );
+    await run(test, test.goals.create(testGoal({ agentId: cappedAgent })));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    const goal = await run(test, test.goals.get(GOAL_ID));
+    expect(test.prompts).toHaveLength(0);
+    expect(goal?.state.kind).toBe("active");
+    expect(goal?.usage.cycles).toBe(0);
+  });
+
   /**
    * The regression: a cycle ran in whatever directory the daemon started from, so a goal
    * accepted in one project read and changed another.
    */
+  it("starts no cycle while the daemon is paused, and claims none", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      const started = await run(test, runDueGoals({ startNew: false }));
+      await Effect.runPromise(Fiber.joinAll(started));
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts).toHaveLength(0);
+    const goal = await current(test);
+    expect(goal.cycle).toBeUndefined();
+    expect(goal.usage.cycles).toBe(0);
+  });
+
   it("runs every cycle in the directory the goal works in", async () => {
     placedIn.length = 0;
     const test = harness();

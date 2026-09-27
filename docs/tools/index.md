@@ -22,9 +22,9 @@ and [Security](../../SECURITY.md) for the threat model.
 | **Agent-facing tools**                                                  | **51** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
 | Total registered                                                        | 62     |
-| `read-only`                                                             | 25     |
-| `low-risk`                                                              | 15     |
-| `high-risk`                                                             | 8      |
+| `read-only`                                                             | 28     |
+| `low-risk`                                                              | 10     |
+| `high-risk`                                                             | 10     |
 | `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
@@ -39,9 +39,20 @@ Plus, registered per agent rather than globally:
 
 ## How approval pairs work
 
-Nine tools are **gated**: calling them does not act. They return a description of the
-intended action (including a preview diff for edits), and only after approval: from a human
-or from `--approval-policy`: does Jazz invoke the hidden `execute_*` counterpart.
+Every tool above `read-only` is **gated**: under a policy that does not clear its level it
+asks first, or is declined (or parked) when nobody can answer. With no policy, or
+`false`, nothing clears. Of the 51 agent-facing tools, 23 are gated: 11 approval pairs and 12
+plain tools (every `low-risk` tool, plus `create_pdf` and `http_request`).
+
+The 11 approval pairs split proposing from acting: calling one does not act. It returns a
+description of the intended action (including a preview diff for edits), and only after
+approval, from a human or from the policy, does Jazz invoke the hidden `execute_*`
+counterpart. A plain gated tool has no proposal half: the executor asks with its name, risk
+level, and arguments, and runs the tool itself once approved.
+
+Only the tool registered for an `execute_*` counterpart can ask for it. Any other tool output
+shaped like an approval request (an MCP server's reply, a fetched JSON document) is refused
+and nothing runs.
 
 ```mermaid
 flowchart LR
@@ -77,8 +88,8 @@ cannot be added without someone deciding.
 | `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
-message carries a diff of your file, so it is `private`. `http_request` reaches private
-networks including services on localhost, so it is too.
+message carries a diff of your file, so it is `private`. `http_request` reaches any
+private host the agent lists in `network.allowPrivateHosts`, so it is too.
 
 Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `internal` too, and are
 absent from the table for the same reason they are absent from the one below. They are
@@ -101,16 +112,19 @@ the request is where your material would actually leave.
 | yes   | `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
 Two more, absent above only because they are registered per agent rather than globally:
-`ask_peer`, whose whole purpose is to put your model's words in front of somebody else's
+`ask_peer` (`high-risk`), whose whole purpose is to put your model's words in front of somebody else's
 agent, and every MCP tool, whatever its transport: where a server outside this codebase
 carries the model's arguments is not knowable from here.
 
 This changes nothing in the terminal: approval tiers read the risk column, and a `read-only`
-tool that fetches a URL is still auto-approved under `--approval-policy read-only`, as it
-always was. It matters at exactly one door: a tool listed here is **never** granted to another
+tool that fetches a URL is still auto-approved under `--approval-policy read-only`. It matters at exactly one door: a tool listed here is **never** granted to another
 person's agent by a disclosure tier. It has to be named in that peer's `allow`, the same as a
 tool that writes to disk. See
 [Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
+
+The same holds for `manage_todos`, `update_work_state`, `manage_scratchpad` and
+`spawn_subagent`. They are `read-only` for your own runs, but they write the agent's durable
+bookkeeping or start child runs, so a peer reaches them only when its `allow` names them.
 
 ---
 
@@ -150,7 +164,8 @@ caller can check every quarter second without waking the model each time. It is 
 interject. Waits that outlast that belong to `register_trigger`, which suspends the run and resumes
 it later; the two compose, polling tightly inside the budget and re-arming across it.
 
-In the interactive terminal, an operator can also type `! <command>`. That explicit shell escape
+In the interactive terminal, an operator can also type `! <command>` (the space after `!` is
+required). That explicit shell escape
 uses the same cwd resolution, environment sanitization, denylist, timeout, interruption, and
 output caps as `execute_command`, then gives the result to the agent as context. It is not
 available through `jazz run` or remote chat surfaces.
@@ -163,23 +178,23 @@ available through `jazz run` or remote chat surfaces.
 
 ### Web Fetch
 
-| Tool        | Risk        | Approval pair | What it does                               |
-| ----------- | ----------- | ------------- | ------------------------------------------ |
-| `web_fetch` | `read-only` | none          | Fetch and extract text content from a URL. |
+| Tool        | Risk        | Approval pair | What it does                                      |
+| ----------- | ----------- | ------------- | ------------------------------------------------- |
+| `web_fetch` | `read-only` | none          | Fetch and extract text content from a public URL. |
 
 ### HTTP
 
-| Tool           | Risk        | Approval pair | What it does                                                                       |
-| -------------- | ----------- | ------------- | ---------------------------------------------------------------------------------- |
-| `http_request` | `read-only` | none          | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
+| Tool           | Risk        | Approval pair | What it does                                                                                                                                                                        |
+| -------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `http_request` | `high-risk` | none          | Send HTTP requests to public hosts, or private hosts the agent lists. Supports all methods, headers, query params, and body formats. `GET` and `HEAD` calls are judged `read-only`. |
 
 ### Todo
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                 |
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
 | `list_todos`        | `read-only` | none          | Read the current todo list. Returns all items with their status and priority.                                |
-| `manage_todos`      | `low-risk`  | none          | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
-| `update_work_state` | `low-risk`  | none          | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
+| `manage_todos`      | `read-only` | none          | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+| `update_work_state` | `read-only` | none          | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
@@ -201,7 +216,7 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
-| `manage_scratchpad` | `low-risk`  | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
+| `manage_scratchpad` | `read-only` | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
 
 ### Reminders
 
@@ -307,7 +322,7 @@ you get a desktop notification naming it, and `jazz runs approve <id>` finishes 
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                                                                                              |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spawn_subagent`    | `low-risk`  | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
+| `spawn_subagent`    | `read-only` | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
 | `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                              |
 
 ### Perception Delegation
@@ -331,10 +346,10 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
 The companion `composition` skill supplies the visual-design and HTML/CSS playbook.
 
-| Tool                 | Risk       | Approval pair | What it does                                                                                                                                                 |
-| -------------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_composition` | `low-risk` | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
-| `create_pdf`         | `low-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
+| Tool                 | Risk        | Approval pair | What it does                                                                                                                                                 |
+| -------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create_composition` | `low-risk`  | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
+| `create_pdf`         | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
 
@@ -359,8 +374,10 @@ himalaya invocation is declined. The fix is usually _not_ to raise the whole tie
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-That keeps the tier low while letting the one command through. Matching is on a parsed key
-(binary + first subcommand), never a raw prefix: see
+That keeps the tier low while letting the one command through. Matching is on a key parsed the
+way the shell reads the command (binary, plus the next word when it is not a flag), never a raw
+prefix, and a compound, redirected, substituted or `NAME=value`-prefixed command never matches:
+see
 [Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
 
 ---
@@ -370,9 +387,13 @@ That keeps the tier low while letting the one command through. Matching is on a 
 - **Editing a file another agent may change**: An ordinary text `read_file` returns a `snapshot` computed from the canonical target path and the complete file contents, even when only a line range was returned. Pass it unchanged to `edit_file`. The approval proposal checks it before showing a diff, and the hidden execution half checks it again under a per-file lock shared by Jazz agents and processes. A mismatch returns `StaleFileError` without writing or asking for approval; read the file again, inspect the current lines, and retry with the new snapshot. `sinceByte` follow-reads and media attachments do not produce edit snapshots. The lock serializes Jazz `edit_file` calls; other programs need not honor it, so external concurrent writes remain outside that lock.
 - **Following a file that is still being written**: `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file. `sinceByte` cannot be combined with `startLine`/`endLine`: except at `0`, which means "from the start of the file" and so narrows to the line range instead of being refused; models that fill every optional number in a schema with `0` send exactly that shape, and rejecting it cost a round trip to learn nothing.
 - **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
-- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
-- **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
+- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, interactive safe mode (the `low-risk` tier) skips its prompt, it does not run with no policy or `false` (nothing would be approved either way), and yolo skips it too. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. Before the classifier runs, a syntax check marks malformed commands, command or process substitution, file redirections and a command name built from a variable `high-risk` outright. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
+- **`http_request` is judged per call**: `GET` and `HEAD` are `read-only`; every other method is `high-risk` and gated.
+- **Model-chosen URLs reach public hosts only.** `http_request`, `web_fetch`, `read_pdf` with a `url`, and the pages `create_pdf` and `create_composition` render all go through one guarded fetch. It resolves the hostname and refuses loopback, private (RFC 1918), link-local (including the cloud metadata address `169.254.169.254`), CGNAT, IPv4-mapped IPv6 and `0.0.0.0`, however the address is spelled (`2130706433`, `0x7f000001` and `0177.0.0.1` are all `127.0.0.1`). It follows redirects itself, re-checking every hop, up to 20. On a cross-origin hop it drops `Authorization`, `Cookie` and any custom header the model set, and it returns a cross-origin 307/308 that would resend a body instead of following it. Bodies are streamed against the byte cap, with the timeout covering the whole read. To reach a service on your own network, list it in the agent's [`network.allowPrivateHosts`](../configure/agents.md#network-access). See [Secrets and egress](../security/secrets-and-egress.md#network-egress).
+- **Credential files support safe whole-file transfers.** `ls`, `find` and `stat` expose metadata; direct reads of protected files return `contentOmitted: true` and guidance to use `cp`. `grep` omits protected contents, and edit/write previews cannot expose them. Approved `cp` transfers bytes internally and records destination protection across restarts, even after renaming. This covers `.env`, `.env.*`, `secrets.json`, Jazz's config and credential temporary files, and recorded copies within the same Jazz home. See [Secrets and egress](../security/secrets-and-egress.md#read-tools-and-jazzs-secret-files).
+- **Outside content arrives labelled.** Results from `web_fetch`, `web_search`, `http_request`, `read_pdf` URLs, MCP tools, `ask_peer`, every `execute_command` and custom command, and `read_file` of a file outside the working directory come back inside an `<untrusted-content>` envelope that names the source, and the system prompt tells the model to read them as data. Once a run has read external content, egress tools stop auto-approving below `high-risk`. Because Jazz cannot tell what a command read, that includes any shell command: after one, egress at `read-only` or `low-risk` needs approval. See [Unattended runs](../security/unattended-runs.md#egress-after-untrusted-input).
 - **Timeouts**: 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept: asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
+- **Stopping a command**: `execute_command` and custom command tools run in their own process group. Esc, a tool timeout, `--timeout`, SIGTERM, or a run's `maxDurationMs` deadline stops the command together with every process it started: SIGTERM first, and SIGKILL 3 seconds later if it is still running, so a command can finish writing and clean up. `write_file`, `edit_file`, `cp` and `mv` replace their target in one step, so a stopped call leaves the old version or the new one, never half a file. The tool results then say which calls completed, which were interrupted, and which never started. A command that leaves a job running in the background (`server &`) returns as soon as the shell exits, and the job keeps running.
 - **Concurrency**: up to 10 tools execute in parallel per iteration.
 - **`create_pdf` needs a browser too**: it uses the same `puppeteer-core` path as `create_composition`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike compositions, which live under `~/.jazz/compositions/<session-id>/`.
 - **`create_composition` needs a browser for `mode: "static"`**: it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser. On an interactive local terminal, Jazz opens a completed composition in the default browser; it never does so for a chat bridge, a non-TTY run, or CI.

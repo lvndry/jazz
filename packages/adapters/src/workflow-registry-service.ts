@@ -47,7 +47,8 @@ export class WorkflowRegistryServiceImpl implements WorkflowRegistryService {
         return {
           ...base,
           ...(schedule !== undefined && { schedule }),
-          ...(autoApprove !== undefined && { autoApprove }),
+          ...(autoApprove.ok &&
+            autoApprove.policy !== undefined && { autoApprove: autoApprove.policy }),
         };
       },
       baseUrl: options?.baseUrl,
@@ -77,6 +78,17 @@ export class WorkflowRegistryServiceImpl implements WorkflowRegistryService {
             new ValidationError({
               field: "frontmatter",
               message: `Library workflow "${entry.name}" is not a workflow Jazz can run: its frontmatter must declare name and description`,
+              value: sourceUrl,
+              suggestion: "Report this catalog entry.",
+            }),
+          );
+        }
+
+        if (definition.definitionError !== undefined) {
+          return yield* Effect.fail(
+            new ValidationError({
+              field: "autoApprove",
+              message: `Library workflow "${entry.name}" cannot run: ${definition.definitionError}`,
               value: sourceUrl,
               suggestion: "Report this catalog entry.",
             }),

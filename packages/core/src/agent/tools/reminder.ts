@@ -5,6 +5,7 @@ import type { ReminderRecord, ReminderService } from "@/core/interfaces/reminder
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { describeDelivery } from "@/core/utils/delivery";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -87,7 +88,8 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, ListRemindersArgs>({
     name: "list_reminders",
     disclosure: "private",
-    description: "List this person's pending reminders, including their id, fire time, and text.",
+    description:
+      "List this person's reminders, including their id, fire time, text, and delivery status (pending, delivering, retrying with the last error, or failed with the error).",
     parameters: listRemindersParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -105,6 +107,7 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
               id: reminder.id,
               fireAt: formatFireAt(reminder),
               text: reminder.text,
+              delivery: describeDelivery(reminder.delivery),
             })),
           },
         } satisfies ToolExecutionResult;

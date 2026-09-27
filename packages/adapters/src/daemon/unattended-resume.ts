@@ -3,7 +3,7 @@
  * two reasons to start one being a job batch finishing and a wake trigger firing.
  *
  * `AgentRunner.run` signals a park by *failing* with `RunParkRequested`, which is not an error:
- * the run stopped on an approval, was persisted, and finishes later via `jazz runs resume <id>`.
+ * the run stopped on an approval, was persisted, and finishes later via `jazz runs approve <id>` or `jazz runs reject <id>`.
  * Both callers used to catch it as a failure, which logged an empty message, skipped the save so
  * the transcript was lost, and told nobody a run was waiting. A park is its own outcome here.
  */
@@ -12,8 +12,9 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
+import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { Effect } from "effect";
 import {
   loadConversationOrNull,
@@ -21,13 +22,21 @@ import {
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
 
+export type UnattendedTurnSource = "job batch" | "wake trigger";
+
+/** Where a turn's spend lands in the ledger, and how the notify channel names it. */
+const TURN_SPEND_SOURCES: Readonly<Record<UnattendedTurnSource, SpendSource>> = {
+  "job batch": "job",
+  "wake trigger": "wake-trigger",
+};
+
 export interface UnattendedTurn {
   readonly agentId: string;
   readonly conversationId: string;
   readonly prompt: string;
   readonly fallbackTitle: string;
-  /** Human-readable, for logs and the notification: `"job batch"`, `"wake trigger"`. */
-  readonly source: string;
+  /** Human-readable, for logs and the notification. */
+  readonly source: UnattendedTurnSource;
   readonly sourceId: string;
 }
 
@@ -104,17 +113,31 @@ export function classifyTurnOutcome(
   };
 }
 
-export function approvalNotification(
-  turn: Pick<UnattendedTurn, "source" | "sourceId">,
-  parked: Extract<TurnOutcome, { kind: "parked" }>,
-): { readonly title: string; readonly body: string } {
-  return {
-    title: "Jazz needs your approval",
-    body: `${turn.source} "${turn.sourceId}" stopped on ${parked.waitingOn}. Run: jazz runs resume ${parked.runId}`,
-  };
+/**
+ * What a turn's outcome means for the item that caused it (a wake trigger, a batch's fan-in):
+ * finishing and parking both delivered it (a park is persisted and the daemon announces it), while
+ * a failure keeps the item for a retry, with the error text.
+ */
+export function turnDeliveryOutcome(outcome: TurnOutcome): DeliveryOutcome {
+  switch (outcome.kind) {
+    case "finished":
+    case "parked":
+      return { delivered: true };
+    case "unresumable":
+      return {
+        delivered: false,
+        error: "The run stopped for an approval, but its state could not be saved to resume it.",
+        retryable: true,
+      };
+    case "failed":
+      return { delivered: false, error: outcome.error, retryable: true };
+  }
 }
 
-/** A missing agent is logged and dropped rather than retried — there is nothing to resume into. */
+/**
+ * Run one unattended turn and report whether it delivered the item that caused it. A missing
+ * agent fails without retrying, since there is nothing to resume into.
+ */
 export function runUnattendedTurn(turn: UnattendedTurn) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -124,7 +147,12 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         source: logSource(turn.source),
         errorType: "agent_not_found",
       });
-      return;
+      const missingAgent: DeliveryOutcome = {
+        delivered: false,
+        error: `Agent "${turn.agentId}" was not found.`,
+        retryable: false,
+      };
+      return missingAgent;
     }
     const agent = agentResult.right;
 
@@ -135,6 +163,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
       userInput: turn.prompt,
       conversationId: turn.conversationId,
       parkWhenUnattended: true,
+      origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     }).pipe(
       Effect.map((response) =>
@@ -151,15 +180,16 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         yield* logger.warn("Unattended run failed", {
           source: logSource(turn.source),
           errorType: "run_failed",
+          error: outcome.error,
         });
-        return;
+        break;
 
       case "unresumable":
         yield* logger.warn("Unattended run could not save required approval", {
           source: logSource(turn.source),
           errorType: "approval_save_failed",
         });
-        return;
+        break;
 
       case "parked": {
         yield* logger.info("Unattended run parked waiting for approval", {
@@ -169,9 +199,8 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         if (outcome.messages !== undefined) {
           yield* persist(turn, priorRecord, outcome.messages);
         }
-        const notification = approvalNotification(turn, outcome);
-        yield* sendDesktopNotification(notification.title, notification.body);
-        return;
+        // The daemon's notifier announces every parked run, with how to answer it.
+        break;
       }
 
       case "finished":
@@ -180,7 +209,8 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
           priorRecord,
           outcome.messages.length > 0 ? outcome.messages : (priorRecord?.messages ?? []),
         );
-        return;
+        break;
     }
+    return turnDeliveryOutcome(outcome);
   });
 }

@@ -375,7 +375,7 @@ export const INTERRUPT_WINDOW_MS = 750;
  *  1. an open overlay is the most recent thing the user opened
  *  2. search, likewise, but keeps the scroll position
  *  3. a completion popup is transient chrome
- *  4. a second Esc during a run interrupts
+ *  4. a second Esc during a run interrupts (and sends the queue, if any)
  *  5. a first Esc during a run arms, and says so
  *  6. a non-empty input stashes the draft rather than losing it
  *  7. already on the transcript with nothing to dismiss: nothing
@@ -387,13 +387,13 @@ export function resolveEscape(context: EscapeContext, now: number): KeyAction {
   if (context.completionOpen) return { type: "dismiss-completion" };
 
   if (context.runActive) {
-    // Queued messages mean the user already committed text to the next turn. A
-    // single Esc flushes them into the chat now (interrupting the current turn)
-    // instead of arming a bare interrupt — the queue is the intent.
-    if (context.hasQueued) return { type: "flush-queue" };
+    // A double tap interrupts. With messages queued, the user already committed
+    // text to the next turn, so the double tap also sends the queue into the
+    // chat now. A single Esc only arms, queue or not: interrupting work takes
+    // two presses everywhere.
     const armedAt = context.interruptArmedAt;
     if (armedAt !== undefined && now - armedAt <= INTERRUPT_WINDOW_MS) {
-      return { type: "interrupt" };
+      return context.hasQueued ? { type: "flush-queue" } : { type: "interrupt" };
     }
     return { type: "arm-interrupt" };
   }
@@ -412,7 +412,9 @@ export function resolveEscape(context: EscapeContext, now: number): KeyAction {
  * of the window.
  */
 export function resolveEscapeChunk(chunk: string, context: EscapeContext, now: number): KeyAction {
-  if (context.runActive && chunk.includes(ESC + ESC)) return { type: "interrupt" };
+  if (context.runActive && chunk.includes(ESC + ESC)) {
+    return context.hasQueued ? { type: "flush-queue" } : { type: "interrupt" };
+  }
   return resolveEscape(context, now);
 }
 
@@ -490,7 +492,7 @@ export function hintsFor(
   if (runActive) {
     if (queueing) {
       return hasQueued
-        ? ["esc to send all", "enter to queue", "up to recall", "^x to clear"]
+        ? ["esc esc to send all", "enter to queue", "up to recall", "^x to clear"]
         : ["enter to queue", "esc esc to interrupt", "^r for reasoning", "^c to stop"];
     }
     return ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];

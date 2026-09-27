@@ -1,8 +1,17 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
+import { writeFileDurably } from "@jazz/core/utils/durable-file";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import {
+  getJazzHomeDirectory,
+  getSecretsFilePath,
+  getSecretsLockPath,
+} from "@jazz/core/utils/paths";
+import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
 
@@ -40,7 +49,43 @@ export function describeKeyringBackend(backend: KeyringBackend): string {
 const PROBE_ACCOUNT = "__jazz_probe__";
 const COMMAND_TIMEOUT_MS = 5_000;
 
-interface CommandResult {
+/** Hex characters of the home-path SHA-256 kept in the service name: 64 bits, ample to tell homes apart. */
+const HOME_SCOPE_HASH_LENGTH = 16;
+
+/**
+ * Upper bound on entries moved by one legacy migration pass. Each move deletes the legacy entry, so
+ * the loop ends when none are left; the bound only stops a keyring that keeps returning an entry it
+ * refuses to delete from spinning forever.
+ */
+const MAX_LEGACY_ENTRIES_MIGRATED = 1_000;
+
+/**
+ * The OS-keyring service holding one Jazz home's secrets: `jazz.<hash of the resolved home path>`.
+ *
+ * The OS keyring is shared by every Jazz home the user runs (`JAZZ_HOME`, `--data-dir`, test
+ * homes), so account names alone would let one home read another's keys. Scoping the service name
+ * keeps the registry's account names (`llm.openai.api_key`) unchanged and leaves every entry from
+ * before scoping under the bare `jazz` service, where `migrateLegacyKeyringEntries` finds them.
+ * The `"file"` backend needs no scope: `secrets.json` already lives inside the home.
+ */
+export function keyringServiceName(home: string = getJazzHomeDirectory()): string {
+  const digest = createHash("sha256")
+    .update(path.resolve(home))
+    .digest("hex")
+    .slice(0, HOME_SCOPE_HASH_LENGTH);
+  return `${KEYRING_SERVICE_NAME}.${digest}`;
+}
+
+/** Whether the active home is the default `~/.jazz`, the only home that adopts legacy entries. */
+function isDefaultJazzHome(): boolean {
+  const userHome = os.homedir();
+  if (!userHome) {
+    return false;
+  }
+  return path.resolve(getJazzHomeDirectory()) === path.resolve(userHome, ".jazz");
+}
+
+export interface CommandResult {
   readonly ok: boolean;
   readonly code: number | null;
   readonly stdout: string;
@@ -48,6 +93,13 @@ interface CommandResult {
   /** True when the binary itself is missing or the call never completed. */
   readonly unavailable: boolean;
 }
+
+/** Runs a keyring CLI. Injected into the legacy migration so tests can stand in for the keyring. */
+export type KeyringCommandRunner = (
+  command: string,
+  args: readonly string[],
+  stdin?: string,
+) => Effect.Effect<CommandResult, never>;
 
 function runCommand(
   command: string,
@@ -160,85 +212,241 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
 }
 
 const SECRETS_FILE_MODE = 0o600;
-const SECRETS_LOCK_RETRIES = 1_000;
-const SECRETS_LOCK_RETRY_MS = 10;
-const SECRETS_LOCK_STALE_MS = 30_000;
-
 function secretsFilePath(): string {
-  return path.join(getJazzHomeDirectory(), "secrets.json");
+  return getSecretsFilePath();
 }
 
-async function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
-  const lockPath = path.join(getJazzHomeDirectory(), ".secrets.lock");
-  await nodeFs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < SECRETS_LOCK_RETRIES; attempt++) {
-    try {
-      await nodeFs.mkdir(lockPath, { mode: 0o700 });
-      try {
-        return await operation();
-      } finally {
-        await nodeFs.rm(lockPath, { recursive: true, force: true });
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        const stat = await nodeFs.stat(lockPath);
-        if (Date.now() - stat.mtimeMs > SECRETS_LOCK_STALE_MS) {
-          await nodeFs.rm(lockPath, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        continue;
-      }
-      await new Promise((resolve) => setTimeout(resolve, SECRETS_LOCK_RETRY_MS));
+function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  return withFileLock(getSecretsLockPath(), operation);
+}
+
+type SecretsFileRead =
+  | { readonly status: "ok"; readonly secrets: Record<string, string> }
+  | { readonly status: "corrupt"; readonly reason: string }
+  | { readonly status: "unreadable"; readonly error: Error };
+
+async function readSecretsFileContent(): Promise<SecretsFileRead> {
+  let raw: string;
+  try {
+    raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { status: "ok", secrets: {} };
     }
+    return { status: "unreadable", error: error as Error };
   }
-  throw new Error(`Timed out acquiring secret-file lock ${lockPath}`);
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed)
+      ? { status: "ok", secrets: parsed as Record<string, string> }
+      : { status: "corrupt", reason: "expected an object" };
+  } catch (error) {
+    return { status: "corrupt", reason: (error as Error).message };
+  }
 }
 
-/** Missing file, unreadable file, or corrupt JSON all read as "nothing stored yet". */
+/** For lookups: a missing, unreadable, or corrupt file reads as "nothing stored". */
 function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
   return Effect.promise(async () => {
-    try {
-      const raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
-      const parsed: unknown = JSON.parse(raw);
-      if (isRecord(parsed)) {
-        return parsed as Record<string, string>;
-      }
-      return {};
-    } catch {
-      return {};
-    }
+    const read = await readSecretsFileContent();
+    return read.status === "ok" ? read.secrets : {};
   });
 }
 
 /**
- * Write via a sibling temp file and rename, so a crash mid-write can't leave `secrets.json`
- * truncated or invalid. Callers performing read-modify-write hold `.secrets.lock`, preventing
- * concurrent provider/plugin secret updates from silently losing one another.
+ * For a read-modify-write under `.secrets.lock`: a corrupt file is moved aside before the write
+ * replaces it, so the secrets it held stay recoverable instead of being overwritten.
  */
-function writeSecretsFile(secrets: Record<string, string>): Effect.Effect<boolean, never> {
-  return Effect.promise(async () => {
-    const filePath = secretsFilePath();
-    const tempPath = path.join(
-      path.dirname(filePath),
-      `.secrets-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-    try {
-      await nodeFs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      await nodeFs.writeFile(tempPath, `${JSON.stringify(secrets, null, 2)}\n`, {
-        mode: SECRETS_FILE_MODE,
-      });
-      await nodeFs.rename(tempPath, filePath);
-      // `rename` preserves the temp file's mode, but chmod again in case `secrets.json`
-      // already existed with a wider mode from before this fallback existed.
-      await nodeFs.chmod(filePath, SECRETS_FILE_MODE);
-      return true;
-    } catch {
-      await nodeFs.rm(tempPath, { force: true }).catch(() => undefined);
-      return false;
+async function readSecretsFileForWrite(): Promise<Record<string, string>> {
+  const read = await readSecretsFileContent();
+  if (read.status === "ok") {
+    return read.secrets;
+  }
+  if (read.status === "unreadable") {
+    throw read.error;
+  }
+  await Effect.runPromise(quarantineCorruptFile(secretsFilePath(), read.reason));
+  return {};
+}
+
+/**
+ * Replace `secrets.json` durably (temp file, fsync, rename) with mode 0600. Callers performing
+ * read-modify-write hold `.secrets.lock`, preventing concurrent provider/plugin secret updates
+ * from silently losing one another.
+ */
+async function writeSecretsFile(secrets: Record<string, string>): Promise<boolean> {
+  try {
+    await writeFileDurably(secretsFilePath(), `${JSON.stringify(secrets, null, 2)}\n`, {
+      mode: SECRETS_FILE_MODE,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type OsKeyringBackend = "macos" | "libsecret";
+
+function osKeyringGet(
+  run: KeyringCommandRunner,
+  backend: OsKeyringBackend,
+  service: string,
+  account: string,
+): Effect.Effect<string | undefined, never> {
+  return Effect.gen(function* () {
+    const result =
+      backend === "macos"
+        ? yield* run("security", ["find-generic-password", "-w", "-s", service, "-a", account])
+        : yield* run("secret-tool", ["lookup", "service", service, "account", account]);
+    if (!result.ok) {
+      return undefined;
     }
+    const value = result.stdout.replace(/\n$/, "");
+    return value === "" ? undefined : value;
   });
+}
+
+function osKeyringSet(
+  run: KeyringCommandRunner,
+  backend: OsKeyringBackend,
+  service: string,
+  account: string,
+  secret: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    if (backend === "macos") {
+      // `security` has no stdin mode for writes, so the value is briefly visible
+      // in this process's argv. Accepted: macOS Keychain is a single-user
+      // desktop path, and the multi-user exposure this guards against is Linux.
+      const result = yield* run("security", [
+        "add-generic-password",
+        "-U",
+        "-s",
+        service,
+        "-a",
+        account,
+        "-w",
+        secret,
+      ]);
+      return result.ok;
+    }
+    const result = yield* run(
+      "secret-tool",
+      ["store", "--label", `jazz: ${account}`, "service", service, "account", account],
+      secret,
+    );
+    return result.ok;
+  });
+}
+
+function osKeyringDelete(
+  run: KeyringCommandRunner,
+  backend: OsKeyringBackend,
+  service: string,
+  account: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (backend === "macos") {
+      yield* run("security", ["delete-generic-password", "-s", service, "-a", account]);
+      return;
+    }
+    yield* run("secret-tool", ["clear", "service", service, "account", account]);
+  });
+}
+
+/**
+ * The account of any one entry under `service`, or undefined when there is none.
+ *
+ * `security find-generic-password -s` prints the first match's attributes, with the account as
+ * `"acct"<blob>="name"` (or `=0x<hex>  "..."` when the name is not plain ASCII). `secret-tool search`
+ * prints `attribute.account = name`.
+ */
+function osKeyringAnyAccount(
+  run: KeyringCommandRunner,
+  backend: OsKeyringBackend,
+  service: string,
+): Effect.Effect<string | undefined, never> {
+  return Effect.gen(function* () {
+    if (backend === "macos") {
+      const result = yield* run("security", ["find-generic-password", "-s", service]);
+      if (!result.ok) {
+        return undefined;
+      }
+      const hexMatch = /^\s*"acct"<blob>=0x([0-9A-Fa-f]+)/m.exec(result.stdout);
+      if (hexMatch?.[1] !== undefined) {
+        return Buffer.from(hexMatch[1], "hex").toString("utf8");
+      }
+      return /^\s*"acct"<blob>="(.*)"\s*$/m.exec(result.stdout)?.[1];
+    }
+    const result = yield* run("secret-tool", ["search", "service", service]);
+    if (!result.ok) {
+      return undefined;
+    }
+    return /^attribute\.account = (.*)$/m.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+  });
+}
+
+/**
+ * Move every entry under the bare `jazz` service, which every Jazz home shared before scoping,
+ * into `targetService`, deleting each legacy entry once it has a scoped copy.
+ *
+ * An entry already present under `targetService` wins over the legacy one. The pass stops at the
+ * first entry it cannot read or store, leaving that entry and the rest in place for the next
+ * process to retry. Returns the accounts moved.
+ */
+export function migrateLegacyKeyringEntries(
+  backend: OsKeyringBackend,
+  targetService: string,
+  run: KeyringCommandRunner = runCommand,
+): Effect.Effect<readonly string[], never> {
+  return Effect.gen(function* () {
+    const moved: string[] = [];
+    for (let attempt = 0; attempt < MAX_LEGACY_ENTRIES_MIGRATED; attempt++) {
+      const account = yield* osKeyringAnyAccount(run, backend, KEYRING_SERVICE_NAME);
+      if (account === undefined) {
+        break;
+      }
+      const legacyValue = yield* osKeyringGet(run, backend, KEYRING_SERVICE_NAME, account);
+      if (legacyValue === undefined) {
+        break;
+      }
+      const scopedValue = yield* osKeyringGet(run, backend, targetService, account);
+      if (scopedValue === undefined) {
+        const stored = yield* osKeyringSet(run, backend, targetService, account, legacyValue);
+        if (!stored) {
+          break;
+        }
+      }
+      yield* osKeyringDelete(run, backend, KEYRING_SERVICE_NAME, account);
+      moved.push(account);
+    }
+    return moved;
+  });
+}
+
+const legacyMigrations = new Map<string, Promise<readonly string[]>>();
+
+/**
+ * Adopt legacy entries into the default home's service, once per process.
+ *
+ * Only `~/.jazz` adopts them: it is the home those keys were almost always written from, and a
+ * throwaway `JAZZ_HOME` must never claim, and then lose with its directory, the user's real keys.
+ * Any other home starts with an empty keyring scope.
+ */
+function adoptLegacyEntries(backend: OsKeyringBackend): Effect.Effect<void, never> {
+  if (!isDefaultJazzHome()) {
+    return Effect.void;
+  }
+  const service = keyringServiceName();
+  const key = `${backend}:${service}`;
+  return Effect.promise(() => {
+    let pending = legacyMigrations.get(key);
+    if (pending === undefined) {
+      pending = Effect.runPromise(migrateLegacyKeyringEntries(backend, service));
+      legacyMigrations.set(key, pending);
+    }
+    return pending;
+  }).pipe(Effect.asVoid);
 }
 
 /** Read a secret. Returns undefined when absent or unreadable. */
@@ -252,28 +460,8 @@ export function keyringGet(
       const secrets = yield* readSecretsFile();
       return secrets[account];
     }
-
-    const result =
-      backend === "macos"
-        ? yield* runCommand("security", [
-            "find-generic-password",
-            "-w",
-            "-s",
-            KEYRING_SERVICE_NAME,
-            "-a",
-            account,
-          ])
-        : yield* runCommand("secret-tool", [
-            "lookup",
-            "service",
-            KEYRING_SERVICE_NAME,
-            "account",
-            account,
-          ]);
-
-    if (!result.ok) return undefined;
-    const value = result.stdout.replace(/\n$/, "");
-    return value === "" ? undefined : value;
+    yield* adoptLegacyEntries(backend);
+    return yield* osKeyringGet(runCommand, backend, keyringServiceName(), account);
   });
 }
 
@@ -288,35 +476,13 @@ export function keyringSet(
     if (backend === "file") {
       return yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
-          const secrets = await Effect.runPromise(readSecretsFile());
-          return Effect.runPromise(writeSecretsFile({ ...secrets, [account]: secret }));
+          const secrets = await readSecretsFileForWrite();
+          return writeSecretsFile({ ...secrets, [account]: secret });
         }),
       ).pipe(Effect.catchAll(() => Effect.succeed(false)));
     }
-
-    if (backend === "macos") {
-      // `security` has no stdin mode for writes, so the value is briefly visible
-      // in this process's argv. Accepted: macOS Keychain is a single-user
-      // desktop path, and the multi-user exposure this guards against is Linux.
-      const result = yield* runCommand("security", [
-        "add-generic-password",
-        "-U",
-        "-s",
-        KEYRING_SERVICE_NAME,
-        "-a",
-        account,
-        "-w",
-        secret,
-      ]);
-      return result.ok;
-    }
-
-    const result = yield* runCommand(
-      "secret-tool",
-      ["store", "--label", `jazz: ${account}`, "service", KEYRING_SERVICE_NAME, "account", account],
-      secret,
-    );
-    return result.ok;
+    yield* adoptLegacyEntries(backend);
+    return yield* osKeyringSet(runCommand, backend, keyringServiceName(), account, secret);
   });
 }
 
@@ -330,32 +496,15 @@ export function keyringDelete(
     if (backend === "file") {
       yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
-          const secrets = await Effect.runPromise(readSecretsFile());
+          const secrets = await readSecretsFileForWrite();
           if (!(account in secrets)) return;
           const { [account]: _removed, ...rest } = secrets;
-          await Effect.runPromise(writeSecretsFile(rest));
+          await writeSecretsFile(rest);
         }),
       ).pipe(Effect.catchAll(() => Effect.void));
       return;
     }
-
-    if (backend === "macos") {
-      yield* runCommand("security", [
-        "delete-generic-password",
-        "-s",
-        KEYRING_SERVICE_NAME,
-        "-a",
-        account,
-      ]);
-      return;
-    }
-
-    yield* runCommand("secret-tool", [
-      "clear",
-      "service",
-      KEYRING_SERVICE_NAME,
-      "account",
-      account,
-    ]);
+    yield* adoptLegacyEntries(backend);
+    yield* osKeyringDelete(runCommand, backend, keyringServiceName(), account);
   });
 }

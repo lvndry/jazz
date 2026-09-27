@@ -289,6 +289,43 @@ describe("spawn_subagent auto-approve inheritance", () => {
   });
 });
 
+describe("spawn_subagent time budget", () => {
+  it("runs the child under what is left of the parent's time budget", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, { remainingRunBudget: () => ({ maxDurationMs: 42_000 }) });
+
+      expect(captured?.maxDurationMs).toBe(42_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses to delegate once the parent's time budget is spent", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, {
+        remainingRunBudget: () => ({ maxDurationMs: 0 }),
+      })) as { readonly success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent trace context", () => {
   it("passes the parent run, session, and dispatch call to the child", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
@@ -650,7 +687,7 @@ describe("spawn_subagent tool ceiling", () => {
     }
   });
 
-  it("sets no allowlist when the parent's toolset is unknown", async () => {
+  it("gives the child no tools when the parent's toolset is unknown", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
@@ -665,7 +702,7 @@ describe("spawn_subagent tool ceiling", () => {
       const { presentation } = createPresentationHarness();
       await runSpawn(presentation);
 
-      expect(captured?.toolAllowlist).toBeUndefined();
+      expect(captured?.toolAllowlist).toEqual([]);
     } finally {
       spy.mockRestore();
     }

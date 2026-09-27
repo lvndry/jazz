@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { Effect, Option } from "effect";
 import * as plist from "plist";
 import { toError } from "@/core/utils/errors";
+import { stateDirectoryMode } from "@/core/utils/private-mode";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { escapeShellArg, getLaunchdPath } from "../workflows/scheduler-service";
@@ -118,7 +119,7 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
           catch: toError,
         });
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(logDir, { recursive: true }),
+          try: () => fs.mkdir(logDir, { recursive: true, mode: stateDirectoryMode() }),
           catch: toError,
         });
 

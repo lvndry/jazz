@@ -38,6 +38,13 @@ cannot drift from what agents are actually told. On a short terminal the environ
 first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
 setting, tool, workflow, or example task available in Jazz.
 
+Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
+home needs a terminal to ask its questions. Without one (stdin or stdout piped, cron, CI), or with
+`--no-tui`, it prints what to run instead and exits `2` without touching your configuration. On a
+terminal that is too limited for the full-screen interface (`TERM=dumb`, `CI` set, a screen reader
+via `JAZZ_A11Y=1` or `INK_SCREEN_READER=1`, or a window under 32 columns by 10 rows), Jazz uses the
+classic inline interface, which prompts the same way.
+
 ---
 
 ## `jazz run`: headless, one-shot
@@ -49,9 +56,9 @@ agent turn, prints a clean payload. **stdout is the answer; all chatter goes to 
 jazz run --agent <id> [prompt]
 ```
 
-The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
-treated as untrusted text.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or from piped
+stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
+memory write; plain piped stdin is treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,27 +71,35 @@ treated as untrusted text.
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
 | `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                                            |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
 | `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
 | `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
-| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                                            |
+| `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                            |
 | `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                                            |
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                                         |
+| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                  |
 | `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
 | `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
 | `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                           |
 
-`--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
-interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
+`--max-cost-usd` and `--max-tokens` are soft checkpoints, checked between iterations.
+`--max-duration-ms` is a deadline: it interrupts the run wherever it is and still returns a
+result. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
 for the enforcement model and how they differ from `--timeout`.
 
-**Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and
-the message goes to stderr; in `--json` mode stdout always carries exactly one object.
+**Exit codes:** `0` on success; `1` on failure, including a run that finishes without a usable
+answer (an empty zero-token completion, a non-`stop` finish with no text, or a content-filtered
+answer); `2` when `--park` parks the run on an approval; `130` or `143` when SIGINT or SIGTERM
+stops it. In plain mode stdout is empty on failure and the message goes to stderr; in `--json`
+mode stdout always carries exactly one object, with a `code` on failures (`failed`,
+`empty_response`, `no_answer`, `content_filtered`, `interrupted`). A cut-off answer
+(`truncated`), an iteration limit (`iterationLimited`) and dropped tools (`toolsDisabled`) are
+flagged in the envelope and warned about on stderr. See
+[Headless → JSON](./surfaces/headless.md#json---json).
 
 Full contract, examples, and a complete bridge implementation:
 [Surfaces → Headless](./surfaces/headless.md).
@@ -103,6 +118,21 @@ Full contract, examples, and a complete bridge implementation:
 | `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name                                       |
 
 `agent chat` accepts `--stream` / `--no-stream`, `--max-iterations <n>`, and `--ephemeral`.
+
+Without a terminal, `agent chat` reads messages from stdin, one per line, and ends when stdin does:
+
+```bash
+echo "What is on my calendar today?" | jazz agent chat assistant
+```
+
+Slash commands work the same way (`/exit` ends early). Tool calls that need approval are declined,
+since nobody can answer the prompt. If stdin ends before any message arrives, `agent chat` says so
+and exits `2`. For one scripted turn with a parseable result, use [`jazz run`](#jazz-run-headless-one-shot).
+
+`agent create` and `agent edit` need a terminal. Without one they exit `2` and point at the agent's
+JSON file under `$JAZZ_HOME/agents/`, which you can write by hand (see
+[Configure → Agents](./configure/agents.md)). `persona create`, `persona edit`, and
+`workflow create` behave the same way.
 
 ---
 
@@ -130,19 +160,24 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 
 ### `jazz workflow run` flags
 
-| Flag                     | Purpose                                                                       |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `--auto-approve`         | Apply the workflow's own `autoApprove:` policy instead of prompting           |
-| `--agent <agentId>`      | Override the agent for this run                                               |
-| `--max-iterations <n>`   | Override the workflow's iteration cap                                         |
-| `--max-cost-usd <$>`     | Override the workflow's spend cap                                             |
-| `--max-tokens <n>`       | Override the workflow's token cap                                             |
-| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)   |
-| `--json`                 | One JSON envelope on stdout; all chatter suppressed                           |
-| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)           |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors         |
-| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)      |
-| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron) |
+| Flag                     | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `--auto-approve`         | Run without the agent picker at the workflow's own `autoApprove:` policy (unset is `false`) |
+| `--agent <agentId>`      | Override the agent for this run                                                             |
+| `--max-iterations <n>`   | Override the workflow's iteration cap                                                       |
+| `--max-cost-usd <$>`     | Override the workflow's spend cap                                                           |
+| `--max-tokens <n>`       | Override the workflow's token cap                                                           |
+| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)                 |
+| `--json`                 | One JSON envelope on stdout; all chatter suppressed                                         |
+| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                         |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
+| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
+| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
+
+A workflow run that finishes without a usable answer (an empty zero-token completion, a
+non-`stop` finish with no text, or a content-filtered answer) is recorded as failed in
+`jazz workflow history` and exits `1`, with the same `code` in its `--json` envelope as
+`jazz run`.
 
 ### Several schedules for one workflow
 
@@ -158,18 +193,18 @@ Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 
 ## `jazz mcp`
 
-| Command               | Purpose                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header`, and optional `--trusted` |
-| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                               |
-| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                   |
-| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                          |
-| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                             |
-| `jazz mcp trust`      | Honor a server's read-only annotations when applying approval policy                                                                          |
-| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                               |
-| `jazz mcp remove`     | Remove a server                                                                                                                               |
-| `jazz mcp enable`     | Enable a disabled server                                                                                                                      |
-| `jazz mcp disable`    | Disable a server                                                                                                                              |
+| Command               | Purpose                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header` (values go to the keyring), and optional `--trusted` |
+| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                                                          |
+| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                                              |
+| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                                                     |
+| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                                                        |
+| `jazz mcp trust`      | Honor the read-only annotations of a server defined in `~/.agents/mcp.json` when applying approval policy                                                                |
+| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                                                          |
+| `jazz mcp remove`     | Remove a server                                                                                                                                                          |
+| `jazz mcp enable`     | Enable a disabled server                                                                                                                                                 |
+| `jazz mcp disable`    | Disable a server                                                                                                                                                         |
 
 See [MCP configuration](./configure/mcp.md).
 
@@ -247,6 +282,33 @@ one, runs begun from somewhere else entirely.
 
 A run parks when it hits something needing your approval and nobody is there to give it: see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
+With a [notify channel](configure/notifications.md) the approval request reaches your phone, and
+a Telegram or Discord bridge can answer it with `/approve <runId>`.
+
+---
+
+## `jazz spend`
+
+What every run on this machine cost today and this month, from the machine-wide ledger under
+`$JAZZ_HOME/spend`, with a breakdown by source (chat, workflows, goals, loops, bots, ...) and by
+agent, and where each configured spend ceiling stands. `--json` emits
+`{ ok, day, month, today, thisMonth, ceilings, unreadableLines }`. See
+[Budgets](concepts/budgets.md#day-and-month-ceilings).
+
+---
+
+## `jazz notify`
+
+Where results, reminders, parked approvals and failures reach you while you are away. See
+[Notifications](configure/notifications.md).
+
+| Command                   | Purpose                                                                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz notify list`        | List the configured channels. `--json`                                                                                                                                                 |
+| `jazz notify add <name>`  | Add or replace a channel: `--type telegram\|discord\|webhook\|desktop`, `--chat-id`, `--channel-id`, `--url`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
+| `jazz notify test <name>` | Send a test through one channel and report what it answered. `--json`                                                                                                                  |
+| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                         |
+| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                        |
 
 ---
 
@@ -270,15 +332,25 @@ fallback, and prints it once. A non-loopback daemon refuses to start if no token
 stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
 one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-peers).
 
-| Command                    | Purpose                                                                                                                                                                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                                         |
-| `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                                        |
-| `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                                              |
-| `jazz daemon status`       | Whether this home's daemon is running and supervised, its pid, last tick, runs in flight, pending reminders, triggers and job batches, and recent tick errors. `--json` for one envelope; exits 1 when it is not running                                                                                       |
-| `jazz daemon logs`         | Print the daemon's recent output (`$JAZZ_HOME/logs/daemon.log`, or the journal under systemd). `-n, --lines <n>` (default 50), `-f, --follow`                                                                                                                                                                  |
-| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
-| `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
+A request that grants authority (accepting or resuming a goal, starting or resuming a loop,
+approving or answering a parked run, and any write to an agent or persona) also needs the operator token in `X-Jazz-Operator-Token`. It lives only in
+the OS keyring, so an agent that read the daemon token from disk cannot use it to grant itself
+more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
+See [Daemon](./concepts/daemon.md#granting-authority-over-http).
+
+| Command                             | Purpose                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                                         |
+| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                                        |
+| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                                          |
+| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                                              |
+| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                                              |
+| `jazz daemon status`                | Whether this home’s daemon is running and supervised, its last tick and pending work, pause state, today’s spend against the daily caps, and everything waiting for you. `--json`; exits 1 when not running                                                                                                    |
+| `jazz daemon logs`                  | Print recent daemon output; `-n, --lines <n>` and `-f, --follow`                                                                                                                                                                                                                                               |
+| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                                         |
+| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                                    |
+| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time: a client config written before the daemon has ever run, or an
@@ -342,8 +414,7 @@ jazz goal cancel <goal>
 
 `--approval-policy` on `accept` and `start` is what the goal may run while you are away without
 asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
-approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
-wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
+approval. Without the flag nothing runs unasked, so every gated call waits for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
 daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
@@ -568,12 +639,12 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 
 ## `jazz config`
 
-| Command                         | Purpose                                             |
-| ------------------------------- | --------------------------------------------------- |
-| `jazz config show`              | Show all configuration values                       |
-| `jazz config validate`          | Check config files without starting the application |
-| `jazz config get <key>`         | Get one value                                       |
-| `jazz config set <key> [value]` | Set one value                                       |
+| Command                         | Purpose                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them                                           |
+| `jazz config validate`          | Check config files without starting the application                                                               |
+| `jazz config get <key>`         | Print one value and nothing else, redacted when it is or holds a secret; `--reveal` prints it. Exits `1` if unset |
+| `jazz config set <key> [value]` | Set one value                                                                                                     |
 
 See [Configuration](./configure/jazz.md).
 
@@ -595,10 +666,12 @@ Conversation history and current working state are separate. See [Conversations,
 
 ## `jazz webhook`
 
-| Command                            | Purpose                                          |
-| ---------------------------------- | ------------------------------------------------ |
-| `jazz webhook token <name>`        | Generate and store a bearer token; print it once |
-| `jazz webhook forget-token <name>` | Remove a webhook's stored token                  |
+| Command                             | Purpose                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `jazz webhook token <name>`         | Generate and store a bearer token; print it once                                     |
+| `jazz webhook forget-token <name>`  | Remove a webhook's stored token                                                      |
+| `jazz webhook secret <name>`        | Generate and store the secret its sender signs bodies with (GitHub's webhook secret) |
+| `jazz webhook forget-secret <name>` | Remove a webhook's stored signing secret                                             |
 
 Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhooks.md).
 
@@ -618,28 +691,137 @@ from "already up to date".
 
 ## In-chat commands
 
-Available inside an interactive session. Type `/help` for the current list.
+Available inside an interactive session. `/help` lists them, then your skills, MCP prompts, and
+plugin commands in their own sections, then the keys of the interface you are in. `/help <command>`
+shows every form of one command. The table below is generated from the same list
+(`bun run docs:chat-commands`).
 
-| Command                  | Purpose                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/help`                  | List commands                                                                                                                                                                                                                                                                                                                                  |
-| `/tools`                 | Show available tools                                                                                                                                                                                                                                                                                                                           |
-| `/skills`                | Search installed skills by name, source, or description; Enter opens details, Escape goes back                                                                                                                                                                                                                                                 |
-| `/workflows`             | Browse workflows                                                                                                                                                                                                                                                                                                                               |
-| `/mode`                  | Change approval mode (also Shift+Tab)                                                                                                                                                                                                                                                                                                          |
-| `/goal <objective>`      | Keep working toward an objective, turn after turn, in this conversation; the agent reports it done with evidence from tool output. `/goal` shows where it stands; `/goal pause`, `/goal resume [note]`, and `/goal clear` control it. Jazz also proposes goals on its own and asks before working on one. See [Goals in chat](#goals-in-chat). |
-| `/loop <every> <prompt>` | Rerun a prompt on a schedule in the background, like `/loop 10m check the deploy`; see [Loops in chat](#loops-in-chat)                                                                                                                                                                                                                         |
-| `/cost`                  | Tokens and USD for this session, including sub-agents                                                                                                                                                                                                                                                                                          |
-| `/context`               | Context window usage and the biggest consumers                                                                                                                                                                                                                                                                                                 |
-| `/compact`               | Force context compaction now                                                                                                                                                                                                                                                                                                                   |
-| `/switch`                | Switch agent                                                                                                                                                                                                                                                                                                                                   |
-| `/peers`                 | List configured peers and what each may learn or do                                                                                                                                                                                                                                                                                            |
-| `/new`                   | Start a fresh conversation                                                                                                                                                                                                                                                                                                                     |
-| `/fork`                  | Branch to a new conversation, keeping the full history; the original is preserved                                                                                                                                                                                                                                                              |
-| `/detach`                | Hand this conversation to a registered SSH host after reviewing its snapshot                                                                                                                                                                                                                                                                   |
+<!-- chat-commands:start -->
 
-**Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
-approval policy. Shift+Enter inserts a newline in the composer; Enter sends.
+| Command                                                                              | Purpose                                                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `/agents`                                                                            | List all available agents.                                                                                    |
+| `/peers`                                                                             | List configured peers and what each may learn or do.                                                          |
+| `/clear`                                                                             | Clear the screen.                                                                                             |
+| `/compact`                                                                           | Summarize older history now, keeping recent messages.                                                         |
+| `/config [tools]`                                                                    | Show the agent's configuration ('/config tools' toggles its tools).                                           |
+| `/context`                                                                           | Show context window usage and token breakdown.                                                                |
+| `/work [clear]`                                                                      | Show saved task state and compaction records ('/work clear' discards them).                                   |
+| `/copy`                                                                              | Copy the last agent response to clipboard.                                                                    |
+| `/cost`                                                                              | Show conversation token usage and estimated cost, including sub-agents.                                       |
+| `/exit`                                                                              | Exit the chat. Also `/quit`.                                                                                  |
+| `/export [path]`                                                                     | Export the conversation to a markdown file.                                                                   |
+| `/fork`                                                                              | Fork conversation into a new branch (keeps full history).                                                     |
+| `/detach <host>`                                                                     | Continue this conversation on a registered SSH host after this turn.                                          |
+| `/goal [objective\|pause\|resume\|clear\|list\|accept\|decline]`                     | Keep working toward an objective, turn after turn, in this conversation. See [Goals in chat](#goals-in-chat). |
+| `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
+| `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
+| `/memory [forget <path>]`                                                            | Show what this agent has remembered about you, or forget one file.                                            |
+| `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
+| `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |
+| `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |
+| `/model [model]`                                                                     | Change the agent's model for this session only. Also `/models`.                                               |
+| `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                       |
+| `/resume`                                                                            | Browse and resume a past conversation.                                                                        |
+| `/retry`                                                                             | Re-send your last message.                                                                                    |
+| `/new`                                                                               | Start a new conversation (clear context).                                                                     |
+| `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
+| `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
+| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
+| `/theme light\|dark`                                                                 | Switch between light and dark theme.                                                                          |
+| `/tools`                                                                             | List all agent tools by category.                                                                             |
+| `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
+| `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |
+
+<!-- chat-commands:end -->
+
+Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
+message. A message that starts with a file path, which is what dragging a file into the terminal
+inserts (`/Users/me/shot.png what is this?`), is sent to the agent rather than read as a command.
+An unknown command stays in the composer so you can fix it, and Jazz suggests the closest command.
+
+`/model` changes the model for the rest of this session on the agent's own provider: `/model`
+opens a picker, `/model <model-id>` sets it directly. The agent file keeps its model; use
+`jazz agent edit` to change that for good. `/reasoning` works the same way for the reasoning level.
+
+### Mentioning files with `@`
+
+Type `@` to pick a file or folder under the current directory. A picked path with spaces is
+quoted for you (`@"my notes.md"`). When you send the message:
+
+- An image, PDF, audio, or video file is attached, if the model accepts that kind of input.
+- A text file of up to 256 KiB is read and sent along with your message, so the agent sees its
+  contents.
+- Anything else (a folder, a binary file, a larger file) is sent as its path only. Jazz says so for
+  a binary or oversized file; the agent can still open it with its file tools.
+
+### Keyboard shortcuts
+
+The fullscreen interface is the default on a capable terminal. The classic inline interface runs
+with `JAZZ_FULLSCREEN=0`, and on terminals the fullscreen one cannot use. The two bind different
+keys. In both, interrupting work takes a double Esc or one Ctrl+C.
+
+**Fullscreen:**
+
+<!-- keys-fullscreen:start -->
+
+| Keys                                   | Action                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Enter                                  | Send the message                                                                                  |
+| Shift+Enter                            | Insert a newline for a multi-line message                                                         |
+| Tab                                    | Complete the highlighted slash command or @ path                                                  |
+| Up/Down (empty input)                  | Recall previously sent messages                                                                   |
+| Ctrl+A / Ctrl+E                        | Move to the start or end of the line                                                              |
+| Ctrl+U                                 | Delete from the caret to the start of the line                                                    |
+| Option+Enter                           | Insert a newline for a multi-line message                                                         |
+| Ctrl+V                                 | Paste from the clipboard                                                                          |
+| Ctrl+Z / Ctrl+Shift+Z                  | Undo or redo an edit in the composer                                                              |
+| Cmd+A                                  | Select the whole draft                                                                            |
+| Esc                                    | Close the open dialog, search, or menu; otherwise clear the draft; otherwise focus the transcript |
+| Esc Esc (agent busy)                   | Interrupt the current generation or tool                                                          |
+| Esc Esc (agent busy, messages queued)  | Interrupt and send the queued messages now                                                        |
+| Ctrl+C (agent busy)                    | Interrupt the current generation or tool                                                          |
+| Ctrl+C Ctrl+C                          | Leave the conversation                                                                            |
+| Shift+Tab                              | Toggle safe/yolo approval mode                                                                    |
+| Ctrl+R                                 | Expand collapsed reasoning (repeat for earlier blocks)                                            |
+| Ctrl+O                                 | Expand the last truncated diff or tool output                                                     |
+| Up (agent busy)                        | Recall queued messages for editing                                                                |
+| Ctrl+X (agent busy, empty input)       | Clear the message queue                                                                           |
+| Ctrl+B (tool running)                  | Move the running tool call to the background                                                      |
+| Down (sub-agents listed)               | Pick a sub-agent under the input; Enter opens its log                                             |
+| Enter (sub-agent open)                 | Send the draft to that sub-agent instead of the main chat                                         |
+| Esc (sub-agent open)                   | Return to the main conversation                                                                   |
+| Ctrl+F                                 | Search the conversation                                                                           |
+| PgUp/PgDn                              | Scroll the conversation                                                                           |
+| Up/Down, Home/End (transcript focused) | Scroll line by line or to either end; type to return to the input                                 |
+
+<!-- keys-fullscreen:end -->
+
+**Classic:**
+
+<!-- keys-classic:start -->
+
+| Keys                             | Action                                                             |
+| -------------------------------- | ------------------------------------------------------------------ |
+| Enter                            | Send the message                                                   |
+| Shift+Enter                      | Insert a newline for a multi-line message                          |
+| Tab                              | Complete the highlighted slash command or @ path                   |
+| Up/Down (empty input)            | Recall previously sent messages                                    |
+| Ctrl+A / Ctrl+E                  | Move to the start or end of the line                               |
+| Ctrl+U                           | Delete from the caret to the start of the line                     |
+| Ctrl+K                           | Delete from the caret to the end of the line                       |
+| Ctrl+W                           | Delete the word before the caret                                   |
+| Esc                              | Clear the current draft                                            |
+| Esc Esc (agent busy)             | Interrupt the current generation or tool, and drop queued messages |
+| Ctrl+C (agent busy)              | Interrupt the current generation or tool                           |
+| Ctrl+C Ctrl+C                    | Leave the conversation                                             |
+| Shift+Tab                        | Toggle safe/yolo approval mode                                     |
+| Ctrl+R                           | Expand collapsed reasoning (repeat for earlier blocks)             |
+| Ctrl+O                           | Expand the last truncated diff or tool output                      |
+| Up (agent busy)                  | Recall queued messages for editing                                 |
+| Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
+
+<!-- keys-classic:end -->
 
 ### Watching and steering sub-agents
 
@@ -672,6 +854,11 @@ stdout, stderr, and exit code to the agent as context for the next response:
 > Did that remove the folder successfully?
 ```
 
+The `!` must be followed by a space (or tab). A message such as `!!! call the bank today` or
+`!important` is prose and goes to the agent. In the fullscreen interface, typing `!` on an empty
+line inserts the `!` and a space for you; typing a second `!` straight away takes the space
+back.
+
 The command is executed because you entered it explicitly; it does not wait for the model to
 call `execute_command`. The built-in shell denylist, sanitized environment, timeout, process
 interruption, and 256 KiB per-stream output cap still apply. Output is treated as command data,
@@ -691,6 +878,10 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 | `hybrid`   | Default: rendered with plain fallbacks     |
 | `raw`      | No formatting, no ANSI. **Use this in CI** |
 | `quiet`    | Suppress output                            |
+
+Set `NO_COLOR` to any non-empty value (see [no-color.org](https://no-color.org)) to turn colour off
+everywhere: the classic interface and plain output print no colour codes at all, and the
+fullscreen interface paints in its neutral greys, keeping bold and dim for emphasis.
 
 ---
 

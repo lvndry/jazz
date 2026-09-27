@@ -31,7 +31,13 @@ import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import type { ChatId } from "@jazz/bot-shared/surface";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
-import { type AccessConfig, decideAccess, parseChatIdList, parseHandleList } from "./access";
+import {
+  type AccessConfig,
+  decideAccess,
+  normalizeHandle,
+  parseChatIdList,
+  parseHandleList,
+} from "./access";
 import { agentIdForChat, chatIdFromAgentId } from "./agents";
 import {
   checkImsg,
@@ -62,7 +68,6 @@ import { createIMessageSurface, type IMessageSurface } from "./surface";
 
 const STORE_FILES = {
   timezone: "im-tz.json",
-  usage: "im-usage.json",
   sessions: "im-sessions.json",
   mode: "im-mode.json",
 } as const;
@@ -82,10 +87,21 @@ const DEFAULT_SELF_TRIGGER = "jazz";
 /** The seed agent the bridge makes for itself when `--agent` names none. */
 const DEFAULT_BASE_AGENT_ID = "imessage";
 
+/**
+ * The sender id for a message the account owner typed on this Mac.
+ *
+ * iMessage marks those as from the owner rather than from a handle, and the owner is the one
+ * person who is always an operator of their own bridge. No normalized handle can equal it: a
+ * handle is a phone number or an email address.
+ */
+export const ACCOUNT_OWNER_SENDER = "account-owner";
+
 /** How many chats to pull when refreshing the chat metadata cache. */
 const CHAT_LIST_LIMIT = 200;
 
 interface BridgeConfig extends AccessConfig {
+  /** Handles allowed to widen a chat's authority (`/mode yolo`), besides the account owner. */
+  readonly operatorHandles: ReadonlySet<string>;
   readonly imsgBinary: string;
   readonly jazzBinary: string;
   readonly jazzHome: string;
@@ -160,6 +176,7 @@ function loadConfig(interactive: boolean): BridgeConfig {
   return {
     allowedHandles,
     allowedGroupChatIds,
+    operatorHandles: parseHandleList(process.env["IMESSAGE_OPERATOR_HANDLES"]?.trim() ?? ""),
     imsgBinary: process.env["IMSG_BIN"]?.trim() || "imsg",
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     // Not `/data`: unlike the containerised bridges this runs as a normal
@@ -297,7 +314,11 @@ async function handleIncoming(
     // which is the one identity the allow-list exists to establish.
     const prompt = selfPrompt(config, surface, message);
     if (prompt === undefined) return;
-    await runner.handle(String(message.chatId), prompt);
+    await runner.handle({
+      chatId: String(message.chatId),
+      senderId: ACCOUNT_OWNER_SENDER,
+      text: prompt,
+    });
     return;
   }
 
@@ -317,7 +338,11 @@ async function handleIncoming(
     return;
   }
 
-  await runner.handle(String(message.chatId), raw);
+  await runner.handle({
+    chatId: String(message.chatId),
+    senderId: normalizeHandle(message.sender),
+    text: raw,
+  });
 }
 
 /**
@@ -496,7 +521,10 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "imessage",
     agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
+    operators: new Set([ACCOUNT_OWNER_SENDER, ...config.operatorHandles]),
+    operatorSettingName: "IMESSAGE_OPERATOR_HANDLES",
   });
 
   await refreshChats(config);

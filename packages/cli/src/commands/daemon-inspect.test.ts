@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonStatusRecord } from "@jazz/adapters/daemon/daemon-status";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { formatDaemonAttention } from "./daemon-attention";
 import {
   decideDaemonState,
   formatDaemonStatus,
@@ -122,4 +123,19 @@ describe("readLastLines", () => {
     fs.writeFileSync(filePath, "only\n");
     expect(await readLastLines(filePath, 50)).toEqual(["only"]);
   });
+});
+
+/** The merged status keeps main's pause/spend/approval details alongside daemon health. */
+it("retains background pause, spend caps and waiting approvals in the status text", () => {
+  const text = formatDaemonAttention({
+    paused: null,
+    pauseReason: "Paused by you",
+    spendToday: { runs: 2, totalTokens: 120, costUSD: 0.5, costKnown: true },
+    dailyCaps: { tokens: 1000, costUSD: 2 },
+    capLiftedToday: false,
+    waiting: [],
+  });
+  expect(text).toContain("Paused by you");
+  expect(text).toContain("$0.50 of $2.00");
+  expect(text).toContain("Nothing is waiting for you.");
 });

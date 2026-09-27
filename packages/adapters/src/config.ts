@@ -13,9 +13,10 @@
  * through `set`, and entries Jazz does not understand are left in place rather than deleted.
  */
 
+import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import type { MCPServerConfig } from "@jazz/core/interfaces/mcp-server";
+import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/interfaces/mcp-server";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
 import type {
   AppConfig,
@@ -38,9 +39,10 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
   getGlobalUserDataDirectory,
-  getJazzHomeDirectory,
+  getGlobalConfigFilePath,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
@@ -48,13 +50,20 @@ import {
 import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 import {
+  describeKeyringBackend,
   detectKeyringBackend,
   keyringDelete,
   keyringGet,
   keyringSet,
   type KeyringBackend,
 } from "./secrets/keyring";
-import { SECRET_PATHS, isSecretPath, secretValueFromEnv } from "./secrets/registry";
+import {
+  SECRET_PATHS,
+  isSecretPath,
+  mcpServerSecretPath,
+  type McpServerSecretField,
+  secretValueFromEnv,
+} from "./secrets/registry";
 
 /**
  * ~/.jazz/config.json can hold API keys, so it is created private to the user
@@ -171,7 +180,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           }
         }
 
-        const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
+        const path = this.configPath ?? getGlobalConfigFilePath();
         if (!this.configPath) {
           this.configPath = path;
           const dir = path.substring(0, path.lastIndexOf("/"));
@@ -232,7 +241,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         const effectiveRuntime =
           nextRuntime === undefined ? undefined : sanitizeEffectiveConfig(nextRuntime);
 
-        yield* writePrivateFile(this.fs, path, JSON.stringify(nextDocument, null, 2));
+        yield* writePrivateFile(path, JSON.stringify(nextDocument, null, 2));
         this.fileDocument = nextDocument;
         if (this.sources === undefined) {
           this.applyToRuntime(key, value, secret);
@@ -509,20 +518,46 @@ function requireValidEffectiveConfig(
       );
 }
 
+/**
+ * Lay Jazz's per-server overrides over the `mcp.json` definitions.
+ *
+ * `enabled` may come from the global or the project config file, the project winning. `trusted`
+ * comes only from the global file and applies only to a definition from the user's own
+ * `~/.agents/mcp.json`: trust is the user's statement about a server they defined, so a cloned
+ * repository can neither declare it nor inherit it by reusing a trusted server's name.
+ */
 function mergeMcpServers(
   agents: Record<string, MCPServerConfig>,
-  overrides: Record<string, MCPServerOverride>,
+  globalOverrides: Record<string, MCPServerOverride>,
+  localOverrides: Record<string, MCPServerOverride>,
 ): Record<string, MCPServerConfig> {
   const merged: Record<string, MCPServerConfig> = {};
   for (const [name, cfg] of Object.entries(agents)) {
-    const ov = overrides[name];
+    const enabled = localOverrides[name]?.enabled ?? globalOverrides[name]?.enabled;
+    const trusted = cfg.definedIn === "user" ? globalOverrides[name]?.trusted : undefined;
     merged[name] = {
       ...cfg,
-      ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
-      ...(ov?.trusted !== undefined ? { trusted: ov.trusted } : {}),
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(trusted !== undefined ? { trusted } : {}),
     };
   }
   return merged;
+}
+
+/** Tell the user a project config tried to set MCP trust, which only the global config can. */
+function noticeIgnoredProjectTrust(
+  localPath: string,
+  localOverrides: Record<string, MCPServerOverride>,
+): void {
+  for (const [name, override] of Object.entries(localOverrides)) {
+    if (override.trusted === undefined) {
+      continue;
+    }
+    process.stderr.write(
+      `jazz: ignoring mcpServers.${name}.trusted in ${localPath}. Only your global config ` +
+        `sets MCP trust; run \`jazz mcp trust ${name}\` to trust a server you defined.\n`,
+    );
+  }
 }
 
 export function createConfigLayer(
@@ -556,14 +591,18 @@ export function createConfigLayer(
         ...(debug ? [{ logging: { level: "debug" } }] : []),
       ]);
 
-      const agentsServers = yield* loadAgentsMcpServers(fs);
-      const mcpOverrides: Record<string, MCPServerOverride> = {
-        ...globalOverrides,
-        ...localOverrides,
-      };
-      const finalConfig = mergeAgentsMcpIntoConfig(mainConfig, agentsServers, mcpOverrides);
-
+      if (files.local !== undefined && localOverrides !== undefined) {
+        noticeIgnoredProjectTrust(files.local.path, localOverrides);
+      }
       const keyringBackend = yield* detectKeyringBackend();
+      const agentsServers = yield* loadAgentsMcpServers(fs, keyringBackend);
+      const finalConfig = mergeAgentsMcpIntoConfig(
+        mainConfig,
+        agentsServers,
+        globalOverrides ?? {},
+        localOverrides ?? {},
+      );
+
       const secrets = yield* resolveSecrets(
         fs,
         finalConfig,
@@ -713,10 +752,12 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
     localSettings,
     ...(sources.debug ? [{ logging: { level: "debug" } }] : []),
   ]);
-  const withMcp = mergeAgentsMcpIntoConfig(main, sources.agentsServers, {
-    ...globalOverrides,
-    ...localOverrides,
-  });
+  const withMcp = mergeAgentsMcpIntoConfig(
+    main,
+    sources.agentsServers,
+    globalOverrides ?? {},
+    localOverrides ?? {},
+  );
   const runtime = structuredClone(withMcp) as unknown as ConfigDocument;
   for (const [path, value] of sources.resolvedSecrets) deepSet(runtime, path, value);
   return runtime as unknown as AppConfig;
@@ -734,21 +775,11 @@ function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
 }
 
 /**
- * Write a file that only the owning user can read, repairing the mode on files
- * that already exist — `writeFileString`'s mode applies solely at creation.
+ * Durably replace a file that only the owning user can read. The replacement is a new file
+ * created with that mode, so a wider mode on the old file does not carry over.
  */
-function writePrivateFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  content: string,
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    yield* writeFileStringAtomic(fs, filePath, content, {
-      tempPrefix: "jazz-config",
-      mode: CONFIG_FILE_MODE,
-    }).pipe(Effect.orDie);
-    yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
-  });
+function writePrivateFile(filePath: string, content: string): Effect.Effect<void, never> {
+  return writeFileStringAtomic(filePath, content, { mode: CONFIG_FILE_MODE }).pipe(Effect.orDie);
 }
 
 /** chmod that tolerates both failures and FileSystem stubs without `chmod`. */
@@ -856,7 +887,7 @@ function resolveSecrets(
         deepDelete(cleaned, path);
       }
       if (droppedLegacy) delete cleaned["google"];
-      yield* writePrivateFile(fs, globalConfigPath, JSON.stringify(cleaned, null, 2));
+      yield* writePrivateFile(globalConfigPath, JSON.stringify(cleaned, null, 2));
       if (droppedLegacy) noticeLegacyGoogleRemoved(globalConfigPath);
       return { config: resolved as unknown as AppConfig, document: cleaned };
     }
@@ -1012,11 +1043,21 @@ function readOptionalConfigFile(
   });
 }
 
+/**
+ * Read the project's `./.jazz/config.json`. Run from the directory holding the global file (a
+ * home directory with the default `~/.jazz`), that path is the global file itself, which is then
+ * not read a second time as a project override.
+ */
 function readLocalConfigFile(
   fs: FileSystem.FileSystem,
   policy: InvalidConfigPolicy,
+  globalConfigPath: string,
 ): Effect.Effect<ConfigFileOnDisk | undefined, ConfigurationError> {
-  return readOptionalConfigFile(fs, `${getLocalJazzDirectory()}/config.json`, policy).pipe(
+  const localConfigPath = path.join(getLocalJazzDirectory(), "config.json");
+  if (path.resolve(localConfigPath) === path.resolve(globalConfigPath)) {
+    return Effect.succeed(undefined);
+  }
+  return readOptionalConfigFile(fs, localConfigPath, policy).pipe(
     Effect.map((file) => {
       if (file === undefined) return undefined;
       const { storage: _storage, ...document } = file.document;
@@ -1048,7 +1089,7 @@ function loadConfigFiles(
       }
 
       const global = yield* readOptionalConfigFile(fs, expandedPath, policy);
-      const local = yield* readLocalConfigFile(fs, policy);
+      const local = yield* readLocalConfigFile(fs, policy, expandedPath);
       return {
         configPath: expandedPath,
         ...(global !== undefined ? { global } : {}),
@@ -1056,13 +1097,10 @@ function loadConfigFiles(
       };
     }
 
-    const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
-    const globalConfigPath = envConfigPath
-      ? expandHome(envConfigPath)
-      : `${getJazzHomeDirectory()}/config.json`;
+    const globalConfigPath = getGlobalConfigFilePath();
 
     const global = yield* readOptionalConfigFile(fs, globalConfigPath, policy);
-    const local = yield* readLocalConfigFile(fs, policy);
+    const local = yield* readLocalConfigFile(fs, policy, globalConfigPath);
     return {
       configPath: globalConfigPath,
       ...(global !== undefined ? { global } : {}),
@@ -1071,160 +1109,312 @@ function loadConfigFiles(
   });
 }
 
+/** The user's own MCP definitions, shared with other MCP-aware tools. */
+function userAgentsMcpPath(): string {
+  return path.join(expandHome("~/.agents"), "mcp.json");
+}
+
+/** The current project's MCP definitions, which a cloned repository can supply. */
+function projectAgentsMcpPath(): string {
+  return path.resolve(process.cwd(), ".agents", "mcp.json");
+}
+
+const MCP_SECRET_FIELDS: readonly McpServerSecretField[] = ["env", "headers"];
+
+type McpDefinitions = Record<string, Record<string, unknown>>;
+
 /**
- * Load full MCP server configs from .agents/mcp.json files.
- * These are the source of truth for server definitions (command, args, env, etc.).
- * Merge order: user ~/.agents/mcp.json first, then project .agents/mcp.json (project overrides).
- *
- * Returns a flat record of server name -> full MCPServerConfig.
+ * Read the server definitions in one `mcp.json`: `{ "mcpServers": {...} }` or a bare
+ * `{ "name": {...} }` map. A missing, empty, or malformed file has no definitions.
  */
-function loadAgentsMcpServers(
+function readMcpDefinitions(
   fs: FileSystem.FileSystem,
-): Effect.Effect<Record<string, MCPServerConfig>, never> {
+  filePath: string,
+): Effect.Effect<McpDefinitions, never> {
   return Effect.gen(function* () {
-    const candidates: readonly string[] = [
-      `${expandHome("~/.agents")}/mcp.json`,
-      `${process.cwd()}/.agents/mcp.json`,
-    ];
-
-    const merged: Record<string, unknown> = {};
-
-    for (const filePath of candidates) {
-      const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
-      if (!exists) continue;
-
-      const content = yield* fs
-        .readFileString(filePath)
-        .pipe(Effect.catchAll(() => Effect.succeed("")));
-      if (!content.trim()) continue;
-
-      const parsed = safeParseJson<unknown>(content);
-      if (Option.isNone(parsed)) continue;
-
-      const parsedValue = parsed.value;
-      if (typeof parsedValue !== "object" || parsedValue === null) continue;
-
-      // Support both { "mcpServers": {...} } wrapper and direct { "serverName": {...} }.
-      // When using the direct format, all top-level keys are treated as server names.
-      // Use the wrapped format to avoid ambiguity with non-server keys (e.g. "$schema").
-      const record = parsedValue as Record<string, unknown>;
-      const servers =
-        "mcpServers" in record && typeof record["mcpServers"] === "object"
-          ? (record["mcpServers"] as Record<string, unknown>)
-          : record;
-
-      for (const [name, cfg] of Object.entries(servers)) {
-        // Only include entries that look like server configs (must be objects)
-        if (cfg && typeof cfg === "object") {
-          merged[name] = cfg;
-        }
+    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    if (!exists) {
+      return {};
+    }
+    const content = yield* fs
+      .readFileString(filePath)
+      .pipe(Effect.catchAll(() => Effect.succeed("")));
+    if (!content.trim()) {
+      return {};
+    }
+    const parsed = safeParseJson<unknown>(content);
+    if (Option.isNone(parsed) || !isRecord(parsed.value)) {
+      return {};
+    }
+    const record = parsed.value;
+    const servers = isRecord(record["mcpServers"]) ? record["mcpServers"] : record;
+    const definitions: McpDefinitions = {};
+    for (const [name, definition] of Object.entries(servers)) {
+      if (isRecord(definition)) {
+        definitions[name] = definition;
       }
     }
-
-    return merged as Record<string, MCPServerConfig>;
+    return definitions;
   });
 }
 
 /**
- * Merge full MCP server definitions from .agents/mcp.json with
- * enable/disable overrides from ~/.jazz/config.json, returning an updated AppConfig.
+ * Fill a user server's empty env and header values from the keyring, where `jazz mcp add` put
+ * them. A value the file spells out is used as written.
+ */
+function resolveMcpServerSecrets(
+  backend: KeyringBackend,
+  name: string,
+  definition: Record<string, unknown>,
+): Effect.Effect<Record<string, unknown>, never> {
+  return Effect.gen(function* () {
+    if (backend === "none") {
+      return definition;
+    }
+    const resolved: Record<string, unknown> = { ...definition };
+    for (const field of MCP_SECRET_FIELDS) {
+      const values = definition[field];
+      if (!isRecord(values)) {
+        continue;
+      }
+      const lookups = yield* Effect.all(
+        Object.entries(values).map(([key, value]) =>
+          value === ""
+            ? keyringGet(backend, mcpServerSecretPath(name, field, key)).pipe(
+                Effect.map((secret) => [key, secret ?? ""] as const),
+              )
+            : Effect.succeed([key, value] as const),
+        ),
+        { concurrency: "unbounded" },
+      );
+      resolved[field] = Object.fromEntries(lookups);
+    }
+    return resolved;
+  });
+}
+
+/** `transport` values an `mcp.json` may spell out. `sse` names the same HTTP client. */
+const HTTP_TRANSPORT_NAMES: ReadonlySet<unknown> = new Set(["http", "sse"]);
+
+/**
+ * Settle one definition's transport from what it declares: a `url` makes it an HTTP server and a
+ * `command` a stdio server, whether or not `transport` is spelled out. Drops `trusted` and
+ * `definedIn`, which no `mcp.json` may set. Returns the reason when the definition names both,
+ * neither, or a `transport` that contradicts them.
+ */
+export function normalizeMcpDefinition(
+  definition: Record<string, unknown>,
+): Record<string, unknown> | string {
+  const { trusted: _trusted, definedIn: _definedIn, transport, ...rest } = definition;
+  const hasUrl = typeof rest["url"] === "string" && rest["url"].trim() !== "";
+  const hasCommand = typeof rest["command"] === "string" && rest["command"].trim() !== "";
+  if (hasUrl && hasCommand) {
+    return "it sets both `url` and `command`; keep `url` for a remote server or `command` for a local one.";
+  }
+  if (!hasUrl && !hasCommand) {
+    return "it sets neither `url` (a remote server) nor `command` (a local one).";
+  }
+  if (hasUrl) {
+    if (transport !== undefined && !HTTP_TRANSPORT_NAMES.has(transport)) {
+      return `it has a \`url\` but \`transport\` is ${JSON.stringify(transport)}; use "http" or leave it out.`;
+    }
+    return { ...rest, transport: "http" };
+  }
+  if (transport !== undefined && transport !== "stdio") {
+    return `it has a \`command\` but \`transport\` is ${JSON.stringify(transport)}; use "stdio" or leave it out.`;
+  }
+  return { ...rest, transport: "stdio" };
+}
+
+/**
+ * Load MCP server definitions from the user's `~/.agents/mcp.json` and the project's
+ * `./.agents/mcp.json`, tagging each with where it came from.
+ *
+ * A project definition never replaces a user definition of the same name: the name is what the
+ * user's trust and OAuth tokens are filed under, so a repository that reuses it is warned about
+ * and ignored. `trusted` inside any `mcp.json` is dropped, because trust is recorded only in the
+ * global Jazz config. Empty env and header values of user servers resolve from the keyring.
+ */
+export function loadAgentsMcpServers(
+  fs: FileSystem.FileSystem,
+  backend: KeyringBackend,
+): Effect.Effect<Record<string, MCPServerConfig>, never> {
+  return Effect.gen(function* () {
+    const userPath = userAgentsMcpPath();
+    const projectPath = projectAgentsMcpPath();
+    const user = yield* readMcpDefinitions(fs, userPath);
+    const project =
+      path.resolve(userPath) === projectPath ? {} : yield* readMcpDefinitions(fs, projectPath);
+
+    const servers: Record<string, MCPServerConfig> = {};
+    const add = (
+      name: string,
+      definition: Record<string, unknown>,
+      definedIn: MCPServerDefinitionSource,
+      filePath: string,
+    ): void => {
+      const normalized = normalizeMcpDefinition(definition);
+      if (typeof normalized === "string") {
+        process.stderr.write(`jazz: skipping MCP server "${name}" in ${filePath}: ${normalized}\n`);
+        return;
+      }
+      servers[name] = { ...normalized, definedIn } as unknown as MCPServerConfig;
+    };
+
+    for (const [name, definition] of Object.entries(user)) {
+      add(name, yield* resolveMcpServerSecrets(backend, name, definition), "user", userPath);
+    }
+    for (const [name, definition] of Object.entries(project)) {
+      if (name in user) {
+        process.stderr.write(
+          `jazz: ignoring MCP server "${name}" in ${projectPath}: it has the same name as your ` +
+            `server in ${userPath}, which Jazz keeps. Rename one of them to use both.\n`,
+        );
+        continue;
+      }
+      add(name, definition, "project", projectPath);
+    }
+    return servers;
+  });
+}
+
+/**
+ * Merge full MCP server definitions from .agents/mcp.json with the `enabled`/`trusted`
+ * overrides from the Jazz config files, returning an updated AppConfig.
  */
 function mergeAgentsMcpIntoConfig(
   config: AppConfig,
   agentsServers: Record<string, MCPServerConfig>,
-  overrides: Record<string, MCPServerOverride>,
+  globalOverrides: Record<string, MCPServerOverride>,
+  localOverrides: Record<string, MCPServerOverride>,
 ): AppConfig {
   if (Object.keys(agentsServers).length === 0) return config;
   return {
     ...config,
-    mcpServers: mergeMcpServers(agentsServers, overrides),
+    mcpServers: mergeMcpServers(agentsServers, globalOverrides, localOverrides),
   };
 }
 
+/** Where `writeAgentsMcpServer` put each env var and header value, as `env.KEY`/`headers.Key`. */
+export interface McpServerSecretPlacement {
+  /** Values stored in the keyring; the file keeps their keys with empty values. */
+  readonly keyring: readonly string[];
+  /** Where the keyring values went, e.g. "the macOS keychain". */
+  readonly keyringDescription: string;
+  /** Values written into `~/.agents/mcp.json` because no keyring was usable or accepted them. */
+  readonly file: readonly string[];
+}
+
+/** Delete the keyring entries of every env var and header a user definition names. */
+function forgetMcpServerSecrets(
+  backend: KeyringBackend,
+  name: string,
+  definition: unknown,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (backend === "none" || !isRecord(definition)) {
+      return;
+    }
+    for (const field of MCP_SECRET_FIELDS) {
+      const values = definition[field];
+      if (!isRecord(values)) {
+        continue;
+      }
+      for (const key of Object.keys(values)) {
+        yield* keyringDelete(backend, mcpServerSecretPath(name, field, key));
+      }
+    }
+  });
+}
+
+/** Write `~/.agents/mcp.json` in the wrapped format, readable only by the user. */
+function writeUserMcpDefinitions(
+  fs: FileSystem.FileSystem,
+  servers: McpDefinitions,
+): Effect.Effect<void, Error> {
+  return Effect.gen(function* () {
+    const filePath = userAgentsMcpPath();
+    yield* fs
+      .makeDirectory(path.dirname(filePath), { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.catchAll(() => Effect.void));
+    yield* writeFileStringAtomic(
+      filePath,
+      `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`,
+      { mode: CONFIG_FILE_MODE },
+    ).pipe(
+      Effect.mapError(
+        (cause) => new Error(`Could not write ${filePath}: ${String(cause)}`, { cause }),
+      ),
+    );
+  });
+}
+
 /**
- * Write MCP server configurations to ~/.agents/mcp.json.
+ * Add or replace one server in the user's `~/.agents/mcp.json`.
  *
- * Reads the existing file (if any), merges in the new servers, and writes back.
- * Creates the ~/.agents directory if it doesn't exist.
+ * Env var and header values go to the keyring, and the file keeps each key with an empty value
+ * for Jazz to resolve on load. Without a usable keyring a value is written to the file, which is
+ * kept at mode 0600 either way. Keyring entries of the definition being replaced are deleted
+ * first, so a dropped key leaves nothing behind.
  */
 export function writeAgentsMcpServer(
   fs: FileSystem.FileSystem,
   name: string,
   config: Record<string, unknown>,
-): Effect.Effect<void, never> {
+  keyringBackend?: KeyringBackend,
+): Effect.Effect<McpServerSecretPlacement, Error> {
   return Effect.gen(function* () {
-    const filePath = `${expandHome("~/.agents")}/mcp.json`;
-    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    const existing = yield* readMcpDefinitions(fs, userAgentsMcpPath());
+    const backend = keyringBackend ?? (yield* detectKeyringBackend());
+    yield* forgetMcpServerSecrets(backend, name, existing[name]);
 
-    // Ensure ~/.agents directory exists
-    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-
-    // Read existing content
-    let existing: Record<string, unknown> = {};
-    const fileExists = yield* fs
-      .exists(filePath)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
-
-    if (fileExists) {
-      const content = yield* fs
-        .readFileString(filePath)
-        .pipe(Effect.catchAll(() => Effect.succeed("")));
-      if (content.trim()) {
-        const parsed = safeParseJson<unknown>(content);
-        if (Option.isSome(parsed) && typeof parsed.value === "object" && parsed.value !== null) {
-          const record = parsed.value as Record<string, unknown>;
-          // Support wrapped format
-          if ("mcpServers" in record && typeof record["mcpServers"] === "object") {
-            existing = record["mcpServers"] as Record<string, unknown>;
-          } else {
-            existing = record;
-          }
-        }
+    const definition: Record<string, unknown> = { ...config };
+    const inKeyring: string[] = [];
+    const inFile: string[] = [];
+    for (const field of MCP_SECRET_FIELDS) {
+      const values = config[field];
+      if (!isRecord(values)) {
+        continue;
       }
+      const kept: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(values)) {
+        if (typeof value !== "string" || value === "") {
+          kept[key] = value;
+          continue;
+        }
+        const stored =
+          backend !== "none" &&
+          (yield* keyringSet(backend, mcpServerSecretPath(name, field, key), value));
+        kept[key] = stored ? "" : value;
+        (stored ? inKeyring : inFile).push(`${field}.${key}`);
+      }
+      definition[field] = kept;
     }
 
-    // Merge and write back (always use wrapped format)
-    const updated = { ...existing, [name]: config };
-    const output = JSON.stringify({ mcpServers: updated }, null, 2);
-    yield* fs.writeFileString(filePath, output).pipe(Effect.catchAll(() => Effect.void));
+    yield* writeUserMcpDefinitions(fs, { ...existing, [name]: definition });
+    return {
+      keyring: inKeyring,
+      keyringDescription: describeKeyringBackend(backend),
+      file: inFile,
+    };
   });
 }
 
-/**
- * Remove an MCP server from ~/.agents/mcp.json.
- */
+/** Remove a server from `~/.agents/mcp.json`, and its env and header values from the keyring. */
 export function removeAgentsMcpServer(
   fs: FileSystem.FileSystem,
   name: string,
-): Effect.Effect<void, never> {
+  keyringBackend?: KeyringBackend,
+): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
-    const filePath = `${expandHome("~/.agents")}/mcp.json`;
-    const fileExists = yield* fs
-      .exists(filePath)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
-
-    if (!fileExists) return;
-
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
-    if (!content.trim()) return;
-
-    const parsed = safeParseJson<unknown>(content);
-    if (Option.isNone(parsed) || typeof parsed.value !== "object" || parsed.value === null) return;
-
-    const record = parsed.value as Record<string, unknown>;
-    let servers: Record<string, unknown>;
-
-    if ("mcpServers" in record && typeof record["mcpServers"] === "object") {
-      servers = { ...(record["mcpServers"] as Record<string, unknown>) };
-    } else {
-      servers = { ...record };
+    const existing = yield* readMcpDefinitions(fs, userAgentsMcpPath());
+    if (!(name in existing)) {
+      return;
     }
-
-    delete servers[name];
-    const output = JSON.stringify({ mcpServers: servers }, null, 2);
-    yield* fs.writeFileString(filePath, output).pipe(Effect.catchAll(() => Effect.void));
+    const backend = keyringBackend ?? (yield* detectKeyringBackend());
+    yield* forgetMcpServerSecrets(backend, name, existing[name]);
+    const { [name]: _removed, ...rest } = existing;
+    yield* writeUserMcpDefinitions(fs, rest);
   });
 }
 

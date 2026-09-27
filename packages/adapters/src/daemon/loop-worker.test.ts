@@ -10,6 +10,7 @@ import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record
 import type { RunState } from "@jazz/core/agent/run/run-state";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
@@ -57,6 +58,9 @@ function harness(): Harness {
     Layer.succeed(RunStoreTag, runs),
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LoggerServiceTag, silentLogger),
+    Layer.succeed(AgentConfigServiceTag, {
+      appConfig: Effect.succeed({}),
+    } as unknown as AgentConfigService),
     Layer.succeed(FileSystemContextServiceTag, {
       setCwd: (_key: unknown, directory: string) =>
         Effect.sync(() => {
@@ -267,6 +271,20 @@ describe("runDueLoops", () => {
     expect(Date.parse(settled.nextRunAt)).toBeGreaterThan(Date.now() + 9 * 60_000);
     const conversation = await run(test, loadConversation(AGENT_ID, loop.conversationId));
     expect(conversation?.messages.at(-1)?.content).toBe("Still deploying.");
+  });
+
+  it("starts no run while the daemon is paused, even when due", async () => {
+    const test = harness();
+    const loop = await createLoop(test);
+    const runner = scriptRunner(test, "unused");
+    try {
+      const started = await run(test, runDueLoops({ startNew: false }));
+      await Effect.runPromise(Fiber.joinAll(started));
+    } finally {
+      runner.restore();
+    }
+    expect(runner.seen).toHaveLength(0);
+    expect((await current(test, loop.loopId)).usage.runs).toBe(0);
   });
 
   it("does not run a loop before it is due", async () => {

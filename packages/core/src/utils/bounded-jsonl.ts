@@ -13,12 +13,10 @@
  */
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { stateDirectoryMode, stateFileMode } from "./private-mode";
 
 /** Bytes read per step while scanning a file backwards. */
 const READ_CHUNK_BYTES = 64 * 1024;
-
-const PRIVATE_FILE_MODE = 0o600;
-const PRIVATE_DIRECTORY_MODE = 0o700;
 
 /** Path of the rotated generation of a bounded JSONL file. */
 export function rotatedJsonlPath(filePath: string): string {
@@ -58,7 +56,7 @@ export async function appendBoundedJsonlLine(
 ): Promise<void> {
   await nodeFs.mkdir(path.dirname(filePath), {
     recursive: true,
-    mode: PRIVATE_DIRECTORY_MODE,
+    mode: stateDirectoryMode(),
   });
   const record = `${line}\n`;
   let size = await fileSize(filePath);
@@ -69,7 +67,7 @@ export async function appendBoundedJsonlLine(
   const prefix = size !== null && (await endsMidLine(filePath, size)) ? "\n" : "";
   await nodeFs.appendFile(filePath, `${prefix}${record}`, {
     encoding: "utf-8",
-    mode: PRIVATE_FILE_MODE,
+    mode: stateFileMode(),
   });
 }
 

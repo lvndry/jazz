@@ -12,7 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
-import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -42,6 +42,12 @@ import type { ActivePreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import {
+  guardRunStart,
+  type RunAccountingInput,
+  settleRunAccounting,
+} from "@/core/spend/run-accounting";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
@@ -52,6 +58,7 @@ import {
   type SkillRouteOutcome,
   type WorkspaceContextInput,
 } from "@/core/types/plugin";
+import { runBudgetOptions } from "@/core/types/remote-door";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -70,14 +77,17 @@ import {
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
+  computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
   telemetryErrorCategory,
 } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
 import { runToolDenials } from "./tools/agent-tool-resolution";
@@ -285,13 +295,48 @@ function resolveAgentWorkingDirectory(
   });
 }
 
-function resolveProjectInstructions(
+/** Which of the operator's own inputs a run receives. See {@link runContextBoundary}. */
+export interface RunContextBoundary {
+  /** Scan `userInput` for local media paths and attach the files they name. */
+  readonly ingestsUserInputPaths: boolean;
+  /** Render the AGENTS.md files found for the working directory into the system prompt. */
+  readonly injectsProjectInstructions: boolean;
+  /** Render the operator's standing memory preferences into the system prompt. */
+  readonly injectsPreferences: boolean;
+}
+
+/**
+ * Which of the operator's own inputs this run receives.
+ *
+ * A run for a remote caller (a webhook or a peer) receives none of them. Preferences and
+ * AGENTS.md describe the operator, which a `public` caller must never learn, and a path in the
+ * caller's text names a file on this machine that the caller has no right to have uploaded.
+ *
+ * The summarizer gets no AGENTS.md and no path ingestion: its "user input" is a rendered
+ * transcript, so a media path a tool printed would be scanned as though the user had asked for
+ * it, and it has no project to honor.
+ */
+export function runContextBoundary(
   persona: string,
+  options: Pick<AgentRunnerOptions, "ingestUserInputPaths" | "remoteCaller">,
+): RunContextBoundary {
+  const operatorIsCaller = options.remoteCaller === undefined;
+  const isSummarizer = persona === "summarizer";
+  return {
+    ingestsUserInputPaths:
+      operatorIsCaller && !isSummarizer && options.ingestUserInputPaths !== false,
+    injectsProjectInstructions: operatorIsCaller && !isSummarizer,
+    injectsPreferences: operatorIsCaller,
+  };
+}
+
+function resolveProjectInstructions(
+  boundary: RunContextBoundary,
   agentId: string,
   options: AgentRunnerOptions,
 ): Effect.Effect<readonly ProjectInstructionFile[], never> {
   return Effect.gen(function* () {
-    if (persona === "summarizer") return [];
+    if (!boundary.injectsProjectInstructions) return [];
 
     const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
     return yield* Effect.sync(() => discoverProjectInstructions(workingDirectory));
@@ -661,7 +706,8 @@ function initializeAgentRun(
     // filesystem-context service is available (the agent can `cd` mid-session),
     // otherwise the process cwd. The summarizer compresses transcripts and has
     // no project to honor, so it never gets them.
-    const projectInstructions = yield* resolveProjectInstructions(persona, agent.id, options);
+    const boundary = runContextBoundary(persona, options);
+    const projectInstructions = yield* resolveProjectInstructions(boundary, agent.id, options);
     if (projectInstructions.length > 0) {
       yield* logger.debug("AGENTS.md instruction files loaded", {
         count: projectInstructions.length,
@@ -670,11 +716,7 @@ function initializeAgentRun(
 
     // Attachment ingestion needs the agent's cwd to resolve relative paths the user typed, and
     // the model's modalities to know which of them are worth sending.
-    //
-    // Never for the summarizer: its "user input" is a rendered transcript, so any media path a
-    // *tool* printed would be scanned as though the user had asked for it. Attaching files on
-    // the strength of tool output is exactly what path ingestion must not do.
-    const ingestsAttachments = persona !== "summarizer";
+    const ingestsAttachments = boundary.ingestsUserInputPaths;
     const attachmentWorkingDirectory = ingestsAttachments
       ? yield* resolveAgentWorkingDirectory(agent.id, options)
       : undefined;
@@ -685,10 +727,9 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-    const activePreferences = yield* resolveActivePreferences(
-      agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
-      logger,
-    );
+    const activePreferences = boundary.injectsPreferences
+      ? yield* resolveActivePreferences(agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE], logger)
+      : [];
     const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
     const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
     const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
@@ -768,6 +809,7 @@ function initializeAgentRun(
       memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
+      egressTaint: options.egressTaint ?? createEgressTaint(history),
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {
@@ -887,6 +929,20 @@ function initializeAgentRun(
   });
 }
 
+/** A run whose caller named no entry point is treated as an unattended `jazz run`. */
+const DEFAULT_RUN_ORIGIN: RunOrigin = { source: "run" };
+/** The limits a parked record must restore on resume, from the options the run started with. */
+export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundary {
+  const budget = runBudgetOptions(options);
+  return {
+    ...(options.toolAllowlist !== undefined ? { toolAllowlist: options.toolAllowlist } : {}),
+    ...(options.withholdInteractiveTools === true ? { withholdInteractiveTools: true } : {}),
+    ...(options.disablePersistence === true ? { disablePersistence: true } : {}),
+    ...(options.remoteCaller !== undefined ? { remoteCaller: options.remoteCaller } : {}),
+    ...(Object.keys(budget).length > 0 ? { budget } : {}),
+  };
+}
+
 /** Preserve the active trace when compaction or memory extraction starts a recursive run. */
 export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
   return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
@@ -951,6 +1007,18 @@ export class AgentRunner {
         // Get services
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
+
+        const accounting: RunAccountingInput = {
+          agentId: options.agent.id,
+          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          internal: options.internal === true,
+          appConfig,
+          freeLocalModel: isZeroCostLocalModel(
+            options.agent.config.llmProvider,
+            options.agent.config.llmModel,
+          ),
+        };
+        yield* guardRunStart(accounting);
 
         // Initialize run context
         const runContext = yield* initializeAgentRun(options);
@@ -1029,8 +1097,23 @@ export class AgentRunner {
               ? { maxIterations: options.maxIterations }
               : {}),
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
+            boundary: runRecordBoundary(options),
           },
           execute,
+        ).pipe(
+          Effect.onExit((exit) =>
+            settleRunAccounting(
+              accounting,
+              {
+                ...computeRunCost(runContext.runMetrics, pricing),
+                totalTokens:
+                  runContext.runMetrics.totalPromptTokens +
+                  runContext.runMetrics.totalCompletionTokens,
+              },
+              exit,
+              options.runId ?? runContext.runMetrics.runId,
+            ),
+          ),
         );
       }),
     );

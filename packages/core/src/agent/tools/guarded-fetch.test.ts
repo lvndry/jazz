@@ -1,0 +1,370 @@
+/**
+ * The guarded fetch against real sockets: a local Bun server stands in for loopback services,
+ * cloud metadata and a second origin. Mirrors the audit repros for loopback reach
+ * (`ssrf.ts`), cross-origin credential forwarding (`redir.ts`) and redirect-to-loopback through
+ * `web_fetch` (`webfetch.ts`).
+ */
+import type { Server } from "bun";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { Effect } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { Agent } from "@/core/types/agent";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import {
+  EgressRefusedError,
+  MAX_REDIRECT_HOPS,
+  checkEgressDestination,
+  guardedFetch,
+  readBodyWithinBudget,
+} from "./guarded-fetch";
+import { createHttpRequestTool } from "./http";
+import { createWebFetchTool } from "./web-fetch";
+
+interface Hit {
+  readonly method: string;
+  readonly path: string;
+  readonly authorization: string | null;
+  readonly apiKey: string | null;
+  readonly cookie: string | null;
+  readonly body: string;
+}
+
+const ENDLESS_CHUNK_BYTES = 64 * 1024;
+const TRICKLE_INTERVAL_MS = 200;
+
+/** A body that never ends: each read waits for `next`. */
+function streamOf(next: () => Promise<Uint8Array>): BodyInit {
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    for (;;) {
+      yield await next();
+    }
+  }
+  return chunks() as unknown as BodyInit;
+}
+
+const hits: Hit[] = [];
+let server: Server<undefined>;
+let origin: string;
+let secondServer: Server<undefined>;
+
+function contextAllowing(allowPrivateHosts: readonly string[]): ToolExecutionContext {
+  return {
+    agentId: "agent",
+    parentAgent: { config: { network: { allowPrivateHosts } } } as unknown as Agent,
+  };
+}
+
+function runHttp(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext = { agentId: "agent" },
+): Promise<ToolExecutionResult> {
+  return Effect.runPromise(
+    createHttpRequestTool().execute(args, context) as Effect.Effect<ToolExecutionResult>,
+  );
+}
+
+beforeAll(() => {
+  server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const url = new URL(request.url);
+      hits.push({
+        method: request.method,
+        path: url.pathname,
+        authorization: request.headers.get("authorization"),
+        apiKey: request.headers.get("x-api-key"),
+        cookie: request.headers.get("cookie"),
+        body: await request.text(),
+      });
+      switch (url.pathname) {
+        case "/redirect-same-origin":
+          return Response.redirect(`${origin}/landing`, 302);
+        case "/redirect-metadata":
+          return Response.redirect("http://169.254.169.254/latest/meta-data/", 302);
+        case "/redirect-localhost":
+          return Response.redirect(`http://localhost:${String(server.port)}/landing`, 302);
+        case "/redirect-second-origin":
+          return Response.redirect(`http://localhost:${String(secondServer.port)}/`, 302);
+        case "/redirect-307-second-origin":
+          return Response.redirect(`http://localhost:${String(secondServer.port)}/`, 307);
+        case "/see-other":
+          return Response.redirect(`${origin}/landing`, 303);
+        case "/loop":
+          return Response.redirect(`${origin}/loop`, 302);
+        case "/endless":
+          return new Response(streamOf(async () => new Uint8Array(ENDLESS_CHUNK_BYTES)));
+        case "/trickle":
+          return new Response(
+            streamOf(async () => {
+              await Bun.sleep(TRICKLE_INTERVAL_MS);
+              return new TextEncoder().encode("x");
+            }),
+          );
+        default:
+          return new Response(JSON.stringify({ secret: "loopback-only" }), {
+            headers: { "content-type": "application/json" },
+          });
+      }
+    },
+  });
+  origin = `http://127.0.0.1:${String(server.port)}`;
+  secondServer = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      return new Response(
+        JSON.stringify({
+          method: request.method,
+          authorization: request.headers.get("authorization"),
+          apiKey: request.headers.get("x-api-key"),
+          cookie: request.headers.get("cookie"),
+          accept: request.headers.get("accept"),
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+});
+
+afterAll(() => {
+  server.stop(true);
+  secondServer.stop(true);
+});
+
+describe("http_request destination checks (audit repro ssrf.ts)", () => {
+  it.each([
+    ["GET", "http://127.0.0.1:PORT/a"],
+    ["GET", "http://localhost:PORT/b"],
+    ["GET", "http://[::ffff:127.0.0.1]:PORT/c"],
+    ["GET", "http://2130706433:PORT/d"],
+    ["GET", "http://0x7f000001:PORT/e"],
+    ["GET", "http://0177.0.0.1:PORT/f"],
+    ["GET", "http://0.0.0.0:PORT/g"],
+    ["GET", "http://169.254.169.254/latest/meta-data/"],
+    ["GET", "http://192.168.1.1/"],
+    ["GET", "http://100.64.0.1/"],
+  ])("refuses %s %s before connecting", async (method, template) => {
+    const before = hits.length;
+    const result = await runHttp({ method, url: template.replace("PORT", String(server.port)) });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Refused to connect");
+    expect(hits.length).toBe(before);
+  });
+
+  it("refuses a mutating call to the loopback daemon, credentials and all", async () => {
+    const before = hits.length;
+    const deleted = await runHttp({
+      method: "DELETE",
+      url: `${origin}/runs/x`,
+      headers: { Authorization: "Bearer stolen" },
+    });
+    const posted = await runHttp({
+      method: "POST",
+      url: `${origin}/runs`,
+      body: { type: "json", value: { agent: "x", prompt: "p" } },
+    });
+    expect(deleted.success).toBe(false);
+    expect(posted.success).toBe(false);
+    expect(hits.length).toBe(before);
+  });
+
+  it("reaches a private host the agent lists, and marks the answer as external content", async () => {
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/ok` },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(true);
+    expect(result.untrusted?.kind).toBe("external");
+    const response = (result.result as { response: { status: number } }).response;
+    expect(response.status).toBe(200);
+  });
+
+  it("re-checks every redirect hop, so an allowed host cannot bounce to metadata", async () => {
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/redirect-metadata` },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("169.254.169.254");
+  });
+
+  it("checks what a redirect's hostname resolves to, not only the literal", async () => {
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/redirect-localhost` },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("localhost");
+  });
+
+  it("follows a same-origin redirect with the caller's credentials intact", async () => {
+    hits.length = 0;
+    const result = await runHttp(
+      {
+        method: "GET",
+        url: `${origin}/redirect-same-origin`,
+        headers: { Authorization: "Bearer T" },
+      },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(true);
+    expect(hits.map((hit) => hit.path)).toEqual(["/redirect-same-origin", "/landing"]);
+    expect(hits[1]?.authorization).toBe("Bearer T");
+    expect((result.result as { response: { url?: string } }).response.url).toBe(
+      `${origin}/landing`,
+    );
+  });
+
+  it("turns a 303 after a POST into a body-less GET", async () => {
+    hits.length = 0;
+    const result = await runHttp(
+      { method: "POST", url: `${origin}/see-other`, body: { type: "text", value: "payload" } },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(true);
+    expect(hits[1]).toMatchObject({ method: "GET", path: "/landing", body: "" });
+  });
+
+  it(`stops after ${String(MAX_REDIRECT_HOPS)} redirects`, async () => {
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/loop` },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(`${String(MAX_REDIRECT_HOPS)} redirects`);
+  });
+});
+
+describe("cross-origin redirects (audit repro redir.ts)", () => {
+  const allowBoth = contextAllowing(["127.0.0.1", "localhost"]);
+
+  it("drops Authorization, Cookie and custom credential headers on a cross-origin hop", async () => {
+    const result = await runHttp(
+      {
+        method: "GET",
+        url: `${origin}/redirect-second-origin`,
+        headers: {
+          Authorization: "Bearer T",
+          "X-Api-Key": "K",
+          Cookie: "session=S",
+          Accept: "application/json",
+        },
+      },
+      allowBoth,
+    );
+    expect(result.success).toBe(true);
+    const echoed = (result.result as { response: { body: { data: Record<string, unknown> } } })
+      .response.body.data;
+    expect(echoed).toMatchObject({
+      authorization: null,
+      apiKey: null,
+      cookie: null,
+      accept: "application/json",
+    });
+  });
+
+  it("returns a cross-origin 307 that would resend the body instead of following it", async () => {
+    const result = await runHttp(
+      {
+        method: "POST",
+        url: `${origin}/redirect-307-second-origin`,
+        body: { type: "text", value: "secret body" },
+      },
+      allowBoth,
+    );
+    expect(result.success).toBe(true);
+    expect((result.result as { response: { status: number } }).response.status).toBe(307);
+  });
+});
+
+describe("byte budgets and timers", () => {
+  it("stops reading an endless body at maxResponseBytes", async () => {
+    const maxResponseBytes = 100_000;
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/endless`, maxResponseBytes },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(true);
+    const response = (result.result as { response: { size: number; truncated: boolean } }).response;
+    expect(response.size).toBe(maxResponseBytes);
+    expect(response.truncated).toBe(true);
+  });
+
+  it("keeps the timeout running while the body is read", async () => {
+    const started = Date.now();
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/trickle`, timeoutMs: 600 },
+      contextAllowing(["127.0.0.1"]),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("timed out");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("readBodyWithinBudget returns the whole body when it fits", async () => {
+    const read = await readBodyWithinBudget(new Response("hello"), 10);
+    expect(new TextDecoder().decode(read.bytes)).toBe("hello");
+    expect(read.truncated).toBe(false);
+  });
+});
+
+describe("web_fetch (audit repro webfetch.ts)", () => {
+  function runWebFetch(url: string, context: ToolExecutionContext = { agentId: "agent" }) {
+    return Effect.runPromise(
+      Effect.provideService(
+        createWebFetchTool().execute({ url }, context),
+        LoggerServiceTag,
+        silentLogger,
+      ) as Effect.Effect<ToolExecutionResult>,
+    );
+  }
+
+  it("refuses an IPv4-mapped loopback URL", async () => {
+    const before = hits.length;
+    const result = await runWebFetch(`http://[::ffff:7f00:1]:${String(server.port)}/r`);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("ipv4-mapped");
+    expect(hits.length).toBe(before);
+  });
+
+  it("refuses a redirect from an allowed host to metadata", async () => {
+    const result = await runWebFetch(`${origin}/redirect-metadata`, contextAllowing(["127.0.0.1"]));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("169.254.169.254");
+  });
+});
+
+describe("checkEgressDestination", () => {
+  it("resolves names through the injected resolver and refuses private answers", async () => {
+    const rebinding = { resolveHost: async () => ["10.0.0.5"] };
+    await expect(
+      checkEgressDestination(new URL("https://attacker.example/"), rebinding),
+    ).rejects.toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("refuses when any one of several answers is private", async () => {
+    const mixed = { resolveHost: async () => ["93.184.215.14", "127.0.0.1"] };
+    await expect(
+      checkEgressDestination(new URL("https://mixed.example/"), mixed),
+    ).rejects.toBeInstanceOf(EgressRefusedError);
+  });
+
+  it("allows a public answer", async () => {
+    const publicAnswer = { resolveHost: async () => ["93.184.215.14"] };
+    await expect(
+      checkEgressDestination(new URL("https://example.com/"), publicAnswer),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses URLs with embedded credentials and non-http schemes", async () => {
+    const publicAnswer = { resolveHost: async () => ["93.184.215.14"] };
+    await expect(
+      checkEgressDestination(new URL("https://user:pass@example.com/"), publicAnswer),
+    ).rejects.toBeInstanceOf(EgressRefusedError);
+    await expect(guardedFetch("file:///etc/passwd", publicAnswer)).rejects.toBeInstanceOf(
+      EgressRefusedError,
+    );
+  });
+});

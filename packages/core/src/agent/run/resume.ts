@@ -12,10 +12,12 @@ import type { ProviderName } from "@/core/constants/models";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
+import type { RunBudget } from "@/core/types/remote-door";
 import type { ApprovalOutcome, AutoApprovePolicy } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse, RunStarter } from "../types";
+import type { RunRecord } from "./run-record";
 import type { RunId } from "./run-state";
 
 export class RunNotResumableError extends Error {
@@ -61,6 +63,61 @@ export interface ResumeRunOptions {
   readonly providerApiKeys?: Partial<Record<ProviderName, string>>;
 }
 
+/**
+ * Whether answering a parked run with `outcome` grants it anything. Only a rejected approval
+ * grants nothing: approving runs the tool, and answering or declining a question or a file
+ * picker lets the run carry on past the point it stopped to ask about.
+ */
+export function answerGrantsSomething(outcome: ResumeRunOptions["outcome"]): boolean {
+  return outcome.kind !== "approval" || outcome.value.approved;
+}
+
+/** The smaller of two optional caps, or whichever one is set. */
+function tighterCap(recorded: number | undefined, requested: number | undefined) {
+  if (recorded === undefined) {
+    return requested;
+  }
+  return requested === undefined ? recorded : Math.min(recorded, requested);
+}
+
+/**
+ * What the run's recorded budget has left after the segments that already ran, or which cap is
+ * already used up. A cap applies to the whole run, so a resumed segment gets the remainder rather
+ * than the full amount again.
+ */
+export function remainingRunBudget(record: RunRecord): {
+  readonly budget: RunBudget;
+  readonly exhausted?: "token" | "cost" | "time";
+} {
+  const recorded = record.boundary?.budget;
+  if (recorded === undefined) {
+    return { budget: {} };
+  }
+  const maxTokens =
+    recorded.maxTokens === undefined ? undefined : recorded.maxTokens - (record.totalTokens ?? 0);
+  const maxCostUSD =
+    recorded.maxCostUSD === undefined ? undefined : recorded.maxCostUSD - (record.costUSD ?? 0);
+  const maxDurationMs =
+    recorded.maxDurationMs === undefined
+      ? undefined
+      : recorded.maxDurationMs - (record.activeDurationMs ?? 0);
+  const budget: RunBudget = {
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+    ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+  };
+  if (maxTokens !== undefined && maxTokens <= 0) {
+    return { budget, exhausted: "token" };
+  }
+  if (maxCostUSD !== undefined && maxCostUSD <= 0) {
+    return { budget, exhausted: "cost" };
+  }
+  if (maxDurationMs !== undefined && maxDurationMs <= 0) {
+    return { budget, exhausted: "time" };
+  }
+  return { budget };
+}
+
 export function resumeRun(options: ResumeRunOptions) {
   return Effect.gen(function* () {
     const store = yield* RunStoreTag;
@@ -85,6 +142,27 @@ export function resumeRun(options: ResumeRunOptions) {
         new RunNotResumableError(options.runId, "its pending input has a different kind"),
       );
     }
+
+    const boundary = record.boundary ?? {};
+    if (boundary.remoteCaller !== undefined && boundary.toolAllowlist === undefined) {
+      return yield* Effect.fail(
+        new RunNotResumableError(
+          options.runId,
+          `the ${boundary.remoteCaller.door} "${boundary.remoteCaller.name}" started it and its tool boundary was not recorded`,
+        ),
+      );
+    }
+    const remaining = remainingRunBudget(record);
+    if (remaining.exhausted !== undefined) {
+      return yield* Effect.fail(
+        new RunNotResumableError(options.runId, `its ${remaining.exhausted} budget is spent`),
+      );
+    }
+    const maxTokens = tighterCap(remaining.budget.maxTokens, options.maxTokens);
+    const maxCostUSD = tighterCap(remaining.budget.maxCostUSD, options.maxCostUSD);
+    const maxDurationMs = tighterCap(remaining.budget.maxDurationMs, options.maxDurationMs);
+    const withholdInteractiveTools =
+      boundary.withholdInteractiveTools === true || options.withholdInteractiveTools === true;
 
     const { snapshot, pending } = record.state;
     const storedAgent = yield* agentService
@@ -208,14 +286,18 @@ export function resumeRun(options: ResumeRunOptions) {
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),
-      ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-      ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
-      ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+      ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
       ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
-      ...(options.withholdInteractiveTools !== undefined
-        ? { withholdInteractiveTools: options.withholdInteractiveTools }
+      ...(withholdInteractiveTools ? { withholdInteractiveTools: true } : {}),
+      ...(boundary.toolAllowlist !== undefined ? { toolAllowlist: boundary.toolAllowlist } : {}),
+      ...(boundary.disablePersistence === true ? { disablePersistence: true } : {}),
+      ...(boundary.remoteCaller !== undefined
+        ? { remoteCaller: boundary.remoteCaller, ingestUserInputPaths: false }
         : {}),
       ...(options.startedBy !== undefined ? { startedBy: options.startedBy } : {}),
+      origin: { source: options.startedBy ?? "resume" },
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

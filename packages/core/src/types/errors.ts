@@ -114,6 +114,19 @@ export class CLIError extends Data.TaggedError("CLIError")<{
   readonly suggestion?: string;
 }> {}
 
+/**
+ * An interactive command started where nobody can answer its prompts (stdin or
+ * stdout is not a terminal). The CLI exits 2 so scripts can tell "run this
+ * elsewhere" apart from a failed command.
+ */
+export class InteractiveTerminalRequiredError extends Data.TaggedError(
+  "InteractiveTerminalRequiredError",
+)<{
+  readonly command: string;
+  readonly message: string;
+  readonly suggestion: string;
+}> {}
+
 export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly field: string;
   readonly message: string;
@@ -170,6 +183,12 @@ export class TimeoutError extends Data.TaggedError("TimeoutError")<{
   readonly suggestion?: string;
 }> {}
 
+/** A tool call ran past its timeout and was stopped. */
+export class ToolTimeoutError extends Data.TaggedError("ToolTimeoutError")<{
+  readonly toolName: string;
+  readonly timeoutMs: number;
+}> {}
+
 export class ResourceExhaustedError extends Data.TaggedError("ResourceExhaustedError")<{
   readonly resource: string;
   readonly limit: number;
@@ -221,6 +240,13 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
    * identical by that measure and would be retried to exhaustion.
    */
   readonly permanent?: boolean;
+  /**
+   * Set when the provider rejected the request because the prompt does not fit the model's
+   * context window. Retrying the same request cannot help; shrinking the history can.
+   */
+  readonly contextOverflow?: boolean;
+  /** How long the provider asked callers to wait before retrying (`Retry-After`), in ms. */
+  readonly retryAfterMs?: number;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
@@ -229,6 +255,8 @@ export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
   readonly suggestion?: string;
   /** Whether this 429 is a permanent quota error that should not be retried. */
   readonly permanent?: boolean;
+  /** How long the provider asked callers to wait before retrying (`Retry-After`), in ms. */
+  readonly retryAfterMs?: number;
 }> {}
 
 export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationError")<{
@@ -346,6 +374,7 @@ export type JazzError =
   | StorageNotFoundError
   | StoragePermissionError
   | CLIError
+  | InteractiveTerminalRequiredError
   | ValidationError
   | NetworkError
   | APIError

@@ -83,8 +83,17 @@ into the scrollable details, shows long field values in full, and uses a second
 control row for scrolling and the always-allow action. That keeps the action,
 account, fields, consequence, and accept/reject controls inspectable without
 requiring the former 60×12 layout. Below 32×10 there is not enough room for a
-transcript row and those approval controls together: startup uses the append-only
-CLI presentation, and a live resize shows a clipped resize hint.
+transcript row and those approval controls together: startup uses the classic
+inline Ink interface, and a live resize shows a clipped resize hint.
+
+The same classic interface serves every terminal that can prompt but should not
+get the alternate screen: `CI` set, `TERM=dumb`, and screen readers
+(`JAZZ_A11Y=1`, `INK_SCREEN_READER=1`). Plain output is reserved for
+print-and-exit modes (`--no-tui`, `--output raw` or `quiet`) and for sessions
+without a terminal. Plain prompts never invent an answer: `ask` reads the next
+stdin line and resolves `undefined` at end of input, and menus and confirmations
+resolve `undefined`. Commands that cannot work that way refuse up front and exit
+`2`.
 
 ---
 
@@ -394,6 +403,15 @@ is single-width in every locale, so a frame that lines up locally lines up on a
 server with a different `LANG`. Animation is quantised to whole cells and
 discrete colour steps, so a high-latency link degrades the frame rate and nothing
 else.
+
+### No colour
+
+`NO_COLOR` (any non-empty value) switches chalk off at startup (`ui/theme.ts`), which
+covers the classic interface, the plain presentation and every `CHALK_THEME` helper,
+since Ink renders through the same chalk instance. The fullscreen interface paints
+cells itself, so it gets `neutralPalette`: every hue replaced by its place on the
+neutral ramp, with weight and shade still carrying emphasis. Plain output reads the
+same `CHALK_THEME` tokens as the interactive interfaces, never its own hues.
 
 ### Cutting-edge terminals
 

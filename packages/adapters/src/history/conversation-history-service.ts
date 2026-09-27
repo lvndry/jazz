@@ -34,6 +34,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect, Option } from "effect";
 import {
@@ -59,18 +60,7 @@ export interface AgentConversationHistory {
   readonly conversations: ConversationSummary[];
 }
 
-/** Creates the lock's parent directory: `withLock`'s mkdir is non-recursive. */
-function ensureLockDirectory(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs
-      .makeDirectory(path.dirname(lockPath), { recursive: true })
-      .pipe(Effect.mapError(toError));
-  });
-}
-
 let conversationRetentionLimit = MAX_CONVERSATION_HISTORY_PER_AGENT;
-
 /**
  * Sets how many conversations each agent keeps in its live history, from
  * `history.maxConversationsPerAgent`. Unset restores the default.
@@ -221,7 +211,7 @@ export function archiveLegacyHistory(
       getHistoryArchiveDirectory(historyDirectory),
       LEGACY_ARCHIVE_DIRECTORY_NAME,
     );
-    yield* fs.makeDirectory(legacyArchive, { recursive: true, mode: 0o700 });
+    yield* fs.makeDirectory(legacyArchive, { recursive: true, mode: stateDirectoryMode() });
     const moved: string[] = [];
     for (const name of legacyNames) {
       const destination = path.join(legacyArchive, name);
@@ -273,7 +263,6 @@ export function saveConversation(
     });
   return Effect.gen(function* () {
     yield* assertWritable();
-    yield* ensureLockDirectory(lockPath);
     yield* archiveLegacyHistory(dir);
 
     yield* withLock(

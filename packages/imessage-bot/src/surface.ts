@@ -21,6 +21,7 @@ import {
 import {
   type ChatId,
   type MessageRef,
+  type OutgoingFile,
   type OutgoingMessage,
   splitForSurface,
   type Surface,
@@ -88,9 +89,9 @@ export function createIMessageSurface(options: IMessageSurfaceOptions): IMessage
       return undefined;
     },
 
-    sendFile(chatId: ChatId, filePath: string, caption?: string): Promise<void> {
+    sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
       const target = options.resolveTarget(chatId);
-      return imsgSendFile(options.binary, target, filePath).then(async () => {
+      return imsgSendFile(options.binary, target, file.path).then(async () => {
         if (caption !== undefined && caption.trim().length > 0) {
           remember(caption);
           await sendText(options.binary, target, caption);

@@ -12,9 +12,9 @@
  */
 
 import { RGBA } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { Input, inputRows, MAX_VISIBLE_QUEUED, wrapCells, wrapCommandIndex } from "./Input";
@@ -123,7 +123,7 @@ async function bandHeight(
   options: { streaming?: boolean; width?: number } = {},
 ): Promise<{ height: number; frame: string }> {
   const width = options.width ?? WIDTH;
-  const { renderer, renderOnce, captureCharFrame } = await testRender(
+  const { renderer, renderOnce, captureCharFrame } = await renderForTest(
     <Harness
       model={model}
       width={width}
@@ -338,7 +338,7 @@ describe("live zone", () => {
   });
 
   it("paints the live indicator in the accent, not in whatever the terminal defaults to", async () => {
-    const { renderer, renderOnce, captureSpans } = await testRender(
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
       <LiveZone
         model={live({ tools: [tool("gmail", "list threads", 0)] })}
         viewport={{ width: WIDTH, height: HEIGHT }}
@@ -464,7 +464,7 @@ describe("live zone", () => {
 
 /** Whether any cell in the painted composer carries the accent as a background. */
 async function caretPainted(model: InputModel): Promise<boolean> {
-  const { renderer, renderOnce, captureSpans } = await testRender(
+  const { renderer, renderOnce, captureSpans } = await renderForTest(
     <Input
       model={model}
       viewport={{ width: WIDTH, height: HEIGHT }}

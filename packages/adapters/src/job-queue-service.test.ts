@@ -6,6 +6,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import {
   ARCHIVED_BATCH_RETENTION_MS,
   COMPLETED_BATCH_ARCHIVE_GRACE_MS,
+  JOB_LEASE_TIMEOUT_MS,
   MAX_ACTIVE_BATCHES_PER_AGENT,
   MAX_JOBS_PER_BATCH,
 } from "@jazz/core/constants/job-queue";
@@ -14,12 +15,16 @@ import { Effect } from "effect";
 import {
   archiveBatch,
   archiveCompletedBatches,
+  claimBatchFanIn,
   claimDueJobs,
   completeJob,
   listAgentIdsWithActiveBatches,
   JobQueueServiceImpl,
+  listUndeliveredBatches,
   nextClaimableAt,
   reclaimExpiredLeases,
+  renewJobLease,
+  settleBatchFanIn,
 } from "./job-queue-service";
 
 let tmpDir: string;
@@ -278,11 +283,135 @@ describe("reclaimExpiredLeases", () => {
     const claimed = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
     expect(claimed).toHaveLength(1);
 
-    // Simulate a worker that died mid-job by checking for expired leases well past the lease timeout.
-    const reclaimed = await runEffect(reclaimExpiredLeases(tmpDir, Date.now() + 60 * 60 * 1000));
+    const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
+    const child = Bun.spawn(["true"]);
+    await child.exited;
+    stored.jobs[0].leaseHolder = { pid: child.pid, host: os.hostname() };
+    fs.writeFileSync(batchPath, JSON.stringify(stored));
+
+    const reclaimed = await runEffect(reclaimExpiredLeases(tmpDir, Date.now()));
     expect(reclaimed).toHaveLength(1);
     expect(reclaimed[0]?.batch.jobs[0]?.status).toBe("failed");
-    expect(reclaimed[0]?.batch.jobs[0]?.lastError).toContain("lease expired");
+    expect(reclaimed[0]?.batch.jobs[0]?.lastError).toContain("worker stopped");
+  });
+
+  /** The regression: after a laptop slept past the lease, a job still running was run again. */
+  test("never reclaims a job whose worker on this machine is alive, however late the clock says", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) return;
+    await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
+    stored.jobs[0].leaseHolder = { pid: process.ppid, host: os.hostname() };
+    fs.writeFileSync(batchPath, JSON.stringify(stored));
+
+    const reclaimed = await runEffect(
+      reclaimExpiredLeases(tmpDir, Date.now() + 24 * 60 * 60 * 1000),
+    );
+    expect(reclaimed).toEqual([]);
+  });
+
+  test("a heartbeat renews the lease of the job its worker still holds", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) return;
+    const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    if (claimed === undefined) throw new Error("nothing claimed");
+    const later = Date.now() + 60_000;
+    expect(
+      await runEffect(
+        renewJobLease(tmpDir, "agent-1", claimed.batchId, claimed.jobId, "worker-a", later),
+      ),
+    ).toBe(true);
+    expect(
+      await runEffect(
+        renewJobLease(tmpDir, "agent-1", claimed.batchId, claimed.jobId, "worker-b", later),
+      ),
+    ).toBe(false);
+    const batch = await runEffect(service.getBatch("agent-1", claimed.batchId));
+    expect(batch?.jobs[0]?.leaseExpiresAt).toBe(later + JOB_LEASE_TIMEOUT_MS);
+  });
+});
+
+describe("fan-in delivery", () => {
+  async function completedBatch(): Promise<string> {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) throw new Error("enqueue failed");
+    const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    if (claimed === undefined) throw new Error("nothing claimed");
+    const result = await runEffect(
+      completeJob(tmpDir, "agent-1", claimed.batchId, claimed.jobId, {
+        success: true,
+        result: { stdout: "ok", stderr: "", exitCode: 0 },
+        error: null,
+      }),
+    );
+    expect(result.batchNowComplete).toBe(true);
+    expect(result.batch?.deliveredAt).toBeNull();
+    return claimed.batchId;
+  }
+
+  /** The regression: `completedAt` was the only mark, so a failed resume turn was never retried. */
+  test("a completed batch stays owed until its fan-in is delivered", async () => {
+    const batchId = await completedBatch();
+    expect(await runEffect(listUndeliveredBatches(tmpDir))).toEqual([
+      { agentId: "agent-1", batchId },
+    ]);
+
+    const claimed = await runEffect(claimBatchFanIn(tmpDir, "agent-1", batchId));
+    expect(claimed?.fanIn?.status).toBe("firing");
+    expect(await runEffect(claimBatchFanIn(tmpDir, "agent-1", batchId))).toBeNull();
+
+    await runEffect(
+      settleBatchFanIn(tmpDir, "agent-1", batchId, {
+        delivered: false,
+        error: "provider outage",
+        retryable: true,
+      }),
+    );
+    const failed = await runEffect(makeService().getBatch("agent-1", batchId));
+    expect(failed?.deliveredAt).toBeNull();
+    expect(failed?.fanIn).toMatchObject({ status: "failed", lastError: "provider outage" });
+
+    const retryAt = failed?.fanIn?.status === "failed" ? (failed.fanIn.nextAttemptAt ?? 0) : 0;
+    expect(
+      await runEffect(claimBatchFanIn(tmpDir, "agent-1", batchId, retryAt + 1)),
+    ).not.toBeNull();
+    await runEffect(settleBatchFanIn(tmpDir, "agent-1", batchId, { delivered: true }));
+    const delivered = await runEffect(makeService().getBatch("agent-1", batchId));
+    expect(delivered?.deliveredAt).not.toBeNull();
+    expect(delivered?.fanIn).toBeUndefined();
+    expect(await runEffect(listUndeliveredBatches(tmpDir))).toEqual([]);
+  });
+
+  test("a batch completed before fan-in delivery existed reads as delivered", async () => {
+    fs.mkdirSync(path.join(tmpDir, "agent-1"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-1", "old.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "old",
+        agentId: "agent-1",
+        conversationId: "conv-1",
+        workingDir: "/tmp",
+        concurrencyCap: 1,
+        backoff: { initialMs: 1, maxMs: 1 },
+        reason: "r",
+        createdAt: 1,
+        completedAt: 2,
+        jobs: [],
+      }),
+    );
+    expect(await runEffect(listUndeliveredBatches(tmpDir))).toEqual([]);
   });
 });
 
@@ -382,7 +511,7 @@ describe("nextClaimableAt", () => {
 });
 
 describe("archiving delivered batches", () => {
-  async function completedBatch(service: JobQueueServiceImpl) {
+  async function completedBatch(service: JobQueueServiceImpl, delivered = true) {
     const outcome = await runEffect(
       service.enqueueBatch("agent-1", "conv-1", jobInputs(1), {
         workingDir: "/tmp",
@@ -406,7 +535,10 @@ describe("archiving delivered batches", () => {
     if (completed.batch === null) {
       throw new Error("batch vanished");
     }
-    return completed.batch;
+    if (!delivered) return completed.batch;
+    await runEffect(claimBatchFanIn(tmpDir, "agent-1", completed.batch.id));
+    await runEffect(settleBatchFanIn(tmpDir, "agent-1", completed.batch.id, { delivered: true }));
+    return (await runEffect(service.getBatch("agent-1", completed.batch.id)))!;
   }
 
   function activeBatchFiles(): string[] {
@@ -423,6 +555,24 @@ describe("archiving delivered batches", () => {
     const readBack = await runEffect(service.getBatch("agent-1", batch.id));
     expect(readBack?.jobs[0]?.result?.stdout).toBe("done");
     expect(await runEffect(listAgentIdsWithActiveBatches(tmpDir))).toEqual(["agent-1"]);
+  });
+
+  test("neither direct archival nor the sweep removes undelivered or failed fan-in", async () => {
+    const batch = await completedBatch(makeService(), false);
+    const later = Date.now() + COMPLETED_BATCH_ARCHIVE_GRACE_MS + 1_000;
+    expect(await runEffect(archiveBatch(tmpDir, "agent-1", batch.id, later))).toBe(false);
+    expect(await runEffect(archiveCompletedBatches(tmpDir, later))).toBe(0);
+    await runEffect(claimBatchFanIn(tmpDir, "agent-1", batch.id));
+    await runEffect(
+      settleBatchFanIn(tmpDir, "agent-1", batch.id, {
+        delivered: false,
+        error: "provider down",
+        retryable: true,
+      }),
+    );
+    expect(await runEffect(archiveBatch(tmpDir, "agent-1", batch.id, later))).toBe(false);
+    expect(await runEffect(archiveCompletedBatches(tmpDir, later))).toBe(0);
+    expect(activeBatchFiles()).toEqual([`${batch.id}.json`]);
   });
 
   test("leaves a batch that is still running where it is", async () => {
@@ -455,7 +605,7 @@ describe("archiving delivered batches", () => {
   test("the sweep archives completed batches whose resume never archived them", async () => {
     const service = makeService();
     const batch = await completedBatch(service);
-    const completedAt = batch.completedAt ?? Date.now();
+    const completedAt = batch.deliveredAt ?? Date.now();
 
     expect(await runEffect(archiveCompletedBatches(tmpDir, completedAt + 1_000))).toBe(0);
     expect(activeBatchFiles()).toHaveLength(1);
@@ -463,5 +613,36 @@ describe("archiving delivered batches", () => {
     const later = completedAt + COMPLETED_BATCH_ARCHIVE_GRACE_MS + 1_000;
     expect(await runEffect(archiveCompletedBatches(tmpDir, later))).toBe(1);
     expect(activeBatchFiles()).toEqual([]);
+  });
+});
+
+describe("damaged and versioned batch files", () => {
+  test("a torn batch is quarantined by the worker instead of vanishing silently", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) throw new Error("enqueue failed");
+    const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
+    expect(stored.schemaVersion).toBe(2);
+    expect(fs.statSync(batchPath).mode & 0o777).toBe(0o600);
+
+    fs.writeFileSync(batchPath, "{torn");
+    expect(await runEffect(service.listActiveBatches("agent-1"))).toEqual([]);
+    expect(await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker"))).toEqual([]);
+    const aside = fs
+      .readdirSync(path.join(tmpDir, "agent-1"))
+      .filter((name) => name.includes(".corrupt-"));
+    expect(aside).toHaveLength(1);
+  });
+
+  test("refuses a batch written by a newer Jazz", async () => {
+    fs.mkdirSync(path.join(tmpDir, "agent-1"), { recursive: true });
+    const batchPath = path.join(tmpDir, "agent-1", "newer.json");
+    fs.writeFileSync(batchPath, JSON.stringify({ schemaVersion: 99 }));
+    const result = await runEffect(makeService().getBatch("agent-1", "newer").pipe(Effect.either));
+    expect(result._tag).toBe("Left");
+    expect(fs.existsSync(batchPath)).toBe(true);
   });
 });

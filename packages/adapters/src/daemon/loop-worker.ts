@@ -29,11 +29,13 @@ import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal"
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import { runSpend } from "@jazz/core/agent/run/run-spend";
 import type { AgentResponse } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { nextCycleBlockedBySpend } from "@jazz/core/spend/run-accounting";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { currentProcessOwner } from "@jazz/core/utils/process";
@@ -126,6 +128,7 @@ function runLoop(loop: LoopRecord, runId: string) {
         ...(loop.approvalPolicy !== undefined ? { autoApprovePolicy: loop.approvalPolicy } : {}),
         parkWhenUnattended: true,
         startedBy: "loop",
+        origin: { source: "loop", name: loop.name },
       }),
     );
     yield* finishLoopRun(loop, runId, prior, outcome);
@@ -313,8 +316,9 @@ export function resumeLoopRun(options: ResumeRunOptions) {
 /**
  * One daemon tick for loops: settle claims whose runs have moved on, then start every loop that
  * is due. Started runs run on their own fibers, returned for callers that want to wait on them.
+ * With `startNew` false (the daemon is paused) runs in flight are still settled, but none starts.
  */
-export function runDueLoops() {
+export function runDueLoops(options: { readonly startNew?: boolean } = {}) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
     const logger = yield* LoggerServiceTag;
@@ -329,12 +333,22 @@ export function runDueLoops() {
         yield* settleClaim(loop);
         continue;
       }
-      if (!isLoopDue(loop, now)) {
+      if (!isLoopDue(loop, now) || options.startNew === false) {
         continue;
       }
       const stopped = stopAtLimit(loop);
       if (stopped !== undefined) {
         yield* writeLoop(loop, stopped, "stop it at a limit it reached");
+        continue;
+      }
+      // A spend ceiling holds the run back without stopping the loop: it runs again on the
+      // first tick after the ceiling clears, and the notify channel hears about it once.
+      const spendBlock = yield* nextCycleBlockedBySpend({
+        agentId: loop.agentId,
+        origin: { source: "loop", name: loop.name },
+        appConfig: yield* (yield* AgentConfigServiceTag).appConfig,
+      });
+      if (spendBlock !== undefined) {
         continue;
       }
       const runId = randomUUID();

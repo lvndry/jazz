@@ -381,6 +381,13 @@ jazz peers log
 - **403, some other reason, with a ledger entry**: the question was refused _by the agent_,
   not the connection. Read the reason in `jazz peers log`; it's usually the tier working as
   designed.
+- **413**: the question (or the A2A request carrying it) is over 64 KB.
+- **429**: that peer already has `maxConcurrentRuns` questions in flight (4 unless its config
+  says otherwise). Retry after the `Retry-After` seconds.
+- **500, `"could not answer"`**: the answering run failed. The peer is never told why; the
+  reason is in the answering daemon's log.
+- **A new token is still refused**: the daemon trusts a token it read from the keyring for 30
+  seconds. Wait that long after `peers set-token`, or restart the daemon.
 - **`ask_peer` doesn't show up in the toolset**: no peer is configured on that side yet, or
   every configured peer is at `disclosure: "none"`. The tool is deliberately absent until there's
   somewhere for it to go.

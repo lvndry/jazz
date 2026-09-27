@@ -28,8 +28,11 @@ tool output showing the objective holds (a passing check, a file's contents, a c
 If the quote is missing or does not match, the goal goes on, and the next turn is told why. A goal
 is finished when it is proven, not when the model says so.
 
-There is no turn limit and no goal budget. Each turn is held to the agent loop's own limits
-(iterations, and the token, cost, and time caps if you set them in config), like any turn. If the
+There is no turn limit. Each turn is held to the agent loop's own limits (iterations, and the
+token, cost, and time caps if you set them in config), like any turn. What goals and loops spend
+together is unlimited by default; set a day or month ceiling in `jazz` > Update configuration >
+Spend Limits (`spend.goals`). A reached ceiling holds the next cycle back until it clears,
+without failing the goal: see [day and month ceilings](../concepts/budgets.md#day-and-month-ceilings). If the
 goal needs you (a question or a blocker it cannot get past), the chat asks right there and carries
 on with your answer.
 
@@ -49,9 +52,13 @@ Leave the chat with a goal unfinished and Jazz asks whether to keep working on i
 what it may do unasked: reading only, low-risk changes, or everything. `jazz daemon` then carries on
 in the same conversation. Anything above the authority you picked waits for you.
 
-When it needs you, the next `jazz` lists the conversation first under **Resume conversation (N
-waiting for you)**, marked with what it is waiting on. Open it and the chat shows the question or
-approval and carries on once you answer.
+When it needs you, the daemon tells you right away: a desktop notification, or a push to your
+phone if you set up [ntfy](../configure/jazz.md#daemon-limits-and-notifications). The next `jazz`
+lists the conversation first under **Resume conversation (N waiting for you)**, marked with what it
+is waiting on; open it and the chat shows the question or approval and carries on once you answer.
+`jazz daemon status` shows everything waiting, and `jazz daemon pause` stops background work until
+you resume it. A daily dollar or token cap (`daemon.dailyCostUSD`, `daemon.dailyTokens`) pauses it
+on its own.
 
 ### Goals Jazz proposes
 

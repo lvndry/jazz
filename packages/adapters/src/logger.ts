@@ -14,6 +14,7 @@ import { jsonBigIntReplacer } from "@jazz/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, FiberRef, Layer } from "effect";
 import {
   LOG_PRUNE_INTERVAL_MS,
@@ -196,7 +197,7 @@ class LogWriteQueue {
           await mkdir(dir, { recursive: true, mode: 0o700 });
           this.dirCreated.add(dir);
         }
-        await appendFile(filePath, content, { encoding: "utf8", mode: 0o600 });
+        await appendFile(filePath, content, { encoding: "utf8", mode: stateFileMode() });
       })
       .catch((error: unknown) => {
         // Report the failure without copying a path or OS error message to stderr.

@@ -1,5 +1,6 @@
+import { InteractiveTerminalRequiredError } from "@jazz/core/types/errors";
 import { describe, expect, test } from "bun:test";
-import { getPresentationConfig } from "./app-layer";
+import { exitCodeForFailure, getPresentationConfig, ShutdownSignalTracker } from "./app-layer";
 
 describe("getPresentationConfig", () => {
   const terminalEnvironment = { TERM: "xterm-256color" };
@@ -63,7 +64,7 @@ describe("getPresentationConfig", () => {
     expect(config.useFullscreen).toBe(false);
   });
 
-  test("terminal below the compact floor uses plain output", () => {
+  test("a terminal below the compact floor keeps the classic interactive interface", () => {
     const short = getPresentationConfig(
       terminalEnvironment,
       { ...terminalOutput, rows: 9 },
@@ -76,12 +77,11 @@ describe("getPresentationConfig", () => {
       terminalInput,
       true,
     );
-    expect(short.usePlainTerminal).toBe(true);
-    expect(short.useCLIPresentation).toBe(true);
-    expect(short.useFullscreen).toBe(false);
-    expect(narrow.usePlainTerminal).toBe(true);
-    expect(narrow.useCLIPresentation).toBe(true);
-    expect(narrow.useFullscreen).toBe(false);
+    for (const config of [short, narrow]) {
+      expect(config.usePlainTerminal).toBe(false);
+      expect(config.useCLIPresentation).toBe(false);
+      expect(config.useFullscreen).toBe(false);
+    }
   });
 
   test("a compact terminal still gets the fullscreen conversation", () => {
@@ -96,7 +96,7 @@ describe("getPresentationConfig", () => {
     expect(config.useFullscreen).toBe(true);
   });
 
-  test("CI, dumb terminals, and screen readers use plain output", () => {
+  test("CI, dumb terminals, and screen readers keep the classic interactive interface", () => {
     const environments = [
       { ...terminalEnvironment, CI: "1" },
       { TERM: "dumb" },
@@ -105,8 +105,8 @@ describe("getPresentationConfig", () => {
     ];
     for (const environment of environments) {
       const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
-      expect(config.usePlainTerminal).toBe(true);
-      expect(config.useCLIPresentation).toBe(true);
+      expect(config.usePlainTerminal).toBe(false);
+      expect(config.useCLIPresentation).toBe(false);
       expect(config.useFullscreen).toBe(false);
     }
   });
@@ -145,5 +145,91 @@ describe("getPresentationConfig", () => {
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
     expect(config.useFullscreen).toBe(false);
+  });
+
+  test("a fullscreen opt-out without a terminal still uses plain output", () => {
+    const config = getPresentationConfig(
+      { ...terminalEnvironment, JAZZ_FULLSCREEN: "0" },
+      { isTTY: false },
+      terminalInput,
+      true,
+    );
+    expect(config.usePlainTerminal).toBe(true);
+    expect(config.useCLIPresentation).toBe(true);
+    expect(config.useFullscreen).toBe(false);
+  });
+});
+
+describe("exitCodeForFailure", () => {
+  test("an interactive command without a terminal exits 2", () => {
+    const error = new InteractiveTerminalRequiredError({
+      command: "jazz agent create",
+      message: "it asks questions.",
+      suggestion: "Run it in a terminal.",
+    });
+    expect(exitCodeForFailure(error)).toBe(2);
+  });
+
+  test("any other failure exits 1", () => {
+    expect(exitCodeForFailure(new Error("boom"))).toBe(1);
+  });
+
+  test("Ctrl+C during a prompt leaves the exit code alone", () => {
+    const cancellation = new Error("aborted");
+    cancellation.name = "ExitPromptError";
+    expect(exitCodeForFailure(cancellation)).toBeUndefined();
+  });
+});
+
+describe("ShutdownSignalTracker", () => {
+  function tracker() {
+    const events: string[] = [];
+    const signals = new ShutdownSignalTracker({
+      writeNotice: (message) => events.push(`stderr:${message.trim()}`),
+      requestShutdown: () => events.push("request-shutdown"),
+      reportStopped: (signal) => events.push(`report:${signal}`),
+      exit: (code) => events.push(`exit:${code}`),
+    });
+    return { signals, events };
+  }
+
+  test("the first signal writes to stderr and asks for a graceful stop", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGTERM");
+
+    expect(events).toEqual(["stderr:Received SIGTERM. Shutting down...", "request-shutdown"]);
+    expect(signals.received()).toBe("SIGTERM");
+    expect(signals.stopped()).toBe(false);
+  });
+
+  test("a second signal reports the stop once and exits with the first signal's code", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGTERM");
+    signals.handle("SIGINT");
+    signals.reportStopped();
+
+    expect(events.filter((event) => event.startsWith("report:"))).toEqual(["report:SIGTERM"]);
+    expect(events.at(-1)).toBe("exit:143");
+    expect(events.some((event) => event.includes("Force exiting"))).toBe(true);
+  });
+
+  test("Ctrl+C exits 130", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGINT");
+    signals.handle("SIGINT");
+
+    expect(events).toContain("exit:130");
+  });
+
+  test("reports nothing when no signal arrived", () => {
+    const { signals, events } = tracker();
+
+    signals.reportStopped();
+
+    expect(events).toEqual([]);
+    expect(signals.stopped()).toBe(false);
   });
 });

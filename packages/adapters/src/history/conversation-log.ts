@@ -44,6 +44,7 @@ import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interf
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
@@ -74,9 +75,6 @@ const HEADER_READ_CHUNK_BYTES = 4096;
 
 /** Logs whose append state one process keeps; a chat touches one, a daemon a handful. */
 const MAX_CACHED_APPEND_STATES = 64;
-
-/** File mode for logs and their compacted rewrites: conversations are private to the owner. */
-const CONVERSATION_LOG_FILE_MODE = 0o600;
 
 function fingerprint(value: string, chars: number): string {
   return createHash("sha1").update(value).digest("hex").slice(0, chars);
@@ -422,6 +420,24 @@ async function readFirstLine(filePath: string): Promise<string | null> {
   }
 }
 
+/**
+ * Refuses a log whose header was written by a newer Jazz, whose events this version may
+ * misread or, by appending, corrupt.
+ */
+function requireReadableLogVersion(
+  events: readonly ConversationLogEvent[],
+  logPath: string,
+): Effect.Effect<void, Error> {
+  const header = events.find((event) => event.type === "conversation");
+  return header !== undefined && header.version > CONVERSATION_LOG_VERSION
+    ? Effect.fail(
+        new Error(
+          `${logPath} was written by a newer version of Jazz (log version ${header.version}; this version reads up to ${CONVERSATION_LOG_VERSION}). Update Jazz to open it.`,
+        ),
+      )
+    : Effect.void;
+}
+
 /** Parses a log body into events, skipping lines a crash left unreadable. */
 export function parseConversationLog(content: string): ConversationLogEvent[] {
   const events: ConversationLogEvent[] = [];
@@ -440,12 +456,12 @@ export function readConversationLog(
 ): Effect.Effect<Conversation | null, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const content = yield* readLogContent(
-      fs,
-      conversationLogPath(agentId, conversationId, historyDirectory),
-    );
+    const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    const content = yield* readLogContent(fs, logPath);
     if (content === null) return null;
-    return reduceConversationLog(parseConversationLog(content));
+    const events = parseConversationLog(content);
+    yield* requireReadableLogVersion(events, logPath);
+    return reduceConversationLog(events);
   });
 }
 
@@ -564,10 +580,10 @@ export function archiveConversationLog(
     const archivePath = archivedConversationLogPath(agentId, conversationId, historyDirectory);
     const temporaryPath = `${archivePath}.${process.pid}.tmp`;
     yield* fs
-      .makeDirectory(path.dirname(archivePath), { recursive: true })
+      .makeDirectory(path.dirname(archivePath), { recursive: true, mode: stateDirectoryMode() })
       .pipe(Effect.mapError(toError));
     yield* fs
-      .writeFile(temporaryPath, gzipSync(content), { mode: CONVERSATION_LOG_FILE_MODE })
+      .writeFile(temporaryPath, gzipSync(content), { mode: stateFileMode() })
       .pipe(Effect.mapError(toError));
     yield* fs.rename(temporaryPath, archivePath).pipe(
       Effect.tapError(() => fs.remove(temporaryPath).pipe(Effect.catchAll(() => Effect.void))),
@@ -727,12 +743,12 @@ function loadAppendState(
     const read = yield* readLogContent(fs, logPath);
     if (read === null) return { state: null, needsLeadingNewline: false };
 
+    yield* requireReadableLogVersion(parseConversationLog(read), logPath);
     let content = read;
     const collapsed = collapseSupersededUiEvents(content);
     if (collapsed !== null) {
-      yield* writeFileStringAtomic(fs, logPath, collapsed, {
-        tempPrefix: "conversation-log",
-        mode: CONVERSATION_LOG_FILE_MODE,
+      yield* writeFileStringAtomic(logPath, collapsed, {
+        mode: stateFileMode(),
       });
       content = collapsed;
     }
@@ -778,7 +794,7 @@ export function recordConversationTranscript(
     const messages = input.messages.filter((message) => message.role !== "system");
 
     yield* fs
-      .makeDirectory(path.dirname(logPath), { recursive: true })
+      .makeDirectory(path.dirname(logPath), { recursive: true, mode: stateDirectoryMode() })
       .pipe(Effect.mapError(toError));
 
     const loaded = yield* loadAppendState(fs, logPath);
@@ -864,10 +880,7 @@ export function recordConversationTranscript(
 
     if (chunks.length > 0) {
       yield* fs
-        .writeFileString(logPath, chunks.join(""), {
-          flag: "a",
-          mode: CONVERSATION_LOG_FILE_MODE,
-        })
+        .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
         .pipe(Effect.mapError(toError));
     }
 

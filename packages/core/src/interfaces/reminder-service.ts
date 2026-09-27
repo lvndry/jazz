@@ -1,5 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import { z } from "zod";
+import { type DeliveryState, DeliveryStateSchema } from "@/core/utils/delivery";
 
 export interface ReminderRecord {
   readonly id: string;
@@ -14,7 +16,22 @@ export interface ReminderRecord {
    * job — see `reminder-service.ts`.
    */
   readonly osSchedulerJobId?: string;
+  /**
+   * Where delivery stands: absent while pending, `firing` while one process runs it, `failed`
+   * with the error and attempts after a failed delivery. See `delivery.ts`.
+   */
+  readonly delivery?: DeliveryState;
 }
+
+/** On-disk shape of one {@link ReminderRecord}, checked on every read. */
+export const ReminderRecordSchema: z.ZodType<ReminderRecord> = z.object({
+  id: z.string().min(1),
+  fireAt: z.number().finite(),
+  text: z.string(),
+  createdAt: z.number().finite(),
+  osSchedulerJobId: z.string().exactOptional(),
+  delivery: DeliveryStateSchema.exactOptional(),
+});
 
 export type AddReminderOutcome =
   | { readonly success: true; readonly reminder: ReminderRecord }

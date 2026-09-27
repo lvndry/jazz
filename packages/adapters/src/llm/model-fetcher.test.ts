@@ -4,7 +4,9 @@ import { Effect } from "effect";
 import {
   createModelFetcher,
   fetchLlamaCppServerModel,
+  fetchOllamaModelDetails,
   fetchSglangServerModel,
+  LOCAL_SERVER_PROBE_TIMEOUT_MS,
   fetchVllmServerModel,
   fetchModelsDevModels,
   resolveOllamaToolSupport,
@@ -1286,5 +1288,45 @@ describe("fetchLlamaCppServerModel", () => {
     expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
       contextWindow: 4096,
     });
+  });
+});
+
+describe("local server probes against a server that never answers", () => {
+  it("give every probe request a signal, so none can wait on Bun's fetch timeout", async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    global.fetch = mock((_url: string, init?: RequestInit) => {
+      signals.push(init?.signal ?? undefined);
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    }) as unknown as typeof fetch;
+
+    await fetchLlamaCppServerModel("http://localhost:8080/v1");
+    await fetchVllmServerModel("http://localhost:8000/v1", "model");
+    await fetchSglangServerModel("http://localhost:30000/v1", "model");
+    await fetchOllamaModelDetails("http://localhost:11434/api", "model");
+
+    expect(signals.length).toBe(5);
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+  });
+
+  it("stop waiting as soon as the caller's signal aborts", async () => {
+    global.fetch = actualFetch;
+    const server = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data() {} },
+    });
+    try {
+      const startedAt = Date.now();
+      const result = await fetchOllamaModelDetails(
+        `http://127.0.0.1:${server.port}/api`,
+        "model",
+        AbortSignal.timeout(100),
+      );
+
+      expect(result).toEqual({});
+      expect(Date.now() - startedAt).toBeLessThan(LOCAL_SERVER_PROBE_TIMEOUT_MS);
+    } finally {
+      server.stop(true);
+    }
   });
 });

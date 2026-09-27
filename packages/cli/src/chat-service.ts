@@ -21,7 +21,11 @@ import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
-import { ChatServiceTag, type ChatService } from "@jazz/core/interfaces/chat-service";
+import {
+  ChatServiceTag,
+  type ChatService,
+  type ChatSessionEnd,
+} from "@jazz/core/interfaces/chat-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
@@ -45,6 +49,13 @@ import {
   type SkillService,
 } from "@jazz/core/skills/skill-service";
 import {
+  type CeilingCheck,
+  ceilingWindowKey,
+  checkSpendCeilings,
+  describeCeilingCheck,
+} from "@jazz/core/spend/ceilings";
+import { localDayKey, localMonthKey } from "@jazz/core/spend/ledger";
+import {
   GenerationInterruptedError,
   LLMAuthenticationError,
   LLMRateLimitError,
@@ -53,6 +64,7 @@ import {
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
+import type { SpendConfig } from "@jazz/core/types/spend";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
@@ -61,12 +73,15 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
+import { classifyChatInput } from "./chat/chat-input";
 import {
   handleSpecialCommand,
+  isCommandInput,
   parseSpecialCommand,
   setPluginCommands,
   setSkillCommands,
@@ -87,6 +102,7 @@ import {
   findExceededSessionLimits,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
   initializeSession,
@@ -109,7 +125,7 @@ export class ChatServiceImpl implements ChatService {
       ephemeral?: boolean;
     },
   ): Effect.Effect<
-    void,
+    ChatSessionEnd,
     never,
     | TerminalService
     | LoggerService
@@ -233,8 +249,10 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
+      /** Ceilings already warned about this session, by window, so each warns once. */
+      const warnedSpendCeilings = new Set<string>();
       let sessionLimits: SessionLimits = {};
-      let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
@@ -299,14 +317,13 @@ export class ChatServiceImpl implements ChatService {
 
       // Register mode switch handler for Shift+Tab toggle
       store.registerModeSwitchHandler((mode) => {
-        const newPolicy = mode === "yolo";
-        if (autoApprovePolicy !== newPolicy) {
-          autoApprovePolicy = newPolicy;
-          store.setModeIsYolo(newPolicy);
+        if (chatModeForPolicy(autoApprovePolicy) !== mode) {
+          autoApprovePolicy = policyForChatMode(mode);
+          store.setModeIsYolo(mode === "yolo");
           const message =
             mode === "yolo"
-              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
-              : "🛡️ Switched to safe mode — all tool calls require approval";
+              ? "🚀 Switched to yolo mode: all tool calls auto-approved"
+              : "🛡️ Switched to safe mode: high-risk tool calls require approval";
           store.showModeToast(message);
         }
       });
@@ -322,10 +339,16 @@ export class ChatServiceImpl implements ChatService {
       // editing (error path).
       let lastTurnErrored = false;
 
+      /** A mistyped command, put back in the composer at the next prompt. */
+      let draftToRestore: string | undefined;
+
       // The goal this chat is working toward, and whether its next turn is due. A goal turn is
       // an ordinary turn whose prompt comes from the goal instead of the user.
       let attendedGoalId: string | undefined;
       let goalContinues = false;
+
+      let endReason: ChatSessionEnd["reason"] = "exit";
+      let messagesReceived = 0;
 
       while (chatActive) {
         let userMessage: string | undefined;
@@ -371,9 +394,11 @@ export class ChatServiceImpl implements ChatService {
           // call terminal.user() — the shared helper that owns rendering.
           yield* terminal.user(userMessage);
         } else {
+          const draft = queued.length > 0 ? queued : draftToRestore;
+          draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
-            ...(queued.length > 0 ? { defaultValue: queued } : {}),
+            ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
           userMessage = yield* terminal.ask("You:", askOptions).pipe(
@@ -398,9 +423,10 @@ export class ChatServiceImpl implements ChatService {
         }
         lastTurnErrored = false;
 
+        const input = classifyChatInput(userMessage, terminal.isInteractive);
         const trimmedMessage = (userMessage ?? "").trim();
-        const lowerMessage = trimmedMessage.toLowerCase();
-        if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+        if (input.kind === "exit" || input.kind === "end-of-input") {
+          endReason = input.kind;
           if (attendedGoalId !== undefined) {
             yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
           }
@@ -432,22 +458,25 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
-        if (!userMessage || trimmedMessage.length === 0) {
-          yield* terminal.log(
-            "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
-          );
+        if (input.kind === "blank" || userMessage === undefined) {
+          if (terminal.isInteractive) {
+            yield* terminal.log(
+              "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
+            );
+          }
           continue;
         }
+        messagesReceived += 1;
 
         let messageForAgent = userMessage;
         let trustMessageAsMemorySource = goalTurn === undefined;
 
         // A message with interior newlines (multi-line composition or a
-        // combined prose drain) is prose even when it starts with "/" or "!" —
+        // combined prose drain) is prose even when it starts with "/" or "! ":
         // command parsing would silently discard everything after line one.
         if (
           goalTurn === undefined &&
-          (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
+          isCommandInput(trimmedMessage) &&
           !trimmedMessage.includes("\n")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
@@ -458,7 +487,9 @@ export class ChatServiceImpl implements ChatService {
               ? specialCommand.args.join(" ").trim()
               : null;
 
-          if (passThroughMessage !== null) {
+          if (specialCommand.type === "prose") {
+            // A leading file path (a dragged file) is a message, not a command.
+          } else if (passThroughMessage !== null) {
             // Send the trailing text (e.g. "create") as the user message so the agent can guide
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
@@ -475,7 +506,7 @@ export class ChatServiceImpl implements ChatService {
               sessionLimits,
               sessionStartedAt,
               lastUsedAgentId,
-              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              autoApprovePolicy,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -586,9 +617,9 @@ export class ChatServiceImpl implements ChatService {
               startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
-              autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle
-              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
+              store.setModeIsYolo(chatModeForPolicy(autoApprovePolicy) === "yolo");
             }
             if (commandResult.newSessionLimits !== undefined) {
               sessionLimits = commandResult.newSessionLimits;
@@ -610,6 +641,10 @@ export class ChatServiceImpl implements ChatService {
               autoApprovedCommands = autoApprovedCommands.filter(
                 (c) => c !== commandResult.removeAutoApprovedCommand,
               );
+            }
+
+            if (commandResult.keepDraft === true && terminal.isInteractive) {
+              draftToRestore = userMessage;
             }
 
             if (commandResult.attendGoal !== undefined) {
@@ -638,6 +673,21 @@ export class ChatServiceImpl implements ChatService {
           }
         }
 
+        if (goalTurn === undefined && messageForAgent === userMessage) {
+          const typedMessage = messageForAgent;
+          const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
+            agentId: agent.id,
+            conversationId,
+          });
+          const inlined = yield* Effect.tryPromise(() =>
+            inlineMentionedTextFiles(typedMessage, workingDirectory),
+          ).pipe(Effect.catchAll(() => Effect.succeed({ message: typedMessage, skipped: [] })));
+          for (const note of inlined.skipped) {
+            yield* terminal.warn(note);
+          }
+          messageForAgent = inlined.message;
+        }
+
         if (Object.keys(sessionLimits).length > 0) {
           const costUSD = yield* estimateSessionCostUSD(sessionUsage, agent);
           const exceeded = findExceededSessionLimits(sessionLimits, {
@@ -654,6 +704,12 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
+        yield* warnWhenSpendCeilingReached(
+          terminal,
+          (yield* configService.appConfig).spend,
+          agent.id,
+          warnedSpendCeilings,
+        );
         sessionTurnCount += 1;
 
         yield* Effect.gen(function* () {
@@ -668,6 +724,7 @@ export class ChatServiceImpl implements ChatService {
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
             conversationId,
             conversationHistory,
+            origin: { source: goalTurn === undefined ? "chat" : "goal" },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -930,7 +987,12 @@ export class ChatServiceImpl implements ChatService {
         startedAt,
         uiTranscript: uiTranscriptFromStore(),
       });
-    }).pipe(Effect.catchAll(() => Effect.void));
+      return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
+    }).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),
+      ),
+    );
   }
 }
 
@@ -960,4 +1022,33 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof AgentServiceTag
 > {
   return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+}
+
+/**
+ * Chat is attended, so a reached spend ceiling does not stop it: the person is told once per
+ * ceiling and window, and decides. Unattended runs refuse instead (see `run-accounting.ts`).
+ */
+function warnWhenSpendCeilingReached(
+  terminal: TerminalService,
+  spend: SpendConfig | undefined,
+  agentId: string,
+  warned: Set<string>,
+) {
+  return Effect.gen(function* () {
+    const now = Date.now();
+    const check = yield* checkSpendCeilings(spend, { agentId, source: "chat" }, now).pipe(
+      Effect.catchAll(() => Effect.succeed<CeilingCheck>({ kind: "clear" })),
+    );
+    if (check.kind === "clear") {
+      return;
+    }
+    const key = ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
+    if (warned.has(key)) {
+      return;
+    }
+    warned.add(key);
+    yield* terminal.warn(
+      `${describeCeilingCheck(check)} Chat continues; unattended runs under this ceiling refuse to start.`,
+    );
+  });
 }

@@ -1,7 +1,7 @@
 ---
 name: release-notes
 description: Generate release notes by analyzing commits between git tags
-autoApprove: true
+autoApprove: read-only
 agent: release-notes
 maxIterations: 100
 ---

@@ -292,6 +292,8 @@ describe("Shell Tools", () => {
     expect(result.result).toHaveProperty("stdout");
     expect(result.result).toHaveProperty("stderr");
     expect(result.result).toHaveProperty("success", true);
+    // Jazz cannot know what a command read, so every command's output is outside content.
+    expect(result.untrusted?.kind).toBe("external");
   });
 
   it("passes the agent's envAllowlist through to the sanitized child env", async () => {

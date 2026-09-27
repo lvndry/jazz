@@ -10,12 +10,14 @@
 
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
+import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
-import type { streamText } from "ai";
+import type { LanguageModelUsage, streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { toJazzToolCall } from "./tool-call-parts";
 
 /**
  * Type for AI SDK StreamText result
@@ -63,6 +65,36 @@ export function resolveStreamIdleTimeoutMs(
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
 
+/**
+ * Floor for how long a stream may take to produce its first content part (text, reasoning, a
+ * tool call, or the finish). Some hosted models (NVIDIA NIM, large reasoning models) take
+ * minutes to prefill before the first token, well past the gap allowed between parts once
+ * output is flowing. Keeping the two budgets apart lets those finish instead of failing every
+ * attempt at the first-token wait. A configured idle budget above this wins.
+ */
+export const FIRST_CONTENT_TIMEOUT_MS = 300_000;
+
+/** Stream part types that carry model output, as opposed to bookkeeping (`start`, `start-step`). */
+const CONTENT_PART_TYPES: ReadonlySet<string> = new Set([
+  "text-delta",
+  "reasoning-delta",
+  "tool-input-start",
+  "tool-input-delta",
+  "tool-call",
+  "tool-result",
+  "file",
+  "source",
+  "finish-step",
+  "finish",
+  "error",
+]);
+
+/** Whether a stream part is model output, which ends the first-content wait. */
+export function isContentStreamPart(part: unknown): boolean {
+  const type = (part as { type?: unknown } | null)?.type;
+  return typeof type === "string" && CONTENT_PART_TYPES.has(type);
+}
+
 /** Raised when a provider stream stops producing without closing. */
 export class StreamIdleTimeoutError extends Error {
   constructor(
@@ -82,24 +114,29 @@ export class StreamIdleTimeoutError extends Error {
  * Re-yield `source`, failing if any single step takes longer than `idleMs`.
  *
  * The timer is per part rather than for the whole stream: a long answer is
- * healthy, a long *silence* is not.
+ * healthy, a long *silence* is not. Until `isContent` accepts a part, the wait
+ * is `firstContentMs` instead, which covers a model's prefill before its first
+ * token; bookkeeping parts that arrive during it do not end it.
  */
 export async function* withIdleTimeout<T>(
   source: AsyncIterable<T>,
   idleMs: number,
+  firstContentMs: number = idleMs,
+  isContent: (part: T) => boolean = () => true,
 ): AsyncGenerator<T> {
   const iterator = source[Symbol.asyncIterator]();
-  let receivedPart = false;
+  let receivedContent = false;
   try {
     for (;;) {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const waitMs = receivedContent ? idleMs : firstContentMs;
       const idle = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
           () =>
             reject(
-              new StreamIdleTimeoutError(idleMs, receivedPart ? "between-parts" : "first-part"),
+              new StreamIdleTimeoutError(waitMs, receivedContent ? "between-parts" : "first-part"),
             ),
-          idleMs,
+          waitMs,
         );
       });
       let step: IteratorResult<T>;
@@ -109,7 +146,9 @@ export async function* withIdleTimeout<T>(
         if (timer !== undefined) clearTimeout(timer);
       }
       if (step.done === true) return;
-      receivedPart = true;
+      if (!receivedContent && isContent(step.value)) {
+        receivedContent = true;
+      }
       yield step.value;
     }
   } finally {
@@ -156,6 +195,13 @@ interface StreamProcessorConfig {
 }
 
 /**
+ * How long to wait for `result.usage` when the stream's `finish` part carried none. Usage
+ * normally settles with the stream; a provider that never reports it would otherwise hold the
+ * completion open, so past this the response goes out marked as missing usage.
+ */
+const USAGE_SETTLE_TIMEOUT_MS = 2_000;
+
+/**
  * Stream processor state
  */
 interface StreamProcessorState {
@@ -189,7 +235,9 @@ interface StreamProcessorState {
 
   // Completion tracking
   finishEventReceived: boolean;
-  finishReason: string | undefined;
+  finishReason: FinishReason | undefined;
+  /** Usage the `finish` part carried, which arrives in-stream before `result.usage` settles. */
+  finishUsage: LanguageModelUsage | undefined;
 
   // Interruption
   cancelled: boolean;
@@ -214,6 +262,7 @@ function createInitialState(): StreamProcessorState {
     firstReasoningTime: null,
     finishEventReceived: false,
     finishReason: undefined,
+    finishUsage: undefined,
     cancelled: false,
   };
 }
@@ -308,10 +357,13 @@ export class StreamProcessor {
    * Process full stream for all events (text, reasoning, tools)
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
+    const idleMs = resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs);
     try {
       for await (const part of withIdleTimeout(
         result.fullStream,
-        resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs),
+        idleMs,
+        Math.max(idleMs, FIRST_CONTENT_TIMEOUT_MS),
+        isContentStreamPart,
       )) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
@@ -429,25 +481,7 @@ export class StreamProcessor {
             const isProviderNative =
               this.config.providerNativeToolNames?.has(part.toolName) ?? false;
 
-            const toolCall: ToolCall = {
-              id: part.toolCallId,
-              type: "function",
-              function: {
-                name: part.toolName,
-                arguments: JSON.stringify(part.input),
-              },
-            };
-
-            // Preserve thought_signature for Google/Gemini models if present
-            // The AI SDK includes it in providerMetadata.google.thoughtSignature
-            if ("providerMetadata" in part && part.providerMetadata) {
-              const providerMetadata = part.providerMetadata as {
-                google?: { thoughtSignature?: string };
-              };
-              if (providerMetadata?.google?.thoughtSignature) {
-                toolCall.thought_signature = providerMetadata.google.thoughtSignature;
-              }
-            }
+            const toolCall = toJazzToolCall(part);
 
             if (isProviderNative) {
               // Buffer provider-native tool calls (e.g. OpenAI web_search).
@@ -506,9 +540,12 @@ export class StreamProcessor {
               this.state.pendingNativeToolCalls.delete(id);
             }
 
-            const finishReason = part.finishReason || "unknown";
+            const finishReason = toFinishReason(part.finishReason);
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
+            if ("totalUsage" in part && part.totalUsage) {
+              this.state.finishUsage = part.totalUsage;
+            }
 
             // Handle error finish reason
             if (finishReason === "error") {
@@ -626,10 +663,14 @@ export class StreamProcessor {
 
     let usage: ChatCompletionResponse["usage"];
     try {
-      const usageResult = await Promise.race([
-        result.usage,
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
-      ]);
+      const usageResult =
+        this.state.finishUsage ??
+        (await Promise.race([
+          result.usage,
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), USAGE_SETTLE_TIMEOUT_MS),
+          ),
+        ]));
 
       if (usageResult) {
         usage = {
@@ -655,7 +696,7 @@ export class StreamProcessor {
         void this.emitEvent({ type: "usage_update", usage });
       }
     } catch {
-      // Ignore usage errors
+      // Handled below: a response without usage is reported as such.
     }
 
     let reasoningParts: ChatCompletionResponse["reasoningParts"];
@@ -682,6 +723,7 @@ export class StreamProcessor {
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
+      finishReason: this.state.finishReason ?? "unknown",
       ...(this.config.toolDefinitionChars != null
         ? { toolDefinitionChars: this.config.toolDefinitionChars }
         : {}),

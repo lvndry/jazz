@@ -73,11 +73,17 @@ import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { formatCompactCount } from "@jazz/core/utils/string";
+import { buildModelChoices } from "@jazz/core/utils/provider-picker";
+import { closestMatch, formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
+import {
+  chatModeForPolicy,
+  policyForChatMode,
+  type ChatApprovalMode,
+} from "@/cli/chat/approval-mode";
 import { describeTier } from "@/cli/commands/peers";
 import {
   cancelDetachTransfer,
@@ -95,10 +101,22 @@ import {
   type CliReasoningValue,
 } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
 import { store } from "@/cli/ui/store";
-import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
+import { getThemeVariant, PADDING_BUDGET, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
-import { CHAT_COMMANDS } from "./constants";
+import { truncate } from "@/cli/utils/string-utils";
+import {
+  CHAT_COMMANDS,
+  commandFormLines,
+  commandSignature,
+  findBuiltinCommand,
+  findCommand,
+  registeredCommands,
+  SHELL_ESCAPE_FORM,
+  suggestCommand,
+  type ChatCommandInfo,
+} from "./constants";
 import { handleGoalCommand } from "./goal";
 import { handleLoopCommand } from "./loop";
 import {
@@ -188,6 +206,12 @@ export function handleSpecialCommand(
 
       case "reasoning":
         return yield* handleReasoningCommand(terminal, agent, command.args);
+
+      case "model":
+        return yield* handleModelCommand(terminal, agent, command.args);
+
+      case "exit":
+        return { shouldContinue: false };
 
       case "config":
         return yield* handleConfigCommand(terminal, agent, command.args);
@@ -653,74 +677,119 @@ function handleThemeCommand(
   });
 }
 
-/** Keyboard shortcuts surfaced in /help. Keep in sync with App.tsx bindings. */
-const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: string]> = [
-  ["Esc Esc", "Interrupt the current generation"],
-  ["Shift+Tab", "Toggle safe/yolo approval mode"],
-  ["Ctrl+R", "Expand collapsed reasoning (repeat for earlier blocks)"],
-  ["Ctrl+O", "Expand the last truncated diff or tool output"],
-  ["Tab", "Complete the highlighted slash command"],
-  ["Up/Down", "Recall previously sent messages (empty input)"],
-  ["Shift+Enter", "Insert a newline for a multi-line message"],
-  ["Esc", "Clear the current draft"],
-  ["Up (agent busy)", "Recall queued messages for editing"],
-  ["Ctrl+X (agent busy)", "Clear the message queue"],
-  ["Down (sub-agents listed)", "Pick a sub-agent under the input; Enter opens its log"],
-  ["Enter (sub-agent open)", "Send the draft to that sub-agent instead of the main chat"],
-  ["Esc (sub-agent open)", "Return to the main conversation"],
-];
+/** Width of the command column in /help. */
+const HELP_COMMAND_COLUMN = 34;
+/** The row indent `fmt.commandRow` adds. */
+const HELP_ROW_INDENT = 3;
+/** Width assumed when the terminal does not report one. */
+const DEFAULT_TERMINAL_COLUMNS = 80;
 
 /**
- * Handle /help command. Rendered from CHAT_COMMANDS (the same list that
- * powers autocomplete) so the two can never drift. `/help <command>` shows
- * that command's usage detail.
+ * One /help row that fits the terminal: a label longer than the command column
+ * is cut to it (the full form is under `/help <command>`), and the description
+ * is cut to what is left of the line.
+ */
+function helpRow(label: string, description: string, terminalColumns: number): string {
+  const lineWidth = Math.max(HELP_COMMAND_COLUMN + 10, terminalColumns - PADDING_BUDGET);
+  const fittedLabel = truncate(label, HELP_COMMAND_COLUMN - 2);
+  const descriptionWidth = lineWidth - HELP_ROW_INDENT - HELP_COMMAND_COLUMN;
+  return fmt.commandRow(fittedLabel, truncate(description, descriptionWidth), HELP_COMMAND_COLUMN);
+}
+
+/**
+ * Handle /help. The command list comes from CHAT_COMMANDS and the registered
+ * skill, MCP prompt and plugin commands (the same lists autocomplete and the
+ * parser use), and the keys from the keymap of the interface that is running.
+ * `/help <command>` shows every form of one command.
  */
 function handleHelpCommand(
   terminal: TerminalService,
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
+    const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
     const requested = args[0]?.toLowerCase().replace(/^\//, "");
     if (requested !== undefined) {
-      const command = CHAT_COMMANDS.find((candidate) => candidate.name === requested);
-      if (!command) {
-        yield* terminal.warn(`Unknown command "/${requested}". Run /help for the full list.`);
+      const command = findCommand(requested);
+      if (command === undefined) {
+        const suggestion = suggestCommand(requested);
+        yield* terminal.warn(
+          suggestion === undefined
+            ? `Unknown command "/${requested}". Run /help for the full list.`
+            : `Unknown command "/${requested}". Did you mean /${suggestion.name}?`,
+        );
         return { shouldContinue: true };
       }
       yield* terminal.log(fmt.heading(`/${command.name}`));
-      yield* terminal.log(
-        fmt.keyValueCompact("Usage", `/${command.name}${command.usage ? ` ${command.usage}` : ""}`),
-      );
+      yield* terminal.log(fmt.keyValueCompact("Usage", commandSignature(command)));
       yield* terminal.log(fmt.keyValueCompact("Description", command.description));
+      if (command.aliases !== undefined && command.aliases.length > 0) {
+        yield* terminal.log(
+          fmt.keyValueCompact("Also", command.aliases.map((alias) => `/${alias}`).join(", ")),
+        );
+      }
+      if (command.source !== undefined) {
+        yield* terminal.log(fmt.keyValueCompact("From", COMMAND_SOURCE_LABEL[command.source]));
+      }
+      const builtin = findBuiltinCommand(command.name);
+      const formLines = builtin === undefined ? [] : commandFormLines(builtin);
+      if (formLines.length > 0) {
+        yield* terminal.log(fmt.blank());
+        yield* Effect.forEach(formLines, (line) => terminal.log(line));
+      }
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
+    const commandRows = (entries: readonly ChatCommandInfo[]): string =>
+      entries
+        .map((command) => helpRow(commandSignature(command), command.description, terminalColumns))
+        .join("\n");
+
     yield* terminal.log(fmt.heading("Available Commands"));
+    yield* terminal.log(commandRows(CHAT_COMMANDS));
     yield* terminal.log(
-      CHAT_COMMANDS.map((command) =>
-        fmt.commandRow(
-          `/${command.name}${command.usage ? ` ${command.usage}` : ""}`,
-          command.description,
-          34,
-        ),
-      ).join("\n"),
+      helpRow(
+        SHELL_ESCAPE_FORM,
+        "Run a shell command and give its output to the agent",
+        terminalColumns,
+      ),
     );
-    yield* terminal.log(
-      fmt.commandRow("! <command>", "Run a shell command and give its output to the agent", 34),
-    );
+
+    const registered = registeredCommands();
+    const sections: readonly (readonly [string, readonly ChatCommandInfo[]])[] = [
+      ["Skills", registered.skills],
+      ["MCP Prompts", registered.mcpPrompts],
+      ["Plugin Commands", registered.plugins],
+    ];
+    for (const [title, entries] of sections) {
+      if (entries.length === 0) {
+        continue;
+      }
+      yield* terminal.log(fmt.blank());
+      yield* terminal.log(fmt.heading(title));
+      yield* terminal.log(commandRows(entries));
+    }
+
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.heading("Keyboard Shortcuts"));
     yield* terminal.log(
-      KEYBOARD_SHORTCUTS.map(([keys, description]) => fmt.commandRow(keys, description, 34)).join(
-        "\n",
-      ),
+      KEYMAPS[activeKeymapMode()]
+        .map((binding) => helpRow(bindingLabel(binding), binding.action, terminalColumns))
+        .join("\n"),
     );
     yield* terminal.log(fmt.footer("Run /help <command> for details on a specific command."));
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
+
+/** How /help names where a registered command comes from. */
+const COMMAND_SOURCE_LABEL: Readonly<Record<NonNullable<ChatCommandInfo["source"]>, string>> = {
+  skill: "a skill",
+  "mcp-prompt": "an MCP server prompt",
+  plugin: "a plugin",
+};
 
 /**
  * Handle /tools command - List agent tools by category
@@ -1468,6 +1537,93 @@ function handleReasoningCommand(
 }
 
 /**
+ * Handle /model: change the agent's model for this session only, on the
+ * agent's own provider. `/model <id>` sets it directly; bare `/model` opens a
+ * picker, or prints the current model and a few others on a terminal that
+ * cannot prompt. The agent file keeps its model (`jazz agent edit` changes that).
+ */
+function handleModelCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const provider = agent.config.llmProvider;
+    const current = `${provider}/${agent.config.llmModel}`;
+    const providerInfo = yield* llmService.getProvider(provider).pipe(Effect.either);
+    const models = providerInfo._tag === "Right" ? providerInfo.right.supportedModels : [];
+
+    const applyModel = (modelId: string) =>
+      Effect.gen(function* () {
+        if (modelId === agent.config.llmModel) {
+          yield* terminal.info(`Already using ${current}.`);
+          yield* terminal.log("");
+          return { shouldContinue: true } satisfies CommandResult;
+        }
+        const newAgent = { ...agent, config: { ...agent.config, llmModel: modelId } };
+        yield* terminal.success(`Model set to ${provider}/${modelId} (this session only)`);
+        const modelMeta = yield* Effect.promise(() => getModelsDevMetadata(modelId, provider));
+        if (modelMeta && !modelMeta.supportsTools && (agent.config.tools?.length ?? 0) > 0) {
+          yield* terminal.warn(
+            `${modelId} does not support tools, so this agent's tools are unavailable until you switch back.`,
+          );
+        }
+        yield* terminal.log("");
+        return { shouldContinue: true, newAgent } satisfies CommandResult;
+      });
+
+    const requested = args.join(" ").trim();
+    if (requested.length > 0) {
+      const modelId = requested.startsWith(`${provider}/`)
+        ? requested.slice(provider.length + 1)
+        : requested;
+      if (models.length > 0 && !models.some((model) => model.id === modelId)) {
+        const suggestion = closestMatch(
+          modelId,
+          models.map((model) => model.id),
+        );
+        yield* terminal.error(
+          suggestion === undefined
+            ? `${provider} has no model "${modelId}". Run /model to pick one.`
+            : `${provider} has no model "${modelId}". Did you mean ${suggestion}?`,
+        );
+        yield* terminal.log("");
+        return { shouldContinue: true, keepDraft: true };
+      }
+      return yield* applyModel(modelId);
+    }
+
+    if (models.length === 0) {
+      yield* terminal.log(fmt.keyValueCompact("Model", current));
+      yield* terminal.info(`Jazz could not list ${provider}'s models. Use /model <model-id>.`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    if (!terminal.isInteractive) {
+      yield* terminal.log(fmt.keyValueCompact("Model", current));
+      yield* terminal.info(`Use /model <model-id>, e.g. /model ${models[0]?.id ?? ""}`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const selected = yield* terminal.search<string>(
+      `Model for this session (now ${agent.config.llmModel}):`,
+      {
+        choices: buildModelChoices(provider, models),
+        placeholder: "Type to filter models…",
+      },
+    );
+    if (selected === undefined) {
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+    return yield* applyModel(selected);
+  });
+}
+
+/**
  * Handle /limit command - view or set a session-wide turn/cost/token cap.
  *
  * "Session-wide" means the limit stays in effect for the rest of this
@@ -2027,17 +2183,24 @@ function handleRunMcpPromptCommand(
 }
 
 /**
- * Handle unknown command
+ * Handle an unknown command: say so, suggest the closest command, and keep the
+ * draft so a typo is one edit away instead of a retype.
  */
 function handleUnknownCommand(
   terminal: TerminalService,
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    yield* terminal.error(`Unknown command: /${args.join(" ")}`);
-    yield* terminal.info("Type '/help' to see available commands.");
+    const typed = args[0] ?? "";
+    yield* terminal.error(`Unknown command: /${typed}`);
+    const suggestion = typed.length > 0 ? suggestCommand(typed) : undefined;
+    yield* terminal.info(
+      suggestion === undefined
+        ? "Type '/help' to see available commands."
+        : `Did you mean /${suggestion.name}? Type '/help' to see available commands.`,
+    );
     yield* terminal.log("");
-    return { shouldContinue: true };
+    return { shouldContinue: true, keepDraft: true };
   });
 }
 
@@ -2341,7 +2504,8 @@ function resolveMcpServerStatus(
     const enabled = config.enabled !== false;
     const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
     const usesOAuth = isHttpConfig(config) && !config.headers;
-    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+    const storedAuth =
+      usesOAuth && isHttpConfig(config) ? yield* hasStoredAuth(config.name, config.url) : false;
 
     const kind: McpStatusKind = !enabled
       ? "disabled"
@@ -2430,10 +2594,12 @@ function mcpServerActions(status: McpServerStatus): readonly { name: string; val
   if (status.usesOAuth && status.hasStoredAuth) {
     actions.push({ name: "Forget stored credentials", value: "logout" });
   }
-  actions.push({
-    name: status.config.trusted === true ? "Untrust" : "Trust",
-    value: "toggle-trust",
-  });
+  if (status.config.definedIn !== "project") {
+    actions.push({
+      name: status.config.trusted === true ? "Untrust" : "Trust",
+      value: "toggle-trust",
+    });
+  }
   actions.push({ name: "Disable", value: "disable" });
   actions.push({ name: "Back", value: "back" });
   return actions;
@@ -2505,7 +2671,8 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        yield* clearServerAuth(config.name);
+        if (!isHttpConfig(config)) return;
+        yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
       }
@@ -2747,16 +2914,8 @@ function handleModeCommand(
       return { shouldContinue: true, removeAutoApprovedCommand: pattern };
     }
 
-    if (modeArg === "safe") {
-      yield* terminal.success("Switched to safe mode — all tool calls require approval");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: false as const };
-    }
-
-    if (modeArg === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
+    if (modeArg === "safe" || modeArg === "yolo") {
+      return yield* switchChatMode(terminal, modeArg);
     }
 
     if (modeArg) {
@@ -2774,15 +2933,17 @@ function handleModeCommand(
         "Tip: /mode allow <cmd> auto-approves a command prefix; /mode disallow removes it.",
       ),
     );
-    const isSafe = !currentPolicy;
-    const isYolo = currentPolicy === true || currentPolicy === "high-risk";
-    const selected = yield* terminal.select<string>("Select tool approval mode:", {
+    const current = chatModeForPolicy(currentPolicy);
+    const selected = yield* terminal.select<ChatApprovalMode>("Select tool approval mode:", {
       choices: [
         {
-          name: `safe — require approval for every tool call${isSafe ? " (current)" : ""}`,
+          name: `safe: ask before high-risk tool calls${current === "safe" ? " (current)" : ""}`,
           value: "safe",
         },
-        { name: `yolo — auto-approve all tool calls${isYolo ? " (current)" : ""}`, value: "yolo" },
+        {
+          name: `yolo: auto-approve all tool calls${current === "yolo" ? " (current)" : ""}`,
+          value: "yolo",
+        },
       ],
     });
 
@@ -2810,15 +2971,22 @@ function handleModeCommand(
       return { shouldContinue: true };
     }
 
-    if (selected === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
-    }
+    return yield* switchChatMode(terminal, selected);
+  });
+}
 
-    yield* terminal.success("Switched to safe mode — all tool calls require approval");
+function switchChatMode(
+  terminal: TerminalService,
+  mode: ChatApprovalMode,
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    yield* terminal.success(
+      mode === "yolo"
+        ? "Switched to yolo mode: all tool calls auto-approved"
+        : "Switched to safe mode: high-risk tool calls require approval",
+    );
     yield* terminal.log("");
-    return { shouldContinue: true, newAutoApprovePolicy: false as const };
+    return { shouldContinue: true, newAutoApprovePolicy: policyForChatMode(mode) };
   });
 }
 

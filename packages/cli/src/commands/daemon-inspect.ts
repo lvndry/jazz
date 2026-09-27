@@ -26,6 +26,7 @@ import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { isProcessAlive } from "@jazz/core/utils/process";
 import { Effect } from "effect";
 import { backgroundDaemonLogPath } from "@/cli/commands/daemon";
+import { readDaemonAttention, formatDaemonAttention } from "@/cli/commands/daemon-attention";
 import { collectBatches, collectReminders, collectTriggers } from "@/cli/commands/pending";
 import { probeDaemonOwner, readDaemonPid } from "@/cli/helpers/daemon-process";
 import { emitEnvelope } from "@/cli/helpers/json-output";
@@ -208,7 +209,12 @@ export function daemonStatusCommand(options: {
       logPath: backgroundDaemonLogPath(),
     };
 
-    emitEnvelope(options.json, { ok: true, ...report }, formatDaemonStatus(report));
+    const attention = yield* readDaemonAttention();
+    emitEnvelope(
+      options.json,
+      { ok: true, running: state === "running", ...report, ...attention },
+      `${formatDaemonStatus(report)}\n\n${formatDaemonAttention(attention)}`,
+    );
     if (state !== "running") {
       process.exitCode = 1;
     }

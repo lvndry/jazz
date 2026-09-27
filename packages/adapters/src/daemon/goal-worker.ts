@@ -34,12 +34,14 @@ import { priceOneOffCall, runSpend, type RunSpend } from "@jazz/core/agent/run/r
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import { goalCycleReport } from "@jazz/core/agent/tools/goal-report";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { nextCycleBlockedBySpend } from "@jazz/core/spend/run-accounting";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
@@ -50,6 +52,13 @@ import {
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
 import { claimOwnerStatus, inFlight } from "./runs-in-flight";
+
+/** How much of a goal's objective names it in the spend ledger and in notifications. */
+const GOAL_NAME_CHARS = 80;
+
+function goalName(goal: GoalRecord): string {
+  return goal.plan.objective.slice(0, GOAL_NAME_CHARS);
+}
 
 /** A disposition is a small JSON object; this bounds a repair call that would ramble. */
 const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
@@ -385,6 +394,7 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
         ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
         parkWhenUnattended: true,
         startedBy: "goal",
+        origin: { source: "goal", name: goalName(goal) },
         conversationHistory: [...(prior?.messages ?? [])],
       }),
     );
@@ -575,11 +585,29 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
 }
 
 /**
+ * Whether a spend ceiling holds the goal's next cycle back. The goal stays active and its next
+ * cycle starts on the first tick after the ceiling clears (a new day or month, or a raised
+ * ceiling); the notify channel hears about it once per ceiling and window.
+ */
+function spendBlocksNextCycle(goal: GoalRecord) {
+  return Effect.gen(function* () {
+    const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
+    const blocked = yield* nextCycleBlockedBySpend({
+      agentId: goal.agentId,
+      origin: { source: "goal", name: goalName(goal) },
+      appConfig,
+    });
+    return blocked !== undefined;
+  });
+}
+
+/**
  * One daemon tick: settle cycles whose runs have moved on and start due cycles. A started
  * cycle runs on its own fiber so one long cycle does not hold up triggers, workflows, or
- * other goals; the fibers are returned for callers that want to wait on them.
+ * other goals; the fibers are returned for callers that want to wait on them. With `startNew`
+ * false (the daemon is paused) cycles already running are still settled, but none starts.
  */
-export function runDueGoals() {
+export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
@@ -596,7 +624,10 @@ export function runDueGoals() {
         }
         const cycle = goal.cycle;
         if (cycle === undefined) {
-          if (goal.state.kind !== "active") {
+          if (goal.state.kind !== "active" || options.startNew === false) {
+            return;
+          }
+          if (yield* spendBlocksNextCycle(goal)) {
             return;
           }
           const claim = yield* claimCycle(goal);

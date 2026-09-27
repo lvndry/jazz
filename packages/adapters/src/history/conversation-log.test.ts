@@ -504,3 +504,35 @@ describe("deriveConversationTitle", () => {
     expect(deriveConversationTitle(undefined, [])).toBe("untitled conversation");
   });
 });
+
+describe("conversation log privacy and versions", () => {
+  test("creates the log and its directory private to the owner", async () => {
+    await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.dirname(logPath)).mode & 0o777).toBe(0o700);
+  });
+
+  test("refuses to read or append to a log written by a newer Jazz", async () => {
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    const newer = `${JSON.stringify({
+      type: "conversation",
+      version: 99,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+    })}\n`;
+    fs.writeFileSync(logPath, newer);
+
+    const read = await runEffect(
+      readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir).pipe(Effect.either),
+    );
+    expect(read._tag).toBe("Left");
+    const append = await runEffect(
+      recordConversationTranscript(record([userMessage("hi")]), tmpDir).pipe(Effect.either),
+    );
+    expect(append._tag).toBe("Left");
+    expect(fs.readFileSync(logPath, "utf8")).toBe(newer);
+  });
+});
