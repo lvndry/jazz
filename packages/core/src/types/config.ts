@@ -164,12 +164,6 @@ export interface OtlpTelemetryConfig {
    * this process's telemetry. Env: OTEL_RESOURCE_ATTRIBUTES.
    */
   readonly resourceAttributes?: Readonly<Record<string, string>>;
-  /**
-   * Include prompt, completion, and tool argument text in exported events.
-   * Defaults to false: enabling it sends user content to the configured
-   * endpoint.
-   */
-  readonly captureContent?: boolean;
   /** Per-request timeout in milliseconds. Defaults to 10000. */
   readonly timeoutMs?: number;
   /** Maximum disk space used by pending OTLP traces and logs. Defaults to 32 MiB. */

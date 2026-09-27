@@ -52,7 +52,7 @@ describe("secret registry", () => {
 
   it("does not treat non-header telemetry settings as secrets", () => {
     expect(isSecretPath("telemetry.otlp.endpoint")).toBe(false);
-    expect(isSecretPath("telemetry.otlp.captureContent")).toBe(false);
+    expect(isSecretPath("telemetry.otlp.serviceName")).toBe(false);
     expect(isSecretPath("telemetry.enabled")).toBe(false);
   });
 

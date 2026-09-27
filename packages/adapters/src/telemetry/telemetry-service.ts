@@ -771,7 +771,6 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         ...(otlpConfig && {
           otlp: {
             enabled: otlpConfig.enabled,
-            captureContent: otlpConfig.captureContent,
             signals: otlpConfig.signals,
           },
         }),

@@ -118,7 +118,6 @@ const PROCESS_FIELDS = [
 ] as const;
 
 const MAX_ATTRIBUTE_CHARS_REDACTED = 256;
-const MAX_ATTRIBUTE_CHARS_FULL = 8192;
 
 const SEVERITY_BY_EVENT_TYPE: Partial<Record<TelemetryEventType, [number, string]>> = {
   agent_run_failed: [17, "ERROR"],
@@ -306,32 +305,11 @@ function appendSafeRecord(
   appendSafeScalars(value, fields, prefix, attributes);
 }
 
-/** Content is serialized only when the operator explicitly opted in. */
-function appendContent(event: TelemetryEvent, attributes: OtlpKeyValue[]): void {
-  const data = event.data;
-  const input = data["input"] ?? data["prompt"] ?? data["arguments"];
-  const output = data["output"] ?? data["completion"] ?? data["result"];
-  for (const [key, value] of [
-    ["input", input],
-    ["output", output],
-  ] as const) {
-    if (value === undefined || value === null) continue;
-    let serialized: string;
-    try {
-      serialized = JSON.stringify(value);
-    } catch {
-      continue;
-    }
-    if (typeof serialized !== "string" || serialized.length > MAX_ATTRIBUTE_CHARS_FULL) continue;
-    attributes.push(stringAttribute(`langfuse.observation.${key}`, serialized));
-  }
-}
-
 /**
  * Map a Jazz telemetry event onto GenAI semantic-convention attributes where
  * one exists, and `jazz.*` attributes for everything else.
  */
-export function eventToAttributes(event: TelemetryEvent, captureContent: boolean): OtlpKeyValue[] {
+export function eventToAttributes(event: TelemetryEvent): OtlpKeyValue[] {
   const attributes: OtlpKeyValue[] = [
     stringAttribute("jazz.event.type", event.type),
     stringAttribute("jazz.event.id", event.id),
@@ -435,12 +413,11 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
       ),
     );
   }
-  if (captureContent) appendContent(event, attributes);
 
   return attributes;
 }
 
-export function toLogRecord(event: TelemetryEvent, captureContent: boolean): OtlpLogRecord {
+export function toLogRecord(event: TelemetryEvent): OtlpLogRecord {
   const timeUnixNano = String(BigInt(new Date(event.timestamp).getTime()) * 1_000_000n);
   const [severityNumber, severityText] = SEVERITY_BY_EVENT_TYPE[event.type] ?? DEFAULT_SEVERITY;
   const runId = event.data["runId"];
@@ -460,7 +437,7 @@ export function toLogRecord(event: TelemetryEvent, captureContent: boolean): Otl
     severityNumber,
     severityText,
     body: { stringValue: event.type },
-    attributes: eventToAttributes(event, captureContent),
+    attributes: eventToAttributes(event),
   };
 }
 
@@ -499,9 +476,7 @@ export function buildResourceAttributes(options: ResourceOptions): OtlpKeyValue[
 
 export function buildLogsPayload(
   events: readonly TelemetryEvent[],
-  options: ResourceOptions & {
-    readonly captureContent: boolean;
-  },
+  options: ResourceOptions,
 ): OtlpLogsPayload {
   return {
     resourceLogs: [
@@ -512,7 +487,7 @@ export function buildLogsPayload(
         scopeLogs: [
           {
             scope: { name: "jazz", version: options.serviceVersion },
-            logRecords: events.map((event) => toLogRecord(event, options.captureContent)),
+            logRecords: events.map((event) => toLogRecord(event)),
           },
         ],
       },

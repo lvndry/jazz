@@ -39,7 +39,7 @@ describe("eventToAttributes", () => {
       { agentId: "agent-1", conversationId: "conv-1" },
     );
 
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
 
     expect(attributes["gen_ai.provider.name"]).toBe("anthropic");
     expect(attributes["gen_ai.request.model"]).toBe("claude-opus-5");
@@ -54,7 +54,7 @@ describe("eventToAttributes", () => {
       usage: { promptTokens: 7, completionTokens: 8, totalTokens: 15 },
     });
 
-    const attributes = eventToAttributes(event, false);
+    const attributes = eventToAttributes(event);
     const inputTokens = attributes.find((a) => a.key === "gen_ai.usage.input_tokens");
 
     expect(inputTokens?.value).toEqual({ intValue: "7" });
@@ -73,7 +73,7 @@ describe("eventToAttributes", () => {
       { agentId: "agent-1", conversationId: "conv-1" },
     );
 
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
 
     expect(attributes["jazz.event.type"]).toBe("agent_run_completed");
     expect(attributes["jazz.agent.id"]).toBe("agent-1");
@@ -109,8 +109,8 @@ describe("eventToAttributes", () => {
       process: { rssBytes: 50_000_000, heapUsedBytes: 20_000_000 },
     });
 
-    const usageAttributes = attributeMap(eventToAttributes(usageEvent, false));
-    const runAttributes = attributeMap(eventToAttributes(runEvent, false));
+    const usageAttributes = attributeMap(eventToAttributes(usageEvent));
+    const runAttributes = attributeMap(eventToAttributes(runEvent));
 
     expect(usageAttributes["jazz.purpose"]).toBe("classifier");
     expect(usageAttributes["gen_ai.usage.input_tokens"]).toBe("180");
@@ -123,7 +123,7 @@ describe("eventToAttributes", () => {
 
   it("does not duplicate provider and model under the jazz namespace", () => {
     const event = makeEvent("llm_usage", { provider: "openai", model: "gpt-5" });
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
 
     expect(attributes["jazz.provider"]).toBeUndefined();
     expect(attributes["jazz.model"]).toBeUndefined();
@@ -136,40 +136,26 @@ describe("eventToAttributes", () => {
       result: "a long secret result",
     });
 
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
 
     expect(attributes["jazz.toolName"]).toBe("web_search");
     expect(Object.keys(attributes).some((key) => key.startsWith("jazz.arguments"))).toBe(false);
     expect(attributes["jazz.result"]).toBeUndefined();
   });
 
-  it("includes content-bearing keys when capture is on", () => {
-    const event = makeEvent("tool_invocation", {
-      toolName: "web_search",
-      result: "a result",
-    });
-
-    const attributes = attributeMap(eventToAttributes(event, true));
-
-    expect(attributes["langfuse.observation.output"]).toBe('"a result"');
-    expect(attributes["jazz.result"]).toBeUndefined();
-  });
-
-  it("never exports raw error text, even when content capture is enabled", () => {
+  it("never exports raw error text", () => {
     const event = makeEvent("agent_run_failed", { error: "Authorization: Bearer secret-token" });
 
-    const withoutContent = attributeMap(eventToAttributes(event, false));
-    const withContent = attributeMap(eventToAttributes(event, true));
+    const attributes = attributeMap(eventToAttributes(event));
 
-    expect(withoutContent["jazz.error"]).toBeUndefined();
-    expect(withContent["jazz.error"]).toBeUndefined();
-    expect(withoutContent["error.type"]).toBe("agent_run_failed");
-    expect(JSON.stringify(withContent)).not.toContain("secret-token");
+    expect(attributes["jazz.error"]).toBeUndefined();
+    expect(attributes["error.type"]).toBe("agent_run_failed");
+    expect(JSON.stringify(attributes)).not.toContain("secret-token");
   });
 
   it("uses a bounded error category for backend filtering", () => {
     const attributes = attributeMap(
-      eventToAttributes(makeEvent("llm_retry", { error: "rate_limit", attempt: 2 }), false),
+      eventToAttributes(makeEvent("llm_retry", { error: "rate_limit", attempt: 2 })),
     );
 
     expect(attributes["error.type"]).toBe("rate_limit");
@@ -182,7 +168,6 @@ describe("eventToAttributes", () => {
           secret: "private-token",
           metadata: { credential: "private-token" },
         }),
-        false,
       ),
     );
     expect(JSON.stringify(attributes)).not.toContain("private-token");
@@ -196,7 +181,6 @@ describe("eventToAttributes", () => {
           toolName: "web_search",
           toolCallId: "secret-token",
         }),
-        false,
       ),
     );
     expect(JSON.stringify(attributes)).not.toContain("secret-token");
@@ -211,7 +195,7 @@ describe("eventToAttributes", () => {
       },
       { conversationId: "child-conversation" },
     );
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
     expect(attributes["langfuse.session.id"]).toBe("parent-session");
     expect(attributes["jazz.conversation.id"]).toBe("child-conversation");
   });
@@ -231,7 +215,6 @@ describe("eventToAttributes", () => {
             reasoningTokens: 20,
           },
         }),
-        false,
       ),
     );
     expect(attributes["gen_ai.usage.input_tokens"]).toBe("120");
@@ -247,7 +230,6 @@ describe("eventToAttributes", () => {
         makeEvent("llm_usage", {
           usage: { promptTokens: Number.NaN, completionTokens: -2, cacheReadTokens: 1.5 },
         }),
-        false,
       ),
     );
     expect(attributes["gen_ai.usage.input_tokens"]).toBeUndefined();
@@ -261,7 +243,7 @@ describe("eventToAttributes", () => {
       args: ["--prompt", "something private"],
     });
 
-    const attributes = attributeMap(eventToAttributes(event, false));
+    const attributes = attributeMap(eventToAttributes(event));
 
     expect(attributes["jazz.args.count"]).toBeUndefined();
     expect(JSON.stringify(attributes)).not.toContain("something private");
@@ -270,20 +252,20 @@ describe("eventToAttributes", () => {
 
 describe("toLogRecord", () => {
   it("converts the timestamp to unix nanoseconds", () => {
-    const record = toLogRecord(makeEvent("llm_usage", {}), false);
+    const record = toLogRecord(makeEvent("llm_usage", {}));
 
     expect(record.timeUnixNano).toBe(String(Date.parse("2026-08-15T12:00:00.000Z") * 1_000_000));
   });
 
   it("raises severity for failures and retries", () => {
-    expect(toLogRecord(makeEvent("tool_error", {}), false).severityText).toBe("ERROR");
-    expect(toLogRecord(makeEvent("agent_run_failed", {}), false).severityText).toBe("ERROR");
-    expect(toLogRecord(makeEvent("llm_retry", {}), false).severityText).toBe("WARN");
-    expect(toLogRecord(makeEvent("llm_usage", {}), false).severityText).toBe("DEBUG");
+    expect(toLogRecord(makeEvent("tool_error", {})).severityText).toBe("ERROR");
+    expect(toLogRecord(makeEvent("agent_run_failed", {})).severityText).toBe("ERROR");
+    expect(toLogRecord(makeEvent("llm_retry", {})).severityText).toBe("WARN");
+    expect(toLogRecord(makeEvent("llm_usage", {})).severityText).toBe("DEBUG");
   });
 
   it("uses the event type as the record body", () => {
-    expect(toLogRecord(makeEvent("agent_run_started", {}), false).body).toEqual({
+    expect(toLogRecord(makeEvent("agent_run_started", {})).body).toEqual({
       stringValue: "agent_run_started",
     });
   });
@@ -294,8 +276,8 @@ describe("toLogRecord", () => {
       toolCallId: "dispatch-1",
       toolName: "spawn_subagent",
     });
-    const record = toLogRecord(event, false);
-    const span = toSpan(event, false);
+    const record = toLogRecord(event);
+    const span = toSpan(event);
 
     expect(record.traceId).toBe(span.traceId);
     expect(record.spanId).toBe(span.spanId);
@@ -316,15 +298,15 @@ describe("toLogRecord", () => {
       runId: "run-child",
       telemetryParent: parent,
     });
-    const startLog = toLogRecord(started, false);
-    const childSpan = toSpan(completed, false);
+    const startLog = toLogRecord(started);
+    const childSpan = toSpan(completed);
 
     expect(startLog.traceId).toBe(childSpan.traceId);
     expect(startLog.spanId).toBe(childSpan.spanId);
   });
 
   it("does not invent a trace context for a standalone CLI command", () => {
-    const record = toLogRecord(makeEvent("command_executed", { command: "list" }), false);
+    const record = toLogRecord(makeEvent("command_executed", { command: "list" }));
 
     expect(record.traceId).toBeUndefined();
     expect(record.spanId).toBeUndefined();
@@ -332,8 +314,8 @@ describe("toLogRecord", () => {
 
   it("correlates a standalone LLM event log with its root span", () => {
     const event = makeEvent("llm_usage", { model: "gpt-4" }, { conversationId: "conv-9" });
-    const record = toLogRecord(event, false);
-    const span = toSpan(event, false);
+    const record = toLogRecord(event);
+    const span = toSpan(event);
 
     expect(span.parentSpanId).toBeUndefined();
     expect(record.traceId).toBe(span.traceId);
@@ -346,7 +328,6 @@ describe("buildLogsPayload", () => {
     const payload = buildLogsPayload([makeEvent("llm_usage", {})], {
       serviceName: "jazz-prod",
       serviceVersion: "1.2.3",
-      captureContent: false,
     });
 
     const resourceAttributes = attributeMap(payload.resourceLogs[0]!.resource.attributes);
@@ -359,7 +340,6 @@ describe("buildLogsPayload", () => {
     const payload = buildLogsPayload([makeEvent("llm_usage", { model: "gpt-5" })], {
       serviceName: "jazz",
       serviceVersion: "1.0.0",
-      captureContent: false,
     });
 
     expect(() => JSON.stringify(payload)).not.toThrow();
@@ -374,7 +354,6 @@ describe("buildLogsPayload", () => {
         "service.namespace": "ksyl",
         "service.instance.id": "instance-1",
       },
-      captureContent: false,
     });
 
     const resourceAttributes = attributeMap(payload.resourceLogs[0]!.resource.attributes);
@@ -388,7 +367,6 @@ describe("buildLogsPayload", () => {
       serviceName: "resolved",
       serviceVersion: "1.2.3",
       resourceAttributes: { "service.name": "sneaky" },
-      captureContent: false,
     });
 
     const serviceNames = payload.resourceLogs[0]!.resource.attributes.filter(

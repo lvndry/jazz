@@ -123,7 +123,7 @@ Short-lived CLI runs export a zero `jazz.agent.runs` sample at run start and a t
 
 ## Privacy and delivery
 
-Jazz's shared telemetry event stream does not contain prompt, completion, tool argument, or tool result text. String attributes are bounded and known credential-bearing fields are redacted. `captureContent` defaults to false; setting it to true currently does not add content to events or OTLP. This setting is reserved for a future explicit per-destination content path. Never assume an OTLP collector is a private boundary; configure only approved endpoints.
+Jazz's shared telemetry event stream does not contain prompt, completion, tool argument, or tool result text. String attributes are bounded and known credential-bearing fields are redacted. No setting adds that text to events or OTLP exports. Never assume an OTLP collector is a private boundary; configure only approved endpoints.
 
 Traces and logs have independent disk-backed queues under `<telemetry.storagePath>/otlp-outbox`. They contain payloads but no authentication headers, use private file permissions, and retry independently of local event files. Queue limits default to 32 MiB and seven days; oldest pending payloads are dropped with a warning when those limits are reached. Retryable HTTP responses (`429`, `502`, `503`, `504`) and network failures get bounded retries, honoring `Retry-After`. Other HTTP failures are dropped with a warning. An OTLP partial-success response is acknowledged and reported, not retried. An ambiguous connection failure may produce a duplicate after retry or restart; consumers should use stable trace/span IDs where possible.
 

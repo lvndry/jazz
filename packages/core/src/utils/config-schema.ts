@@ -332,7 +332,6 @@ const otlpShape = {
   headers: z.record(safeRecordKey, text).exactOptional(),
   serviceName: text.exactOptional(),
   resourceAttributes: z.record(safeRecordKey, text).exactOptional(),
-  captureContent: flag.exactOptional(),
   timeoutMs: wholeNumber.exactOptional(),
   maxQueuedBytes: positiveWholeNumber.exactOptional(),
   maxQueueAgeMs: positiveWholeNumber.exactOptional(),

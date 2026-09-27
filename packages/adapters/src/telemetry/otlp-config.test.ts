@@ -175,14 +175,6 @@ describe("resolveOtlpConfig", () => {
     ).toThrow("OTLP logs export is selected but has no endpoint");
   });
 
-  it("never enables content capture from the environment", () => {
-    const resolved = resolveOtlpConfig(undefined, {
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
-    });
-
-    expect(resolved?.captureContent).toBe(false);
-  });
-
   it("prefers explicit config over the environment", () => {
     const resolved = resolveOtlpConfig(
       { endpoint: "http://configured:4318", serviceName: "jazz-prod" },

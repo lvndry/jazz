@@ -561,7 +561,7 @@ describe("createConfigLayer", () => {
         JSON.stringify({
           telemetry: {
             retentionDays: 7,
-            otlp: { endpoint: "http://collector:4318", captureContent: true },
+            otlp: { endpoint: "http://collector:4318", serviceName: "jazz-test" },
           },
         }),
       ],
@@ -573,14 +573,14 @@ describe("createConfigLayer", () => {
     const program = Effect.gen(function* () {
       const config = yield* AgentConfigServiceTag;
       const endpoint = yield* config.get<string>("telemetry.otlp.endpoint");
-      const captureContent = yield* config.get<boolean>("telemetry.otlp.captureContent");
+      const serviceName = yield* config.get<string>("telemetry.otlp.serviceName");
       const retentionDays = yield* config.get<number>("telemetry.retentionDays");
-      return { endpoint, captureContent, retentionDays };
+      return { endpoint, serviceName, retentionDays };
     }).pipe(Effect.provide(layer));
 
     const result = await Effect.runPromise(program);
     expect(result.endpoint).toBe("http://collector:4318");
-    expect(result.captureContent).toBe(true);
+    expect(result.serviceName).toBe("jazz-test");
     expect(result.retentionDays).toBe(7);
   });
 
