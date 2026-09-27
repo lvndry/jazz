@@ -4,8 +4,10 @@
  *
  * A wrong key otherwise surfaces much later, as a 401 in the middle of the
  * first conversation. Most providers expose an authenticated model listing
- * that costs nothing and returns 401 or 403 for a bad key, so `checkApiKey`
- * calls it once with a short timeout. A provider with no such endpoint here, a
+ * that costs nothing, so `checkApiKey` calls it once with a short timeout.
+ * A 401 rejects the key; a 403 can mean a restricted key cannot list models,
+ * even though inference is allowed, and is reported separately for a warning.
+ * A provider with no such endpoint here, a
  * custom base URL, a network failure or any other status is `unchecked`: the
  * key is saved as typed and the first real request decides.
  */
@@ -13,7 +15,7 @@
 import { llmFetch } from "./llm-fetch";
 
 /** What the provider said about a key. */
-export type ApiKeyCheck = "accepted" | "rejected" | "unchecked";
+export type ApiKeyCheck = "accepted" | "rejected" | "permission-denied" | "unchecked";
 
 /** Long enough for a slow link, short enough that saving a key never feels stuck. */
 export const API_KEY_CHECK_TIMEOUT_MS = 10_000;
@@ -27,7 +29,7 @@ const bearer = (apiKey: string): Record<string, string> => ({
   Authorization: `Bearer ${apiKey}`,
 });
 
-/** Authenticated, free endpoints that answer 401/403 for a key the provider does not accept. */
+/** Authenticated, free endpoints; access here does not imply inference permission. */
 const KEY_CHECKS: Readonly<Record<string, KeyCheckRequest>> = {
   openai: { url: "https://api.openai.com/v1/models", headers: bearer },
   anthropic: {
@@ -47,9 +49,6 @@ const KEY_CHECKS: Readonly<Record<string, KeyCheckRequest>> = {
   mistral: { url: "https://api.mistral.ai/v1/models", headers: bearer },
   togetherai: { url: "https://api.together.xyz/v1/models", headers: bearer },
 };
-
-/** HTTP statuses a provider answers when it does not accept the key. */
-const REJECTED_STATUSES: ReadonlySet<number> = new Set([401, 403]);
 
 /**
  * Ask the provider whether it accepts the key.
@@ -76,7 +75,9 @@ export async function checkApiKey(
     if (response.ok) {
       return "accepted";
     }
-    return REJECTED_STATUSES.has(response.status) ? "rejected" : "unchecked";
+    if (response.status === 401) return "rejected";
+    if (response.status === 403) return "permission-denied";
+    return "unchecked";
   } catch {
     return "unchecked";
   }
