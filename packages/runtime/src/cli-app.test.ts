@@ -1,3 +1,4 @@
+/** CLI registration tests cover public commands and global flag parsing without starting agents. */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,22 @@ describe("createCLIApp help path", () => {
     expect(specifiers).not.toContain("@jazz/cli/commands/create-agent");
     expect(specifiers).not.toContain("@jazz/cli/commands/edit-agent");
     expect(specifiers).not.toContain("@jazz/cli/commands/run/lifecycle");
+  });
+
+  it("keeps -v as verbose and exposes version only through --version", () => {
+    const program = createCLIApp().exitOverride();
+    let output = "";
+    program.configureOutput({
+      writeOut: (text) => {
+        output += text;
+      },
+    });
+    expect(program.parseOptions(["-v"]).unknown).toEqual([]);
+    expect(program.opts()["verbose"]).toBe(true);
+    expect(output).toBe("");
+    expect(program.parseOptions(["-V"]).unknown).toEqual(["-V"]);
+    expect(() => program.parseOptions(["--version"])).toThrow();
+    expect(output).toBe(`${program.version()}\n`);
   });
 
   it("offers --stream on `workflow run`, as headless reasoning events depend on it", () => {

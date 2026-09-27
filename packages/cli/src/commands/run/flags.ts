@@ -8,7 +8,7 @@
 
 import type { StreamEvent } from "@jazz/core/types/streaming";
 
-const VALID_REASONING_EFFORTS = [
+export const VALID_REASONING_EFFORTS = [
   "disable",
   "minimal",
   "low",

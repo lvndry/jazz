@@ -322,6 +322,8 @@ describe("PersonaService", () => {
       expect(names).toContain("coder");
       expect(names).toContain("researcher");
       expect(names).toContain("tutor");
+      expect(names).not.toContain("summarizer");
+      expect(names).not.toContain("memory-extractor");
     });
 
     it("should still list built-ins when the base directory is read-only", async () => {

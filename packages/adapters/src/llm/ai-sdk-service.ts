@@ -79,6 +79,7 @@ import {
   configuredProviderApiKey,
   formatProviderDisplayName,
   isChatGPTSignedIn,
+  unknownProviderMessage,
 } from "@jazz/core/utils/provider-model";
 import { sanitize } from "@jazz/core/utils/string";
 import { compactToolJsonSchema } from "@jazz/core/utils/tool-json-schema";
@@ -1150,7 +1151,7 @@ function selectModel(
         modelType: "languageModel",
         providerId: String(providerName),
         availableProviders: [...AVAILABLE_PROVIDERS],
-        message: `This jazz build does not support the "${String(providerName)}" provider. Update jazz, or pick another provider with 'jazz config'.`,
+        message: unknownProviderMessage(String(providerName)),
       });
   }
 

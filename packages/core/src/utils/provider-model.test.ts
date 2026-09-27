@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { formatProviderDisplayName, parseProviderModel } from "./provider-model";
+import {
+  formatProviderDisplayName,
+  parseProviderModel,
+  unknownProviderMessage,
+} from "./provider-model";
 
 describe("formatProviderDisplayName", () => {
   it("uses official provider branding and a readable fallback", () => {
@@ -75,5 +79,17 @@ describe("parseProviderModel", () => {
 
   it("returns null when the provider is not a known provider", () => {
     expect(parseProviderModel("notaprovider/some-model")).toBeNull();
+  });
+});
+
+describe("unknownProviderMessage", () => {
+  it("suggests the provider a typo meant and how to fix the agent", () => {
+    const message = unknownProviderMessage("opneai");
+    expect(message).toContain('Did you mean "openai"?');
+    expect(message).toContain("jazz agent edit");
+  });
+
+  it("offers no guess for a name nothing resembles", () => {
+    expect(unknownProviderMessage("zzzzzzzzzz")).not.toContain("Did you mean");
   });
 });

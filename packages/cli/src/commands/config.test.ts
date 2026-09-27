@@ -129,11 +129,27 @@ describe("jazz config set", () => {
     ]);
   });
 
-  it("passes a secret through verbatim, including ones stored under a list", async () => {
-    const exit = await set("webhooks.deploy.token", " s3cret ");
+  it("passes a secret through trimmed, including ones stored under a list", async () => {
+    const exit = await set("webhooks.deploy.token", " s3cret\n");
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(writes).toEqual([{ key: "webhooks.deploy.token", value: " s3cret " }]);
+    expect(writes).toEqual([{ key: "webhooks.deploy.token", value: "s3cret" }]);
+  });
+
+  it("refuses an API key for a provider that does not exist", async () => {
+    for (const key of ["llm.opneai.api_key", "llm.opneai", "chatgpt"]) {
+      const exit = await set(key, "sk-x");
+      expect(failure(exit)).toBeInstanceOf(ConfigurationValidationError);
+    }
+    expect(failure(await set("llm.opneai.api_key", "sk-x"))?.suggestion).toContain("llm.openai");
+    expect(writes).toEqual([]);
+  });
+
+  it("trims a pasted API key", async () => {
+    const exit = await set("openai", "  sk-abc\n");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "llm.openai.api_key", value: "sk-abc" }]);
   });
 
   it("refuses a value it cannot read as the declared type instead of writing it", async () => {

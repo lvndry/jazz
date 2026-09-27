@@ -39,7 +39,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
 
    ```bash
    jazz agent create
-   jazz chat
+   jazz agent chat <agent-name>
    ```
 
 llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://127.0.0.1:8080/v1`), or the first-use server-URL prompt in `jazz agent create`; start `llama-server` with `--jinja` for tool calling.
