@@ -120,6 +120,7 @@ const mockPresentationService: PresentationService = {
     }),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
+  writeError: () => Effect.void,
   presentStatus: () => Effect.void,
   openEphemeralRegion: () => Effect.succeed("noop"),
   appendEphemeralRegion: () => Effect.void,

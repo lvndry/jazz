@@ -177,10 +177,10 @@ The cost of recall tracks how much is relevant, not how much has ever been remem
 ### Trusted capture and correction
 
 Every `manage_memory` write quotes the user. A message typed in the terminal, or passed to
-`jazz run` as its positional argument, carries a `[memory source <id>]` tag; the model sets
+`jazz run` as its positional argument or `--input-stdin` prompt, carries a `[memory source <id>]` tag; the model sets
 `source_ref` to that ID and `source_quote` to words copied exactly from the message. Earlier
-messages in the same conversation stay quotable. A prompt piped to `jazz run` on stdin, inline
-`--history-json`, tool output, web pages, model summaries, replayed chat commands, and synthetic
+messages in the same conversation stay quotable. A prompt piped to `jazz run` on stdin, an
+`--input-stdin` frame's `history`, tool output, web pages, model summaries, replayed chat commands, and synthetic
 sub-agent prompts carry no tag and cannot become user facts. The saved entry contains the user's
 quoted words, and a rejected citation says whether the ID, the quote, or its length was wrong.
 

@@ -184,6 +184,15 @@ export interface PresentationService {
   readonly writeBlankLine: () => Effect.Effect<void, never>;
 
   /**
+   * Write a failure report, such as a command's error with its suggestions.
+   *
+   * Implementations without an interactive UI write it to stderr, so a
+   * pipeline's stdout carries only data. Quiet presentation writes it too:
+   * quiet suppresses progress, never the reason a command failed.
+   */
+  readonly writeError: (message: string) => Effect.Effect<void, never>;
+
+  /**
    * Present a status message to the user.
    *
    * Used for operational status updates like service connections, setup progress, etc.
@@ -191,7 +200,7 @@ export interface PresentationService {
    *
    * Implementations:
    * - Ink (interactive): renders with colors/icons via the Ink store
-   * - CLI (non-TTY): writes plain text with prefix to stdout
+   * - CLI (non-TTY): writes plain text with prefix; warnings and errors to stderr, the rest to stdout
    * - Quiet (background): no-op (silent)
    *
    * @param message - The status message to display

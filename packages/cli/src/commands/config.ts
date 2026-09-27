@@ -67,8 +67,10 @@ export function listConfigCommand(
 }
 
 /**
- * Print one configuration value. Supports nested keys (e.g. "llm.openai.api_key"). A secret, or a
- * section holding one, is redacted unless `reveal` is set.
+ * Print one configuration value and nothing else, so scripts can capture it.
+ * Supports nested keys (e.g. "llm.openai.api_key"). A string prints as-is and
+ * any other value as JSON. A secret, or a section holding one, is redacted
+ * unless `reveal` is set. A key with no value reports on stderr and exits 1.
  */
 export function getConfigCommand(
   key: string,
@@ -76,7 +78,6 @@ export function getConfigCommand(
 ): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.info(`Getting config: ${key}`);
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
 
@@ -92,8 +93,14 @@ export function getConfigCommand(
       }
     }
 
+    if (value === undefined) {
+      yield* terminal.error(`No configuration value at "${key}".`);
+      process.exitCode = 1;
+      return;
+    }
+
     const shown = options.reveal === true ? value : redactSecretValues(value, parts.join("."));
-    yield* terminal.log(JSON.stringify(shown, null, 2));
+    yield* terminal.log(typeof shown === "string" ? shown : JSON.stringify(shown, null, 2));
   });
 }
 
@@ -217,6 +224,10 @@ export function setConfigCommand(
               value: provider,
             })),
           }));
+        if (provider === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -227,7 +238,7 @@ export function setConfigCommand(
           placeholder: "Paste your API key... (Esc to cancel)",
         });
         if (apiKey === undefined) {
-          yield* terminal.info("Cancelled — configuration unchanged.");
+          yield* terminal.info("Cancelled. Configuration unchanged.");
           return;
         }
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -252,10 +263,18 @@ export function setConfigCommand(
           (yield* terminal.select<string>("Select web search provider:", {
             choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value })),
           }));
+        if (provider === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* terminal.info(`Configuring ${provider}...`);
 
         const apiKey = yield* terminal.password("Enter API Key:");
+        if (apiKey === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
         yield* configService.set(`web_search.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);
@@ -266,6 +285,10 @@ export function setConfigCommand(
         const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
           choices: ["debug", "info", "warn", "error"],
         });
+        if (level === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* configService.set("logging.level", level);
         yield* terminal.success("Logging configuration updated.");
@@ -287,7 +310,7 @@ export function setConfigCommand(
       });
       // Nothing is a valid answer: `set(undefined)` stored the literal string.
       if (answer === undefined || answer.trim() === "") {
-        yield* terminal.info("Cancelled — configuration unchanged.");
+        yield* terminal.info("Cancelled. Configuration unchanged.");
         return;
       }
       const typedAnswer = yield* typedConfigValue(targetKey, answer);

@@ -11,9 +11,9 @@
  */
 
 import { RGBA, TextAttributes } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { App, reuseViewport } from "./App";
@@ -40,7 +40,7 @@ async function frameOf(
   width = WIDTH,
   height = HEIGHT,
 ): Promise<Frame> {
-  const { renderer, renderOnce, captureCharFrame } = await testRender(
+  const { renderer, renderOnce, captureCharFrame } = await renderForTest(
     <App
       view={view}
       onAction={() => undefined}
@@ -78,7 +78,7 @@ describe("fullscreen frame", () => {
   });
 
   it("paints the specified canvas as the window ground", async () => {
-    const { renderer, renderOnce, captureSpans } = await testRender(
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
       <App
         view={sampleView()}
         onAction={() => undefined}
@@ -262,7 +262,7 @@ describe("a question card over the conversation", () => {
 
 describe("transcript wheel and type-to-input", () => {
   it("scrolls older conversation lines into view with the mouse wheel", async () => {
-    const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await renderForTest(
       <App
         view={tallTranscriptView()}
         onAction={() => undefined}
@@ -312,7 +312,7 @@ describe("transcript wheel and type-to-input", () => {
 
   it("returns to the live edge when a message is submitted", async () => {
     const { renderer, renderOnce, flush, mockMouse, mockInput, captureCharFrame } =
-      await testRender(<SubmittingApp />, { width: 80, height: 16 });
+      await renderForTest(<SubmittingApp />, { width: 80, height: 16 });
     await renderOnce();
     for (let step = 0; step < 40; step++) {
       await mockMouse.scroll(20, 6, "up");
@@ -356,7 +356,7 @@ describe("transcript wheel and type-to-input", () => {
   }
 
   it("keeps following new output after the reader wheels back to the bottom", async () => {
-    const { renderer, flush, mockMouse, captureCharFrame } = await testRender(<GrowingApp />, {
+    const { renderer, flush, mockMouse, captureCharFrame } = await renderForTest(<GrowingApp />, {
       width: 80,
       height: 16,
     });
@@ -377,7 +377,7 @@ describe("transcript wheel and type-to-input", () => {
   });
 
   it("holds the reader's place while output streams in above the live edge", async () => {
-    const { renderer, flush, mockMouse, captureCharFrame } = await testRender(<GrowingApp />, {
+    const { renderer, flush, mockMouse, captureCharFrame } = await renderForTest(<GrowingApp />, {
       width: 80,
       height: 16,
     });
@@ -424,7 +424,7 @@ describe("transcript wheel and type-to-input", () => {
   }
 
   it("jumps to the composer and shows the typed character", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <TypeableApp />,
       { width: 80, height: 16 },
     );
@@ -442,7 +442,7 @@ describe("transcript wheel and type-to-input", () => {
   });
 
   it("pastes into the composer while the transcript has focus", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <TypeableApp />,
       { width: 80, height: 16 },
     );
@@ -490,7 +490,7 @@ describe("Ctrl+C", () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
         <App
           view={{
             ...sampleIdleView(),
@@ -519,7 +519,7 @@ describe("Ctrl+C", () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput } = await testRender(
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(
         <App
           view={sampleIdleView()}
           onAction={(action) => {
@@ -547,7 +547,7 @@ describe("Ctrl+C", () => {
     for (const key of chords) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
         <App
           view={{
             ...sampleIdleView(),
@@ -584,7 +584,7 @@ describe("Ctrl+C", () => {
     for (const key of chords) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput } = await testRender(
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(
         <App
           view={sampleIdleView()}
           onAction={(action) => {
@@ -654,7 +654,7 @@ describe("stable viewport identity", () => {
 
 describe("composer after a completed turn", () => {
   it("stays on screen and shows the next typed character", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <CompletedTurnApp />,
       { width: 80, height: 16 },
     );
@@ -688,7 +688,7 @@ describe("transcript links under the pointer", () => {
       ],
     };
     const { renderer, renderOnce, flush, mockMouse, captureCharFrame, captureSpans } =
-      await testRender(
+      await renderForTest(
         <App
           view={view}
           onAction={() => undefined}

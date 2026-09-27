@@ -121,6 +121,7 @@ is the same thing.
 | `IMESSAGE_ALLOWED_HANDLES`        | _(required)_       | Comma-separated phone numbers (E.164) or Apple IDs allowed to DM the agent. Punctuation and case are normalised.                                             |
 | `IMESSAGE_ALLOWED_GROUP_CHAT_IDS` | _(none)_           | Comma-separated `chat.db` rowids of group chats to answer in. Being allowed to DM does **not** admit you in a group.                                         |
 | `IMESSAGE_SELF_TRIGGER`           | _(none)_           | Prefix that makes a message you send yourself a question for the agent, e.g. `jazz`. Off by default, since the bridge must otherwise ignore its own replies. |
+| `IMESSAGE_OPERATOR_HANDLES`       | _(none)_           | Handles allowed to turn approvals off (`/mode yolo`). The account owner, texting through the self trigger, always can.                                       |
 | `IMSG_BIN`                        | `imsg`             | Path to the `imsg` binary.                                                                                                                                   |
 | `JAZZ_BIN`                        | `jazz`             | Path to the Jazz binary.                                                                                                                                     |
 | `JAZZ_HOME`                       | `~/.jazz-imessage` | Data directory: agents, conversations, reminders, usage.                                                                                                     |
@@ -133,16 +134,16 @@ is the same thing.
 
 ## Commands
 
-| Command                 | What it does                                                       |
-| ----------------------- | ------------------------------------------------------------------ |
-| _(any message)_         | Answered by your agent                                             |
-| `/new` (`/reset`)       | Fresh conversation; keeps model and persona                        |
-| `/model provider/model` | Switch this chat's model, e.g. `/model anthropic/claude-sonnet-5`  |
-| `/persona name`         | Switch this chat's persona; bare `/persona` lists them             |
-| `/mode safe\|yolo`      | Whether risky tools stop to ask. Sticky per chat; `/new` keeps it. |
-| `/tz Europe/Paris`      | Timezone reminders resolve in                                      |
-| `/status`               | Model, persona, mode, timezone, today's usage                      |
-| `/help`                 | The list above                                                     |
+| Command                 | What it does                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| _(any message)_         | Answered by your agent                                                                    |
+| `/new` (`/reset`)       | Fresh conversation; keeps model and persona                                               |
+| `/model provider/model` | Switch this chat's model, e.g. `/model anthropic/claude-sonnet-5`                         |
+| `/persona name`         | Switch this chat's persona; bare `/persona` lists them                                    |
+| `/mode safe\|yolo`      | Whether risky tools stop to ask. Yolo is operator-only. Sticky per chat; `/new` keeps it. |
+| `/tz Europe/Paris`      | Timezone reminders resolve in                                                             |
+| `/status`               | Model, persona, mode, timezone, today's usage                                             |
+| `/help`                 | The list above                                                                            |
 
 A message starting with `/` that is not one of these is passed to the agent
 unchanged, so a sentence beginning with a slash still gets an answer.
@@ -165,4 +166,7 @@ The allow-list is the whole security model, and it is deny-by-default:
   Everything the agent says in a group is read by everyone in it.
 - Per-conversation uid sandboxing (what the containerised bridges use) is a
   Linux mechanism and is inactive here; every chat shares one `JAZZ_HOME` and
-  runs as your user. Treat `/mode yolo` accordingly.
+  runs as your user. Treat `/mode yolo` accordingly: only you and
+  `IMESSAGE_OPERATOR_HANDLES` can turn it on.
+- In an allowed group, only the person whose message started a run can answer
+  its approvals.

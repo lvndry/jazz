@@ -6,13 +6,12 @@
     "persona": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoning": "medium",
     "tools": [
       "context_info",
       "find",
       "grep",
       "execute_command",
-      "http_request",
       "ls",
       "read_file",
       "summarize_context"

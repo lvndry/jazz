@@ -11,11 +11,15 @@
  * Both are injected here, so a new surface gets reminders by supplying those.
  */
 
-import { join } from "node:path";
-import { claimDueReminders, settleReminder } from "@jazz/adapters/reminder-service";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
-import { Effect } from "effect";
-import { listChatSandboxes } from "./chat-sandbox";
+import {
+  chatIsolationEnabled,
+  ensureChatSandbox,
+  listChatSandboxes,
+  sandboxOwnership,
+} from "./chat-sandbox";
+import { claimDueReminders, reminderAgentIds, settleReminder } from "./reminder-store";
+import type { Ownership } from "./sandbox-fs";
 import { bold, type ChatId, line, plainLine, type RichText, text } from "./surface";
 
 export const REMINDER_SWEEP_MS = 20_000;
@@ -65,54 +69,56 @@ export interface ReminderDelivery<Scope> {
  */
 export async function deliverDueReminders<Scope>(options: ReminderDelivery<Scope>): Promise<void> {
   const now = Date.now();
-  for (const root of remindersRootDirs(options.dataDir)) {
-    const claims = await Effect.runPromise(
-      claimDueReminders(root, now, {
-        includeAgent: (agentId) => options.decodeScope(agentId) !== undefined,
-      }),
-    );
-    for (const { agentId, item } of claims) {
+  for (const target of sweepTargets(options.dataDir)) {
+    for (const agentId of target.agentIds) {
+      // Checked before anything is claimed: another bridge sharing this data directory owns the
+      // reminders this one cannot address, and they are left for it.
       const scope = options.decodeScope(agentId);
-      let outcome: DeliveryOutcome;
-      if (scope === undefined) {
-        outcome = {
-          delivered: false,
-          error: "The conversation for this reminder is unknown.",
-          retryable: true,
-        };
-      } else {
+      if (scope === undefined) continue;
+      const claimed = await claimDueReminders(target.home, agentId, now, target.ownership);
+      for (const reminder of claimed) {
+        let outcome: DeliveryOutcome;
         try {
-          await options.deliver(scope, item.text, now - item.fireAt > DELAYED_THRESHOLD_MS);
+          await options.deliver(scope, reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS);
           outcome = { delivered: true };
         } catch (error) {
           outcome = { delivered: false, error: String(error), retryable: true };
         }
+        await settleReminder(target.home, agentId, reminder.id, outcome, target.ownership).catch(
+          (error: unknown) =>
+            console.error(`Reminder ${reminder.id} could not be settled: ${String(error)}`),
+        );
       }
-      await Effect.runPromise(
-        settleReminder(root, agentId, item.id, outcome).pipe(
-          Effect.catchAll((error) =>
-            Effect.sync(() =>
-              console.error(`Reminder ${item.id} could not be settled: ${error.message}`),
-            ),
-          ),
-        ),
-      );
     }
   }
 }
 
 let sweepRunning = false;
 
+/** One Jazz home to sweep, and which agents' reminder files in it to look at. */
+interface SweepTarget {
+  readonly home: string;
+  readonly agentIds: readonly string[];
+  readonly ownership: Ownership | undefined;
+}
+
 /**
- * Every directory a reminder file could be in.
+ * Every home a reminder file could be in.
  *
  * With per-conversation sandboxes each one writes reminders inside its own Jazz
  * home, so there is no single `reminders/` left to scan — but the sweep runs in
  * the bridge process, which is the identity that can read across all of them.
+ * A sandbox is only ever swept for its own agent: a file named after another
+ * conversation's agent in it is one that conversation did not write.
  */
-function remindersRootDirs(dataDir: string): string[] {
-  const homes = listChatSandboxes(dataDir).map((sandbox) => sandbox.home);
-  return (homes.length > 0 ? homes : [dataDir]).map((home) => join(home, "reminders"));
+function sweepTargets(dataDir: string): SweepTarget[] {
+  if (!chatIsolationEnabled()) {
+    return [{ home: dataDir, agentIds: reminderAgentIds(dataDir), ownership: undefined }];
+  }
+  return listChatSandboxes(dataDir).map(({ agentId }) => {
+    const sandbox = ensureChatSandbox(dataDir, agentId);
+    return { home: sandbox.home, agentIds: [agentId], ownership: sandboxOwnership(sandbox) };
+  });
 }
 
 function reminderBody(reminderText: string, late: boolean): RichText {

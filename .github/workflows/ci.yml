@@ -105,6 +105,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Typecheck evals
+        run: bun run typecheck:evals
+
       - name: Rebuild reviewed plugin catalog without credentials
         env:
           TYPESAFE_API_KEY: ""
@@ -150,19 +153,34 @@ jobs:
             exit 1
           fi
 
+      # The compiled binary against a scripted model server: a plain answer, a tool call,
+      # an approval park (exit 2) and `jazz runs approve`, asserting each envelope.
+      - name: End-to-end jazz run against a stub provider
+        run: |
+          set -euo pipefail
+          JAZZ_BIN="$PWD/deploy/binaries/jazz-linux-$(if [ "$(uname -m)" = "x86_64" ]; then echo x64; else echo arm64; fi)" \
+            bun run test:e2e
+
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs the launchd, Keychain, iMessage and codesign code paths that ship to it.
+        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
       - name: Cache dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: node_modules
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
@@ -173,7 +191,50 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck tests
+        if: runner.os == 'Linux'
         run: bun run test:typecheck
 
       - name: Test
+        if: runner.os != 'Linux'
         run: bun run test
+
+      # Coverage is reported, not enforced: there is no floor yet.
+      - name: Test with coverage
+        if: runner.os == 'Linux'
+        run: |
+          bun test --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee test-output.txt
+          {
+            echo "### Test coverage"
+            echo
+            echo '```'
+            grep -E '^-+\|' -m 1 test-output.txt || true
+            grep -E '^ *File +\|' -m 1 test-output.txt || true
+            grep -E '^ *All files +\|' -m 1 test-output.txt || echo "No coverage summary was printed."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # The chat bots deploy with docker compose from these Dockerfiles; build them so a broken
+  # image is caught here rather than by the hourly auto-update on a live box. Build only.
+  bot-images:
+    name: build ${{ matrix.bot }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        bot: [telegram-bot, discord-bot]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Build the image
+        run: docker build --file "packages/${{ matrix.bot }}/src/Dockerfile" --tag "jazz-${{ matrix.bot }}:ci" .

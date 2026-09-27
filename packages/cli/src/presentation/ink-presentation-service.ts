@@ -1222,6 +1222,12 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.printOutput({ type: "error", message, timestamp: new Date() });
+    });
+  }
+
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
