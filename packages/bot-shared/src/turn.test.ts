@@ -220,7 +220,7 @@ describe("turn runner", () => {
     const { turn } = await startTurn();
     current?.emit({ type: "run_spend", costUSD: 0.02, costIncomplete: false, totalTokens: 800 });
     await Bun.sleep(5);
-    expect(runner.cancel("c1")).toBe("cancelled");
+    expect(runner.cancel("c1", undefined)).toBe("cancelled");
     await turn;
 
     expect(todayUsage(dataDir, "t-usage.json")).toMatchObject({
