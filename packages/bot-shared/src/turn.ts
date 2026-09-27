@@ -14,13 +14,7 @@
  */
 
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import {
-  type AgentFile,
-  agentPath,
-  ensureScopedAgentFrom,
-  readAgentFile,
-  writeAgentFile,
-} from "./agent-file";
+import { type AgentFile, ensureScopedAgentFrom, readAgentFile, writeAgentFile } from "./agent-file";
 import {
   cancelledSummary,
   deliverComposition,
@@ -40,9 +34,9 @@ import {
   describeApprovalMode,
   setApprovalMode,
 } from "./approval-mode-store";
-import { type ChatSandbox, ensureChatSandbox } from "./chat-sandbox";
-import { adoptIntoSandbox } from "./chat-sandbox";
-import { type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
+import { type ChatSandbox, ensureChatSandbox, sandboxOwnership } from "./chat-sandbox";
+import { compositionLinkPath, type CompositionLinks } from "./compositions";
+import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { listPersonaNames } from "./personas";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
@@ -59,6 +53,7 @@ import {
   quote,
   type RichText,
   type Surface,
+  text,
 } from "./surface";
 import { isValidTimeZone, setTzForChat, tzForChat } from "./timezone-store";
 import { capBlockMessage, dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
@@ -88,12 +83,26 @@ export interface TurnConfig {
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
   /**
-   * Public origin an interactive `create_composition` result is served from.
+   * Whether this sender may widen a conversation's authority: `/mode yolo`, "Always allow".
+   *
+   * An allowlist admits people to talk to the agent; it does not make each of them the
+   * owner of the operator's keys and machine. In a group anyone admitted could otherwise
+   * turn approvals off for everyone and then have the agent run a shell.
+   */
+  readonly isOperator: (senderId: SenderId) => boolean;
+  /** The setting that names operators, for the refusal a non-operator sees. */
+  readonly operatorSettingName: string;
+  /**
+   * Where interactive `create_composition` results are published: the public origin the
+   * bridge serves them from and the store of opaque ids its links carry.
    *
    * Undefined disables the interactive mode; the static one is an image and
    * needs no origin.
    */
-  readonly publicBaseUrl?: string;
+  readonly compositionServer?: {
+    readonly publicBaseUrl: string;
+    readonly links: CompositionLinks;
+  };
   /** The setting to name when an interactive web app has nowhere to be served from. */
   readonly publicUrlSettingName?: string;
   /** Extra help lines describing anything the bridge adds on top. */
@@ -121,6 +130,26 @@ export interface TurnConfig {
    */
   readonly startRun?: typeof startJazzRun;
 }
+
+/** Who sent a message, in the surface's own id space (a user id, a phone number, a handle). */
+export type SenderId = string;
+
+/** One message from a person, as a bridge hands it to the runner. */
+export interface InboundMessage {
+  readonly chatId: ChatId;
+  readonly senderId: SenderId;
+  readonly text: string;
+}
+
+/**
+ * What became of an answer to a prompt.
+ *
+ * `not-requester` is someone else in the conversation answering: a prompt belongs to the
+ * person whose message started the run, since it is their request the agent is asking about.
+ */
+export type ChoiceOutcome = "answered" | "expired" | "not-requester";
+
+export type CancelOutcome = "cancelled" | "idle" | "not-requester";
 
 /** The choice id an approval prompt uses for "yes"; the bridge routes on it too. */
 export const APPROVE_CHOICE_ID = "approve";
@@ -157,6 +186,8 @@ interface ChatState {
    */
   busy: boolean;
   run?: JazzRun | undefined;
+  /** Whose message started the run in flight; only they answer its prompts. */
+  requester?: SenderId | undefined;
   /**
    * Prompts waiting on the person, keyed by the id the agent minted.
    *
@@ -167,7 +198,7 @@ interface ChatState {
    */
   readonly pending: Map<string, PendingPrompt>;
   /** Messages that arrived mid-turn, answered in order once it finishes. */
-  readonly queue: string[];
+  readonly queue: InboundMessage[];
 }
 
 /**
@@ -189,15 +220,19 @@ export interface TurnRunner {
    *
    * Safe to call concurrently: messages for the same conversation are queued
    * and answered in order, and a message arriving while the agent is blocked on
-   * a prompt is offered to that prompt first.
+   * a prompt is offered to that prompt first when its sender is the requester.
    */
-  handle(chatId: ChatId, prompt: string): Promise<void>;
+  handle(message: InboundMessage): Promise<void>;
   /**
    * Answer one outstanding prompt by id — a button tap rather than a typed
-   * reply. Returns false when that prompt is gone, which is what a second tap
-   * on a stale keyboard looks like.
+   * reply. `expired` is what a second tap on a stale keyboard looks like.
    */
-  deliverChoice(chatId: ChatId, promptId: string, choiceId: string): Promise<boolean>;
+  deliverChoice(
+    chatId: ChatId,
+    promptId: string,
+    choiceId: string,
+    senderId: SenderId,
+  ): Promise<ChoiceOutcome>;
   /**
    * Answer every outstanding approval at once.
    *
@@ -205,9 +240,23 @@ export interface TurnRunner {
    * through all of them is the common case. Questions are left alone: they have
    * their own answers and there is no blanket one.
    */
-  deliverAllApprovals(chatId: ChatId, approved: boolean): Promise<number>;
-  /** Kill the in-flight run. Returns false when there was nothing running. */
-  cancel(chatId: ChatId): boolean;
+  deliverAllApprovals(
+    chatId: ChatId,
+    approved: boolean,
+    senderId: SenderId,
+  ): Promise<{ readonly outcome: ChoiceOutcome; readonly count: number }>;
+  /**
+   * Kill the in-flight run. The requester or an operator may; `senderId` undefined is the
+   * bridge itself (shutting down).
+   */
+  cancel(chatId: ChatId, senderId: SenderId | undefined): CancelOutcome;
+  /**
+   * Whether `senderId` has a prompt waiting that a typed reply answers.
+   *
+   * A group that only admits messages addressed to the bot has to let the requester's plain
+   * "1" through, or their approval waits for a timeout.
+   */
+  awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean;
   /** Deliver a message the bridge originated, e.g. a reminder. */
   send(chatId: ChatId, body: RichText): Promise<void>;
   /** Whether a run is in flight, for a bridge that wants to show it. */
@@ -233,20 +282,27 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const sandboxFor = (chatId: ChatId): ChatSandbox =>
     ensureChatSandbox(config.jazzHome, config.agentIdFor(chatId));
 
-  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile => {
-    const agent = ensureScopedAgentFrom(
+  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile =>
+    ensureScopedAgentFrom(
       config.jazzHome,
       sandbox.home,
       config.agentIdFor(chatId),
       config.baseAgentId,
+      sandboxOwnership(sandbox),
     );
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
-    return agent;
-  };
 
   const writeAgent = (sandbox: ChatSandbox, agent: AgentFile): void => {
-    writeAgentFile(sandbox.home, agent);
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
+    writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
+  };
+
+  /** Publish a conversation's interactive app, when this bridge serves them. */
+  const publishFor = (chatId: ChatId) => {
+    const server = config.compositionServer;
+    if (server === undefined) return undefined;
+    return (composition: JazzComposition): string | undefined => {
+      const id = server.links.publish(config.agentIdFor(chatId), composition);
+      return id === undefined ? undefined : `${server.publicBaseUrl}${compositionLinkPath(id)}`;
+    };
   };
 
   // --- Prompts the person answers -----------------------------------------
@@ -336,10 +392,14 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
    * approve the wrong tool — so the rest wait for a surface that can address
    * them explicitly, or for their turn.
    */
-  const resolveTypedReply = async (chatId: ChatId, reply: string): Promise<boolean> => {
+  const resolveTypedReply = async (message: InboundMessage): Promise<boolean> => {
+    const { chatId, senderId, text: reply } = message;
     const state = stateFor(chatId);
     const pending = [...state.pending.values()].at(-1);
     if (pending === undefined || state.run === undefined) return false;
+    // Someone else in a group saying "1" is conversation, not a decision about
+    // another person's request.
+    if (state.requester !== senderId) return false;
 
     // A free-text question has no options, so whatever they say next is it.
     if (pending.kind === "question" && pending.choices.length === 0) {
@@ -355,7 +415,8 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   // --- The run -------------------------------------------------------------
 
-  const answer = async (chatId: ChatId, prompt: string): Promise<void> => {
+  const answer = async (message: InboundMessage): Promise<void> => {
+    const { chatId, text: prompt } = message;
     const capBlock = dailyCostCapBlockReason(
       todayUsage(config.jazzHome, config.files.usage),
       config.dailyCostCapUsd,
@@ -384,6 +445,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const run = (config.startRun ?? startJazzRun)(
       {
         jazzBinary: config.jazzBinary,
+        surface: surface.name,
         agentId: config.agentIdFor(chatId),
         sandbox,
         approvalPolicy: approvalPolicyFor(
@@ -415,9 +477,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       },
     );
     state.run = run;
+    state.requester = message.senderId;
 
     const envelope = await run.result;
     state.run = undefined;
+    state.requester = undefined;
     // Prompts still outstanding when the run ends are ones nothing will ever
     // read, and leaving them would eat the person's next message.
     state.pending.clear();
@@ -481,11 +545,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       await deliverComposition(
         surface,
         chatId,
-        planCompositionDelivery(
-          envelope.composition,
-          config.publicBaseUrl,
-          config.publicUrlSettingName ?? "the public URL setting",
-        ),
+        planCompositionDelivery(envelope.composition, {
+          home: sandbox.home,
+          publish: publishFor(chatId),
+          publicUrlSettingName: config.publicUrlSettingName ?? "the public URL setting",
+        }),
       );
     }
   };
@@ -505,7 +569,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     plainLine("/new — fresh conversation (keeps model and persona)"),
     plainLine("/model provider/model — switch this chat's model"),
     plainLine("/persona name — switch this chat's persona"),
-    plainLine("/mode safe|yolo — whether risky tools stop to ask"),
+    plainLine("/mode safe|yolo — whether risky tools stop to ask (yolo is operator-only)"),
     plainLine("/tz Europe/Paris — timezone reminders resolve in"),
     plainLine("/status — model, mode, timezone, today's usage"),
     ...(config.incognitoFile === undefined
@@ -591,7 +655,8 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     await send(chatId, [plainLine(`✅ Persona → ${args}`)]);
   };
 
-  const handleMode = async (chatId: ChatId, args: string): Promise<void> => {
+  const handleMode = async (message: InboundMessage, args: string): Promise<void> => {
+    const { chatId } = message;
     const requested = args.toLowerCase();
     if (requested !== "safe" && requested !== "yolo") {
       const current = approvalModeFor(config.jazzHome, config.files.mode, chatId);
@@ -604,6 +669,10 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     }
 
     const mode: ApprovalMode = requested;
+    if (mode === "yolo" && !config.isOperator(message.senderId)) {
+      await send(chatId, operatorOnly(message.senderId, "Turning approvals off"));
+      return;
+    }
     setApprovalMode(config.jazzHome, config.files.mode, chatId, mode);
     await send(chatId, [
       plainLine(`✅ Mode → ${APPROVAL_MODE_LABELS[mode]}`),
@@ -648,8 +717,13 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     );
   };
 
+  /** The refusal a non-operator gets for something only an operator may do. */
+  const operatorOnly = (senderId: SenderId, what: string): RichText =>
+    operatorOnlyMessage(senderId, what, config.operatorSettingName);
+
   /** Returns whether the text was a command and has been dealt with. */
-  const handleCommand = async (chatId: ChatId, body: string): Promise<boolean> => {
+  const handleCommand = async (message: InboundMessage): Promise<boolean> => {
+    const { chatId, text: body } = message;
     if (!body.startsWith("/")) return false;
     const [rawCommand, ...rest] = body.slice(1).split(/\s+/);
     const command = (rawCommand ?? "").toLowerCase();
@@ -684,7 +758,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         await handlePersona(chatId, args);
         return true;
       case "mode":
-        await handleMode(chatId, args);
+        await handleMode(message, args);
         return true;
       case "tz":
         await handleTz(chatId, args);
@@ -701,29 +775,42 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     busy: (chatId) => stateFor(chatId).busy,
     send,
 
-    async deliverChoice(chatId: ChatId, id: string, choiceId: string): Promise<boolean> {
+    async deliverChoice(
+      chatId: ChatId,
+      id: string,
+      choiceId: string,
+      senderId: SenderId,
+    ): Promise<ChoiceOutcome> {
       // A follow-up is not something the agent is waiting on: it is a new turn
       // whose prompt happens to have been chosen by tapping rather than typed.
       if (id === FOLLOWUP_PROMPT_ID) {
         const prompt = followupPrompt(choiceId);
-        if (prompt === undefined) return false;
-        await this.handle(chatId, prompt);
-        return true;
+        if (prompt === undefined) return "expired";
+        await this.handle({ chatId, senderId, text: prompt });
+        return "answered";
       }
 
       const state = stateFor(chatId);
       const pending = state.pending.get(id);
-      if (pending === undefined || state.run === undefined) return false;
+      if (pending === undefined || state.run === undefined) return "expired";
+      if (state.requester !== senderId) return "not-requester";
       await settle(chatId, pending, choiceId);
-      return true;
+      return "answered";
     },
 
-    async deliverAllApprovals(chatId: ChatId, approved: boolean): Promise<number> {
+    async deliverAllApprovals(
+      chatId: ChatId,
+      approved: boolean,
+      senderId: SenderId,
+    ): Promise<{ readonly outcome: ChoiceOutcome; readonly count: number }> {
       const state = stateFor(chatId);
       const approvals = [...state.pending.values()].filter(
         (pending) => pending.kind === "approval",
       );
-      if (approvals.length === 0 || state.run === undefined) return 0;
+      if (approvals.length === 0 || state.run === undefined) {
+        return { outcome: "expired", count: 0 };
+      }
+      if (state.requester !== senderId) return { outcome: "not-requester", count: 0 };
 
       for (const pending of approvals) state.pending.delete(promptId(pending));
       await state.run.approve(
@@ -733,34 +820,42 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         })),
       );
       notifyPendingChange(chatId);
-      return approvals.length;
+      return { outcome: "answered", count: approvals.length };
     },
 
-    cancel(chatId: ChatId): boolean {
+    cancel(chatId: ChatId, senderId: SenderId | undefined): CancelOutcome {
       const state = stateFor(chatId);
-      if (state.run === undefined) return false;
+      if (state.run === undefined) return "idle";
+      if (senderId !== undefined && state.requester !== senderId && !config.isOperator(senderId)) {
+        return "not-requester";
+      }
       state.run.cancel();
       // The queue goes too: those messages were sent expecting the answer this
       // run was about to give, and replaying them against a cancelled turn is
       // not what anyone asking to stop meant.
       state.queue.length = 0;
-      return true;
+      return "cancelled";
     },
 
-    async handle(chatId: ChatId, prompt: string): Promise<void> {
+    awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean {
       const state = stateFor(chatId);
+      return state.run !== undefined && state.pending.size > 0 && state.requester === senderId;
+    },
+
+    async handle(message: InboundMessage): Promise<void> {
+      const state = stateFor(message.chatId);
 
       if (state.busy) {
-        if (await resolveTypedReply(chatId, prompt)) return;
-        state.queue.push(prompt);
+        if (await resolveTypedReply(message)) return;
+        state.queue.push(message);
         return;
       }
 
       state.busy = true;
       try {
-        let next: string | undefined = prompt;
+        let next: InboundMessage | undefined = message;
         while (next !== undefined) {
-          if (!(await handleCommand(chatId, next))) await answer(chatId, next);
+          if (!(await handleCommand(next))) await answer(next);
           next = state.queue.shift();
         }
       } finally {
@@ -768,6 +863,28 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       }
     },
   };
+}
+
+/**
+ * The refusal for something only an operator may do, naming the sender's id so the operator
+ * knows exactly what to add.
+ */
+export function operatorOnlyMessage(
+  senderId: SenderId,
+  what: string,
+  operatorSettingName: string,
+): RichText {
+  return [
+    line(bold("🔒 Operator only")),
+    plainLine(`${what} is only for this bot's operator.`),
+    line(
+      text("To allow it, the operator adds your id "),
+      code(senderId),
+      text(" to "),
+      code(operatorSettingName),
+      text("."),
+    ),
+  ];
 }
 
 export { readAgentFile };

@@ -15,6 +15,8 @@ import { getGlyphs } from "./ui/glyphs";
 const UPDATE_CHECK_INTERVAL_DAYS = 3;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const UPDATE_CHECK_FILE = "update_check";
+/** Content width of the boxed update notice, between its vertical borders. */
+const UPDATE_BANNER_INNER_WIDTH = 67;
 
 /**
  * Checks for updates if the check interval has passed, and notifies the user if a new version is available.
@@ -80,29 +82,60 @@ export function autoCheckForUpdate(): Effect.Effect<
       // Check failed or timed out
       return;
     }
-
-    if (result.hasUpdate) {
-      const g = getGlyphs();
-      // 67-char content width — matches the existing announcement layout.
-      const innerWidth = 67;
-      const horiz = g.boxH.repeat(innerWidth);
-      const blank = " ".repeat(innerWidth);
-      const versions = `Update available! ${result.currentVersion} ${g.arrow} ${result.latestVersion}`;
-      const upgrade = "Run `jazz update` to upgrade to the latest version.";
-      const padLine = (msg: string): string => {
-        const pad = innerWidth - msg.length - 3; // 3 = leading "  "+1 trailing space
-        return `${g.boxV}  ${msg}${" ".repeat(Math.max(0, pad))} ${g.boxV}`;
-      };
-      yield* terminal.log("");
-      yield* terminal.log(`${g.boxTL}${horiz}${g.boxTR}`);
-      yield* terminal.log(`${g.boxV}${blank}${g.boxV}`);
-      yield* terminal.log(padLine(versions));
-      yield* terminal.log(padLine(upgrade));
-      yield* terminal.log(`${g.boxV}${blank}${g.boxV}`);
-      yield* terminal.log(`${g.boxBL}${horiz}${g.boxBR}`);
-
-      yield* terminal.log("  See what's new: https://github.com/lvndry/jazz/releases");
-      yield* terminal.log("");
+    if (!result.hasUpdate) {
+      return;
+    }
+    const destination = updateBannerDestination(terminal.isInteractive, process.stderr.isTTY);
+    if (destination === "none") {
+      return;
+    }
+    const lines = formatUpdateBanner(result.currentVersion, result.latestVersion);
+    if (destination === "stderr") {
+      process.stderr.write(`${lines.join("\n")}\n`);
+      return;
+    }
+    for (const line of lines) {
+      yield* terminal.log(line);
     }
   });
+}
+
+/**
+ * Where the update notice may appear. The interactive UI owns the terminal and
+ * shows it in place. A plain terminal writes it to stderr, and only when stderr
+ * is a terminal, so piped output and log files never carry it.
+ */
+export function updateBannerDestination(
+  terminalIsInteractive: boolean,
+  stderrIsTTY: boolean | undefined,
+): "terminal" | "stderr" | "none" {
+  if (terminalIsInteractive) {
+    return "terminal";
+  }
+  return stderrIsTTY === true ? "stderr" : "none";
+}
+
+/** The boxed "update available" notice, one entry per line. */
+function formatUpdateBanner(currentVersion: string, latestVersion: string): readonly string[] {
+  const glyphs = getGlyphs();
+  const innerWidth = UPDATE_BANNER_INNER_WIDTH;
+  const horizontal = glyphs.boxH.repeat(innerWidth);
+  const blank = " ".repeat(innerWidth);
+  const versions = `Update available! ${currentVersion} ${glyphs.arrow} ${latestVersion}`;
+  const upgrade = "Run `jazz update` to upgrade to the latest version.";
+  const padLine = (message: string): string => {
+    const pad = innerWidth - message.length - 3; // 3 = leading "  "+1 trailing space
+    return `${glyphs.boxV}  ${message}${" ".repeat(Math.max(0, pad))} ${glyphs.boxV}`;
+  };
+  return [
+    "",
+    `${glyphs.boxTL}${horizontal}${glyphs.boxTR}`,
+    `${glyphs.boxV}${blank}${glyphs.boxV}`,
+    padLine(versions),
+    padLine(upgrade),
+    `${glyphs.boxV}${blank}${glyphs.boxV}`,
+    `${glyphs.boxBL}${horizontal}${glyphs.boxBR}`,
+    "  See what's new: https://github.com/lvndry/jazz/releases",
+    "",
+  ];
 }

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "bun:test";
-import { createCLIApp } from "./cli-app";
+import { createCLIApp, firstOperand } from "./cli-app";
 
 const CLI_APP_SOURCE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "cli-app.ts"),
@@ -71,5 +71,27 @@ describe("createCLIApp help path", () => {
     const program = createCLIApp();
     const config = program.commands.find((command) => command.name() === "config");
     expect(config?.commands.map((command) => command.name())).toContain("validate");
+  });
+});
+
+describe("firstOperand", () => {
+  const program = createCLIApp(["bun", "jazz", "agent", "list"]);
+
+  it("finds no operand when only global flags are given, so the home opens", () => {
+    expect(firstOperand(program, [])).toBeUndefined();
+    expect(firstOperand(program, ["--no-tui"])).toBeUndefined();
+    expect(firstOperand(program, ["--debug", "--verbose"])).toBeUndefined();
+    expect(firstOperand(program, ["--data-dir", "/tmp/work"])).toBeUndefined();
+    expect(firstOperand(program, ["--data-dir=/tmp/work", "--output", "raw"])).toBeUndefined();
+  });
+
+  it("returns the subcommand after global flags and their values", () => {
+    expect(firstOperand(program, ["agent", "list"])).toBe("agent");
+    expect(firstOperand(program, ["--data-dir", "/tmp/work", "agent", "list"])).toBe("agent");
+    expect(firstOperand(program, ["--config", "agent", "run"])).toBe("run");
+  });
+
+  it("returns a mistyped command so Commander can reject it", () => {
+    expect(firstOperand(program, ["--debug", "agnt"])).toBe("agnt");
   });
 });

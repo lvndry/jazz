@@ -32,6 +32,7 @@ import type { WebSearchProviderName } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
+  type InteractiveTerminalRequiredError,
   LLMConfigurationError,
   StorageError,
   ValidationError,
@@ -48,6 +49,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
@@ -121,7 +123,8 @@ export function createAgentCommand(): Effect.Effect<
   | AgentAlreadyExistsError
   | AgentConfigurationError
   | ValidationError
-  | LLMConfigurationError,
+  | LLMConfigurationError
+  | InteractiveTerminalRequiredError,
   | AgentService
   | LLMService
   | ToolRegistry
@@ -132,6 +135,10 @@ export function createAgentCommand(): Effect.Effect<
   | PersonaService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz agent create",
+      "Run `jazz agent create` in a terminal, or write the agent as JSON to $JAZZ_HOME/agents/<id>.json (normally ~/.jazz/agents/). See docs/configure/agents.md for the fields.",
+    );
     const terminal = yield* TerminalServiceTag;
     yield* terminal.heading("🤖 Welcome to the Jazz AI Agent Creation Wizard!");
     yield* terminal.log("Let's create a new AI agent step by step.");
