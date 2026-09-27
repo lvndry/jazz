@@ -190,8 +190,10 @@ use one.
 
 A bearer token is still required to reach the operator routes, because the bind-safety check
 has no way to know _which_ non-loopback interface is safe. It treats all of them the same, on
-purpose. `daemon install` generates one itself and writes it straight to a root-owned,
-root-readable service environment file (`/etc/jazz/daemon.env`, `chmod 600`). It never goes
+purpose. `daemon install` generates one itself and writes it straight to a private service
+environment file (`/etc/jazz/daemon.env`, `chmod 600`): owned by root on Linux, where systemd
+reads it before switching to your account, and by you on macOS, where the service reads it as
+you. It never goes
 through the OS keyring and never needs to be exported first, so there's nothing to set up on a
 headless server with no keyring and no `sudo -E`. (Only running `jazz daemon` directly in the
 foreground on a non-loopback host, without installing it, still needs that token to come from
@@ -205,8 +207,9 @@ failure it prints the exact command to see why the process didn't come up
 running it. From a source checkout, use `sudo bun run cli -- daemon install …` instead; the
 installed service runs that checkout's Bun entry point directly.
 
-Check on it anytime with `systemctl status jazz-daemon` (or `launchctl list | grep jazz` on
-macOS), and remove it again with `sudo jazz daemon uninstall`.
+Check on it anytime with `jazz daemon status` (or `systemctl status jazz-daemon`, or
+`launchctl list | grep jazz` on macOS), read its output with `jazz daemon logs -f`, and remove it
+again with `sudo jazz daemon uninstall`.
 
 If you'd rather test in a foreground session before committing to a persistent service, run
 `jazz daemon --serve-peers bob --host 100.101.102.103` first. It only lasts until you Ctrl+C or

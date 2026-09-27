@@ -48,7 +48,7 @@ export const LOG_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const PRUNE_STAMP_FILENAME = ".pruned-at";
 
 /** Files held open for appending by a long-lived process, rotated by copy and truncate. */
-const HELD_OPEN_LOG_FILENAMES: ReadonlySet<string> = new Set(["daemon.log", "daemon.error.log"]);
+const HELD_OPEN_LOG_FILENAMES: ReadonlySet<string> = new Set(["daemon.log"]);
 
 const ROTATED_SUFFIX_PATTERN = /\.\d+$/;
 

@@ -270,13 +270,15 @@ fallback, and prints it once. A non-loopback daemon refuses to start if no token
 stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
 one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-peers).
 
-| Command                    | Purpose                                                                                                                                                                                                                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
-| `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                     |
-| `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
-| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
-| `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
+| Command                    | Purpose                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                                         |
+| `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                                        |
+| `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                                              |
+| `jazz daemon status`       | Whether this home's daemon is running and supervised, its pid, last tick, runs in flight, pending reminders, triggers and job batches, and recent tick errors. `--json` for one envelope; exits 1 when it is not running                                                                                       |
+| `jazz daemon logs`         | Print the daemon's recent output (`$JAZZ_HOME/logs/daemon.log`, or the journal under systemd). `-n, --lines <n>` (default 50), `-f, --follow`                                                                                                                                                                  |
+| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time: a client config written before the daemon has ever run, or an
@@ -285,9 +287,33 @@ ephemeral container whose `$JAZZ_HOME` doesn't survive to the next deploy.
 See [Setting up peers](./guides/connect-peers.md) for a full walkthrough, and
 [Agent-to-agent](./concepts/agent-to-agent.md) for the tier model this exists to serve.
 
+A background daemon writes its output to `$JAZZ_HOME/logs/daemon.log`. Without an installed
+service, nothing restarts it after a reboot; `jazz goal` and `jazz loop` say so when they hand it
+work. See [Running it persistently](./concepts/daemon.md#running-it-persistently).
+
 `jazz wake-trigger fire --agent <agentId> --id <id>` is internal plumbing, not something you run
 by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wake trigger without
-`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers).
+`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers). `jazz reminder fire`
+and `jazz job run` are the same kind of plumbing for reminders and job batches.
+
+---
+
+## `jazz reminders`, `jazz triggers`, `jazz jobs`
+
+What agents have scheduled to happen later, across every agent unless `--agent <id-or-name>`
+narrows it.
+
+| Command                      | Purpose                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `jazz reminders list`        | Reminders set with `remind_me`, soonest first. `--agent`, `--json`                         |
+| `jazz reminders cancel <id>` | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz triggers list`         | Wake triggers that will resume a conversation, soonest first. `--agent`, `--json`          |
+| `jazz triggers cancel <id>`  | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz jobs list`             | Background job batches still active, with each batch's jobs by status. `--agent`, `--json` |
+| `jazz jobs cancel <id>`      | Cancel a batch's jobs that have not started; running jobs finish. `--agent`                |
+
+`--json` prints one envelope: `{"ok":true,"reminders":[…]}`, `{"ok":true,"triggers":[…]}`, or
+`{"ok":true,"batches":[…]}`.
 
 ---
 

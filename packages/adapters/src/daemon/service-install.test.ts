@@ -1,24 +1,37 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import {
   buildLaunchdPlist,
   buildSystemdUnit,
+  envFileOwner,
   installedUnitPath,
   isSafeToken,
   reRunWithSudoCommand,
   resolveInvokingUser,
   type ServiceInstallOptions,
+  prepareDaemonLog,
   waitForDaemonHealthy,
+  writeEnvFile,
 } from "./service-install";
 
 const OPTIONS: ServiceInstallOptions = {
-  agentId: "bob",
+  peerAgent: "bob",
   host: "100.101.102.103",
   port: 4747,
   token: "s3cret-token",
   invocation: ["/home/bob/.local/bin/jazz"],
-  user: { username: "bob", home: "/home/bob" },
+  user: { username: "bob", home: "/home/bob", uid: 1001, gid: 1001 },
+};
+
+const WITHOUT_PEERS: ServiceInstallOptions = {
+  host: "127.0.0.1",
+  port: 4747,
+  token: "s3cret-token",
+  invocation: ["/home/bob/.local/bin/jazz"],
+  user: { username: "bob", home: "/home/bob", uid: 1001, gid: 1001 },
 };
 
 describe("the systemd unit", () => {
@@ -46,6 +59,85 @@ describe("the systemd unit", () => {
     const unit = buildSystemdUnit(OPTIONS);
     expect(unit).toContain("User=bob");
     expect(unit).toContain("Environment=JAZZ_HOME=/home/bob/.jazz");
+  });
+});
+
+describe("a service that serves no peers", () => {
+  it("runs the daemon without --serve-peers under systemd", () => {
+    const unit = buildSystemdUnit(WITHOUT_PEERS);
+    expect(unit).toContain(
+      "ExecStart='/home/bob/.local/bin/jazz' 'daemon' '--foreground' '--host' '127.0.0.1' '--port' '4747'",
+    );
+    expect(unit).not.toContain("--serve-peers");
+    expect(unit).toContain("Description=jazz daemon\n");
+  });
+
+  it("runs the daemon without --serve-peers under launchd", () => {
+    const plistXml = buildLaunchdPlist(WITHOUT_PEERS);
+    expect(plistXml).not.toContain("--serve-peers");
+    expect(plistXml).toContain("'--foreground'");
+  });
+});
+
+describe("where the service's output goes", () => {
+  it("sends systemd output to the journal under the unit's name", () => {
+    const unit = buildSystemdUnit(OPTIONS);
+    expect(unit).toContain("StandardOutput=journal");
+    expect(unit).toContain("StandardError=journal");
+    expect(unit).toContain("SyslogIdentifier=jazz-daemon");
+  });
+
+  it("sends launchd output to the daemon log in the user's Jazz home", () => {
+    const plistXml = buildLaunchdPlist(OPTIONS);
+    expect(plistXml).toContain(
+      "<key>StandardOutPath</key>\n    <string>/home/bob/.jazz/logs/daemon.log</string>",
+    );
+    expect(plistXml).toContain(
+      "<key>StandardErrorPath</key>\n    <string>/home/bob/.jazz/logs/daemon.log</string>",
+    );
+  });
+});
+
+describe("the token env file", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-service-install-"));
+  });
+  afterEach(() => {
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it("belongs to the user under launchd, whose wrapper shell sources it as that user", () => {
+    expect(envFileOwner("launchd", OPTIONS.user)).toEqual({ uid: 1001, gid: 1001 });
+  });
+
+  it("stays root's under systemd, which reads it before dropping privileges", () => {
+    expect(envFileOwner("systemd", OPTIONS.user)).toBeUndefined();
+  });
+
+  it("is written 0600 and handed to the owner it is given", async () => {
+    const filePath = path.join(directory, "etc", "daemon.env");
+    const owner = { uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0 };
+    await Effect.runPromise(writeEnvFile("s3cret-token", { filePath, owner }));
+    const info = fs.statSync(filePath);
+    expect(info.mode & 0o777).toBe(0o600);
+    expect(info.uid).toBe(owner.uid);
+    expect(fs.readFileSync(filePath, "utf-8")).toBe("JAZZ_DAEMON_TOKEN=s3cret-token\n");
+  });
+
+  it("narrows a file an earlier install left wider", async () => {
+    const filePath = path.join(directory, "daemon.env");
+    fs.writeFileSync(filePath, "old", { mode: 0o644 });
+    await Effect.runPromise(writeEnvFile("s3cret-token", { filePath }));
+    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+  });
+
+  it("creates the daemon log as the user before launchd opens it", async () => {
+    const user = { home: directory, uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0 };
+    await Effect.runPromise(prepareDaemonLog(user));
+    const logPath = path.join(directory, ".jazz", "logs", "daemon.log");
+    expect(fs.statSync(logPath).uid).toBe(user.uid);
+    expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
   });
 });
 
