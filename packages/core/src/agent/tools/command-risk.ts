@@ -7,6 +7,14 @@
  * judges that verdict. Fail closed: timeouts, errors, and ambiguous replies
  * stay `high-risk`.
  *
+ * Before any model or policy plugin is asked, `findDeterministicHighRisk`
+ * reads the command with the shell lexer and marks it `high-risk` outright
+ * when it contains a construct no classifier verdict should be able to lower:
+ * command or process substitution, a redirection that writes or reads a file,
+ * input piped into a shell or interpreter, inline code for an interpreter,
+ * a command name built from an expansion, a network client, or a DNS lookup
+ * of an expanded name.
+ *
  * When a run's metrics are passed in, classifier token usage is recorded
  * separately from the agent-loop totals so telemetry can split approval
  * gating from the conversation.
@@ -20,6 +28,13 @@ import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 import type { CommandRiskOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolRiskLevel } from "@/core/types/tools";
+import {
+  commandBaseName,
+  parseShellCommandLine,
+  type ShellRedirection,
+  type ShellSimpleCommand,
+  type ShellWord,
+} from "@/core/utils/shell-syntax";
 import {
   emitLLMUsage,
   recordClassifierUsage,
@@ -64,6 +79,210 @@ export function shouldClassifyExecuteCommand(
     return false;
   }
   return true;
+}
+
+/** Clients whose whole purpose is talking to another host, so every use can move data off the machine. */
+const NETWORK_CLIENTS: ReadonlySet<string> = new Set([
+  "curl",
+  "wget",
+  "nc",
+  "ncat",
+  "netcat",
+  "socat",
+  "telnet",
+  "ssh",
+  "scp",
+  "sftp",
+  "rsync",
+  "ftp",
+  "tftp",
+  "http",
+  "https",
+  "xh",
+  "aria2c",
+]);
+
+/** Tools that resolve a name, so an expanded name leaks its value through DNS. */
+const NAME_RESOLVERS: ReadonlySet<string> = new Set([
+  "dig",
+  "nslookup",
+  "host",
+  "drill",
+  "ping",
+  "ping6",
+  "traceroute",
+]);
+
+const SHELLS: ReadonlySet<string> = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "ksh",
+  "mksh",
+  "fish",
+  "csh",
+  "tcsh",
+]);
+
+/** Flags that make an interpreter run code passed on the command line. */
+const INLINE_CODE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["python", new Set(["-c"])],
+  ["python3", new Set(["-c"])],
+  ["perl", new Set(["-e", "-E"])],
+  ["ruby", new Set(["-e"])],
+  ["node", new Set(["-e", "--eval", "-p", "--print"])],
+  ["bun", new Set(["-e", "--eval", "-p", "--print"])],
+  ["deno", new Set(["eval"])],
+  ["php", new Set(["-r"])],
+  ["lua", new Set(["-e"])],
+  ["osascript", new Set(["-e"])],
+  ["pwsh", new Set(["-c", "-command"])],
+  ["powershell", new Set(["-c", "-command"])],
+]);
+
+/** Commands that run their standard input as code when something is piped into them. */
+const INPUT_INTERPRETERS: ReadonlySet<string> = new Set([
+  ...SHELLS,
+  ...INLINE_CODE_FLAGS.keys(),
+  "xargs",
+  "parallel",
+  "source",
+  ".",
+  "eval",
+]);
+
+/** Builtins that evaluate their arguments as shell code. */
+const CODE_EVALUATORS: ReadonlySet<string> = new Set(["eval", "source", "."]);
+
+/** Commands that run another command given as their arguments. */
+const COMMAND_WRAPPERS: ReadonlySet<string> = new Set([
+  "sudo",
+  "doas",
+  "su",
+  "env",
+  "nice",
+  "nohup",
+  "time",
+  "timeout",
+  "command",
+  "exec",
+  "xargs",
+  "watch",
+  "stdbuf",
+  "ionice",
+  "caffeinate",
+  "chroot",
+  "flock",
+  "parallel",
+]);
+
+const DISCARD_TARGET = "/dev/null";
+const FILE_DESCRIPTOR_TARGET_PATTERN = /^[0-9]+-?$|^-$/;
+const DUPLICATING_OPERATOR_PATTERN = /^[0-9]*(>&|<&)$/;
+const OUTPUT_OPERATOR_PATTERN = /^([0-9]*>|[0-9]*>>|&>|&>>|[0-9]*>\|)$/;
+
+/**
+ * Whether a redirection can only discard output or copy one open descriptor
+ * onto another (`2>/dev/null`, `2>&1`, `>&2`), neither of which touches a file.
+ */
+function isHarmlessRedirection(redirection: ShellRedirection): boolean {
+  const target = redirection.target;
+  if (target === undefined || target.expands) {
+    return false;
+  }
+  if (DUPLICATING_OPERATOR_PATTERN.test(redirection.operator)) {
+    return FILE_DESCRIPTOR_TARGET_PATTERN.test(target.text);
+  }
+  return OUTPUT_OPERATOR_PATTERN.test(redirection.operator) && target.text === DISCARD_TARGET;
+}
+
+/**
+ * The words of a simple command that the shell may run as a program: the
+ * command word, and, after a wrapper such as `sudo` or `xargs`, every later
+ * word (a wrapper's own flags and values cannot be told apart from the command
+ * it wraps without knowing each wrapper's syntax, so all of them count).
+ */
+function commandPositionWords(simpleCommand: ShellSimpleCommand): readonly ShellWord[] {
+  const [first, ...rest] = simpleCommand.words;
+  if (first === undefined) {
+    return [];
+  }
+  if (COMMAND_WRAPPERS.has(commandBaseName(first.text))) {
+    return [first, ...rest];
+  }
+  return [first];
+}
+
+function runsInlineCode(simpleCommand: ShellSimpleCommand, programWord: ShellWord): boolean {
+  const program = commandBaseName(programWord.text);
+  const programIndex = simpleCommand.words.indexOf(programWord);
+  const argumentsAfter = simpleCommand.words.slice(programIndex + 1).map((word) => word.text);
+  if (SHELLS.has(program)) {
+    return argumentsAfter.some(
+      (argument) =>
+        argument.startsWith("-") && !argument.startsWith("--") && argument.includes("c"),
+    );
+  }
+  const flags = INLINE_CODE_FLAGS.get(program);
+  if (flags === undefined) {
+    return false;
+  }
+  return argumentsAfter.some((argument) => flags.has(argument.toLowerCase()));
+}
+
+/**
+ * The reason a command is high-risk regardless of any classifier or plugin
+ * verdict, or `undefined` when the classifier may judge it.
+ */
+export function findDeterministicHighRisk(command: string): string | undefined {
+  const line = parseShellCommandLine(command);
+  if (line.hazards.has("malformed")) {
+    return "unterminated quote or expansion";
+  }
+  if (line.hazards.has("substitution")) {
+    return "command or process substitution";
+  }
+
+  for (const [index, simpleCommand] of line.commands.entries()) {
+    const unsafeRedirection = simpleCommand.redirections.find(
+      (redirection) => !isHarmlessRedirection(redirection),
+    );
+    if (unsafeRedirection !== undefined) {
+      return `redirection ${unsafeRedirection.operator}`;
+    }
+
+    const programWords = commandPositionWords(simpleCommand);
+    if (programWords.some((word) => word.expands)) {
+      return "command name built from an expansion";
+    }
+
+    const precededBy = index === 0 ? undefined : line.separators[index - 1];
+    const pipedInto = precededBy === "|" || precededBy === "|&";
+    for (const programWord of programWords) {
+      const program = commandBaseName(programWord.text);
+      if (pipedInto && INPUT_INTERPRETERS.has(program)) {
+        return `input piped into ${program}`;
+      }
+      if (CODE_EVALUATORS.has(program)) {
+        return `${program} evaluates its arguments as code`;
+      }
+      if (runsInlineCode(simpleCommand, programWord)) {
+        return `${program} runs inline code`;
+      }
+    }
+
+    for (const word of simpleCommand.words) {
+      const program = commandBaseName(word.text);
+      if (NETWORK_CLIENTS.has(program)) {
+        return `network client ${program}`;
+      }
+      if (NAME_RESOLVERS.has(program) && simpleCommand.words.some((argument) => argument.expands)) {
+        return `${program} resolves an expanded name`;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -114,6 +333,7 @@ export type CommandRiskPolicyHook = (command: string) => Effect.Effect<CommandRi
 /**
  * Resolve an eligible command through the optional policy plugin, falling back
  * to Jazz's built-in classifier when no plugin answers or the plugin fails.
+ * A command `findDeterministicHighRisk` flags is high-risk before either runs.
  * An answered but uncertain distribution is deliberately high-risk rather than
  * a fallback: the provider made a decision, and the host applies its threshold.
  */
@@ -125,6 +345,9 @@ export function resolveCommandRisk(
   policyHook?: CommandRiskPolicyHook,
 ): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
   return Effect.gen(function* () {
+    if (findDeterministicHighRisk(command) !== undefined) {
+      return "high-risk" as const;
+    }
     if (policyHook !== undefined) {
       const outcome = yield* policyHook(command).pipe(
         Effect.map((value) => ({ ok: true as const, value })),
@@ -253,6 +476,15 @@ export function classifyCommandRisk(
     const logger = yield* LoggerServiceTag;
 
     if (command.length === 0 || command.length > CLASSIFIER_MAX_COMMAND_CHARS) {
+      return "high-risk" as const;
+    }
+
+    const deterministicReason = findDeterministicHighRisk(command);
+    if (deterministicReason !== undefined) {
+      yield* logger.debug("Command risk decided without the classifier", {
+        riskLevel: "high-risk",
+        reason: deterministicReason,
+      });
       return "high-risk" as const;
     }
 

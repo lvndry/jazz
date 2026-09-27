@@ -33,7 +33,7 @@ import {
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
-import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import {
   emitToolInvocation,
@@ -61,6 +61,26 @@ function resolveToolDisplayMetadata(
       context.parentAgent?.config.webSearchProvider ?? appConfig.web_search?.provider;
     return { provider: provider ?? "builtin" };
   });
+}
+
+/**
+ * The conversation the command-risk classifier may read as evidence of what the
+ * user asked for, or `undefined` when the command has to stand on its own.
+ *
+ * Conversation turns are evidence only when the person the approval protects
+ * wrote them. On a bridge (no prompt possible) they come from whoever is
+ * messaging the bot. In a sub-agent the "user" turn is the task the parent
+ * model wrote, so a parent that has been talked into something could write the
+ * justification for its child's command.
+ */
+function classifierEvidence(
+  context: ToolExecutionContext,
+  canPrompt: boolean,
+): ToolExecutionContext["conversationMessages"] {
+  if (!canPrompt || (context.subagentDepth ?? 0) > 0) {
+    return undefined;
+  }
+  return context.conversationMessages;
 }
 
 /** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
@@ -366,11 +386,7 @@ export class ToolExecutor {
             classifiedRisk = yield* resolveEligibleCommandRisk(
               command,
               context,
-              // Conversation context is only evidence when the person the
-              // approval protects is the one who wrote it. On a bridge those
-              // turns come from whoever is messaging the bot, so the command
-              // has to stand on its own.
-              canPrompt ? context.conversationMessages : undefined,
+              classifierEvidence(context, canPrompt),
               runMetrics,
             );
             riskLevel = classifiedRisk;
@@ -1118,11 +1134,8 @@ function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
 /**
  * Check if a command is auto-approved via the per-command allowlist.
  * Only applies to `execute_command` tools; returns false for all others.
- *
- * Compares the extracted approval key (binary + first subcommand token) against
- * the allowlist using exact or word-boundary matching only — never raw prefix
- * matching on the full command string, which would allow "git status && rm -rf /"
- * to match an approved "git status" entry.
+ * Matching is `isCommandCoveredByAllowlist`: a compound command, or one with
+ * substitution, redirection or an environment prefix, never matches.
  */
 function isCommandAutoApproved(
   toolName: string,
@@ -1133,10 +1146,7 @@ function isCommandAutoApproved(
   if (toolName !== "execute_command") return false;
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
-  const commandKey = extractCommandApprovalKey(command);
-  return allowedCommands.some(
-    (allowed) => commandKey === allowed || commandKey.startsWith(allowed + " "),
-  );
+  return isCommandCoveredByAllowlist(command, allowedCommands);
 }
 
 /**
