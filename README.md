@@ -20,7 +20,8 @@ it grows into an everyday assistant.
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
 Discord bot on a server you own. Same agent, same tools, same memory. When a job needs your
-permission it asks you wherever you are, rather than stopping.
+permission it asks you in the terminal or the chat it is running in. An unattended run
+declines the tool, or, with `--park`, saves the run until you approve it.
 
 23 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and
 OpenRouter, plus `ollama`, `llama.cpp`, `vllm`, and `sglang` for self-hosted models with no API key unless the server requires one. Everything else

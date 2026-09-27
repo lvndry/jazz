@@ -233,7 +233,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 ## Diagnose provider failures
 
-- Authentication errors: confirm the agent's provider ID matches the key you supplied and inspect `jazz config show` for the resolved non-secret configuration.
+- Authentication errors: confirm the agent's provider ID matches the key you supplied, and run `jazz config show` to see which provider settings Jazz resolved.
 - Stream idle errors say whether the provider produced no first part or stopped between parts. The
   former points to queuing, model loading, or prompt prefill; the latter means generation had
   already started. Local servers that legitimately need longer can set

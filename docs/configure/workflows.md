@@ -1,5 +1,5 @@
 ---
-description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery targets: verified against the parser source."
+description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and run limits, verified against the parser source."
 ---
 
 # Workflow frontmatter
