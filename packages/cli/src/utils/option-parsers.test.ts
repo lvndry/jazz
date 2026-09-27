@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { parsePositiveFloat, parsePositiveInt } from "./option-parsers";
+import { InvalidArgumentError } from "commander";
+import { parseDurationMs, parsePositiveFloat, parsePositiveInt } from "./option-parsers";
 
 describe("parsePositiveInt", () => {
   const parse = parsePositiveInt("--timeout");
@@ -50,5 +51,18 @@ describe("parsePositiveFloat", () => {
     expect(() => parsePositiveFloat("--max-tokens")("x")).toThrow(
       "--max-tokens must be a positive number",
     );
+  });
+});
+
+describe("parse errors", () => {
+  it("are Commander usage errors, so the CLI prints one line instead of a stack", () => {
+    const parsers = [
+      () => parsePositiveInt("--timeout")("10s"),
+      () => parsePositiveFloat("--max-cost-usd")("abc"),
+      () => parseDurationMs("--expires")("soon"),
+    ];
+    for (const parse of parsers) {
+      expect(parse).toThrow(InvalidArgumentError);
+    }
   });
 });
