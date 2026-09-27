@@ -20,7 +20,8 @@ nothing. A CI reviewer should hold reads, greps, and nothing that writes.
 
 ## 2. Pick the lowest policy that does the job
 
-`read-only` for anything that only inspects. `low-risk` for jobs that maintain todos or delegate.
+`read-only` for anything that only inspects, keeps todos, or delegates. `low-risk` for jobs that
+write memory or set reminders and triggers.
 `high-risk` only where the job's whole purpose is to change something, and then only with the
 toolset already cut to that one thing.
 

@@ -90,13 +90,16 @@ export interface ToolProgressEvent {
  * Whether `riskLevel` clears `policy` without anybody being asked. Deliberately independent of
  * whether a person is reachable: being unattended changes what happens to the calls that do not
  * clear (they park instead of prompting), not which ones clear.
+ *
+ * No policy and `false` clear nothing: every gated call asks, or is declined or parked when
+ * nobody can answer.
  */
 export function shouldAutoApprove(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
 ): boolean {
-  if (!policy) {
-    return riskLevel === "read-only" || riskLevel === "low-risk";
+  if (policy === undefined || policy === false) {
+    return false;
   }
 
   // true or "high-risk" means approve everything

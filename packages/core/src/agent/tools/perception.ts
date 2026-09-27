@@ -56,6 +56,7 @@ import { agentModelString, parseProviderModel } from "@/core/utils/provider-mode
 import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
+import { childRunAuthority } from "./child-run-authority";
 
 /** Companion execution timeout: matches spawn_subagent. */
 const COMPANION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -336,17 +337,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         maxIterations: COMPANION_MAX_ITERATIONS,
         ephemeralRegionId: regionId,
         initialAttachments: [...job.attachments],
+        ...childRunAuthority(context),
         // Eyes, ears and hands need no tools — and many media-capable models cannot
         // use them anyway. An empty allowlist strips every tool.
         toolAllowlist: [],
         subagentDepth: (context.subagentDepth ?? 0) + 1,
-        ...(context.getAutoApprovePolicy
-          ? { autoApprovePolicy: context.getAutoApprovePolicy }
-          : {}),
-        ...(context.autoApprovedCommands
-          ? { autoApprovedCommands: context.autoApprovedCommands }
-          : {}),
-        ...(context.autoApprovedTools ? { autoApprovedTools: context.autoApprovedTools } : {}),
       }).pipe(
         Effect.tapError(() =>
           presentation.collapseEphemeralRegion(regionId, label, {
@@ -438,7 +433,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
    *
    * Both directions take exactly this path — only the copy around it differs — so the
    * key-setup detour and the "nobody can pick here" wording live once. A bound companion
-   * skips the prompt entirely, which is the only path an unattended run can take.
+   * skips the prompt entirely: binding it in the agent's config is the operator's standing
+   * consent, and it is the only path an unattended run can take.
    */
   const resolveCompanion = (parentAgent: Agent, role: CompanionRole, _toolName: string) =>
     Effect.gen(function* () {
@@ -535,6 +531,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
   const proposalTool = defineTool({
     name: "analyze_media",
+    approvalExecuteToolName: "execute_analyze_media",
     disclosure: "internal",
     longRunning: true,
     timeoutMs: COMPANION_TIMEOUT_MS,
@@ -674,6 +671,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
   const generateProposalTool = defineTool({
     name: "generate_media",
+    approvalExecuteToolName: "execute_generate_media",
     disclosure: "internal",
     longRunning: true,
     timeoutMs: COMPANION_TIMEOUT_MS,

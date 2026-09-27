@@ -21,23 +21,19 @@ describe("shouldClassifyExecuteCommand", () => {
   it("runs for an unknown risk under the tiers a verdict could change", () => {
     expect(shouldClassifyExecuteCommand("unknown", "read-only", false)).toBe(true);
     expect(shouldClassifyExecuteCommand("unknown", "low-risk", false)).toBe(true);
-    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(true);
-    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(true);
   });
 
   it("skips the round-trip when the outcome is already decided", () => {
     // Yolo approves it either way.
     expect(shouldClassifyExecuteCommand("unknown", "high-risk", false)).toBe(false);
     expect(shouldClassifyExecuteCommand("unknown", true, false)).toBe(false);
+    // No policy and false approve nothing either way.
+    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(false);
+    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(false);
     // A declared level needs no classification.
     expect(shouldClassifyExecuteCommand("high-risk", "read-only", false)).toBe(false);
     // Already allowlisted.
     expect(shouldClassifyExecuteCommand("unknown", "read-only", true)).toBe(false);
-  });
-
-  it("classifies in safe mode whether or not anybody can be prompted", () => {
-    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(true);
-    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(true);
   });
 });
 

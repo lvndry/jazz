@@ -124,7 +124,8 @@ export function createPdfTool(
       "print or send. The PDF shows exactly the text and numbers you write. Needs Chrome or Chromium (or PUPPETEER_EXECUTABLE_PATH).",
     tags: ["document", "pdf"],
     parameters: createPdfParameters,
-    riskLevel: "low-risk",
+    // Writes a file at a path the model picks, like write_file.
+    riskLevel: "high-risk",
     validate: makeZodValidator(createPdfParameters),
     handler: (args, context) =>
       Effect.gen(function* () {

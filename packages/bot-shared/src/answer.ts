@@ -14,6 +14,7 @@
  * point: these are promises about someone's money and someone's data.
  */
 
+import { compositionImagePath } from "./compositions";
 import type { JazzComposition, JazzSuccessEnvelope } from "./jazz-run";
 import {
   bold,
@@ -145,38 +146,47 @@ export type CompositionDelivery =
   | { readonly kind: "unavailable"; readonly body: RichText }
   | { readonly kind: "nothing"; readonly logMessage: string };
 
+export interface CompositionDeliveryOptions {
+  /** The owning conversation's home: the only place a composition's files are read from. */
+  readonly home: string;
+  /**
+   * Publish an interactive app and return the URL it is reachable at. Undefined when this
+   * bridge serves no web apps.
+   */
+  readonly publish?: ((composition: JazzComposition) => string | undefined) | undefined;
+  /** The setting to name when an interactive app has nowhere to be served from. */
+  readonly publicUrlSettingName: string;
+}
+
 export function planCompositionDelivery(
   composition: JazzComposition,
-  publicBaseUrl: string | undefined,
-  publicUrlSettingName: string,
+  options: CompositionDeliveryOptions,
 ): CompositionDelivery {
   if (composition.mode === "static") {
-    return composition.imagePath === undefined
+    const imagePath = compositionImagePath(options.home, composition);
+    return imagePath === undefined
       ? {
           kind: "nothing",
-          logMessage: `create_composition returned static mode with no imagePath (id=${composition.id})`,
+          logMessage: `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
         }
-      : { kind: "image", path: composition.imagePath, caption: composition.title };
+      : { kind: "image", path: imagePath, caption: composition.title };
   }
 
-  if (publicBaseUrl === undefined) {
+  const url = options.publish?.(composition);
+  if (url === undefined) {
     return {
       kind: "unavailable",
       body: [
         line(
           text("⚠️ Generated an interactive UI, but no public URL is configured ("),
-          code(publicUrlSettingName),
+          code(options.publicUrlSettingName),
           text(") — can't open it."),
         ),
       ],
     };
   }
 
-  return {
-    kind: "link",
-    url: `${publicBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`,
-    title: composition.title,
-  };
+  return { kind: "link", url, title: composition.title };
 }
 
 /** Deliver a planned web app, using whatever the surface can actually do. */

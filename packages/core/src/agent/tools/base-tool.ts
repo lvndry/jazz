@@ -55,10 +55,15 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
   /**
-   * Risk level for auto-approval in workflows.
-   * Defaults to "read-only" for regular tools, "high-risk" for approval tools.
+   * The level the approval policy judges a call against. Defaults to "read-only" for
+   * regular tools, "high-risk" for approval tools. A regular tool above "read-only" is
+   * gated by the executor: it asks, or is declined or parked when nobody can answer.
    */
   readonly riskLevel?: ToolRiskLevel;
+  /** See `Tool.peerGrantRequired`. */
+  readonly peerGrantRequired?: boolean;
+  /** See `Tool.resolveRiskLevel`: the level of one call, when it depends on the arguments. */
+  readonly resolveRiskLevel?: (args: Record<string, unknown>) => ToolRiskLevel;
   /** What an answer from this tool reveals about the operator. No default: decide. */
   readonly disclosure: ToolDisclosure;
   /**
@@ -127,8 +132,10 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
+    ...(config.resolveRiskLevel !== undefined ? { resolveRiskLevel: config.resolveRiskLevel } : {}),
     disclosure: config.disclosure,
     egress: config.egress === true,
+    ...(config.peerGrantRequired === true ? { peerGrantRequired: true } : {}),
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),

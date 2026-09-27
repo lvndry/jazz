@@ -38,11 +38,14 @@ flowchart TD
     SET -->|no| ERR
     SET -->|yes| LOOKUP["Look up in the registry:<br/>schema · risk level · timeout"]
 
-    LOOKUP --> RUN["<b>Invoke the tool</b><br/>timeout: per-tool, else 3 min<br/>(longRunning tools: no timeout)"]
+    LOOKUP --> PLAIN{"Plain tool above<br/>read-only?"}
+    PLAIN -->|"yes: executor raises<br/>the request itself"| POLICY
+    PLAIN -->|no| RUN["<b>Invoke the tool</b><br/>timeout: per-tool, else 3 min<br/>(longRunning tools: no timeout)"]
 
     RUN --> GATED{"Result is an<br/>approval request?"}
-    GATED -->|"no, read-only tool"| RESULT
-    GATED -->|yes| POLICY{"Auto-approved?"}
+    GATED -->|no| RESULT
+    GATED -->|"yes, from another tool's<br/>execute half"| ERR
+    GATED -->|"yes, for its own<br/>execute half"| POLICY{"Auto-approved?"}
 
     POLICY -->|"policy tier covers<br/>this risk level"| EXEC
     POLICY -->|"per-tool allowlist"| EXEC
@@ -58,9 +61,25 @@ flowchart TD
 
     classDef gate fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
     classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    class SET,POLICY,PROMPT gate
+    class SET,PLAIN,POLICY,PROMPT gate
     class RUN,EXEC act
 ```
+
+Three rules shape that gate:
+
+- **Every tool above `read-only` is gated.** An approval tool raises its request by returning
+  one. A plain tool (`manage_memory`, `create_pdf`, a custom command tool) never gets the chance
+  to act first: `plainToolGateRisk` reads its level (or `resolveRiskLevel(args)` when the level
+  depends on the call, as `http_request`'s method does) and the executor raises the request on
+  its behalf. Approving it runs the tool itself.
+- **No policy and `false` clear nothing.** `shouldAutoApprove` returns true only under
+  `read-only`, `low-risk` and `high-risk`/`true`. The command classifier therefore runs only
+  under `read-only` and `low-risk`, where its verdict can change the outcome.
+- **A request is honored only from the tool registered to make it.** `isRequestBoundToTool`
+  requires the calling tool's `approvalExecuteToolName` to equal the request's
+  `executeToolName`. Anything else shaped like a request (an MCP server's output, a fetched
+  JSON body) becomes an error result and nothing runs. MCP results are nested under `content`
+  or `structuredContent` for the same reason.
 
 ---
 
@@ -87,7 +106,9 @@ That one set does three jobs:
   the registry, and returns a plain tool-error result: the same treatment as unparseable
   arguments: for anything outside it.
 - **Inheritance.** `spawn_subagent` hands it down as the child's `toolAllowlist`, so a child
-  can never hold a tool its parent lacks.
+  can never hold a tool its parent lacks. `childRunAuthority` builds that allowlist (empty when
+  the parent's set is unknown) together with the parent's live policy getter and command and
+  tool allowlists, which is why `spawn_subagent` is `read-only`: spawning grants nothing new.
 
 The second is not redundant. The registry resolves a name against every tool registered in
 the process, so a narrowed advertisement only shapes what a model is _likely_ to ask for.
@@ -173,8 +194,8 @@ Every tool declares a level. One dial decides what runs without asking.
 flowchart LR
     subgraph tiers["Tool risk levels"]
         direction TB
-        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request"]
-        LR["<b>low-risk</b><br/>manage_todos<br/>spawn_subagent"]
+        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch<br/>manage_todos · spawn_subagent"]
+        LR["<b>low-risk</b><br/>manage_memory<br/>register_trigger"]
         HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir"]
         UN["<b>unknown</b><br/>execute_command"]
     end
@@ -220,12 +241,13 @@ behind another can pick up a policy that changed while it waited.
 asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
 particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
 the verdict as it would to any declared level. So `--approval-policy read-only` runs
-`git log` unattended without also unlocking `rm`, and an interactive session skips the
-prompt for a listing but still asks about a push.
+`git log` unattended without also unlocking `rm`, and interactive safe mode (the `low-risk`
+tier, `SAFE_MODE_POLICY` in `chat/approval-mode.ts`) skips the prompt for a listing but still
+asks about a push.
 
-The classifier is skipped when it cannot change anything: yolo approves either way, the
-command is already allowlisted, or the level was never `unknown`. Everywhere else it runs,
-including on surfaces that cannot prompt: an unclassified command stays `unknown`, which
+The classifier is skipped when it cannot change anything: with no policy or `false` nothing is
+approved, yolo approves either way, the command is already allowlisted, or the level was never
+`unknown`. Under `read-only` and `low-risk` it runs, including on surfaces that cannot prompt: an unclassified command stays `unknown`, which
 approves nowhere, so skipping it there would park a run on `git status`.
 
 While it runs, the live zone shows `classifying` on that command (the round-trip can take a
