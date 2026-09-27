@@ -251,7 +251,11 @@ export function computeRunCost(
     cacheReadTokens: metrics.totalCacheReadTokens,
     cacheWriteTokens: metrics.totalCacheWriteTokens,
   };
-  const ownCostUSD = computeUsageCostUSD(ownTokens, pricing) ?? undefined;
+  const isFreeLocalModel = isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
+  // A self-hosted model costs nothing, even when models.dev lists a hosted price for the same
+  // model name under another provider.
+  const pricedOwnCostUSD = computeUsageCostUSD(ownTokens, pricing) ?? undefined;
+  const ownCostUSD = isFreeLocalModel && pricedOwnCostUSD !== undefined ? 0 : pricedOwnCostUSD;
   const otherCostUSD = metrics.childCostUSD + metrics.sideCostUSD + (metrics.decisionCostUSD ?? 0);
 
   // Report the run's own cost plus sub-agent, side-call and decision spend. Emit a figure
@@ -262,7 +266,6 @@ export function computeRunCost(
       ? parseFloat(((ownCostUSD ?? 0) + otherCostUSD).toFixed(8))
       : undefined;
 
-  const isFreeLocalModel = isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
   const ownCostUnknown =
     !isFreeLocalModel &&
     ((ownCostUSD === undefined && metrics.totalPromptTokens + metrics.totalCompletionTokens > 0) ||
@@ -272,7 +275,7 @@ export function computeRunCost(
     costUSD,
     costIncomplete:
       ownCostUnknown ||
-      isUsageCostIncomplete(ownTokens, pricing) ||
+      (!isFreeLocalModel && isUsageCostIncomplete(ownTokens, pricing)) ||
       metrics.childCostUnknown ||
       metrics.sideCostUnknown ||
       metrics.decisionCostUnknown === true,

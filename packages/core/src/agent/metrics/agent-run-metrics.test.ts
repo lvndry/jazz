@@ -316,6 +316,17 @@ describe("computeRunCost", () => {
     expect(computeRunCost(metrics, pricing).costIncomplete).toBe(true);
   });
 
+  it("prices a self-hosted model at zero even when a hosted price exists for its name", () => {
+    const metrics = {
+      ...createMetrics(),
+      provider: "ollama",
+      model: "gemma4:12b",
+    };
+    metrics.totalPromptTokens = 1_000_000;
+
+    expect(computeRunCost(metrics, pricing)).toEqual({ costUSD: 0, costIncomplete: false });
+  });
+
   it("prices cache writes at the cache-write rate", () => {
     const metrics = createMetrics();
     metrics.totalPromptTokens = 1_000_000;
