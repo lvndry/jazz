@@ -25,7 +25,12 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ChatMessage, ConversationMessages, RemainingRunBudget } from "@/core/types";
+import type {
+  ChatMessage,
+  ConversationMessages,
+  RemainingRunBudget,
+  StoppedToolCall,
+} from "@/core/types";
 import { parseGeneratedArtifacts } from "@/core/types/artifact";
 import {
   type AttachmentKind,
@@ -45,6 +50,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
+import { stoppedToolCallResult, ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
@@ -261,6 +267,8 @@ interface LoopState {
   iterationsUsed: number;
   contextPressureWarned: boolean;
   toolCompactionAnnounced: boolean;
+  /** The tool batch in flight, until every call of it has a result in the transcript. */
+  activeToolBatch: ActiveToolBatch | undefined;
   /**
    * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
    * the turn may only describe the plan, never start it. Later completions are asked for
@@ -596,7 +604,7 @@ function finalizeRun(
  */
 function closeDanglingToolCalls(
   state: Pick<LoopState, "currentMessages">,
-  content = "Tool execution interrupted by user",
+  content: Parameters<typeof closeUnansweredToolCalls>[1],
 ): void {
   const closed = closeUnansweredToolCalls(state.currentMessages, content);
   if (closed !== state.currentMessages) {
@@ -604,9 +612,70 @@ function closeDanglingToolCalls(
   }
 }
 
-/** The result a dangling tool call is closed with when the run's time budget stopped it. */
-const DEADLINE_TOOL_RESULT =
-  "Tool execution stopped: the run reached its time budget before this tool returned a result.";
+/** The tool batch in flight, with what each of its calls has done so far. */
+interface ActiveToolBatch {
+  readonly ledger: ToolBatchLedger;
+  /** Collapsed duplicate call ids and the call whose result they share. */
+  readonly aliases: ReadonlyMap<string, string>;
+  /** Set once the caller was told about this batch stopping. */
+  reported: boolean;
+}
+
+/** The batch's calls and their statuses, duplicates reported under their own ids. */
+function stoppedBatchReport(batch: ActiveToolBatch): readonly StoppedToolCall[] {
+  return batch.ledger.toolCalls.map((toolCall) => ({
+    id: toolCall.id,
+    name: toolCall.function.name,
+    status: batch.ledger.statusOf(batch.aliases.get(toolCall.id) ?? toolCall.id),
+  }));
+}
+
+/** Tell the caller once what became of the batch in flight, if there is one. */
+function notifyStoppedBatch(state: LoopState, options: LoopDeps["options"]): void {
+  const batch = state.activeToolBatch;
+  if (batch === undefined || batch.reported) {
+    return;
+  }
+  batch.reported = true;
+  options.onToolBatchStopped?.(stoppedBatchReport(batch));
+}
+
+/**
+ * The answer for each unanswered call of the batch in flight: a completed call's real result,
+ * or what the model may assume about one that was interrupted or never started.
+ */
+function stoppedCallAnswer(
+  batch: ActiveToolBatch | undefined,
+  reason: string,
+): (toolCall: { readonly id: string; readonly name: string }) => string {
+  return (toolCall) => {
+    if (batch === undefined) {
+      return `Tool execution stopped (${reason}) before this tool returned a result.`;
+    }
+    const canonicalId = batch.aliases.get(toolCall.id) ?? toolCall.id;
+    const status = batch.ledger.statusOf(canonicalId);
+    const outcome = batch.ledger.outcomeOf(canonicalId);
+    if (status === "completed" && outcome !== undefined) {
+      return formatToolResultForContext(toolCall.name, outcome.result);
+    }
+    return stoppedToolCallResult(status === "completed" ? "interrupted" : status, reason);
+  };
+}
+
+/**
+ * Close a tool batch that was stopped part-way, in place: every call gets an answer that says
+ * exactly what happened to it, the response lists the calls and their statuses, and the caller
+ * is told. `reason` names what stopped it.
+ */
+function closeStoppedBatch(state: LoopState, options: LoopDeps["options"], reason: string): void {
+  const batch = state.activeToolBatch;
+  closeDanglingToolCalls(state, stoppedCallAnswer(batch, reason));
+  if (batch !== undefined) {
+    state.response = { ...state.response, stoppedToolCalls: stoppedBatchReport(batch) };
+    notifyStoppedBatch(state, options);
+  }
+  state.activeToolBatch = undefined;
+}
 
 /**
  * What is left of a run's own budgets right now. Duration counts from the run's start, so a
@@ -622,10 +691,6 @@ function remainingRunBudget(
   const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
   return { maxDurationMs: Math.max(0, maxDurationMs - elapsedMs) };
 }
-
-/** The result a dangling tool call is closed with when its turn failed before it returned. */
-const FAILED_TURN_TOOL_RESULT =
-  "Tool execution did not finish: the run failed before this tool returned a result.";
 
 /**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
@@ -648,7 +713,7 @@ function reportFailedTurn(
     const transcript: Pick<LoopState, "currentMessages"> = {
       currentMessages: [...state.currentMessages],
     };
-    closeDanglingToolCalls(transcript, FAILED_TURN_TOOL_RESULT);
+    closeDanglingToolCalls(transcript, stoppedCallAnswer(state.activeToolBatch, "the run failed"));
     onFailedTurn(transcript.currentMessages);
   });
 }
@@ -844,6 +909,12 @@ function handleToolPhase(
           }))
       : [];
 
+    const ledger = new ToolBatchLedger(toolCalls);
+    for (const outcome of withheld) {
+      ledger.markFinished(outcome);
+    }
+    state.activeToolBatch = { ledger, aliases, reported: false };
+
     const executedResults = yield* ToolExecutor.executeToolCalls(
       dispatched,
       contextWithTokenStats,
@@ -856,7 +927,11 @@ function handleToolPhase(
       strategy.getInterruptSignal?.(),
       strategy.getBackgroundSignal?.(),
       options.onDetachedToolComplete,
+      ledger,
     ).pipe(
+      // Interrupted from outside (`--timeout`, SIGTERM, the run deadline): the caller hears
+      // what ran even though no response will reach it.
+      Effect.onInterrupt(() => Effect.sync(() => notifyStoppedBatch(state, options))),
       // The executor knows what the run is waiting for; only here are the messages that
       // let it start again. Everything else about the failure is left alone.
       Effect.catchIf(isRunParkRequested, (signal) =>
@@ -1016,13 +1091,14 @@ function handleToolPhase(
         ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
         : {}),
     };
+    state.activeToolBatch = undefined;
   }).pipe(
     Effect.as("continue" as const),
     Effect.catchIf(
       (error): error is GenerationInterruptedError => error instanceof GenerationInterruptedError,
       () =>
         Effect.gen(function* () {
-          closeDanglingToolCalls(state);
+          closeStoppedBatch(state, options, "stopped by the user");
           yield* observer.onInterrupted(agent.name);
           const renderer = strategy.getRenderer();
           if (renderer) {
@@ -1629,6 +1705,7 @@ export function executeAgentLoop(
           iterationsUsed: 0,
           contextPressureWarned: false,
           toolCompactionAnnounced: false,
+          activeToolBatch: undefined,
           awaitingGoalDecision: false,
         };
         let finished = false;
@@ -1711,7 +1788,7 @@ export function executeAgentLoop(
                 ? Option.some(yield* iteration)
                 : yield* iteration.pipe(Effect.timeoutOption(Duration.millis(remainingMs)));
             if (Option.isNone(outcome)) {
-              closeDanglingToolCalls(state, DEADLINE_TOOL_RESULT);
+              closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
               state.iterationsUsed = i + 1;
               yield* observer.onDurationCapReached(

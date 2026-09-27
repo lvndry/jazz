@@ -497,3 +497,13 @@ export interface RemainingRunBudget {
   /** Wall-clock milliseconds before the run's `maxDurationMs` deadline. */
   readonly maxDurationMs?: number;
 }
+
+/** What became of one call in a tool batch that was stopped before it finished. */
+export type ToolCallStatus = "completed" | "interrupted" | "not-started";
+
+/** One call of a stopped batch, as the response and `jazz run --json` report it. */
+export interface StoppedToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly status: ToolCallStatus;
+}

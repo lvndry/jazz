@@ -35,6 +35,7 @@ import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import type { ToolBatchLedger } from "./tool-batch-ledger";
 import {
   emitToolInvocation,
   recordToolError,
@@ -221,6 +222,8 @@ export class ToolExecutor {
     parkable = false,
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
+    /** Told when the call's side effect begins, so a stopped batch can say what ran. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -326,6 +329,11 @@ export class ToolExecutor {
           }
         }
 
+        // An approval tool's own call only builds the request; its side effect starts after
+        // approval, below.
+        if (!isApprovalTool) {
+          ledger?.markStarted(toolCall.id);
+        }
         // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
         let result = yield* ToolExecutor.executeTool(
           name,
@@ -558,6 +566,7 @@ export class ToolExecutor {
 
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
+            ledger?.markStarted(toolCall.id);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
@@ -731,6 +740,8 @@ export class ToolExecutor {
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
+    /** Records what each call did, for a batch that is stopped before it finishes. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome[],
     Error,
@@ -1025,9 +1036,11 @@ export class ToolExecutor {
                     approvalSet,
                     false,
                     preclassifiedRisk,
+                    ledger,
                   ).pipe(
                     Effect.tap((outcome) =>
                       Effect.sync(() => {
+                        ledger?.markFinished(outcome);
                         const returned = toolResultForProgress(outcome.result);
                         context.onToolEvent?.({
                           kind: "tool-finished",

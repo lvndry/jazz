@@ -321,7 +321,7 @@ flowchart TB
     META --> FORK["Fork all 6 as fibers<br/>≤10 running concurrently"]
     FORK --> JOIN{"Race"}
     JOIN -->|"all complete"| RESULTS(["6 results"])
-    JOIN -->|"interrupt signal<br/>(double-Esc)"| KILL["Interrupt every fiber<br/>settle UI · stop the loop"]
+    JOIN -->|"stopped<br/>(Esc, deadline, --timeout, SIGTERM)"| KILL["Interrupt every fiber<br/>SIGTERM, then SIGKILL, commands<br/>report what each call did"]
 
     classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class FORK act
@@ -339,10 +339,33 @@ sees it, and the run continues. A tool that can't finish shouldn't take the whol
 Approval prompts are queued rather than raced, and re-checked at dequeue time: a parallel
 tool's "always approve" may have changed the answer while this one waited.
 
-Double-Esc during a running tool is a **clean stop**, not a crash. In-flight tools get a
-cancelled receipt, `execute_command`'s child process is killed, dangling `tool_calls` in
-the transcript get a matching tool-result so the next turn stays valid, and the loop
-exits the same way an LLM-stream interrupt does.
+### Stopping a batch
+
+A batch can be stopped part-way: double-Esc, the run's `maxDurationMs` deadline, `--timeout`,
+or SIGTERM. Each is a **clean stop**, not a crash:
+
+- **Every tool fiber is interrupted, and the interrupt waits for it.** Tool calls are daemon
+  fibers (so Ctrl+B can detach them), and the batch interrupts each one it forked when it is
+  itself interrupted.
+- **Commands get to clean up.** `execute_command` and custom command tools run in their own
+  process group. Stopping one sends SIGTERM to the group, then SIGKILL after
+  `PROCESS_TERMINATION_GRACE_MS` (3s) if it is still running, so a script that traps SIGTERM
+  can finish writing and remove its temp files. The same applies to a tool's own timeout and to
+  the helper processes of `grep`, `find` and the git tools. Only the force path, a second
+  Ctrl+C or SIGTERM, SIGKILLs every command group at once.
+- **Files are never left half-written.** `write_file` and `edit_file` write a sibling temp file
+  and rename it over the target, keeping its permissions and following symlinks; `cp` and `mv`
+  stage the result beside the destination and swap it in, replacing a directory whole. The swap
+  is uninterruptible, so a stop lands before it (nothing changed) or after it (change
+  complete). `mv` across filesystems copies, swaps, and removes the source in that same step.
+- **The report says exactly what ran.** A `ToolBatchLedger` records when each call's side
+  effect begins (after approval, for a tool that asks first) and when it returns. Every call of
+  the stopped batch gets a tool result in the transcript: a completed call keeps its real
+  result, an interrupted one says it may have made part of its changes, and one that never
+  started says it changed nothing. The response carries `stoppedToolCalls` (`completed`,
+  `interrupted`, `not-started` per call), `jazz run --json` includes it in both the success and
+  the failure envelope, and `onToolBatchStopped` tells a caller whose run was interrupted from
+  outside.
 
 ---
 
