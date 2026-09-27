@@ -28,6 +28,7 @@ import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/w
 import { renameWorkflowDefinition } from "@jazz/core/workflows/workflow-utils";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { CHALK_THEME } from "@/cli/ui/theme";
 
 /** The local name becomes a directory under ~/.jazz/workflows, so it must stay a plain slug. */
 const VALID_LOCAL_NAME = /^[a-zA-Z0-9_-]+$/;
@@ -82,13 +83,15 @@ function confirmInstall(
     );
     if (autoApprove !== undefined && autoApprove !== false) {
       yield* terminal.log(
-        chalk.yellow(
+        CHALK_THEME.warning(
           `Run with --auto-approve or on a schedule, its tools execute without asking up to the "${String(autoApprove)}" tier.`,
         ),
       );
     }
     if (shadows !== undefined) {
-      yield* terminal.log(chalk.yellow(`Installing as "${localName}" shadows the ${shadows}.`));
+      yield* terminal.log(
+        CHALK_THEME.warning(`Installing as "${localName}" shadows the ${shadows}.`),
+      );
     }
     yield* terminal.log("");
 

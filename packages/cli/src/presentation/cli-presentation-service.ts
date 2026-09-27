@@ -232,7 +232,9 @@ export class CLIPresentationService implements PresentationService {
       // There are no "always approve" follow-ups here — picking a row is the decision.
       if (request.options && request.options.length > 0) {
         yield* this.writeOutput(`\n${separator}\n`);
-        yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+        yield* this.writeOutput(
+          `${CHALK_THEME.warning("⚠️  Approval Required")} for ${toolLabel}\n\n`,
+        );
         yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
 
         let optionIndex = 1;
@@ -265,7 +267,7 @@ export class CLIPresentationService implements PresentationService {
             break;
           }
           yield* this.writeOutput(
-            chalk.yellow(
+            CHALK_THEME.warning(
               `Enter a number between 1 and ${request.options.length}, or nothing to decline.\n`,
             ),
           );
@@ -293,7 +295,9 @@ export class CLIPresentationService implements PresentationService {
 
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
-      yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+      yield* this.writeOutput(
+        `${CHALK_THEME.warning("⚠️  Approval Required")} for ${toolLabel}\n\n`,
+      );
       yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
       yield* this.writeOutput(`${separator}\n`);
 

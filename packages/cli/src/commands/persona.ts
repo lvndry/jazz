@@ -12,6 +12,7 @@ import {
 } from "@jazz/core/types/errors";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { CHALK_THEME } from "@/cli/ui/theme";
 import { resolveEditor } from "./editor";
 
 /**
@@ -161,7 +162,7 @@ export function listPersonasCommand(): Effect.Effect<
 
     for (const persona of personas) {
       const isBuiltin = isBuiltinPersonaId(persona.id);
-      const tag = isBuiltin ? chalk.dim(" (built-in)") : chalk.green(" (custom)");
+      const tag = isBuiltin ? chalk.dim(" (built-in)") : CHALK_THEME.primary(" (custom)");
       const nameDisplay = chalk.bold(persona.name) + tag;
 
       yield* terminal.log(`  ${nameDisplay}`);
