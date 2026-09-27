@@ -15,6 +15,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { writeFileAtomically } from "./atomic-replace";
 import { fileSnapshot } from "./file-snapshot";
 import { normalizeFilterPattern } from "./utils";
 
@@ -681,8 +682,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
 
               const newContent = resultLines.join("\n");
 
-              // Write file — use Effect.catchAll to properly catch Effect failures
-              const writeResult = yield* fs.writeFileString(canonicalTarget, newContent).pipe(
+              // Old content or new, never a truncated file, however the call is stopped.
+              const writeResult = yield* writeFileAtomically(fs, canonicalTarget, newContent).pipe(
                 Effect.map(() => ({ ok: true as const })),
                 Effect.catchAll((error) =>
                   Effect.succeed({ ok: false as const, error: String(error) }),

@@ -52,12 +52,20 @@ describe("makeDefaultObserver", () => {
     expect(calls[0]).toContain("token cap reached (51,234 tokens, limit 50,000)");
   });
 
-  it("maps onDurationCapReached to presentWarning with elapsed and budget minutes", async () => {
+  it("maps onDurationCapReached to presentWarning with elapsed and budget durations", async () => {
     const { service, calls } = recordingPresentation();
     await Effect.runPromise(
       makeDefaultObserver(service).onDurationCapReached("Agent", 30 * 60_000, 31 * 60_000),
     );
-    expect(calls[0]).toContain("time budget reached (31 min elapsed, limit 30 min)");
+    expect(calls[0]).toContain("time budget reached (31m elapsed, limit 30m)");
+  });
+
+  it("names a sub-minute time budget in seconds rather than 0 min", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(
+      makeDefaultObserver(service).onDurationCapReached("Agent", 20_000, 21_000),
+    );
+    expect(calls[0]).toContain("time budget reached (21s elapsed, limit 20s)");
   });
 
   it("warns with the percentage and budget on context pressure", async () => {

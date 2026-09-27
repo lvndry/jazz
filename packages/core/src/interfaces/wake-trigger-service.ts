@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import { z } from "zod";
 
 export interface WakeTriggerRecord {
   readonly id: string;
@@ -19,6 +20,17 @@ export interface WakeTriggerRecord {
    */
   readonly osSchedulerJobId?: string;
 }
+
+/** On-disk shape of one {@link WakeTriggerRecord}, checked on every read. */
+export const WakeTriggerRecordSchema: z.ZodType<WakeTriggerRecord> = z.object({
+  id: z.string().min(1),
+  fireAt: z.number().finite(),
+  conversationId: z.string().min(1),
+  prompt: z.string(),
+  reason: z.string(),
+  createdAt: z.number().finite(),
+  osSchedulerJobId: z.string().exactOptional(),
+});
 
 export type AddWakeTriggerOutcome =
   | { readonly success: true; readonly trigger: WakeTriggerRecord }

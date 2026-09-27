@@ -77,6 +77,8 @@ export function renderDiscordMarkdown(body: RichText): string {
           return renderSpans(block.spans);
         case "subtle":
           return `-# ${renderSpans(block.spans)}`;
+        case "markdown":
+          return block.text;
         case "codeBlock":
           return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
         case "quote":

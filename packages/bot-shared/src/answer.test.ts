@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   doneSummary,
@@ -101,16 +104,22 @@ describe("planCompositionDelivery", () => {
   } as const;
   const options = { home, publicUrlSettingName: "PUBLIC_URL" };
 
-  test("a static app is an image, which every surface can show", () => {
+  test("a static app is an image, read from the conversation's own compositions", () => {
+    const directory = mkdtempSync(join(tmpdir(), "answer-image-"));
+    mkdirSync(join(directory, "compositions", "session-1"), { recursive: true });
+    writeFileSync(join(directory, "compositions", "session-1", "abc.png"), Buffer.from([1, 2]));
+    const imagePath = join(directory, "compositions", "session-1", "abc.png");
     const plan = planCompositionDelivery(
-      { ...base, mode: "static", imagePath: `${home}/compositions/session-1/abc.png` },
-      options,
+      { ...base, mode: "static", imagePath },
+      { ...options, home: directory },
     );
-    expect(plan).toEqual({
-      kind: "image",
-      path: `${home}/compositions/session-1/abc.png`,
-      caption: "Chart",
-    });
+    expect(plan.kind).toBe("image");
+    if (plan.kind === "image") {
+      expect(plan.file.path).toBe(imagePath);
+      expect([...plan.file.bytes]).toEqual([1, 2]);
+      expect(plan.caption).toBe("Chart");
+    }
+    rmSync(directory, { recursive: true, force: true });
   });
 
   test("an image path outside the conversation's compositions is never sent", () => {

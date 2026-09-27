@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { CHALK_THEME } from "@/cli/ui/theme";
 import {
   formatDetachEvent,
   formatDetachPull,
@@ -96,7 +97,7 @@ describe("attached terminal rendering", () => {
         glyphs,
         true,
       );
-      expect(ok).toContain(chalk.green(glyphs.success));
+      expect(ok).toContain(CHALK_THEME.success(glyphs.success));
       expect(plain(ok)).toContain("1.2s");
     } finally {
       chalk.level = previous;

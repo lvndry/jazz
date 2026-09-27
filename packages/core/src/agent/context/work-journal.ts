@@ -1,7 +1,10 @@
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
+import { writeFileDurably } from "@/core/utils/durable-file";
+import { withFileLock } from "@/core/utils/file-lock";
 import { getWorkStateDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 
 /**
  * An append-only record of what each compaction summarized away.
@@ -13,7 +16,9 @@ import { getWorkStateDirectory } from "@/core/utils/paths";
  * and gives a record that later cycles cannot degrade.
  *
  * Append-only and one JSON object per line, so a crash mid-write can damage at most the
- * final record rather than the file.
+ * final record rather than the file. Appends and pruning both hold the journal's lock, and
+ * pruning replaces the file durably, so a crash during a prune leaves the old journal or the
+ * pruned one, and an append that races a prune is never dropped.
  */
 
 const JOURNAL_FILENAME = "journal.jsonl";
@@ -33,6 +38,14 @@ export function journalPath(agentId: string, conversationId: string): string {
   return path.join(getWorkStateDirectory(agentId, conversationId), JOURNAL_FILENAME);
 }
 
+function withJournalLock<A>(
+  agentId: string,
+  conversationId: string,
+  operation: () => Promise<A>,
+): Promise<A> {
+  return withFileLock(`${journalPath(agentId, conversationId)}.lock`, operation);
+}
+
 /**
  * Append one entry. Never throws: losing a journal write must not fail the run it is
  * describing, since the summary itself is already safely in context.
@@ -45,11 +58,12 @@ export function appendJournalEntry(
   return Effect.tryPromise({
     try: async () => {
       const directory = getWorkStateDirectory(agentId, conversationId);
-      await nodeFs.mkdir(directory, { recursive: true, mode: 0o700 });
-      await nodeFs.appendFile(
-        path.join(directory, JOURNAL_FILENAME),
-        `${JSON.stringify(entry)}\n`,
-        "utf-8",
+      await nodeFs.mkdir(directory, { recursive: true, mode: stateDirectoryMode() });
+      await withJournalLock(agentId, conversationId, () =>
+        nodeFs.appendFile(path.join(directory, JOURNAL_FILENAME), `${JSON.stringify(entry)}\n`, {
+          encoding: "utf-8",
+          mode: stateFileMode(),
+        }),
       );
       return true;
     },
@@ -144,25 +158,21 @@ export function pruneJournal(
   return workStateSizeBytes(agentId, conversationId).pipe(
     Effect.flatMap((size) => {
       if (size <= maxBytes) return Effect.succeed(0);
-      return readJournal(agentId, conversationId).pipe(
-        Effect.flatMap((entries) => {
-          // Halve the record count rather than trimming one at a time, so pruning is
-          // amortized instead of running on every subsequent append.
-          const keep = entries.slice(Math.ceil(entries.length / 2));
-          const dropped = entries.length - keep.length;
-          return Effect.tryPromise({
-            try: async () => {
-              await nodeFs.writeFile(
-                journalPath(agentId, conversationId),
-                keep.map((entry) => JSON.stringify(entry)).join("\n") + (keep.length ? "\n" : ""),
-                "utf-8",
-              );
-              return dropped;
-            },
-            catch: (error) => error,
-          }).pipe(Effect.catchAll(() => Effect.succeed(0)));
-        }),
-      );
+      return Effect.tryPromise({
+        try: () =>
+          withJournalLock(agentId, conversationId, async () => {
+            const entries = await Effect.runPromise(readJournal(agentId, conversationId));
+            // Halve the record count rather than trimming one at a time, so pruning is
+            // amortized instead of running on every subsequent append.
+            const keep = entries.slice(Math.ceil(entries.length / 2));
+            await writeFileDurably(
+              journalPath(agentId, conversationId),
+              keep.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+            );
+            return entries.length - keep.length;
+          }),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(0)));
     }),
   );
 }

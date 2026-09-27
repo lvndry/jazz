@@ -6,6 +6,7 @@ import {
   type FileSystemContextService,
   FileSystemContextServiceTag,
 } from "@jazz/core/interfaces/fs";
+import { terminateProcessGroup } from "@jazz/core/utils/process";
 import { Effect, Layer } from "effect";
 
 /**
@@ -84,66 +85,47 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
         maxDepth: number,
       ): Effect.Effect<{ results: readonly string[]; warnings?: readonly string[] }, Error, never> {
         return Effect.gen(function* () {
-          const result = yield* Effect.promise<{
+          const result = yield* Effect.async<{
             stdout: string;
             stderr: string;
             exitCode: number;
-          }>(
-            () =>
-              new Promise((resolve, reject) => {
-                const child = spawn(
-                  "find",
-                  [
-                    startPath,
-                    "-maxdepth",
-                    String(maxDepth),
-                    "-type",
-                    "d",
-                    "-iname",
-                    `*${targetName}*`,
-                  ],
-                  {
-                    stdio: ["ignore", "pipe", "pipe"],
-                    timeout: 10_000,
-                  },
-                );
+          }>((resume) => {
+            const child = spawn(
+              "find",
+              [startPath, "-maxdepth", String(maxDepth), "-type", "d", "-iname", `*${targetName}*`],
+              {
+                stdio: ["ignore", "pipe", "pipe"],
+                timeout: 10_000,
+              },
+            );
 
-                let stdout = "";
-                let stderr = "";
+            let stdout = "";
+            let stderr = "";
 
-                if (child.stdout) {
-                  child.stdout.on("data", (data: Buffer) => {
-                    stdout += data.toString();
-                  });
-                }
+            child.stdout?.on("data", (data: Buffer) => {
+              stdout += data.toString();
+            });
 
-                if (child.stderr) {
-                  child.stderr.on("data", (data: Buffer) => {
-                    stderr += data.toString();
-                  });
-                }
+            child.stderr?.on("data", (data: Buffer) => {
+              stderr += data.toString();
+            });
 
-                child.on("close", (code: number | null) => {
-                  resolve({
-                    stdout: stdout.trim(),
-                    stderr: stderr.trim(),
-                    exitCode: code || 0,
-                  });
-                });
+            child.on("close", (code: number | null) => {
+              resume(
+                Effect.succeed({
+                  stdout: stdout.trim(),
+                  stderr: stderr.trim(),
+                  exitCode: code || 0,
+                }),
+              );
+            });
 
-                child.on("error", (error: Error) => {
-                  reject(error);
-                });
-              }),
-          ).pipe(
-            Effect.catchAll((error: Error) =>
-              Effect.succeed({
-                stdout: "",
-                stderr: error.message,
-                exitCode: 1,
-              }),
-            ),
-          );
+            child.on("error", (error: Error) => {
+              resume(Effect.succeed({ stdout: "", stderr: error.message, exitCode: 1 }));
+            });
+
+            return Effect.promise(() => terminateProcessGroup(child));
+          });
 
           // Parse results and sort
           const results = result.stdout

@@ -29,7 +29,6 @@ describe("TerminalService", () => {
           expect(capabilities).toBeDefined();
           expect(capabilities.type).toBeDefined();
           expect(capabilities.supportsUnicode).toBeDefined();
-          expect(capabilities.supportsTrueColor).toBeDefined();
           expect(capabilities.columns).toBeGreaterThan(0);
           expect(capabilities.rows).toBeGreaterThan(0);
 

@@ -9,9 +9,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { PluginConsentGrant } from "@jazz/core/types/plugin";
+import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { writeJsonFileDurably } from "@/adapters/storage/durable-file";
-import { withFileLock } from "@/adapters/storage/file-lock";
 import { parsePluginManifest, type PluginManifest } from "./manifest-schema";
 
 export const PLUGIN_STATE_SCHEMA_VERSION = 1;

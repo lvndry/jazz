@@ -271,6 +271,15 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             }
           }
 
+          const remainingBudget = context.remainingRunBudget?.() ?? {};
+          if (remainingBudget.maxDurationMs !== undefined && remainingBudget.maxDurationMs <= 0) {
+            return {
+              success: false,
+              result: null,
+              error: "No time is left in this run's budget to delegate. Finish with what you have.",
+            };
+          }
+
           yield* logger.info("Spawning sub-agent", {
             task: args.task.substring(0, 200),
             persona: args.persona,
@@ -343,6 +352,9 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               },
             }),
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
+            ...(remainingBudget.maxDurationMs !== undefined
+              ? { maxDurationMs: remainingBudget.maxDurationMs }
+              : {}),
             ephemeralRegionId: regionId,
             ...(presentation.takeEphemeralRegionMessage
               ? {

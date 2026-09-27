@@ -30,6 +30,40 @@ Jazz keeps everything under one directory, `~/.jazz` by default, moved with `JAZ
 without saying so. "Internal" means exactly the opposite, and a script that parses them will
 break.
 
+## Permissions
+
+Everything Jazz writes under the home is private to your account: files are `0600` and
+directories `0700`, so another account on a shared machine cannot read your conversations,
+memory, logs, or state. Each command makes the home itself owner-only, and the first command
+run against a home also walks it once and clears the group and other permission bits on
+everything your account already wrote there (your own bits, execute included, are kept;
+symbolic links and other accounts' files are left alone). A `.permissions-repaired` file marks
+that the walk has run.
+
+A home whose directory has the setgid bit is treated as shared with its group on purpose.
+The chat bridges set up each conversation's home that way so the operator can read it, and
+there Jazz keeps group read and removes only the bits for everyone else. The bridge’s outer
+shared home has setgid and traversal-only access for other accounts (typically `2751`), so
+conversation accounts can reach their own homes under `chats/`. CLI startup leaves that
+operator-managed hierarchy alone; the bridge entrypoint repairs its permissions, preserving
+shared personas and sandbox traversal. Conversation homes (`2750`) still receive CLI repair.
+
+## Damaged and newer files
+
+State files that are replaced as a whole (`config.json`, agents, memory, run history,
+reminders, wake triggers, job batches, `state.json`) are written to a temporary file, flushed
+to disk, and renamed into place, so a crash or power cut leaves either the old file or the new
+one. Cancellation waits for an in-flight durable replacement to finish before releasing its
+store lock, so the cancelled write cannot overwrite a later writer. Locks distinguish process
+start times as well as PIDs, including when the current process reuses a crashed holder’s PID.
+
+Reminders, wake triggers, job batches, run history, and `state.json` carry a `schemaVersion`.
+When one of them cannot be read (torn JSON, a wrong shape), Jazz moves it aside to
+`<name>.corrupt-<timestamp>`, prints a warning with both paths, and starts a fresh file, so the
+damaged bytes are kept for you to recover rather than overwritten. A file with a
+`schemaVersion` newer than your Jazz understands, or a conversation log with a newer header
+version, is refused and left untouched: update Jazz to use it.
+
 ## The contracts worth integrating against
 
 Prefer these to reading files:

@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { writeJsonFileDurably } from "./durable-file";
+import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
 
 describe("writeJsonFileDurably", () => {
   it("replaces the document, private to its owner, and leaves no temporary file behind", async () => {

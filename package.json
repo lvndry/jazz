@@ -66,6 +66,7 @@
     "docs:config-reference": "bun run scripts/gen-config-reference.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",
+    "docs:chat-commands": "bun run packages/cli/src/chat/commands/generate-reference.ts",
     "docs:design": "bun run scripts/gen-design-docs.ts",
     "docs:lint": "bunx markdownlint-cli2",
     "docs:lint:fix": "bunx markdownlint-cli2 --fix",

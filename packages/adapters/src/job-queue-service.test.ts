@@ -372,3 +372,34 @@ describe("nextClaimableAt", () => {
     expect(soonest).toBeGreaterThan(Date.now());
   });
 });
+
+describe("damaged and versioned batch files", () => {
+  test("a torn batch is quarantined by the worker instead of vanishing silently", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) throw new Error("enqueue failed");
+    const batchPath = path.join(tmpDir, "agent-1", `${outcome.batch.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(batchPath, "utf8"));
+    expect(stored.schemaVersion).toBe(1);
+    expect(fs.statSync(batchPath).mode & 0o777).toBe(0o600);
+
+    fs.writeFileSync(batchPath, "{torn");
+    expect(await runEffect(service.listActiveBatches("agent-1"))).toEqual([]);
+    expect(await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker"))).toEqual([]);
+    const aside = fs
+      .readdirSync(path.join(tmpDir, "agent-1"))
+      .filter((name) => name.includes(".corrupt-"));
+    expect(aside).toHaveLength(1);
+  });
+
+  test("refuses a batch written by a newer Jazz", async () => {
+    fs.mkdirSync(path.join(tmpDir, "agent-1"), { recursive: true });
+    const batchPath = path.join(tmpDir, "agent-1", "newer.json");
+    fs.writeFileSync(batchPath, JSON.stringify({ schemaVersion: 99 }));
+    const result = await runEffect(makeService().getBatch("agent-1", "newer").pipe(Effect.either));
+    expect(result._tag).toBe("Left");
+    expect(fs.existsSync(batchPath)).toBe(true);
+  });
+});

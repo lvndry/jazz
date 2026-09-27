@@ -20,6 +20,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ArtifactKind, GeneratedArtifact } from "@jazz/core/types/artifact";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import shortUUID from "short-uuid";
 
 /** The subset of the AI SDK's `GeneratedFile` this needs. */
@@ -73,7 +74,7 @@ export async function saveModelGeneratedFiles(
 
   const directory = generatedFilesDirectory();
   try {
-    await mkdir(directory, { recursive: true });
+    await mkdir(directory, { recursive: true, mode: stateDirectoryMode() });
   } catch {
     return [];
   }
@@ -88,7 +89,7 @@ export async function saveModelGeneratedFiles(
       `${shortUUID.generate()}.${extensionForMediaType(file.mediaType)}`,
     );
     try {
-      await writeFile(path, file.uint8Array);
+      await writeFile(path, file.uint8Array, { mode: stateFileMode() });
     } catch {
       continue;
     }
