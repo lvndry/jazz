@@ -37,12 +37,14 @@ export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
 export const MAX_RUN_HISTORY_RECORDS = 100;
 
 /**
- * Maximum number of conversation history records to keep per agent.
+ * Conversations each agent keeps in its live history when
+ * `history.maxConversationsPerAgent` is unset.
  *
  * Saves are LRU (an updated conversation moves to the front), so this bounds
- * how many distinct conversations an agent can remember. Headless bridges
- * (`jazz run --conversation`) keep one conversation per external chat, so the
- * cap must comfortably exceed the number of concurrently active chats.
+ * how many distinct conversations an agent keeps at hand; older ones are
+ * archived, not deleted. Headless bridges (`jazz run --conversation`) keep one
+ * conversation per external chat, so the limit must comfortably exceed the
+ * number of concurrently active chats.
  */
 export const MAX_CONVERSATION_HISTORY_PER_AGENT = 100;
 

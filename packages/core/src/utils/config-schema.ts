@@ -32,6 +32,7 @@ import type {
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
+  HistoryConfig,
   LoggingConfig,
   MCPServerOverride,
   NotificationsConfig,
@@ -125,7 +126,13 @@ const loggingShape = {
     "error",
   ]).exactOptional(),
   format: exhaustiveEnum<LoggingConfig["format"]>()(["json", "plain"]).exactOptional(),
+  retentionDays: positiveWholeNumber.exactOptional(),
+  maxTotalSizeMB: positiveWholeNumber.exactOptional(),
 } satisfies SchemaShape<LoggingConfig>;
+
+const historyShape = {
+  maxConversationsPerAgent: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<HistoryConfig>;
 
 const apiKeyOnly = z
   .strictObject({ api_key: text.exactOptional() } satisfies SchemaShape<LLMProviderConfig>)
@@ -435,6 +442,7 @@ const configFileShape = {
   maxTokens: positiveWholeNumber.exactOptional(),
   maxDurationMs: positiveWholeNumber.exactOptional(),
   context: contextSchema.exactOptional(),
+  history: z.strictObject(historyShape).exactOptional(),
   workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
   peers: z.array(z.strictObject(peerShape)).exactOptional(),

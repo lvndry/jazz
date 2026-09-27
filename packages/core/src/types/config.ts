@@ -54,6 +54,7 @@ export interface AppConfig {
    */
   readonly maxDurationMs?: number;
   readonly context?: ContextConfig;
+  readonly history?: HistoryConfig;
   /**
    * Per-agent total size cap for the workspace scratch directory, in bytes.
    * Defaults to 1GB (`DEFAULT_MAX_WORKSPACE_TOTAL_BYTES_PER_AGENT`).
@@ -208,6 +209,19 @@ export type StorageConfig =
 export interface LoggingConfig {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly format: "json" | "plain";
+  /** Days a file in the logs directory is kept after its last write. Defaults to 14. */
+  readonly retentionDays?: number;
+  /** Size cap for the whole logs directory, in megabytes; oldest files go first. Defaults to 200. */
+  readonly maxTotalSizeMB?: number;
+}
+
+export interface HistoryConfig {
+  /**
+   * Conversations each agent keeps in its live history. Older ones are archived (compressed
+   * under `history/archive/`), never deleted, and a conversation a goal, loop or run still
+   * uses is never archived. Defaults to 100.
+   */
+  readonly maxConversationsPerAgent?: number;
 }
 
 export interface LLMProviderConfig {
