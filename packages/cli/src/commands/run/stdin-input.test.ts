@@ -1,3 +1,4 @@
+/** Framed stdin preserves prompts and subsequent protocol bytes across arbitrary chunks. */
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "bun:test";
 import { parseStdinRunInput, readFirstStdinLine } from "./stdin-input";
@@ -27,6 +28,44 @@ describe("parseStdinRunInput", () => {
 });
 
 describe("readFirstStdinLine", () => {
+  it("preserves multibyte prompt and history characters split between chunks", async () => {
+    const stream = new PassThrough();
+    const frame = JSON.stringify({
+      prompt: "café 👋",
+      history: [{ role: "user", content: "日本語" }],
+    });
+    const firstLine = readFirstStdinLine(stream);
+    for (const byte of Buffer.from(`${frame}\n`)) stream.write(Buffer.from([byte]));
+    expect(await firstLine).toBe(frame);
+    stream.destroy();
+  });
+
+  it("returns later protocol bytes unchanged when their UTF-8 character is split", async () => {
+    const stream = new PassThrough();
+    const frame = '{"prompt":"hi"}';
+    const reply = Buffer.from('{"response":"👋"}\n');
+    const split = reply.indexOf(Buffer.from("👋")) + 1;
+    const firstLine = readFirstStdinLine(stream);
+    stream.write(Buffer.concat([Buffer.from(`${frame}\n`), reply.subarray(0, split)]));
+    expect(await firstLine).toBe(frame);
+    const remainder: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => remainder.push(chunk));
+    const ended = new Promise<void>((resolve) => stream.on("end", resolve));
+    stream.resume();
+    stream.end(reply.subarray(split));
+    await ended;
+    expect(Buffer.concat(remainder)).toEqual(reply);
+  });
+
+  it("decodes a split multibyte character when EOF terminates the frame", async () => {
+    const stream = new PassThrough();
+    const frame = JSON.stringify({ prompt: "👋" });
+    const firstLine = readFirstStdinLine(stream);
+    for (const byte of Buffer.from(frame)) stream.write(Buffer.from([byte]));
+    stream.end();
+    expect(await firstLine).toBe(frame);
+  });
+
   it("returns the first line and leaves later lines for the next reader", async () => {
     const stream = new PassThrough();
     const firstLine = readFirstStdinLine(stream);

@@ -141,6 +141,10 @@ tool list, caller, and remaining budget it parked with, or not at all. Invite se
 credentials. Telegram, Discord, iMessage, Photon, and
 WhatsApp bridges apply their own sender or conversation allowlists before a run starts.
 
+Bridge reads of sandbox-owned files reject symlinks and nonregular files. They open read
+descriptors in nonblocking mode before checking the file type, so a conversation cannot freeze
+the bridge by replacing a published composition or another readable store with a named pipe.
+
 ## What Jazz does not guarantee
 
 - **Prompt-injection immunity:** hostile content can steer actions already permitted by the toolset
