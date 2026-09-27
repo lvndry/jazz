@@ -51,7 +51,9 @@ terminate the process without using the host API.
 
 For that reason installation, code trust, data-egress consent, and per-agent enablement are separate
 steps. First-time trust and new consent can be granted only from a local interactive terminal.
-Chat and unattended surfaces report the required local command instead.
+`--yes` skips the confirmation question but not that requirement: `jazz plugin trust` and
+`jazz plugin enable` refuse to run from a script, a pipe, or CI. Chat and unattended surfaces report
+the required local command instead.
 
 ```bash
 # GitHub is the default source: no author build, pack, or release step.
@@ -310,7 +312,8 @@ jazz plugin gc
 ```
 
 An update keeps one previous artifact for rollback and returns the plugin to pending trust/consent
-when code or declared data changes. Disablement prevents new dispatch after the state commit. Since
+when code or declared data changes. An update also disables the plugin everywhere, including a
+`jazz plugin enable` grant for all agents, so the new code runs only after you enable it again. Disablement prevents new dispatch after the state commit. Since
 JavaScript modules are process-cached, a daemon or bot restart is required to remove already-loaded
 code, timers, sockets, or global mutations completely.
 

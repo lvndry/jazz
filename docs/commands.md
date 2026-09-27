@@ -158,18 +158,18 @@ Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 
 ## `jazz mcp`
 
-| Command               | Purpose                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header`, and optional `--trusted` |
-| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                               |
-| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                   |
-| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                          |
-| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                             |
-| `jazz mcp trust`      | Honor a server's read-only annotations when applying approval policy                                                                          |
-| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                               |
-| `jazz mcp remove`     | Remove a server                                                                                                                               |
-| `jazz mcp enable`     | Enable a disabled server                                                                                                                      |
-| `jazz mcp disable`    | Disable a server                                                                                                                              |
+| Command               | Purpose                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header` (values go to the keyring), and optional `--trusted` |
+| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                                                          |
+| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                                              |
+| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                                                     |
+| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                                                        |
+| `jazz mcp trust`      | Honor the read-only annotations of a server defined in `~/.agents/mcp.json` when applying approval policy                                                                |
+| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                                                          |
+| `jazz mcp remove`     | Remove a server                                                                                                                                                          |
+| `jazz mcp enable`     | Enable a disabled server                                                                                                                                                 |
+| `jazz mcp disable`    | Disable a server                                                                                                                                                         |
 
 See [MCP configuration](./configure/mcp.md).
 
@@ -545,12 +545,12 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 
 ## `jazz config`
 
-| Command                         | Purpose                                             |
-| ------------------------------- | --------------------------------------------------- |
-| `jazz config show`              | Show all configuration values                       |
-| `jazz config validate`          | Check config files without starting the application |
-| `jazz config get <key>`         | Get one value                                       |
-| `jazz config set <key> [value]` | Set one value                                       |
+| Command                         | Purpose                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them    |
+| `jazz config validate`          | Check config files without starting the application                        |
+| `jazz config get <key>`         | Get one value, redacted when it is or holds a secret; `--reveal` prints it |
+| `jazz config set <key> [value]` | Set one value                                                              |
 
 See [Configuration](./configure/jazz.md).
 

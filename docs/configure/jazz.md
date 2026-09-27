@@ -147,7 +147,7 @@ topic name nobody can guess: anyone who knows it can read what you are sent. See
 
 ## MCP overrides
 
-Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`.
+Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`. `trusted` is read from the global file only, and applies only to servers defined in `~/.agents/mcp.json`; a project file's `trusted` is ignored with a warning. See [MCP](./mcp.md#trust-controls-approval-not-identity).
 
 ## Telemetry
 
@@ -155,7 +155,7 @@ Local telemetry is enabled by default. The `telemetry` object controls retention
 
 ## Secrets and environment variables
 
-Provider and integration keys should be set through Jazz so it can use the system keyring, or supplied as documented environment variables. Run `jazz config show` to inspect resolved non-secret settings.
+Provider and integration keys should be set through Jazz so it can use the system keyring, or supplied as documented environment variables. Run `jazz config show` to inspect the resolved settings; secrets are redacted unless you pass `--reveal`.
 
 Common process-wide overrides include:
 

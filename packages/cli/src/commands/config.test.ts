@@ -3,7 +3,7 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { setConfigCommand } from "./config";
+import { getConfigCommand, listConfigCommand, setConfigCommand } from "./config";
 
 /**
  * `jazz config set` receives every value as a shell string, but most of
@@ -175,5 +175,59 @@ describe("jazz config set", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     expect(ask).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
+  });
+});
+
+describe("jazz config show and get", () => {
+  const appConfig = {
+    llm: { openai: { api_key: "sk-live-key" } },
+    mcpServers: {
+      signoz: { name: "signoz", command: "signoz-mcp", env: { SIGNOZ_API_KEY: "sk-signoz" } },
+    },
+    logging: { level: "info" },
+  };
+  const printed: string[] = [];
+  const readLayer = Layer.mergeAll(
+    Layer.succeed(AgentConfigServiceTag, {
+      appConfig: Effect.succeed(appConfig),
+    } as unknown as AgentConfigService),
+    Layer.succeed(TerminalServiceTag, {
+      ...mockTerminal,
+      log: (message: unknown) =>
+        Effect.sync(() => {
+          printed.push(String(message));
+        }),
+    } as unknown as TerminalService),
+  );
+  const output = async (
+    effect: Effect.Effect<void, never, AgentConfigService | TerminalService>,
+  ) => {
+    printed.length = 0;
+    await Effect.runPromise(effect.pipe(Effect.provide(readLayer)));
+    return printed.join("\n");
+  };
+
+  it("show redacts keyring-merged and MCP env secrets by default", async () => {
+    const shown = await output(listConfigCommand());
+
+    expect(shown).not.toContain("sk-live-key");
+    expect(shown).not.toContain("sk-signoz");
+    expect(shown).toContain("<redacted>");
+    expect(shown).toContain('"level": "info"');
+  });
+
+  it("show --reveal prints secrets in full", async () => {
+    const shown = await output(listConfigCommand({ reveal: true }));
+
+    expect(shown).toContain("sk-live-key");
+    expect(shown).toContain("sk-signoz");
+  });
+
+  it("get redacts a secret and a section holding one unless revealed", async () => {
+    expect(await output(getConfigCommand("llm.openai.api_key"))).not.toContain("sk-live-key");
+    expect(await output(getConfigCommand("mcpServers"))).not.toContain("sk-signoz");
+    expect(await output(getConfigCommand("llm.openai.api_key", { reveal: true }))).toContain(
+      "sk-live-key",
+    );
   });
 });
