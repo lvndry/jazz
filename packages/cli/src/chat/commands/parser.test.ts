@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { setSkillCommands } from "./constants";
-import { parseSpecialCommand } from "./parser";
+import { CHAT_COMMANDS, setSkillCommands } from "./constants";
+import { isCommandInput, isShellEscape, parseSpecialCommand } from "./parser";
 
 describe("parseSpecialCommand", () => {
   describe("recognized commands", () => {
@@ -208,6 +208,34 @@ describe("parseSpecialCommand", () => {
     it("does not treat a bare ! as a shell command", () => {
       expect(parseSpecialCommand("!").type).toBe("unknown");
     });
+
+    it("requires a space or tab after the bang", () => {
+      expect(parseSpecialCommand("!\tls").type).toBe("shell");
+      expect(parseSpecialCommand("!!! urgent: call the bank").type).toBe("unknown");
+      expect(parseSpecialCommand("!ls").type).toBe("unknown");
+      expect(parseSpecialCommand("!important").type).toBe("unknown");
+    });
+  });
+
+  describe("isShellEscape and isCommandInput", () => {
+    it("recognizes a bang followed by a space as a shell escape", () => {
+      expect(isShellEscape("! git status")).toBe(true);
+      expect(isShellEscape("  ! git status")).toBe(true);
+      expect(isShellEscape("! ")).toBe(true);
+    });
+
+    it("reads anything else starting with a bang as prose", () => {
+      expect(isShellEscape("!!! urgent")).toBe(false);
+      expect(isShellEscape("!ls")).toBe(false);
+      expect(isShellEscape("!")).toBe(false);
+      expect(isCommandInput("!!! urgent")).toBe(false);
+    });
+
+    it("counts slash commands and shell escapes as command input", () => {
+      expect(isCommandInput("/help")).toBe(true);
+      expect(isCommandInput("! ls")).toBe(true);
+      expect(isCommandInput("hello")).toBe(false);
+    });
   });
 
   describe("skill commands", () => {
@@ -252,6 +280,27 @@ describe("parseSpecialCommand", () => {
     it("should handle leading/trailing whitespace", () => {
       const result = parseSpecialCommand("  /help  ");
       expect(result.type).toBe("help");
+    });
+  });
+});
+
+describe("CHAT_COMMANDS registry", () => {
+  /** `/exit` ends the chat loop in chat-service before input reaches the parser. */
+  const COMMANDS_HANDLED_BEFORE_PARSING = new Set(["exit"]);
+
+  it("parses every advertised command to a recognized type", () => {
+    const unparsed = CHAT_COMMANDS.filter(
+      (command) =>
+        !COMMANDS_HANDLED_BEFORE_PARSING.has(command.name) &&
+        parseSpecialCommand(`/${command.name}`).type === "unknown",
+    ).map((command) => command.name);
+    expect(unparsed).toEqual([]);
+  });
+
+  it("parses /memory with its arguments", () => {
+    expect(parseSpecialCommand("/memory forget personal/notes.md")).toEqual({
+      type: "memory",
+      args: ["forget", "personal/notes.md"],
     });
   });
 });

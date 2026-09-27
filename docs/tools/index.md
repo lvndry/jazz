@@ -150,7 +150,8 @@ caller can check every quarter second without waking the model each time. It is 
 interject. Waits that outlast that belong to `register_trigger`, which suspends the run and resumes
 it later; the two compose, polling tightly inside the budget and re-arming across it.
 
-In the interactive terminal, an operator can also type `! <command>`. That explicit shell escape
+In the interactive terminal, an operator can also type `! <command>` (the space after `!` is
+required). That explicit shell escape
 uses the same cwd resolution, environment sanitization, denylist, timeout, interruption, and
 output caps as `execute_command`, then gives the result to the agent as context. It is not
 available through `jazz run` or remote chat surfaces.
@@ -359,8 +360,10 @@ himalaya invocation is declined. The fix is usually _not_ to raise the whole tie
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-That keeps the tier low while letting the one command through. Matching is on a parsed key
-(binary + first subcommand), never a raw prefix: see
+That keeps the tier low while letting the one command through. Matching is on a key parsed the
+way the shell reads the command (binary, plus the next word when it is not a flag), never a raw
+prefix, and a compound, redirected, substituted or `NAME=value`-prefixed command never matches:
+see
 [Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
 
 ---
@@ -370,7 +373,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 - **Editing a file another agent may change**: An ordinary text `read_file` returns a `snapshot` computed from the canonical target path and the complete file contents, even when only a line range was returned. Pass it unchanged to `edit_file`. The approval proposal checks it before showing a diff, and the hidden execution half checks it again under a per-file lock shared by Jazz agents and processes. A mismatch returns `StaleFileError` without writing or asking for approval; read the file again, inspect the current lines, and retry with the new snapshot. `sinceByte` follow-reads and media attachments do not produce edit snapshots. The lock serializes Jazz `edit_file` calls; other programs need not honor it, so external concurrent writes remain outside that lock.
 - **Following a file that is still being written**: `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file. `sinceByte` cannot be combined with `startLine`/`endLine`: except at `0`, which means "from the start of the file" and so narrows to the line range instead of being refused; models that fill every optional number in a schema with `0` send exactly that shape, and rejecting it cost a round trip to learn nothing.
 - **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
-- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
+- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. Before the classifier runs, a syntax check marks malformed commands, command or process substitution, file redirections and a command name built from a variable `high-risk` outright. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts**: 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept: asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
 - **Concurrency**: up to 10 tools execute in parallel per iteration.
