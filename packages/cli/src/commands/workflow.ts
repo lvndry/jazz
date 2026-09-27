@@ -1,9 +1,12 @@
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { deliverWorkflowResult, notifyWorkflowNotRun } from "@jazz/core/notify/workflow-delivery";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@jazz/core/types/agent";
@@ -25,7 +28,10 @@ import {
   loadRunHistory,
   MANUAL_RUN_LABEL,
   runScheduleLabel,
-  updateLatestRunRecord,
+  markInterruptedRuns,
+  updateRunRecord,
+  type WorkflowRunStatus,
+  type WorkflowRunUpdate,
 } from "@jazz/core/workflows/run-history";
 import {
   DEFAULT_SCHEDULE_LABEL,
@@ -45,7 +51,7 @@ import {
   groupWorkflows,
   renderWorkflowPrompt,
 } from "@jazz/core/workflows/workflow-utils";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Option } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { answerOutcomeFields, formatOneShotError, formatOneShotResult } from "./run/envelope";
@@ -302,23 +308,27 @@ export function runWorkflowCommand(
     // logic kept treating the slot as a missed run.
     const startedAt = new Date().toISOString();
     const triggeredBy = isSchedulerTriggered ? ("scheduled" as const) : ("manual" as const);
-    yield* addRunRecord({
+    const runRecord = yield* addRunRecord({
       workflowName,
       scheduleLabel,
       startedAt,
       status: "running",
       triggeredBy,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.option);
+    const updateThisRun = (update: WorkflowRunUpdate): Effect.Effect<void> =>
+      Option.isSome(runRecord)
+        ? updateRunRecord(runRecord.value.id, update).pipe(Effect.catchAll(() => Effect.void))
+        : Effect.void;
 
     // Helper: mark the just-opened "running" record as failed. Called on
     // every early-exit error path so failures show up in `jazz workflow
     // history` and the next-startup warning surfaces them to the user.
     const markFailed = (errorMessage: string) =>
-      updateLatestRunRecord(workflowName, {
+      updateThisRun({
         completedAt: new Date().toISOString(),
         status: "failed",
         error: errorMessage,
-      }).pipe(Effect.catchAll(() => Effect.void));
+      });
 
     // Load the workflow
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
@@ -356,6 +366,15 @@ export function runWorkflowCommand(
       if (isNonInteractive) {
         const errorMessage = `Agent '${agentIdentifier}' not found. Scheduled workflows require a valid agent — update the workflow or re-schedule with an existing agent.`;
         yield* markFailed(errorMessage);
+        if (isSchedulerTriggered) {
+          yield* notifyWorkflowNotRun({
+            notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+            workflow: workflowName,
+            deliver: workflow.metadata.deliver,
+            agentId: agentIdentifier,
+            error: errorMessage,
+          });
+        }
         yield* say(() => terminal.error(`Agent '${agentIdentifier}' not found.`));
         yield* say(() =>
           terminal.info(
@@ -391,10 +410,10 @@ export function runWorkflowCommand(
       if (!selectedAgent) {
         // User cancelled the picker. Mark the record skipped so it doesn't
         // sit as a stale "running" entry forever.
-        yield* updateLatestRunRecord(workflowName, {
+        yield* updateThisRun({
           completedAt: new Date().toISOString(),
           status: "skipped",
-        }).pipe(Effect.catchAll(() => Effect.void));
+        });
         yield* terminal.info("Workflow cancelled.");
         return;
       }
@@ -444,6 +463,13 @@ export function runWorkflowCommand(
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+      origin: {
+        source: "workflow",
+        name: workflowName,
+        ...(workflow.metadata.deliver !== undefined
+          ? { deliverTo: workflow.metadata.deliver }
+          : {}),
+      },
     }).pipe(
       Effect.flatMap((response) => {
         const verdict = judgeAnswer(response);
@@ -463,18 +489,18 @@ export function runWorkflowCommand(
         : runEffect
     ).pipe(
       Effect.tap((result) =>
-        updateLatestRunRecord(workflowName, {
+        updateThisRun({
           completedAt: new Date().toISOString(),
           status: "completed",
           ...runCostFields(result),
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        }),
       ),
       Effect.tapError((error) =>
-        updateLatestRunRecord(workflowName, {
+        updateThisRun({
           completedAt: new Date().toISOString(),
           status: "failed",
           error: toError(error).message,
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        }),
       ),
       // The generic top-level error handler renders this failure (e.g. an
       // LLMRateLimitError after retries are exhausted) but never sets the
@@ -487,6 +513,14 @@ export function runWorkflowCommand(
         }),
       ),
     );
+
+    yield* deliverWorkflowResult({
+      notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+      workflow: workflowName,
+      deliver: workflow.metadata.deliver,
+      agentId: agent.id,
+      answer: runResult.content,
+    });
 
     if (jsonMode) {
       const promptTokens = runResult.usage?.promptTokens ?? 0;
@@ -534,7 +568,7 @@ export function runWorkflowCommand(
       const summary = { workflow: workflowName, ...runCostFields(runResult) };
       yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
     }
-  });
+  }).pipe(Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)));
 
   if (!jsonMode) {
     return command;
@@ -944,6 +978,7 @@ export function workflowHistoryCommand(workflowName?: string) {
     }
     yield* terminal.log("");
 
+    yield* markInterruptedRuns().pipe(Effect.catchAll(() => Effect.succeed(0)));
     const runs = yield* getRecentRuns(20);
 
     // Filter by workflow name if provided
@@ -964,14 +999,7 @@ export function workflowHistoryCommand(workflowName?: string) {
         Number.isFinite(startedAtMs) &&
         Date.now() - startedAtMs > STALE_THRESHOLD_MS;
       const displayStatus = isStale ? "failed" : run.status;
-      const statusIcon =
-        displayStatus === "completed"
-          ? "✓"
-          : displayStatus === "failed"
-            ? "✗"
-            : displayStatus === "skipped"
-              ? "⊘"
-              : "…";
+      const statusIcon = RUN_STATUS_ICONS[displayStatus];
 
       const duration = run.completedAt
         ? `${Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
@@ -994,6 +1022,14 @@ export function workflowHistoryCommand(workflowName?: string) {
     yield* terminal.info(`Showing ${filteredRuns.length} most recent run(s)`);
   });
 }
+
+const RUN_STATUS_ICONS: Readonly<Record<WorkflowRunStatus, string>> = {
+  completed: "✓",
+  failed: "✗",
+  interrupted: "✗",
+  skipped: "⊘",
+  running: "…",
+};
 
 function runCostFields(result: {
   costUSD?: number;

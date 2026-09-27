@@ -18,10 +18,18 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   REMINDER_FILE_KIND,
+  REMINDER_STORE,
   reminderFileName,
   reminderLockName,
 } from "@jazz/adapters/reminder-service";
+import {
+  claimInList,
+  finishClaim,
+  markClaimed,
+  settleInList,
+} from "@jazz/adapters/storage/scheduled-items";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
+import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { decodeStateFile, encodeStateFile } from "@jazz/core/utils/state-file";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
@@ -94,37 +102,39 @@ export function readReminders(home: string, agentId: string): ReminderRecord[] {
 }
 
 /**
- * Rewrite the agent's reminder file under its lock: `select` splits it into what stays and
- * what goes, and what goes is returned.
+ * Rewrite the agent's reminder file under its lock: `update` returns the list to store (or
+ * undefined to leave the file as it is) and a result. A file that is corrupt or from a newer
+ * Jazz is never passed to `update`; `unreadable` is returned instead.
  */
-async function rewriteReminders(
+async function rewriteReminders<Result>(
   home: string,
   agentId: string,
   ownership: Ownership | undefined,
-  select: (reminders: readonly ReminderRecord[]) => {
-    readonly kept: readonly ReminderRecord[];
-    readonly removed: readonly ReminderRecord[];
+  update: (reminders: readonly ReminderRecord[]) => {
+    readonly next: readonly ReminderRecord[] | undefined;
+    readonly result: Result;
   },
-): Promise<readonly ReminderRecord[]> {
+  unreadable: Result,
+): Promise<Result> {
   const reminders = openReminders(home);
   if (reminders === undefined) {
-    return [];
+    return unreadable;
   }
   try {
     const fileName = reminderFileName(agentId);
     const operation = Effect.sync(() => {
       const current = parseReminders(reminders.readText(fileName), fileName);
       if (!current.writable) {
-        return [];
+        return unreadable;
       }
-      const { kept, removed } = select(current.reminders);
-      if (removed.length > 0) {
-        reminders.writeBytes(fileName, encodeStateFile(REMINDER_FILE_KIND, [...kept]), {
+      const { next, result } = update(current.reminders);
+      if (next !== undefined) {
+        reminders.writeBytes(fileName, encodeStateFile(REMINDER_FILE_KIND, [...next]), {
           owner: ownership?.owner,
           mode: ownership?.fileMode ?? DEFAULT_FILE_MODE,
         });
       }
-      return removed;
+      return result;
     });
     return await Effect.runPromise(
       withLock(reminders.entry(reminderLockName(agentId)), operation).pipe(
@@ -137,28 +147,80 @@ async function rewriteReminders(
 }
 
 /** Remove one reminder by id. Resolves whether it was there. */
-export async function cancelReminder(
+export function cancelReminder(
   home: string,
   agentId: string,
   reminderId: string,
   ownership: Ownership | undefined,
 ): Promise<boolean> {
-  const removed = await rewriteReminders(home, agentId, ownership, (reminders) => ({
-    kept: reminders.filter((reminder) => reminder.id !== reminderId),
-    removed: reminders.filter((reminder) => reminder.id === reminderId),
-  }));
-  return removed.length > 0;
+  return rewriteReminders(
+    home,
+    agentId,
+    ownership,
+    (reminders) => {
+      const found = reminders.some((reminder) => reminder.id === reminderId);
+      return {
+        next: found ? reminders.filter((reminder) => reminder.id !== reminderId) : undefined,
+        result: found,
+      };
+    },
+    false,
+  );
 }
 
-/** Remove and return every reminder due at `now`. */
-export function takeDueReminders(
+/**
+ * Claim every reminder due at `now` for delivery (see `scheduled-items.ts`): each is stamped
+ * as being delivered by this process and stays in the file until {@link settleReminder}
+ * records the outcome.
+ */
+export async function claimDueReminders(
   home: string,
   agentId: string,
   now: number,
   ownership: Ownership | undefined,
 ): Promise<readonly ReminderRecord[]> {
-  return rewriteReminders(home, agentId, ownership, (reminders) => ({
-    kept: reminders.filter((reminder) => reminder.fireAt > now),
-    removed: reminders.filter((reminder) => reminder.fireAt <= now),
-  }));
+  const claimed = await rewriteReminders(
+    home,
+    agentId,
+    ownership,
+    (reminders) => {
+      const claim = claimInList(REMINDER_STORE, agentId, reminders, now, (reminder) => {
+        return reminder.fireAt <= now;
+      });
+      return {
+        next: claim.claimed.length > 0 ? claim.next : undefined,
+        result: claim.claimed,
+      };
+    },
+    [] as ReminderRecord[],
+  );
+  markClaimed(REMINDER_STORE, agentId, claimed);
+  return claimed;
+}
+
+/**
+ * Record how a claimed reminder's send ended and release the claim: removed once sent, kept
+ * with the error (and retried with backoff) when the send failed.
+ */
+export async function settleReminder(
+  home: string,
+  agentId: string,
+  reminderId: string,
+  outcome: DeliveryOutcome,
+  ownership: Ownership | undefined,
+): Promise<void> {
+  try {
+    await rewriteReminders(
+      home,
+      agentId,
+      ownership,
+      (reminders) => {
+        const { next, found } = settleInList(reminders, reminderId, outcome, Date.now());
+        return { next: found ? next : undefined, result: undefined };
+      },
+      undefined,
+    );
+  } finally {
+    finishClaim(REMINDER_STORE, agentId, reminderId);
+  }
 }

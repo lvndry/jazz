@@ -13,15 +13,11 @@ import type {
   ReminderService,
 } from "@jazz/core/interfaces/reminder-service";
 import { ReminderRecordSchema, ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
+import { type DeliveryOutcome, hasStoppedRetrying } from "@jazz/core/utils/delivery";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
-import {
-  CorruptStateFileError,
-  readStateFile,
-  recordListKind,
-  writeStateFile,
-} from "@jazz/core/utils/state-file";
+import { recordListKind, writeStateFile } from "@jazz/core/utils/state-file";
 import { requireValidAgentId, withLock } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
 import {
@@ -29,6 +25,21 @@ import {
   type ReminderOsScheduler,
 } from "@jazz/core/wake-triggers/reminder-os-scheduler";
 import { Effect, Layer } from "effect";
+import {
+  claimDueItems,
+  claimItem,
+  finishClaim,
+  readItemsLocked,
+  type ScheduledItemClaim,
+  type ScheduledItemStore,
+  settleItem,
+} from "@/adapters/storage/scheduled-items";
+
+/**
+ * Version 2 added `delivery`. An older Jazz must refuse these files rather than read them
+ * without it and fire a reminder that already failed for good.
+ */
+const REMINDER_SCHEMA_VERSION = 2;
 
 /**
  * The agent id prefixes of the chat bridges: Telegram, Discord, iMessage, WhatsApp (direct
@@ -44,7 +55,7 @@ const BOT_AGENT_ID_PREFIXES = ["tg_", "dc_", "im_", "wa_", "wag_", "ph_"] as con
  * run the bot. Worse, the OS job removes the reminder when it fires, so a bridge that has not
  * swept it yet never tells the chat at all.
  */
-function isBotHostedAgentId(agentId: string): boolean {
+export function isBotHostedAgentId(agentId: string): boolean {
   return BOT_AGENT_ID_PREFIXES.some((prefix) => agentId.startsWith(prefix));
 }
 
@@ -74,13 +85,20 @@ function reminderLockPath(baseReminderDirectory: string, agentId: string): strin
 }
 
 /** The on-disk format of an agent's reminder file, shared with the chat bridges. */
-export const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema);
+export const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema, {
+  schemaVersion: REMINDER_SCHEMA_VERSION,
+});
 
-/** Read an agent's reminders under its lock: a corrupt file is quarantined and reads as empty. */
+/** Where reminders live, for the shared claim and settle logic in `scheduled-items.ts`. */
+export const REMINDER_STORE: ScheduledItemStore<ReminderRecord> = {
+  noun: "reminder",
+  kind: REMINDER_FILE_KIND,
+  filePath: reminderFilePath,
+  lockPath: reminderLockPath,
+};
+
 function readReminderFile(filePath: string): Effect.Effect<ReminderRecord[], Error> {
-  return readStateFile(filePath, REMINDER_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
-    Effect.map((reminders) => reminders ?? []),
-  );
+  return readItemsLocked(REMINDER_STORE, filePath);
 }
 
 function writeReminderFile(
@@ -88,17 +106,6 @@ function writeReminderFile(
   reminders: readonly ReminderRecord[],
 ): Effect.Effect<void, Error> {
   return writeStateFile(filePath, REMINDER_FILE_KIND, [...reminders]);
-}
-
-/**
- * The unlocked look a sweep takes before locking an agent's file. A corrupt file counts as due,
- * so the locked pass quarantines it; a file from a newer Jazz is left alone.
- */
-function hasDueReminder(filePath: string, now: number): Effect.Effect<boolean> {
-  return readStateFile(filePath, REMINDER_FILE_KIND, { onCorrupt: "fail" }).pipe(
-    Effect.map((reminders) => (reminders ?? []).some((reminder) => reminder.fireAt <= now)),
-    Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
-  );
 }
 
 export interface ReminderServiceImplOptions {
@@ -155,10 +162,11 @@ export class ReminderServiceImpl implements ReminderService {
               ),
             );
           }
-          if (existing.length >= MAX_REMINDERS_PER_AGENT) {
+          const pending = existing.filter((reminder) => !hasStoppedRetrying(reminder.delivery));
+          if (pending.length >= MAX_REMINDERS_PER_AGENT) {
             return yield* Effect.fail(
               new ReminderGuardrailViolation(
-                `You already have ${existing.length} pending reminders, the maximum of ${MAX_REMINDERS_PER_AGENT}.`,
+                `You already have ${pending.length} pending reminders, the maximum of ${MAX_REMINDERS_PER_AGENT}.`,
               ),
             );
           }
@@ -255,69 +263,56 @@ export function createReminderServiceLayer(
 }
 
 /**
- * Scan every `<agentId>.json` file under `baseReminderDirectory`, remove
- * reminders whose `fireAt` has passed, and return them grouped by agentId.
+ * Claim every due reminder under `baseReminderDirectory`, across agents, for delivery (see
+ * `scheduled-items.ts`). The caller delivers each claim and settles it with
+ * {@link settleReminder}. When `osScheduler` is given, the host scheduler's one-shot job for
+ * each claimed reminder is removed, since the reminder is now being delivered from here.
  *
- * Callable from plain async code (e.g. the Telegram bridge's `setInterval`
- * sweep) via a single `Effect.runPromise` at the one call site — this keeps
- * every read-modify-write of a reminder file going through the same
- * `withLock` mechanism as `add`/`cancel`, so the plain-Node sweep loop and the
- * Effect-based tool handlers never race on the same file.
+ * Callable from plain async code (a chat bridge's `setInterval` sweep) through one
+ * `Effect.runPromise`, so the sweep and the tool handlers share the same lock.
  */
-export function sweepDueReminders(
+export function claimDueReminders(
   baseReminderDirectory: string,
   now: number,
-): Effect.Effect<
-  ReadonlyArray<{ agentId: string; reminder: ReminderRecord }>,
-  Error,
-  FileSystem.FileSystem
-> {
+  options: {
+    readonly includeAgent?: (agentId: string) => boolean;
+    readonly osScheduler?: ReminderOsScheduler;
+  } = {},
+): Effect.Effect<ReadonlyArray<ScheduledItemClaim<ReminderRecord>>, Error> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const directoryExists = yield* fs
-      .exists(baseReminderDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!directoryExists) return [];
-
-    const names = yield* fs
-      .readDirectory(baseReminderDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-    const agentIds = names
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => name.slice(0, -".json".length));
-
-    const fired: Array<{ agentId: string; reminder: ReminderRecord }> = [];
-
-    for (const agentId of agentIds) {
-      const filePath = reminderFilePath(baseReminderDirectory, agentId);
-      const lockPath = reminderLockPath(baseReminderDirectory, agentId);
-
-      // Look before locking, so a tick with nothing due creates no lock directories at all.
-      // Acquiring the write lock first made every agent's file a lock cycle on every tick, which
-      // scales with tick frequency and contends with an agent writing a reminder of its own.
-      // Reading unlocked is safe because the decision is re-made under the lock below.
-      if (!(yield* hasDueReminder(filePath, now))) continue;
-
-      const dueForAgent = yield* withLock(
-        lockPath,
-        Effect.gen(function* () {
-          const reminders = yield* readReminderFile(filePath);
-          const due = reminders.filter((reminder) => reminder.fireAt <= now);
-          if (due.length === 0) return [] as ReminderRecord[];
-
-          const remaining = reminders.filter((reminder) => reminder.fireAt > now);
-          yield* writeReminderFile(filePath, remaining);
-          return due;
-        }),
-        // A file whose lock can't be acquired this sweep will simply be
-        // retried on the next tick — never let one stuck agent block the rest.
-      ).pipe(Effect.catchAll(() => Effect.succeed([] as ReminderRecord[])));
-
-      for (const reminder of dueForAgent) {
-        fired.push({ agentId, reminder });
+    const claims = yield* claimDueItems(REMINDER_STORE, baseReminderDirectory, now, options);
+    const osScheduler = options.osScheduler;
+    if (osScheduler !== undefined) {
+      for (const { agentId, item } of claims) {
+        yield* osScheduler
+          .cancelFire(agentId, item.id, item.osSchedulerJobId)
+          .pipe(Effect.catchAll(() => Effect.void));
       }
     }
-
-    return fired;
+    return claims;
   });
+}
+
+/** Claim one reminder by id for delivery; undefined when it is gone or already being delivered. */
+export function claimReminder(
+  baseReminderDirectory: string,
+  agentId: string,
+  reminderId: string,
+): Effect.Effect<ReminderRecord | undefined, Error> {
+  return claimItem(REMINDER_STORE, baseReminderDirectory, agentId, reminderId, Date.now());
+}
+
+/**
+ * Record how a claimed reminder's delivery ended and release the claim: delivered reminders
+ * are removed; failed ones keep the error so a later sweep (or another channel) can retry.
+ */
+export function settleReminder(
+  baseReminderDirectory: string,
+  agentId: string,
+  reminderId: string,
+  outcome: DeliveryOutcome,
+): Effect.Effect<ReminderRecord | undefined, Error> {
+  return settleItem(REMINDER_STORE, baseReminderDirectory, agentId, reminderId, outcome).pipe(
+    Effect.ensuring(Effect.sync(() => finishClaim(REMINDER_STORE, agentId, reminderId))),
+  );
 }

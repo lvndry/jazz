@@ -161,11 +161,41 @@ beforeEach(() => {
   bridge = createBridge(config(), fakeSurface(), startRun as never);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const run of runs) run.finish();
+  await until(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
   rmSync(dataDir, { recursive: true, force: true });
 });
 
 describe("messages", () => {
+  test("parked-run commands refuse non-operators and bot senders without starting a run", async () => {
+    dispatchMessage(bridge, {
+      chat: { id: GROUP },
+      from: { id: GROUP_MEMBER },
+      text: "/approve run-test",
+    });
+    await until(() => sent.length > 0);
+    expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("operator can answer a parked run");
+    const before = sent.length;
+    dispatchMessage(bridge, {
+      chat: { id: OWNER },
+      from: { id: OWNER, is_bot: true },
+      text: "/deny run-test",
+    });
+    await until(() => sent.length > before);
+    expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("unknown");
+    expect(runs).toHaveLength(0);
+  });
+
+  test("status reads the shared spend ledger without starting an agent run", async () => {
+    dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "/status" });
+    await until(() => sent.length > 0);
+    const rendered = renderRichText(sent.at(-1)?.body ?? []);
+    expect(rendered).toContain("Today: 0 runs");
+    expect(rendered).not.toContain("undefined");
+    expect(runs).toHaveLength(0);
+  });
+
   test("two quick messages in one chat run one after the other", async () => {
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "first" });
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "second" });

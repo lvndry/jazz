@@ -476,6 +476,7 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
       conversationId: input.conversationId,
       conversationHistory: preamble === undefined ? prior.messages : [preamble, ...prior.messages],
       userInput,
+      origin: { source: "detached" },
       autoApprovePolicy: input.approvalPolicy,
       ...limits,
       stream: true,

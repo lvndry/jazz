@@ -11,7 +11,12 @@ import {
 import type { WakeTriggerOsScheduler } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
-import { WakeTriggerServiceImpl, sweepDueWakeTriggers } from "./wake-trigger-service";
+import {
+  claimDueWakeTriggers,
+  claimWakeTrigger,
+  settleWakeTrigger,
+  WakeTriggerServiceImpl,
+} from "./wake-trigger-service";
 
 let tmpDir: string;
 const originalSchedulerEnv = process.env["JAZZ_SCHEDULER"];
@@ -185,8 +190,8 @@ describe("cancel", () => {
   });
 });
 
-describe("sweepDueWakeTriggers", () => {
-  test("removes only due triggers, leaving future ones in place, across multiple agent files", async () => {
+describe("claimDueWakeTriggers", () => {
+  test("claims only due triggers across agent files, and removes them once delivered", async () => {
     const service = makeService();
     const now = Date.now();
 
@@ -203,12 +208,15 @@ describe("sweepDueWakeTriggers", () => {
     expect(due1.success && future1.success && due2.success).toBe(true);
 
     const sweepAt = now + 5_000;
-    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, sweepAt));
+    const fired = await runEffect(claimDueWakeTriggers(tmpDir, sweepAt));
 
-    const firedByAgent = new Map(fired.map((f) => [f.agentId, f.trigger.prompt]));
+    const firedByAgent = new Map(fired.map((claim) => [claim.agentId, claim.item.prompt]));
     expect(firedByAgent.get("agent-1")).toBe("due soon agent 1");
     expect(firedByAgent.get("agent-2")).toBe("due soon agent 2");
     expect(fired.length).toBe(2);
+    for (const claim of fired) {
+      await runEffect(settleWakeTrigger(tmpDir, claim.agentId, claim.item.id, { delivered: true }));
+    }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
     expect(remainingAgent1.map((t) => t.prompt)).toEqual(["future agent 1"]);
@@ -219,7 +227,7 @@ describe("sweepDueWakeTriggers", () => {
 
   test("returns an empty array when the wake-triggers directory does not exist yet", async () => {
     const emptyDir = path.join(tmpDir, "does-not-exist");
-    const fired = await runEffect(sweepDueWakeTriggers(emptyDir, Date.now()));
+    const fired = await runEffect(claimDueWakeTriggers(emptyDir, Date.now()));
     expect(fired).toEqual([]);
   });
 
@@ -230,7 +238,7 @@ describe("sweepDueWakeTriggers", () => {
     );
     expect(outcome.success).toBe(true);
 
-    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, Date.now()));
+    const fired = await runEffect(claimDueWakeTriggers(tmpDir, Date.now()));
     expect(fired).toEqual([]);
 
     const list = await runEffect(service.list("agent-1"));
@@ -256,7 +264,7 @@ describe("sweepDueWakeTriggers", () => {
       if (fsSync.existsSync(lockPath)) lockSeen = true;
     }, 1);
 
-    await runEffect(sweepDueWakeTriggers(tmpDir, Date.now()));
+    await runEffect(claimDueWakeTriggers(tmpDir, Date.now()));
     clearInterval(watcher);
 
     expect(lockSeen).toBe(false);
@@ -270,9 +278,9 @@ describe("sweepDueWakeTriggers", () => {
     );
     expect(outcome.success).toBe(true);
 
-    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, Date.now() + 5_000));
+    const fired = await runEffect(claimDueWakeTriggers(tmpDir, Date.now() + 5_000));
 
-    expect(fired.map((entry) => entry.trigger.prompt)).toEqual(["due now"]);
+    expect(fired.map((entry) => entry.item.prompt)).toEqual(["due now"]);
     expect(fsSync.existsSync(path.join(tmpDir, "agent-1.lock"))).toBe(false);
   });
 });
@@ -373,7 +381,7 @@ describe("damaged and versioned trigger files", () => {
   test("a sweep quarantines a torn file instead of skipping it forever", async () => {
     const filePath = path.join(tmpDir, "agent1.json");
     fs.writeFileSync(filePath, "[{");
-    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, Date.now()));
+    const fired = await runEffect(claimDueWakeTriggers(tmpDir, Date.now()));
     expect(fired).toEqual([]);
     expect(fs.existsSync(filePath)).toBe(false);
     expect(fs.readdirSync(tmpDir).some((name) => name.includes(".corrupt-"))).toBe(true);
@@ -397,7 +405,7 @@ describe("damaged and versioned trigger files", () => {
     const service = makeService(makeFakeOsScheduler().scheduler);
     await runEffect(service.add("agent1", "c1", "2h", "new", "r", "UTC"));
     const stored = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    expect(stored.schemaVersion).toBe(1);
+    expect(stored.schemaVersion).toBe(2);
     expect(stored.triggers.map((trigger: { id: string }) => trigger.id)).toContain("legacy");
     expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   });
@@ -410,5 +418,89 @@ describe("damaged and versioned trigger files", () => {
     const result = await runEither(service.add("agent1", "c1", "2h", "new", "r", "UTC"));
     expect(result._tag).toBe("Left");
     expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
+  });
+});
+
+describe("at-least-once delivery", () => {
+  async function dueTrigger(): Promise<string> {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    const outcome = await runEffect(service.add("agent-1", "conv-1", "1s", "check", "r", "UTC"));
+    if (!outcome.success) throw new Error("add failed");
+    return outcome.trigger.id;
+  }
+
+  test("a claimed trigger is not claimed again, by the sweep or by id", async () => {
+    const id = await dueTrigger();
+    const later = Date.now() + 5_000;
+    const first = await runEffect(claimDueWakeTriggers(tmpDir, later));
+    expect(first.map((claim) => claim.item.id)).toEqual([id]);
+    expect(first[0]?.item.delivery?.status).toBe("firing");
+
+    expect(await runEffect(claimDueWakeTriggers(tmpDir, later))).toEqual([]);
+    expect(await runEffect(claimWakeTrigger(tmpDir, "agent-1", id))).toBeUndefined();
+    await runEffect(settleWakeTrigger(tmpDir, "agent-1", id, { delivered: true }));
+  });
+
+  /** The regression: the record was deleted before the turn ran, so a failed turn was lost. */
+  test("a failed turn keeps the trigger with its error, and it is due again after backoff", async () => {
+    const id = await dueTrigger();
+    const later = Date.now() + 5_000;
+    await runEffect(claimDueWakeTriggers(tmpDir, later));
+    const settled = await runEffect(
+      settleWakeTrigger(tmpDir, "agent-1", id, {
+        delivered: false,
+        error: "provider outage",
+        retryable: true,
+      }),
+    );
+    expect(settled?.delivery).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: "provider outage",
+    });
+    const retryAt = settled?.delivery?.status === "failed" ? settled.delivery.nextAttemptAt : null;
+    expect(retryAt).not.toBeNull();
+
+    expect(await runEffect(claimDueWakeTriggers(tmpDir, later))).toEqual([]);
+    const retried = await runEffect(claimDueWakeTriggers(tmpDir, (retryAt ?? 0) + 1));
+    expect(retried[0]?.item.delivery).toMatchObject({ status: "firing", attempts: 2 });
+    await runEffect(settleWakeTrigger(tmpDir, "agent-1", id, { delivered: true }));
+  });
+
+  test("a claim held by a process that died is taken again", async () => {
+    const id = await dueTrigger();
+    const child = Bun.spawn(["true"]);
+    await child.exited;
+    const filePath = path.join(tmpDir, "agent-1.json");
+    const stored = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    stored.triggers[0].delivery = {
+      status: "firing",
+      attempts: 1,
+      owner: { pid: child.pid, host: os.hostname() },
+      claimedAt: Date.now(),
+    };
+    fs.writeFileSync(filePath, JSON.stringify(stored));
+
+    const claimed = await runEffect(claimWakeTrigger(tmpDir, "agent-1", id));
+    expect(claimed?.delivery).toMatchObject({ status: "firing", attempts: 2 });
+    await runEffect(settleWakeTrigger(tmpDir, "agent-1", id, { delivered: true }));
+  });
+
+  test("a trigger that cannot be delivered stops retrying and stays for a person to see", async () => {
+    const id = await dueTrigger();
+    await runEffect(claimWakeTrigger(tmpDir, "agent-1", id));
+    const settled = await runEffect(
+      settleWakeTrigger(tmpDir, "agent-1", id, {
+        delivered: false,
+        error: "agent not found",
+        retryable: false,
+      }),
+    );
+    expect(settled?.delivery).toMatchObject({ status: "failed", nextAttemptAt: null });
+    expect(await runEffect(claimDueWakeTriggers(tmpDir, Date.now() + 10 * 60 * 60_000))).toEqual(
+      [],
+    );
+    const list = await runEffect(makeService().list("agent-1"));
+    expect(list.map((trigger) => trigger.id)).toEqual([id]);
   });
 });

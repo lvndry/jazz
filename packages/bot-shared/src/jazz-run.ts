@@ -19,7 +19,7 @@
  * decide how to put the events on screen.
  */
 
-import { type ChatSandbox, sandboxCommand, sandboxEnv } from "./chat-sandbox";
+import { bridgeRunEnv, type ChatSandbox, sandboxCommand } from "./chat-sandbox";
 
 /** A subset of Jazz's NDJSON stream events (`jazz run --events`); other fields ignored. */
 export interface JazzEvent {
@@ -259,7 +259,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     stdout: "pipe",
     stderr: "pipe",
     stdin: "pipe",
-    env: sandboxEnv(options.sandbox, process.env, options.surface),
+    env: bridgeRunEnv(options.sandbox, process.env, options.surface),
   });
 
   let cancelled = false;

@@ -159,10 +159,10 @@ describe("turn runner", () => {
       showReasoning: false,
       files: {
         timezone: "t-tz.json",
-        usage: "t-usage.json",
         sessions: "t-sessions.json",
         mode: "t-mode.json",
       },
+      spendOrigin: "test",
       agentIdFor: (chatId) => `t_${chatId}`,
       operators: new Set([OPERATOR]),
       operatorSettingName: "TEST_OPERATOR_IDS",

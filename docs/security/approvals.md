@@ -163,7 +163,9 @@ Over the daemon's HTTP API, approving or answering a parked run also needs the o
 Rejecting needs only the daemon token. See
 [granting authority over HTTP](../concepts/daemon.md#granting-authority-over-http).
 
-Park only where somebody will actually look.
+Park only where somebody will actually look. A [notify channel](../configure/notifications.md)
+brings every parked approval to your phone; from a Telegram or Discord bridge the operator can
+answer it with `/approve <runId>` or `/deny <runId> [why]`.
 
 ## Related
 

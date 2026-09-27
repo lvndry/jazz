@@ -69,7 +69,6 @@ export { operatorOnlyMessage };
 /** The per-bridge store files, so two bridges sharing a data directory do not collide. */
 export interface TurnStoreFiles {
   readonly timezone: string;
-  readonly usage: string;
   readonly sessions: string;
   readonly mode: string;
 }
@@ -105,6 +104,8 @@ export interface TurnConfig {
   readonly reasoningPartChars?: number;
   readonly reasoningMaxParts?: number;
   readonly files: TurnStoreFiles;
+  /** Names this bridge's runs in the spend ledger ("whatsapp"); its daily cap counts only these. */
+  readonly spendOrigin: string;
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
   /**
@@ -615,7 +616,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const answer = async (message: InboundMessage): Promise<void> => {
     const { chatId, text: prompt } = message;
     const capBlock = dailyCostCapBlockReason(
-      todayUsage(config.jazzHome, config.files.usage),
+      await todayUsage(config.jazzHome, config.spendOrigin),
       config.dailyCostCapUsd,
     );
     if (capBlock !== undefined) {
@@ -707,13 +708,12 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // context-free rather than resurrecting a stale transcript.
     if (incognito) incognitoHistory.set(chatId, envelope.messages ?? []);
 
-    recordUsage(
-      config.jazzHome,
-      config.files.usage,
-      envelope.costUSD,
-      envelope.tokenUsage?.totalTokens ?? 0,
-      envelope.costKnown !== false,
-    );
+    await recordUsage(config.jazzHome, config.spendOrigin, {
+      agentId: config.agentIdFor(chatId),
+      costUSD: envelope.costUSD,
+      tokens: envelope.tokenUsage?.totalTokens ?? 0,
+      costKnown: envelope.costKnown !== false,
+    });
 
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);

@@ -4,7 +4,6 @@
  * the system-prompt skill index.
  */
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option, Ref } from "effect";
 import matter from "gray-matter";
@@ -15,6 +14,7 @@ import {
   getAgentsSkillsDirectory,
   getBuiltinSkillsDirectory,
   getGlobalSkillsDirectory,
+  getJazzHomeDirectory,
 } from "../utils/paths.js";
 import { matchesWholeWord } from "../utils/string";
 
@@ -153,8 +153,7 @@ export class SkillsLive implements SkillService {
   public static readonly layer = Layer.effect(
     SkillServiceTag,
     Effect.gen(function* () {
-      const homeDir = os.homedir();
-      const globalCachePath = path.join(homeDir, ".jazz", "global-skills-index.json");
+      const globalCachePath = path.join(getJazzHomeDirectory(), "global-skills-index.json");
       const loadedSkills = yield* Ref.make(new Map<string, SkillContent>());
       const skillsListCache = yield* Ref.make<readonly SkillMetadata[] | null>(null);
 
