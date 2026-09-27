@@ -1,6 +1,11 @@
 /**
  * Implements `LoggerService`: writes to a per-run log file on disk, serialized through a
  * single write queue so concurrent log calls never interleave mid-line.
+ *
+ * The same queue keeps the logs directory bounded: before a write, at most once per
+ * `LOG_PRUNE_INTERVAL_MS`, it runs the sweep in `log-retention.ts` over the logs directory
+ * (and over `$JAZZ_HOME/logs` when `JAZZ_LOG_DIR` points elsewhere), with the policy set by
+ * `setLogRetention` from `logging.retentionDays` and `logging.maxTotalSizeMB`.
  */
 
 import { appendFile, mkdir } from "node:fs/promises";
@@ -11,9 +16,16 @@ import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, FiberRef, Layer } from "effect";
+import {
+  LOG_PRUNE_INTERVAL_MS,
+  logRetentionPolicy,
+  pruneLogsDirectoryIfDue,
+  type LogRetentionPolicy,
+} from "./log-retention";
 
 let globalLogFormat: LoggingConfig["format"] = "plain";
 let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
+let globalLogRetention: LogRetentionPolicy = logRetentionPolicy();
 
 /**
  * Log level priority for filtering
@@ -156,6 +168,19 @@ function shouldLog(level: "debug" | "info" | "warn" | "error"): boolean {
 class LogWriteQueue {
   private writePromise: Promise<void> = Promise.resolve();
   private dirCreated: Set<string> = new Set();
+  private nextPruneCheckAtMs = 0;
+
+  /** Runs the retention sweep when this process has not checked for an interval. */
+  private async pruneIfDue(): Promise<void> {
+    const now = Date.now();
+    if (now < this.nextPruneCheckAtMs) {
+      return;
+    }
+    this.nextPruneCheckAtMs = now + LOG_PRUNE_INTERVAL_MS;
+    for (const directory of logsDirectoriesToPrune()) {
+      await pruneLogsDirectoryIfDue(directory, globalLogRetention, now);
+    }
+  }
 
   /**
    * Enqueue a log write. Returns immediately (fire-and-forget).
@@ -165,6 +190,7 @@ class LogWriteQueue {
     // Chain this write after the previous one completes
     this.writePromise = this.writePromise
       .then(async () => {
+        await this.pruneIfDue();
         // Ensure directory exists (cached to avoid repeated checks)
         const dir = path.dirname(filePath);
         if (!this.dirCreated.has(dir)) {
@@ -450,6 +476,17 @@ export function setLogLevel(level: "debug" | "info" | "warn" | "error"): void {
 }
 
 /**
+ * Set how long log files are kept and how large the logs directory may grow.
+ * Call this during app initialization based on config.
+ */
+export function setLogRetention(options: {
+  readonly retentionDays?: number | undefined;
+  readonly maxTotalSizeMB?: number | undefined;
+}): void {
+  globalLogRetention = logRetentionPolicy(options);
+}
+
+/**
  * Get the current log level
  */
 export function getLogLevel(): "debug" | "info" | "warn" | "error" {
@@ -529,6 +566,13 @@ export function formatToolCallLogLine(
     eventName: "tool.call",
     args: redactedArgs,
   });
+}
+
+/** The logs directory, plus `$JAZZ_HOME/logs` where scheduled jobs write when they differ. */
+function logsDirectoriesToPrune(): readonly string[] {
+  const homeLogs = path.join(getJazzHomeDirectory(), "logs");
+  const logsDirectory = getLogsDirectory();
+  return logsDirectory === homeLogs ? [logsDirectory] : [logsDirectory, homeLogs];
 }
 
 /**

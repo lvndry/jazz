@@ -50,6 +50,13 @@ describe("createCLIApp help path", () => {
     expect(flags).toContain("--events <categories>");
   });
 
+  it("registers one daemon status command alongside pause, resume and logs", () => {
+    const daemon = createCLIApp().commands.find((command) => command.name() === "daemon");
+    const names = daemon?.commands.map((command) => command.name()) ?? [];
+    expect(names.filter((name) => name === "status")).toHaveLength(1);
+    expect(names).toEqual(expect.arrayContaining(["pause", "resume", "logs"]));
+  });
+
   it("registers the public command families", () => {
     const program = createCLIApp();
     const names = program.commands.map((command) => command.name());

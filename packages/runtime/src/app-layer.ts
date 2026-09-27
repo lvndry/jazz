@@ -10,10 +10,17 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
+import { setConversationRetentionLimit } from "@jazz/adapters/history/conversation-history-service";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
 import { createJobQueueServiceLayer } from "@jazz/adapters/job-queue-service";
 import { createAISDKServiceLayer } from "@jazz/adapters/llm/ai-sdk-service";
-import { createLoggerLayer, flushLogs, setLogFormat, setLogLevel } from "@jazz/adapters/logger";
+import {
+  createLoggerLayer,
+  flushLogs,
+  setLogFormat,
+  setLogLevel,
+  setLogRetention,
+} from "@jazz/adapters/logger";
 import { createMCPServerManagerLayer } from "@jazz/adapters/mcp/mcp-server-manager";
 import { createMemoryServiceLayer } from "@jazz/adapters/memory-service";
 import { NotificationServiceLayer } from "@jazz/adapters/notification";
@@ -257,6 +264,11 @@ export function createAppLayer(
       const level = appConfig.logging?.level ?? "info";
       setLogFormat(format);
       setLogLevel(level);
+      setLogRetention({
+        retentionDays: appConfig.logging?.retentionDays,
+        maxTotalSizeMB: appConfig.logging?.maxTotalSizeMB,
+      });
+      setConversationRetentionLimit(appConfig.history?.maxConversationsPerAgent);
     }),
   ).pipe(Layer.provide(configLayer));
 

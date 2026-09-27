@@ -8,12 +8,24 @@
  * `install`/`uninstall` still wire the host supervisor: those units invoke
  * `jazz daemon --foreground …` so the supervisor owns the process tree, not our pidfile.
  * See `@jazz/adapters/daemon/service-install`.
+ *
+ * A background daemon's stdout and stderr go to `$JAZZ_HOME/logs/daemon.log` (rotated with the
+ * rest of the logs directory), the file `jazz daemon logs` reads. A foreground daemon writes a
+ * status record every tick (`@jazz/adapters/daemon/daemon-status`) that `jazz daemon status`
+ * reads, and tick failures go to the logger as well as to stderr.
  */
 
 import { randomBytes } from "node:crypto";
+import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import { announceWaiting, daemonGate } from "@jazz/adapters/daemon/attention";
 import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache";
+import {
+  clearDaemonStatus,
+  withTickError,
+  writeDaemonStatus,
+  type DaemonStatusRecord,
+} from "@jazz/adapters/daemon/daemon-status";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
 import {
@@ -22,6 +34,7 @@ import {
   provisionOperatorToken,
   resolveOperatorToken,
 } from "@jazz/adapters/daemon/operator-token";
+import { runsInFlightCount } from "@jazz/adapters/daemon/runs-in-flight";
 import {
   isLoopback,
   makeA2AHandler,
@@ -33,10 +46,13 @@ import {
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
 import {
+  daemonLogPath,
   detectInitSystem,
   generateDaemonToken,
   installService,
+  isDaemonSupervised,
   serviceAlreadyInstalled,
+  SYSTEMD_SERVICE_NAME,
   uninstallService,
   type InstalledService,
 } from "@jazz/adapters/daemon/service-install";
@@ -156,22 +172,21 @@ export function decideDaemonToken(result: ProvisionDaemonTokenResult): DaemonTok
 }
 
 /**
- * Explain a failed non-loopback token provision and, when peer serving was requested, give
- * the exact persistent-service command that stores the exported token safely for systemd or
- * launchd. Token provisioning belongs to adapters; this command-specific next step belongs
- * here, where the agent, host, and port are known.
+ * Explain a failed non-loopback token provision and give the exact persistent-service command
+ * that stores the exported token safely for systemd or launchd, with `--serve-peers` when peer
+ * serving was requested. Token provisioning belongs to adapters; this command-specific next
+ * step belongs here, where the agent, host, and port are known.
  */
 export function formatDaemonTokenProvisionFailure(
   failure: Parameters<typeof explainDaemonTokenProvisionFailure>[0],
   options: DaemonCommandOptions,
 ): string {
   const explanation = explainDaemonTokenProvisionFailure(failure);
-  if (options.peerAgent === undefined) return explanation;
-
+  const servePeers = options.peerAgent === undefined ? "" : `--serve-peers ${options.peerAgent} `;
   return (
     `${explanation}\n\n` +
     `After exporting the token, install the persistent service:\n\n` +
-    `  sudo -E jazz daemon install --serve-peers ${options.peerAgent} ` +
+    `  sudo -E jazz daemon install ${servePeers}` +
     `--host ${options.host} --port ${String(options.port)}`
   );
 }
@@ -184,16 +199,25 @@ export function formatDaemonTokenProvisionFailure(
  */
 function formatServiceInstalledMessage(
   installed: InstalledService,
-  options: { readonly host: string },
+  options: { readonly host: string; readonly servesPeers: boolean },
 ): string {
   const statusCommand =
     installed.initSystem === "launchd"
       ? "launchctl list | grep jazz"
-      : "systemctl status jazz-daemon";
-  return (
+      : `systemctl status ${SYSTEMD_SERVICE_NAME}`;
+  const reachable =
     `Installed and started — the daemon answered its own health check, so it is actually ` +
     `reachable at ${options.host}, not just enabled.\n` +
-    `Check on it anytime with '${statusCommand}'.\n\n` +
+    `Check on it anytime with 'jazz daemon status' or '${statusCommand}', and read its output ` +
+    `with 'jazz daemon logs'.\n`;
+  if (!options.servesPeers) {
+    return (
+      `${reachable}\nGoals, loops, wake triggers, reminders and job batches now keep running ` +
+      `after a reboot.\n`
+    );
+  }
+  return (
+    `${reachable}\n` +
     `Next, invite a peer:\n\n` +
     `  jazz peers invite create <peer-name> --host ${options.host} --disclosure internal --expires 1h\n`
   );
@@ -269,7 +293,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
           if (install) {
             const invocation = yield* getJazzSchedulerInvocation();
             const installed = yield* installService({
-              agentId: options.peerAgent,
+              peerAgent: options.peerAgent,
               host: options.host,
               port: options.port,
               token,
@@ -284,7 +308,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
             );
             if (installed !== undefined) {
               yield* terminal.success(
-                formatServiceInstalledMessage(installed, { host: options.host }),
+                formatServiceInstalledMessage(installed, { host: options.host, servesPeers: true }),
               );
             }
             return;
@@ -397,7 +421,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       });
 
       process.stderr.write(
-        `jazz daemon listening on http://${daemonOptions.host}:${String(server.port)}` +
+        `${new Date().toISOString()} jazz daemon listening on http://${daemonOptions.host}:${String(server.port)}` +
           `${token === undefined ? " (unauthenticated: no token could be stored)" : ""}\n`,
       );
       void writeDaemonPid(daemonOptions.port, process.pid);
@@ -413,18 +437,43 @@ export function daemonCommand(options: DaemonCommandOptions) {
         return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TICK_INTERVAL_MS;
       })();
 
+      let status: DaemonStatusRecord = {
+        pid: process.pid,
+        host: daemonOptions.host,
+        port: daemonOptions.port,
+        startedAt: new Date().toISOString(),
+        servesPeers: daemonOptions.peerAgent !== undefined,
+        tickIntervalMs,
+        tickRunning: false,
+        runsInFlight: 0,
+        recentErrors: [],
+      };
+      const publishStatus = (update: Partial<DaemonStatusRecord>): void => {
+        status = { ...status, ...update, runsInFlight: runsInFlightCount() };
+        void writeDaemonStatus(status);
+      };
+      publishStatus({});
+
       let tickRunning = false;
       let lastWorkflowCatchUpAt = 0;
       const ticker = setInterval(() => {
         if (tickRunning) return;
         tickRunning = true;
         const now = Date.now();
+        publishStatus({ tickRunning: true, lastTickStartedAt: new Date(now).toISOString() });
         const workflowsDue =
           runInProcessWorkflows && now - lastWorkflowCatchUpAt >= WORKFLOW_CATCH_UP_INTERVAL_MS;
         if (workflowsDue) lastWorkflowCatchUpAt = now;
         const reportFailure = (work: string) => (error: unknown) =>
-          Effect.sync(() => {
-            process.stderr.write(`jazz daemon ${work} tick failed: ${String(error)}\n`);
+          Effect.gen(function* () {
+            const message = String(error);
+            const at = new Date().toISOString();
+            process.stderr.write(`${at} jazz daemon ${work} tick failed: ${message}\n`);
+            status = {
+              ...status,
+              recentErrors: withTickError(status.recentErrors, { at, work, message }),
+            };
+            yield* logger.error(`Daemon ${work} tick failed`, { work, error: message });
           });
         // Triggers, goals and loops share the tick but not its fate: a failing claim in one
         // must not keep the others from being claimed.
@@ -457,6 +506,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
           }) as Effect.Effect<void, unknown, DaemonRequirements>,
         ).finally(() => {
           tickRunning = false;
+          publishStatus({ tickRunning: false, lastTickDurationMs: Date.now() - now });
         });
       }, tickIntervalMs);
 
@@ -465,6 +515,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         // drain that may never finish is how a daemon becomes unkillable.
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
+        void clearDaemonStatus(daemonOptions.port);
         void server.stop(true);
         // The home lock is released before the process ends (a few file operations), so the
         // next daemon finds nothing of this one's to clean up.
@@ -478,6 +529,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       return Effect.sync(() => {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
+        void clearDaemonStatus(daemonOptions.port);
         void server.stop(true);
       }).pipe(Effect.zipRight(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
     });
@@ -495,6 +547,21 @@ export function daemonCommand(options: DaemonCommandOptions) {
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
   );
+}
+
+/** The background daemon's log, `$JAZZ_HOME/logs/daemon.log`. */
+export function backgroundDaemonLogPath(): string {
+  return daemonLogPath(getJazzHomeDirectory());
+}
+
+/**
+ * Opens the daemon log for appending, private to the owner. The child inherits the
+ * descriptor; append mode keeps its writes at the end after the log sweep truncates it.
+ */
+function openDaemonLog(): number {
+  const logPath = backgroundDaemonLogPath();
+  nodeFs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
+  return nodeFs.openSync(logPath, "a", 0o600);
 }
 
 /** The lock one daemon holds per `$JAZZ_HOME` for as long as it runs. */
@@ -553,13 +620,15 @@ function spawnBackgroundDaemon(options: DaemonCommandOptions) {
       ...(options.peerAgent !== undefined ? ["--serve-peers", options.peerAgent] : []),
     ];
 
+    const logDescriptor = yield* Effect.sync(() => openDaemonLog());
     const child = Bun.spawn({
       cmd: args,
-      stdout: "ignore",
-      stderr: "ignore",
+      stdout: logDescriptor,
+      stderr: logDescriptor,
       stdin: "ignore",
       env: process.env,
     });
+    nodeFs.closeSync(logDescriptor);
     child.unref();
 
     const healthy = yield* Effect.promise(() => waitForDaemonHealth(options.host, options.port));
@@ -593,7 +662,13 @@ function startDaemonInBackground(options: DaemonCommandOptions) {
       `jazz daemon running in the background on http://${options.host}:${String(options.port)} (pid ${String(started.pid)})`,
     );
     yield* terminal.info(`Stop it with: jazz daemon stop --port ${String(options.port)}`);
-    yield* terminal.info("Logs stay quiet in background mode; use --foreground to watch them.");
+    yield* terminal.info(
+      `Its output goes to ${backgroundDaemonLogPath()}; follow it with: jazz daemon logs -f`,
+    );
+    const supervisionNote = unsupervisedDaemonNote(isDaemonSupervised());
+    if (supervisionNote !== undefined) {
+      yield* terminal.warn(supervisionNote);
+    }
   });
 }
 
@@ -730,7 +805,7 @@ export function forgetDaemonTokenCommand() {
  * reinstall after changing `--host`/`--port`/`--serve-peers` without going through it again.
  */
 export function installDaemonServiceCommand(options: {
-  readonly agentId: string;
+  readonly peerAgent?: string | undefined;
   readonly host: string;
   readonly port: number;
   readonly yes?: boolean;
@@ -754,7 +829,7 @@ export function installDaemonServiceCommand(options: {
     const invocation = yield* getJazzSchedulerInvocation();
 
     const installed = yield* installService({
-      agentId: options.agentId,
+      peerAgent: options.peerAgent,
       host: options.host,
       port: options.port,
       token,
@@ -770,7 +845,12 @@ export function installDaemonServiceCommand(options: {
     );
     if (installed === undefined) return;
 
-    yield* terminal.success(formatServiceInstalledMessage(installed, { host: options.host }));
+    yield* terminal.success(
+      formatServiceInstalledMessage(installed, {
+        host: options.host,
+        servesPeers: options.peerAgent !== undefined,
+      }),
+    );
   });
 }
 
@@ -843,18 +923,41 @@ export function ensureDaemonRunning() {
 }
 
 /**
- * What starting a goal or loop did, in one sentence, given whether a daemon is now working on
- * it. `subject` names it, like `Goal detach-to-prod`.
+ * The warning for a daemon no supervisor restarts, or undefined when one does. Background work
+ * waits in such a daemon until it is started again after a reboot or crash.
  */
-export function describeDaemonStart(subject: string, daemon: DaemonAvailability): string {
+export function unsupervisedDaemonNote(supervised: boolean): string | undefined {
+  return supervised
+    ? undefined
+    : "No supervised daemon is installed, so nothing restarts the daemon after a reboot or a " +
+        "crash, and background work waits until `jazz daemon` runs again. Run " +
+        "`sudo jazz daemon install` to keep it running.";
+}
+
+/**
+ * What starting a goal or loop did, given whether a daemon is now working on it, and a
+ * warning when that daemon is not supervised. `subject` names it, like `Goal detach-to-prod`.
+ */
+export function describeDaemonStart(
+  subject: string,
+  daemon: DaemonAvailability,
+  supervised: boolean = isDaemonSupervised(),
+): string {
+  const note = unsupervisedDaemonNote(supervised);
+  const withNote = (sentence: string): string =>
+    note === undefined ? sentence : `${sentence}\n${note}`;
   switch (daemon.kind) {
     case "running":
-      return `${subject} started; the daemon is working on it.`;
+      return withNote(`${subject} started; the daemon is working on it.`);
     case "started":
-      return `${subject} started; launched the daemon in the background (pid ${String(daemon.pid)}) to work on it.`;
+      return withNote(
+        `${subject} started; launched the daemon in the background (pid ${String(daemon.pid)}) to work on it.`,
+      );
     case "port-taken":
       return `${subject} is saved, but the daemon on port ${String(daemon.port)} is not serving this Jazz home (another home, or a daemon from an older Jazz); restart it with \`jazz daemon stop\` then \`jazz daemon\`, or run one for this home on another port.`;
     case "unavailable":
-      return `${subject} is saved, but the daemon could not be started; run \`jazz daemon\` to begin the work.`;
+      return withNote(
+        `${subject} is saved, but the daemon could not be started; run \`jazz daemon\` to begin the work.`,
+      );
   }
 }
