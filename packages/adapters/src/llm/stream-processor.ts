@@ -64,6 +64,36 @@ export function resolveStreamIdleTimeoutMs(
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 }
 
+/**
+ * Floor for how long a stream may take to produce its first content part (text, reasoning, a
+ * tool call, or the finish). Some hosted models (NVIDIA NIM, large reasoning models) take
+ * minutes to prefill before the first token, well past the gap allowed between parts once
+ * output is flowing. Keeping the two budgets apart lets those finish instead of failing every
+ * attempt at the first-token wait. A configured idle budget above this wins.
+ */
+export const FIRST_CONTENT_TIMEOUT_MS = 300_000;
+
+/** Stream part types that carry model output, as opposed to bookkeeping (`start`, `start-step`). */
+const CONTENT_PART_TYPES: ReadonlySet<string> = new Set([
+  "text-delta",
+  "reasoning-delta",
+  "tool-input-start",
+  "tool-input-delta",
+  "tool-call",
+  "tool-result",
+  "file",
+  "source",
+  "finish-step",
+  "finish",
+  "error",
+]);
+
+/** Whether a stream part is model output, which ends the first-content wait. */
+export function isContentStreamPart(part: unknown): boolean {
+  const type = (part as { type?: unknown } | null)?.type;
+  return typeof type === "string" && CONTENT_PART_TYPES.has(type);
+}
+
 /** Raised when a provider stream stops producing without closing. */
 export class StreamIdleTimeoutError extends Error {
   constructor(
@@ -83,24 +113,29 @@ export class StreamIdleTimeoutError extends Error {
  * Re-yield `source`, failing if any single step takes longer than `idleMs`.
  *
  * The timer is per part rather than for the whole stream: a long answer is
- * healthy, a long *silence* is not.
+ * healthy, a long *silence* is not. Until `isContent` accepts a part, the wait
+ * is `firstContentMs` instead, which covers a model's prefill before its first
+ * token; bookkeeping parts that arrive during it do not end it.
  */
 export async function* withIdleTimeout<T>(
   source: AsyncIterable<T>,
   idleMs: number,
+  firstContentMs: number = idleMs,
+  isContent: (part: T) => boolean = () => true,
 ): AsyncGenerator<T> {
   const iterator = source[Symbol.asyncIterator]();
-  let receivedPart = false;
+  let receivedContent = false;
   try {
     for (;;) {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const waitMs = receivedContent ? idleMs : firstContentMs;
       const idle = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
           () =>
             reject(
-              new StreamIdleTimeoutError(idleMs, receivedPart ? "between-parts" : "first-part"),
+              new StreamIdleTimeoutError(waitMs, receivedContent ? "between-parts" : "first-part"),
             ),
-          idleMs,
+          waitMs,
         );
       });
       let step: IteratorResult<T>;
@@ -110,7 +145,9 @@ export async function* withIdleTimeout<T>(
         if (timer !== undefined) clearTimeout(timer);
       }
       if (step.done === true) return;
-      receivedPart = true;
+      if (!receivedContent && isContent(step.value)) {
+        receivedContent = true;
+      }
       yield step.value;
     }
   } finally {
@@ -319,10 +356,13 @@ export class StreamProcessor {
    * Process full stream for all events (text, reasoning, tools)
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
+    const idleMs = resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs);
     try {
       for await (const part of withIdleTimeout(
         result.fullStream,
-        resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs),
+        idleMs,
+        Math.max(idleMs, FIRST_CONTENT_TIMEOUT_MS),
+        isContentStreamPart,
       )) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {

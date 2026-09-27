@@ -22,7 +22,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
-import { LLMRequestError } from "../../types/errors";
+import { LLMRateLimitError, LLMRequestError } from "../../types/errors";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
@@ -771,13 +771,18 @@ describe("executeWithStreaming cancellation", () => {
 
   it("Esc during the non-streaming fallback stops the run", async () => {
     let fallbackAbandoned = 0;
+    const stalled = new LLMRequestError({
+      provider: "openai",
+      message: "stalled",
+      retryAfterMs: 0,
+    });
     const harness = makeStreamingHarness({
-      maxRetries: 0,
+      maxRetries: 5,
       llmService: scriptedLLMService(
         () =>
           Effect.succeed({
-            stream: Stream.fail(new LLMRequestError({ provider: "openai", message: "stalled" })),
-            response: Effect.fail(new LLMRequestError({ provider: "openai", message: "stalled" })),
+            stream: Stream.fail(stalled),
+            response: Effect.fail(stalled),
             cancel: Effect.void,
           }),
         () =>
@@ -821,5 +826,165 @@ describe("executeWithStreaming cancellation", () => {
     expect(result.durationCapped).toBe(true);
     expect(abandoned).toBe(1);
     expect(Date.now() - startedAt).toBeLessThan(2_000);
+  });
+});
+
+describe("executeWithStreaming retries", () => {
+  const completeResponse = (content: string) => ({
+    id: "fallback",
+    model: "gpt-4",
+    content,
+    toolCalls: [],
+  });
+
+  function failingStream(error: unknown) {
+    return Effect.succeed({
+      stream: Stream.fail(error as LLMRequestError),
+      response: Effect.fail(error as LLMRequestError),
+      cancel: Effect.void,
+    });
+  }
+
+  it("shares one retry budget between streaming and the non-streaming fallback", async () => {
+    let streamingAttempts = 0;
+    let fallbackAttempts = 0;
+    const transient = new LLMRequestError({
+      provider: "openai",
+      message: "overloaded",
+      statusCode: 503,
+      retryAfterMs: 0,
+    });
+    const harness = makeStreamingHarness({
+      maxRetries: 5,
+      llmService: scriptedLLMService(
+        () => {
+          streamingAttempts += 1;
+          return failingStream(transient);
+        },
+        () => {
+          fallbackAttempts += 1;
+          return Effect.fail(transient);
+        },
+      ),
+    });
+
+    await expect(harness.run()).rejects.toThrow("overloaded");
+    expect(streamingAttempts + fallbackAttempts).toBe(6);
+    expect(fallbackAttempts).toBeGreaterThan(0);
+  });
+
+  it("answers from the fallback once streaming keeps failing", async () => {
+    let fallbackAttempts = 0;
+    const stalled = new LLMRequestError({
+      provider: "openai",
+      message: "stalled",
+      retryAfterMs: 0,
+    });
+    const harness = makeStreamingHarness({
+      maxRetries: 5,
+      llmService: scriptedLLMService(
+        () => failingStream(stalled),
+        () => {
+          fallbackAttempts += 1;
+          return Effect.succeed(completeResponse("from the fallback"));
+        },
+      ),
+    });
+
+    const result = await harness.run();
+
+    expect(result.content).toBe("from the fallback");
+    expect(fallbackAttempts).toBe(1);
+  });
+
+  it("never falls back to non-streaming for a rate limit", async () => {
+    let streamingAttempts = 0;
+    let fallbackAttempts = 0;
+    const throttled = new LLMRateLimitError({
+      provider: "openai",
+      message: "rate limited",
+      retryAfterMs: 0,
+    });
+    const harness = makeStreamingHarness({
+      maxRetries: 4,
+      llmService: scriptedLLMService(
+        () => {
+          streamingAttempts += 1;
+          return failingStream(throttled);
+        },
+        () => {
+          fallbackAttempts += 1;
+          return Effect.succeed(completeResponse("unused"));
+        },
+      ),
+    });
+
+    await expect(harness.run()).rejects.toThrow("rate limited");
+    expect(streamingAttempts).toBe(5);
+    expect(fallbackAttempts).toBe(0);
+  });
+
+  it("waits as long as the provider's Retry-After asks", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 2,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        if (attempts === 1) {
+          return failingStream(
+            new LLMRateLimitError({ provider: "openai", message: "slow down", retryAfterMs: 400 }),
+          );
+        }
+        return Effect.succeed({
+          stream: Stream.fromIterable([
+            { type: "complete" as const, response: completeResponse("after waiting") },
+          ]),
+          response: Effect.succeed(completeResponse("after waiting")),
+          cancel: Effect.void,
+        });
+      }),
+    });
+
+    const startedAt = Date.now();
+    const result = await harness.run();
+
+    expect(result.content).toBe("after waiting");
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(390);
+  });
+
+  it("gives up at once when the provider asks for a longer wait than Jazz will sleep", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return failingStream(
+          new LLMRateLimitError({
+            provider: "openai",
+            message: "come back in an hour",
+            retryAfterMs: 3_600_000,
+          }),
+        );
+      }),
+    });
+
+    await expect(harness.run()).rejects.toThrow("come back in an hour");
+    expect(attempts).toBe(1);
+  });
+
+  it("does not retry a request the provider rejected", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 3,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return failingStream(
+          new LLMRequestError({ provider: "openai", message: "bad request", statusCode: 400 }),
+        );
+      }),
+    });
+
+    await expect(harness.run()).rejects.toThrow("bad request");
+    expect(attempts).toBe(1);
   });
 });
