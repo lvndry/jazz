@@ -12,6 +12,7 @@ import {
   LLM_PROVIDER_ENV_VARS,
   llmProviderEnvVars,
 } from "@jazz/core/constants/provider-env-vars";
+import { NOTIFY_CHANNEL_SECRET_FIELDS } from "@jazz/core/types/notify";
 import { secretEnvVarSuffix } from "@jazz/core/utils/secret-env-var";
 
 export { LLM_PROVIDER_ENV_VAR_ALIASES, LLM_PROVIDER_ENV_VARS, llmProviderEnvVars };
@@ -135,6 +136,27 @@ export function peerTokenEnvVar(peerName: string): string {
   return `JAZZ_PEER_TOKEN_${secretEnvVarSuffix(peerName)}`;
 }
 
+/** A notify channel's secret field, e.g. `notifications.channels.phone.botToken`. */
+const NOTIFY_CHANNEL_SECRET_PATH = new RegExp(
+  `^notifications\\.channels\\.([^.]+)\\.(${[
+    ...new Set(Object.values(NOTIFY_CHANNEL_SECRET_FIELDS).flat()),
+  ].join("|")})$`,
+);
+
+/** The config path holding one notify channel's secret field. */
+export function notifyChannelSecretPath(channel: string, field: string): string {
+  return `notifications.channels.${channel}.${field}`;
+}
+
+/**
+ * Environment variable supplying a notify channel's secret, for hosts with no keyring:
+ * `JAZZ_NOTIFY_PHONE_BOT_TOKEN` for `notifications.channels.phone.botToken`.
+ */
+export function notifyChannelSecretEnvVar(channel: string, field: string): string {
+  const fieldSuffix = field.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+  return `JAZZ_NOTIFY_${secretEnvVarSuffix(channel)}_${fieldSuffix}`;
+}
+
 /** The two maps in an MCP server definition whose values are handed to the server. */
 export type McpServerSecretField = "env" | "headers";
 
@@ -182,6 +204,9 @@ export function isSecretPath(path: string): boolean {
   // the same reason a peer token does: the config file names the webhook without ever
   // holding its credential.
   if (WEBHOOK_TOKEN_PATH.test(path)) return true;
+  // A notify channel's bot token, token-bearing webhook URL or signing key authenticates Jazz
+  // to your chat or endpoint; the config file names the channel without holding them.
+  if (NOTIFY_CHANNEL_SECRET_PATH.test(path)) return true;
   if (WEBHOOK_SECRET_PATH.test(path)) {
     return true;
   }
@@ -219,6 +244,10 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
   if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
+  const channel = NOTIFY_CHANNEL_SECRET_PATH.exec(path);
+  if (channel?.[1] !== undefined && channel[2] !== undefined) {
+    return notifyChannelSecretEnvVar(channel[1], channel[2]);
+  }
   const webhookSecret = /^webhooks\.([^.]+)\.secret$/.exec(path);
   if (webhookSecret?.[1] !== undefined) {
     return webhookSecretEnvVar(webhookSecret[1]);

@@ -71,11 +71,11 @@ memory write; plain piped stdin is treated as untrusted text.
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
 | `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                                            |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
 | `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
 | `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
-| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                                            |
+| `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                            |
 | `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                                            |
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
@@ -86,12 +86,20 @@ memory write; plain piped stdin is treated as untrusted text.
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
 | `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                           |
 
-`--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
-interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
+`--max-cost-usd` and `--max-tokens` are soft checkpoints, checked between iterations.
+`--max-duration-ms` is a deadline: it interrupts the run wherever it is and still returns a
+result. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
 for the enforcement model and how they differ from `--timeout`.
 
-**Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and
-the message goes to stderr; in `--json` mode stdout always carries exactly one object.
+**Exit codes:** `0` on success; `1` on failure, including a run that finishes without a usable
+answer (an empty zero-token completion, a non-`stop` finish with no text, or a content-filtered
+answer); `2` when `--park` parks the run on an approval; `130` or `143` when SIGINT or SIGTERM
+stops it. In plain mode stdout is empty on failure and the message goes to stderr; in `--json`
+mode stdout always carries exactly one object, with a `code` on failures (`failed`,
+`empty_response`, `no_answer`, `content_filtered`, `interrupted`). A cut-off answer
+(`truncated`), an iteration limit (`iterationLimited`) and dropped tools (`toolsDisabled`) are
+flagged in the envelope and warned about on stderr. See
+[Headless → JSON](./surfaces/headless.md#json---json).
 
 Full contract, examples, and a complete bridge implementation:
 [Surfaces → Headless](./surfaces/headless.md).
@@ -165,6 +173,11 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 | `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
 | `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
 | `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
+
+A workflow run that finishes without a usable answer (an empty zero-token completion, a
+non-`stop` finish with no text, or a content-filtered answer) is recorded as failed in
+`jazz workflow history` and exits `1`, with the same `code` in its `--json` envelope as
+`jazz run`.
 
 ### Several schedules for one workflow
 
@@ -269,6 +282,33 @@ one, runs begun from somewhere else entirely.
 
 A run parks when it hits something needing your approval and nobody is there to give it: see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
+With a [notify channel](configure/notifications.md) the approval request reaches your phone, and
+a Telegram or Discord bridge can answer it with `/approve <runId>`.
+
+---
+
+## `jazz spend`
+
+What every run on this machine cost today and this month, from the machine-wide ledger under
+`$JAZZ_HOME/spend`, with a breakdown by source (chat, workflows, goals, loops, bots, ...) and by
+agent, and where each configured spend ceiling stands. `--json` emits
+`{ ok, day, month, today, thisMonth, ceilings, unreadableLines }`. See
+[Budgets](concepts/budgets.md#day-and-month-ceilings).
+
+---
+
+## `jazz notify`
+
+Where results, reminders, parked approvals and failures reach you while you are away. See
+[Notifications](configure/notifications.md).
+
+| Command                   | Purpose                                                                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz notify list`        | List the configured channels. `--json`                                                                                                                                                 |
+| `jazz notify add <name>`  | Add or replace a channel: `--type telegram\|discord\|webhook\|desktop`, `--chat-id`, `--channel-id`, `--url`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
+| `jazz notify test <name>` | Send a test through one channel and report what it answered. `--json`                                                                                                                  |
+| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                         |
+| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                        |
 
 ---
 

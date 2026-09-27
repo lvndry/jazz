@@ -55,9 +55,18 @@ import {
   type ModelCapabilityOverride,
   type ReasoningControlSurface,
 } from "@/core/types/model-capabilities";
+import {
+  type DesktopNotifyChannel,
+  type DiscordNotifyChannel,
+  NOTIFY_CHANNEL_NAME_PATTERN,
+  NOTIFY_SUBSCRIBABLE_EVENTS,
+  type TelegramNotifyChannel,
+  type WebhookNotifyChannel,
+} from "@/core/types/notify";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
 import type { DoorLimits, RunBudget } from "@/core/types/remote-door";
+import type { SpendConfig, SpendLimits } from "@/core/types/spend";
 import type { StreamingConfig } from "@/core/types/streaming";
 import type {
   WebhookConfig,
@@ -325,10 +334,71 @@ const outputShape = {
   streaming: z.strictObject(streamingShape).exactOptional(),
 } satisfies SchemaShape<OutputConfig>;
 
+const notifyEvents = z.array(z.enum(NOTIFY_SUBSCRIBABLE_EVENTS));
+const httpUrl = described(z.url({ protocol: /^https?$/ }), "an http:// or https:// URL");
+
+const telegramChannelShape = {
+  type: z.literal("telegram"),
+  events: notifyEvents.exactOptional(),
+  chatId: text.exactOptional(),
+  botToken: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<TelegramNotifyChannel>;
+
+const discordChannelShape = {
+  type: z.literal("discord"),
+  events: notifyEvents.exactOptional(),
+  webhookUrl: text.exactOptional(),
+  channelId: text.exactOptional(),
+  botToken: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<DiscordNotifyChannel>;
+
+const webhookChannelShape = {
+  type: z.literal("webhook"),
+  events: notifyEvents.exactOptional(),
+  url: httpUrl.exactOptional(),
+  secret: text.exactOptional(),
+} satisfies SchemaShape<WebhookNotifyChannel>;
+
+const desktopChannelShape = {
+  type: z.literal("desktop"),
+  events: notifyEvents.exactOptional(),
+} satisfies SchemaShape<DesktopNotifyChannel>;
+
+const notifyChannelSchema = z.discriminatedUnion("type", [
+  z.strictObject(telegramChannelShape),
+  z.strictObject(discordChannelShape),
+  z.strictObject(webhookChannelShape),
+  z.strictObject(desktopChannelShape),
+]);
+
+/** Channel names are storage keys (the outbox keeps one file per channel). */
+const channelName = described(
+  safeRecordKey.regex(NOTIFY_CHANNEL_NAME_PATTERN),
+  "a lowercase name of letters, digits, - and _",
+);
+
 const notificationsShape = {
   enabled: flag.exactOptional(),
   sound: flag.exactOptional(),
+  channels: z.record(channelName, notifyChannelSchema).exactOptional(),
 } satisfies SchemaShape<NotificationsConfig>;
+
+const dollars = described(z.number().positive(), "a number of dollars greater than 0");
+
+const spendLimitsShape = {
+  dayUSD: dollars.exactOptional(),
+  monthUSD: dollars.exactOptional(),
+} satisfies SchemaShape<SpendLimits>;
+
+const spendShape = {
+  ...spendLimitsShape,
+  goals: z.strictObject(spendLimitsShape).exactOptional(),
+  agents: z.record(nonEmptySafeRecordKey, z.strictObject(spendLimitsShape)).exactOptional(),
+} satisfies SchemaShape<SpendConfig>;
 
 type OtlpSignal = NonNullable<OtlpTelemetryConfig["signals"]>[number];
 
@@ -513,6 +583,7 @@ const configFileShape = {
         .exactOptional(),
     } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
     .exactOptional(),
+  spend: z.strictObject(spendShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */

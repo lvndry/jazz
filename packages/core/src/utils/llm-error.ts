@@ -338,6 +338,85 @@ export function localServerUnreachableMessage(
 }
 
 /**
+ * Provider wordings for "the prompt does not fit the context window". Anthropic ("prompt is too
+ * long"), OpenAI and OpenAI-compatible servers ("maximum context length", `context_length_exceeded`),
+ * Google ("input token count ... exceeds"), llama.cpp ("exceeds the available context size"),
+ * Groq ("reduce the length of the messages"), Bedrock ("input is too long"), xAI ("maximum
+ * prompt length"). Only read on a 4xx, so a rate-limit message about tokens per minute never
+ * matches.
+ */
+const CONTEXT_OVERFLOW_PATTERN =
+  /prompt is too long|context[_ ]length|maximum context|context window|exceeds the (?:available )?context|input token count|input is too long|too many (?:input )?tokens|reduce the length of the messages|maximum prompt length/i;
+
+/** HTTP statuses a provider uses to reject an oversized prompt. */
+const CONTEXT_OVERFLOW_STATUSES = new Set([400, 413, 422]);
+
+/** Whether a rejected request failed because the prompt exceeds the model's context window. */
+export function isContextOverflowError(
+  error: unknown,
+  statusCode: number | undefined,
+  message: string,
+): boolean {
+  if (statusCode !== undefined && !CONTEXT_OVERFLOW_STATUSES.has(statusCode)) {
+    return false;
+  }
+  if (APICallError.isInstance(error) && error.data && typeof error.data === "object") {
+    const code = (error.data as { error?: { code?: unknown } }).error?.code;
+    if (code === "context_length_exceeded") {
+      return true;
+    }
+  }
+  const body = APICallError.isInstance(error) ? (error.responseBody ?? "") : "";
+  return statusCode !== undefined && CONTEXT_OVERFLOW_PATTERN.test(`${message} ${body}`);
+}
+
+/** Longest `Retry-After` honored; a provider asking for more fails the attempt instead. */
+export const MAX_RETRY_AFTER_MS = 120_000;
+
+/**
+ * The wait a provider asked for, in ms: `retry-after-ms`, or `retry-after` as seconds or an
+ * HTTP date. Undefined when the header is absent or unreadable.
+ */
+export function parseRetryAfterMs(
+  headers: Record<string, string | undefined> | undefined,
+  now: number = Date.now(),
+): number | undefined {
+  if (headers === undefined) {
+    return undefined;
+  }
+  const lookup = (name: string): string | undefined => {
+    const direct = headers[name];
+    if (direct !== undefined) {
+      return direct;
+    }
+    const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
+    return entry?.[1];
+  };
+  const milliseconds = Number(lookup("retry-after-ms"));
+  if (Number.isFinite(milliseconds) && milliseconds >= 0) {
+    return milliseconds;
+  }
+  const raw = lookup("retry-after")?.trim();
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1_000;
+  }
+  const date = Date.parse(raw);
+  return Number.isFinite(date) ? Math.max(0, date - now) : undefined;
+}
+
+/** The `Retry-After` wait carried by an LLM error, when it has one. */
+export function retryAfterMsOf(error: unknown): number | undefined {
+  if (error instanceof LLMRateLimitError || error instanceof LLMRequestError) {
+    return error.retryAfterMs;
+  }
+  return undefined;
+}
+
+/**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
  * to create the most appropriate LLM error type.
@@ -396,6 +475,11 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
     }
   }
 
+  const retryAfterMs = APICallError.isInstance(error)
+    ? parseRetryAfterMs(error.responseHeaders)
+    : undefined;
+  const retryAfter = retryAfterMs !== undefined ? { retryAfterMs } : {};
+
   let llmError: LLMError;
   if (isProviderAuthFailure(httpStatus, cleanMessage)) {
     llmError = new LLMAuthenticationError({ provider: providerName, message: cleanMessage });
@@ -411,18 +495,21 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
       provider: providerName,
       message: cleanMessage,
       permanent: isInsufficientBalanceError(error),
+      ...retryAfter,
     });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
     llmError = new LLMRequestError({
       provider: providerName,
       message: cleanMessage,
       statusCode: httpStatus,
+      ...(isContextOverflowError(error, httpStatus, cleanMessage) ? { contextOverflow: true } : {}),
     });
   } else if (httpStatus && httpStatus >= 500) {
     llmError = new LLMRequestError({
       provider: providerName,
       message: `Server error (${httpStatus}): ${cleanMessage}`,
       statusCode: httpStatus,
+      ...retryAfter,
     });
   } else {
     if (
@@ -495,11 +582,30 @@ export function describeRetryableLLMError(error: unknown): string {
  * Only retries on transient errors (rate limits, connection failures, 5xx).
  */
 export function makeLLMRetrySchedule(maxRetries: number) {
+  return llmRetryDelays().pipe(Schedule.intersect(Schedule.recurs(maxRetries)));
+}
+
+/**
+ * The delays between LLM retries, with no attempt limit: exponential from one second and
+ * capped at MAX_RETRY_DELAY_SECONDS, jittered so agents that hit the same 429 together do not
+ * retry in lockstep, and replaced by the provider's `Retry-After` when it sent one. Continues
+ * only on transient errors, and stops when the provider asks for a wait above
+ * MAX_RETRY_AFTER_MS rather than sleeping that long.
+ */
+export function llmRetryDelays() {
   return Schedule.exponential("1 second").pipe(
+    Schedule.jittered,
     Schedule.modifyDelay((_, delay) =>
       Duration.min(delay, Duration.seconds(MAX_RETRY_DELAY_SECONDS)),
     ),
-    Schedule.intersect(Schedule.recurs(maxRetries)),
-    Schedule.whileInput((error: unknown) => isRetryableLLMError(error)),
+    Schedule.intersect(Schedule.identity<unknown>()),
+    Schedule.modifyDelay(([, error], delay) => {
+      const retryAfterMs = retryAfterMsOf(error);
+      return retryAfterMs === undefined ? delay : Duration.millis(retryAfterMs);
+    }),
+    Schedule.whileInput(
+      (error: unknown) =>
+        isRetryableLLMError(error) && (retryAfterMsOf(error) ?? 0) <= MAX_RETRY_AFTER_MS,
+    ),
   );
 }

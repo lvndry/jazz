@@ -25,6 +25,8 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/too
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
+import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
+import { guardPageRequests } from "./guarded-page";
 import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
@@ -86,6 +88,7 @@ async function renderPdf(
   pdfPath: string,
   executablePath: string,
   options: { landscape: boolean; format: NonNullable<CreatePdfArgs["format"]> },
+  policy: EgressPolicy,
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -97,6 +100,7 @@ async function renderPdf(
   });
   try {
     const page = await browser.newPage();
+    await guardPageRequests(page, htmlPath, policy);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.pdf({
       path: pdfPath,
@@ -149,10 +153,16 @@ export function createPdfTool(
 
         yield* Effect.tryPromise({
           try: () =>
-            renderPdf(htmlPath, pdfPath, executablePath, {
-              landscape: args.landscape ?? false,
-              format: args.format ?? "A4",
-            }),
+            renderPdf(
+              htmlPath,
+              pdfPath,
+              executablePath,
+              {
+                landscape: args.landscape ?? false,
+                format: args.format ?? "A4",
+              },
+              egressPolicyForContext(context),
+            ),
           catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });
         yield* fs.remove(htmlPath).pipe(Effect.catchAll(() => Effect.void));

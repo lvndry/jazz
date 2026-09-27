@@ -50,6 +50,13 @@ import {
   type SkillService,
 } from "@jazz/core/skills/skill-service";
 import {
+  type CeilingCheck,
+  ceilingWindowKey,
+  checkSpendCeilings,
+  describeCeilingCheck,
+} from "@jazz/core/spend/ceilings";
+import { localDayKey, localMonthKey } from "@jazz/core/spend/ledger";
+import {
   GenerationInterruptedError,
   LLMAuthenticationError,
   LLMRateLimitError,
@@ -58,6 +65,7 @@ import {
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
+import type { SpendConfig } from "@jazz/core/types/spend";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
@@ -242,6 +250,8 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
+      /** Ceilings already warned about this session, by window, so each warns once. */
+      const warnedSpendCeilings = new Set<string>();
       let sessionLimits: SessionLimits = {};
       let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
@@ -695,6 +705,12 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
+        yield* warnWhenSpendCeilingReached(
+          terminal,
+          (yield* configService.appConfig).spend,
+          agent.id,
+          warnedSpendCeilings,
+        );
         sessionTurnCount += 1;
 
         yield* Effect.gen(function* () {
@@ -709,6 +725,7 @@ export class ChatServiceImpl implements ChatService {
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
             conversationId,
             conversationHistory,
+            origin: { source: goalTurn === undefined ? "chat" : "goal" },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -1004,4 +1021,33 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof AgentServiceTag
 > {
   return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+}
+
+/**
+ * Chat is attended, so a reached spend ceiling does not stop it: the person is told once per
+ * ceiling and window, and decides. Unattended runs refuse instead (see `run-accounting.ts`).
+ */
+function warnWhenSpendCeilingReached(
+  terminal: TerminalService,
+  spend: SpendConfig | undefined,
+  agentId: string,
+  warned: Set<string>,
+) {
+  return Effect.gen(function* () {
+    const now = Date.now();
+    const check = yield* checkSpendCeilings(spend, { agentId, source: "chat" }, now).pipe(
+      Effect.catchAll(() => Effect.succeed<CeilingCheck>({ kind: "clear" })),
+    );
+    if (check.kind === "clear") {
+      return;
+    }
+    const key = ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
+    if (warned.has(key)) {
+      return;
+    }
+    warned.add(key);
+    yield* terminal.warn(
+      `${describeCeilingCheck(check)} Chat continues; unattended runs under this ceiling refuse to start.`,
+    );
+  });
 }

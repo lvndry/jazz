@@ -20,6 +20,7 @@ import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@jazz/core
 import { toError } from "@jazz/core/utils/errors";
 import { scanMarkdownIndex } from "@jazz/core/utils/markdown-index";
 import { getBuiltinPersonasDirectory, getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, Layer, Option } from "effect";
 import matter from "gray-matter";
 
@@ -180,7 +181,7 @@ export class PersonaServiceImpl implements PersonaService {
   }
 
   private async ensurePersonasDir(): Promise<void> {
-    await fs.mkdir(this.getCustomPersonasDir(), { recursive: true });
+    await fs.mkdir(this.getCustomPersonasDir(), { recursive: true, mode: stateDirectoryMode() });
   }
 
   /**
@@ -285,7 +286,7 @@ updatedAt: "${now.toISOString()}"
         yield* Effect.tryPromise({
           try: async () => {
             await this.ensurePersonasDir();
-            await fs.mkdir(personaDir, { recursive: true });
+            await fs.mkdir(personaDir, { recursive: true, mode: stateDirectoryMode() });
             await fs.writeFile(
               path.join(personaDir, PERSONA_DEFINITION_FILENAME),
               content,
@@ -619,11 +620,17 @@ updatedAt: "${updated.updatedAt.toISOString()}"
         yield* Effect.tryPromise({
           try: async () => {
             if (newDir !== currentDir) {
-              await fs.mkdir(newDir, { recursive: true });
-              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+              await fs.mkdir(newDir, { recursive: true, mode: stateDirectoryMode() });
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, {
+                encoding: "utf-8",
+                mode: stateFileMode(),
+              });
               await fs.rm(currentDir, { recursive: true });
             } else {
-              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, {
+                encoding: "utf-8",
+                mode: stateFileMode(),
+              });
             }
           },
           catch: (error) =>

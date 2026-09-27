@@ -46,7 +46,6 @@ const mockJazzStateService = {
   get: () => Effect.succeed(undefined),
   set: () => Effect.void,
   load: () => Effect.succeed({}),
-  persist: () => Effect.void,
 } as unknown as JazzStateService;
 
 describe("Agent Management Commands", () => {

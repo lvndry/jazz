@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
@@ -79,12 +80,16 @@ const mockAgentService = {
   listAgents: mock(() => Effect.succeed([mockAgent])),
 } as unknown as AgentService;
 
+/** No notify channels and no spend ceilings: the run is neither refused nor reported. */
+const mockAgentConfig = { appConfig: Effect.succeed({}) } as unknown as AgentConfigService;
+
 const testLayer = Layer.mergeAll(
   Layer.succeed(TerminalServiceTag, mockTerminal),
   Layer.succeed(WorkflowServiceTag, mockWorkflowService),
   Layer.succeed(LoggerServiceTag, mockLogger),
   Layer.succeed(SchedulerServiceTag, mockScheduler),
   Layer.succeed(AgentServiceTag, mockAgentService),
+  Layer.succeed(AgentConfigServiceTag, mockAgentConfig),
   NodeFileSystem.layer,
 );
 
@@ -228,6 +233,7 @@ describe("runWorkflowCommand", () => {
         Layer.succeed(LoggerServiceTag, mockLogger),
         Layer.succeed(SchedulerServiceTag, mockScheduler),
         Layer.succeed(AgentServiceTag, failingAgentService),
+        Layer.succeed(AgentConfigServiceTag, mockAgentConfig),
         NodeFileSystem.layer,
       );
 

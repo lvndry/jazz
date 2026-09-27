@@ -4,13 +4,16 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import type { UntrustedProvenance } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { EgressRefusedError, egressPolicyForContext, readBodyWithinBudget } from "../guarded-fetch";
 import { fetchWithUserAgentFallback } from "../user-agent-fetch";
 import {
   type FsToolDeps,
   isPdfPasswordError,
   loadPdfParser,
+  localFileProvenance,
   pdfExtensionError,
   resolveReadableFile,
 } from "./read-common";
@@ -29,7 +32,13 @@ const MAX_PDF_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 const PDF_DOWNLOAD_TIMEOUT_MS = 30_000;
 
 type PdfBytes =
-  | { readonly kind: "ok"; readonly buffer: Uint8Array; readonly label: string }
+  | {
+      readonly kind: "ok";
+      readonly buffer: Uint8Array;
+      readonly label: string;
+      /** Set for a download, or for a local file outside the working directory. */
+      readonly untrusted?: UntrustedProvenance;
+    }
   | { readonly kind: "failure"; readonly result: ToolExecutionResult };
 
 function pdfFailure(error: string): PdfBytes {
@@ -59,12 +68,21 @@ function loadLocalPdf(
     if (buffer._tag === "Left") {
       return pdfFailure(`Failed to read PDF file: ${resolved.path}`);
     }
-    return { kind: "ok", buffer: buffer.right, label: resolved.path };
+    const untrusted = yield* localFileProvenance(resolved.path, "read_pdf", context);
+    return {
+      kind: "ok",
+      buffer: buffer.right,
+      label: resolved.path,
+      ...(untrusted !== undefined ? { untrusted } : {}),
+    };
   });
 }
 
-/** Download a remote PDF into a buffer over http/https, enforcing a timeout and size cap. */
-function loadRemotePdf(url: string): Effect.Effect<PdfBytes, never> {
+/**
+ * Download a remote PDF through `guardedFetch`, streaming against the size cap with the timeout
+ * covering the whole transfer.
+ */
+function loadRemotePdf(url: string, context: ToolExecutionContext): Effect.Effect<PdfBytes, never> {
   return Effect.gen(function* () {
     let parsedUrl: URL;
     try {
@@ -78,49 +96,51 @@ function loadRemotePdf(url: string): Effect.Effect<PdfBytes, never> {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PDF_DOWNLOAD_TIMEOUT_MS);
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetchWithUserAgentFallback(url, {
+    const downloaded = yield* Effect.tryPromise({
+      try: async (): Promise<PdfBytes> => {
+        const { response } = await fetchWithUserAgentFallback(url, {
           signal: controller.signal,
           accept: "application/pdf,*/*",
-        }),
+          policy: egressPolicyForContext(context),
+        });
+        if (!response.ok) {
+          await response.body?.cancel().catch(() => undefined);
+          return pdfFailure(`HTTP ${response.status} ${response.statusText} for ${url}`);
+        }
+        const declaredLength = Number(response.headers.get("content-length"));
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_PDF_DOWNLOAD_BYTES) {
+          await response.body?.cancel().catch(() => undefined);
+          return pdfFailure(
+            `PDF is too large to download (${declaredLength} bytes; limit ${MAX_PDF_DOWNLOAD_BYTES}).`,
+          );
+        }
+        const read = await readBodyWithinBudget(response, MAX_PDF_DOWNLOAD_BYTES);
+        if (read.truncated) {
+          return pdfFailure(
+            `PDF is too large to download (more than ${MAX_PDF_DOWNLOAD_BYTES} bytes).`,
+          );
+        }
+        if (!looksLikePdf(read.bytes)) {
+          return pdfFailure(
+            `The URL did not return a PDF (missing %PDF header). Use web_fetch for HTML pages.`,
+          );
+        }
+        return {
+          kind: "ok",
+          buffer: read.bytes,
+          label: url,
+          untrusted: { kind: "external", source: `read_pdf ${url}` },
+        };
+      },
       catch: (error) =>
         error instanceof Error && error.name === "AbortError"
           ? new Error(`Download timed out after ${PDF_DOWNLOAD_TIMEOUT_MS}ms.`)
-          : new Error(`Failed to fetch ${url}: ${toError(error).message}`),
-    }).pipe(Effect.either);
-    clearTimeout(timeout);
+          : error instanceof EgressRefusedError
+            ? error
+            : new Error(`Failed to fetch ${url}: ${toError(error).message}`),
+    }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeout))), Effect.either);
 
-    if (response._tag === "Left") return pdfFailure(response.left.message);
-    if (!response.right.ok) {
-      return pdfFailure(`HTTP ${response.right.status} ${response.right.statusText} for ${url}`);
-    }
-
-    const declaredLength = Number(response.right.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_PDF_DOWNLOAD_BYTES) {
-      return pdfFailure(
-        `PDF is too large to download (${declaredLength} bytes; limit ${MAX_PDF_DOWNLOAD_BYTES}).`,
-      );
-    }
-
-    const bytes = yield* Effect.tryPromise({
-      try: () => response.right.arrayBuffer(),
-      catch: (error) => new Error(`Failed to read response body: ${toError(error).message}`),
-    }).pipe(Effect.either);
-    if (bytes._tag === "Left") return pdfFailure(bytes.left.message);
-
-    const buffer = new Uint8Array(bytes.right);
-    if (buffer.byteLength > MAX_PDF_DOWNLOAD_BYTES) {
-      return pdfFailure(
-        `PDF is too large to download (${buffer.byteLength} bytes; limit ${MAX_PDF_DOWNLOAD_BYTES}).`,
-      );
-    }
-    if (!looksLikePdf(buffer)) {
-      return pdfFailure(
-        `The URL did not return a PDF (missing %PDF header). Use web_fetch for HTML pages.`,
-      );
-    }
-    return { kind: "ok", buffer, label: url };
+    return downloaded._tag === "Left" ? pdfFailure(downloaded.left.message) : downloaded.right;
   });
 }
 
@@ -128,7 +148,7 @@ function loadPdfBytes(
   args: { readonly path?: string | undefined; readonly url?: string | undefined },
   context: ToolExecutionContext,
 ): Effect.Effect<PdfBytes, never, FsToolDeps> {
-  if (args.url !== undefined) return loadRemotePdf(args.url);
+  if (args.url !== undefined) return loadRemotePdf(args.url, context);
   if (args.path !== undefined) return loadLocalPdf(args.path, context);
   return Effect.succeed(pdfFailure("Provide exactly one of path or url."));
 }
@@ -315,6 +335,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               fileType: "pdf",
               tables: extractedTables,
             },
+            ...(source.untrusted !== undefined ? { untrusted: source.untrusted } : {}),
           } satisfies ToolExecutionResult;
         }).pipe(
           Effect.ensuring(

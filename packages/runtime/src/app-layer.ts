@@ -64,6 +64,8 @@ import { SkillsLive } from "@jazz/core/skills/skill-service";
 import { InteractiveTerminalRequiredError, type JazzError } from "@jazz/core/types/errors";
 import { getCurrentCommandName } from "@jazz/core/utils/current-command";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { SIGNAL_EXIT_CODE, type ShutdownSignal } from "@jazz/core/utils/process";
+import { killTrackedProcesses } from "@jazz/core/utils/process";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { resolveStorageDirectory } from "@jazz/core/utils/storage";
 import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
@@ -129,6 +131,65 @@ export function getPresentationConfig(
   };
 }
 
+/** What a {@link ShutdownSignalTracker} does in the world, injected so tests can observe it. */
+export interface ShutdownSignalEffects {
+  readonly writeNotice: (message: string) => void;
+  readonly requestShutdown: () => void;
+  readonly reportStopped: (signal: ShutdownSignal) => void;
+  readonly exit: (code: number) => void;
+}
+
+/**
+ * How a CLI command reacts to SIGINT and SIGTERM.
+ *
+ * The first signal writes a notice to stderr and asks the command to stop
+ * gracefully. A second one reports the stop and exits at once. Notices go to
+ * stderr because stdout belongs to the command's output, which for
+ * `jazz run --json` is exactly one envelope. The stop is reported at most once,
+ * whichever path gets there first, and the exit code is 128 plus the first
+ * signal's number (130 for SIGINT, 143 for SIGTERM).
+ */
+export class ShutdownSignalTracker {
+  private firstSignal: ShutdownSignal | undefined;
+  private signalCount = 0;
+  private reported = false;
+
+  constructor(private readonly effects: ShutdownSignalEffects) {}
+
+  handle(signal: ShutdownSignal): void {
+    this.signalCount += 1;
+    if (this.signalCount === 1) {
+      this.firstSignal = signal;
+      const label = signal === "SIGINT" ? "Ctrl+C" : signal;
+      this.effects.writeNotice(`\nReceived ${label}. Shutting down...\n`);
+      this.effects.requestShutdown();
+      return;
+    }
+    this.effects.writeNotice("\nForce exiting immediately. Some cleanup may be skipped.\n");
+    this.reportStopped();
+    this.effects.exit(SIGNAL_EXIT_CODE[this.firstSignal ?? signal]);
+  }
+
+  /** Report that a signal stopped the command, once, if a signal arrived. */
+  reportStopped(): void {
+    if (this.firstSignal === undefined || this.reported) {
+      return;
+    }
+    this.reported = true;
+    this.effects.reportStopped(this.firstSignal);
+  }
+
+  /** The first shutdown signal received, if any. */
+  received(): ShutdownSignal | undefined {
+    return this.firstSignal;
+  }
+
+  /** Whether a signal stopped the command, as opposed to arriving after it finished. */
+  stopped(): boolean {
+    return this.reported;
+  }
+}
+
 /** Exit code for a command that needs a terminal it was not given. */
 export const EXIT_CODE_NEEDS_TERMINAL = 2;
 
@@ -187,7 +248,7 @@ export function createAppLayer(
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
-  const jazzStateLayer = createJazzStateServiceLayer().pipe(Layer.provide(fileSystemLayer));
+  const jazzStateLayer = createJazzStateServiceLayer();
   const loggerLayer = createLoggerLayer();
 
   const logFormatLayer = Layer.effectDiscard(
@@ -388,6 +449,13 @@ export function runCliEffect<R, E extends JazzError | Error>(
      * restore the previous buffer and the output would vanish.
      */
     readonly session?: boolean | undefined;
+    /**
+     * Called at most once when a shutdown signal stops the command before it
+     * finished: after the command is interrupted, or just before the forced
+     * exit on a second signal. `jazz run --json` uses it to print its one
+     * failure envelope.
+     */
+    readonly onStoppedBySignal?: ((signal: ShutdownSignal) => void) | undefined;
   } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
@@ -396,7 +464,16 @@ export function runCliEffect<R, E extends JazzError | Error>(
     configPath: config.configPath,
   });
 
-  let receivedShutdownSignal = false;
+  const requestShutdownRef: { current: (() => void) | null } = { current: null };
+  const shutdownSignals = new ShutdownSignalTracker({
+    writeNotice: (message) => process.stderr.write(message),
+    requestShutdown: () => requestShutdownRef.current?.(),
+    reportStopped: (signal) => options.onStoppedBySignal?.(signal),
+    exit: (code) => {
+      killTrackedProcesses();
+      process.exit(code);
+    },
+  });
 
   const program = Effect.gen(function* () {
     const commandStartedAt = Date.now();
@@ -420,29 +497,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
       options.skipUpdateCheck === true;
     const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
     const fiber = yield* Effect.fork(startupCheck.pipe(Effect.zipRight(effect)));
-    let signalCount = 0;
-    type SignalName = "SIGINT" | "SIGTERM";
-
-    // Ref so the Node signal handler can request shutdown; interrupt must run in this runtime.
+    // Interrupt must run in this runtime, so the Node signal handler only requests it.
     type ShutdownRequest = { _tag: "request" };
-    const requestShutdownRef: { current: ((req: ShutdownRequest) => void) | null } = {
-      current: null,
-    };
-
-    function handler(signal: SignalName): void {
-      signalCount += 1;
-      const label = signal === "SIGINT" ? "Ctrl+C" : signal;
-
-      if (signalCount === 1) {
-        receivedShutdownSignal = true;
-        process.stdout.write(`\nReceived ${label}. Shutting down...\n`);
-        const notify = requestShutdownRef.current;
-        if (notify) notify({ _tag: "request" });
-      } else {
-        process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
-        process.exit(1);
-      }
-    }
+    const handler = (signal: ShutdownSignal): void => shutdownSignals.handle(signal);
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
@@ -457,9 +514,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
     );
 
     const shutdownRequest = Effect.async<ShutdownRequest>((resume) => {
-      requestShutdownRef.current = (req) => {
+      requestShutdownRef.current = () => {
         requestShutdownRef.current = null;
-        resume(Effect.succeed(req));
+        resume(Effect.succeed({ _tag: "request" }));
       };
       return Effect.sync(() => {
         requestShutdownRef.current = null;
@@ -524,6 +581,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
 
     if (Exit.isFailure(exit)) {
       if (Exit.isInterrupted(exit)) {
+        shutdownSignals.reportStopped();
         return;
       }
 
@@ -555,8 +613,11 @@ export function runCliEffect<R, E extends JazzError | Error>(
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect).finally(() => {
-    if (receivedShutdownSignal) {
-      process.exit(process.exitCode ?? 0);
+    const received = shutdownSignals.received();
+    if (received !== undefined) {
+      process.exit(
+        shutdownSignals.stopped() ? SIGNAL_EXIT_CODE[received] : (process.exitCode ?? 0),
+      );
     }
   });
 }

@@ -8,9 +8,12 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
+import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
+import { guardPageRequests } from "./guarded-page";
 
 /**
  * Lets the agent compose a polished visual artifact — not just charts, any
@@ -161,6 +164,7 @@ async function renderStaticScreenshot(
   width: number,
   height: number,
   executablePath: string,
+  policy: EgressPolicy,
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -173,6 +177,7 @@ async function renderStaticScreenshot(
   try {
     const page = await browser.newPage();
     await page.setViewport({ width, height });
+    await guardPageRequests(page, htmlPath, policy);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.screenshot({ path: pngPath, fullPage: true });
   } finally {
@@ -205,12 +210,12 @@ export function createCompositionTool(
         const fs = yield* FileSystem.FileSystem;
         const sessionId = storageSafeSegment(context.conversationId ?? context.agentId);
         const dir = getCompositionsDirectory(sessionId);
-        yield* fs.makeDirectory(dir, { recursive: true });
+        yield* fs.makeDirectory(dir, { recursive: true, mode: stateDirectoryMode() });
 
         const id = shortuuid.generate();
         const htmlPath = yield* nextCompositionPath(fs, dir, args.title);
         const filename = htmlPath.slice(dir.length + 1);
-        yield* fs.writeFileString(htmlPath, args.html);
+        yield* fs.writeFileString(htmlPath, args.html, { mode: stateFileMode() });
 
         const htmlArtifact: GeneratedArtifact = {
           kind: "html",
@@ -251,7 +256,15 @@ export function createCompositionTool(
         }
 
         yield* Effect.tryPromise({
-          try: () => renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath),
+          try: () =>
+            renderStaticScreenshot(
+              htmlPath,
+              pngPath,
+              width,
+              height,
+              executablePath,
+              egressPolicyForContext(context),
+            ),
           catch: (error) => new Error(`Failed to render static web app: ${toError(error).message}`),
         });
 

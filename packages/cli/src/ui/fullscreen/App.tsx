@@ -266,8 +266,9 @@ function AppView({
   const focusRef = useRef<Focus>("input");
   const transcriptRef = useRef<TranscriptHandle | null>(null);
   const [followLive, setFollowLive] = useState(true);
+  const prevFollowLiveRef = useRef(true);
+  const seenRowsRef = useRef(0);
   const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
-  const seenBlocks = useRef(view.blocks.length);
   const armedAt = useRef<number | undefined>(undefined);
   const [copyNotice, setCopyNotice] = useState<string | undefined>(undefined);
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -319,7 +320,11 @@ function AppView({
   }, []);
 
   const handleReachedBottom = useCallback(() => {
-    seenBlocks.current = viewRef.current.blocks.length;
+    // Re-engage auto-follow: landing at the bottom is the reader saying they
+    // want the live edge again, so wheel/paging back down must re-arm follow,
+    // not just clear the hint.
+    seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+    setFollowLive(true);
     setNewBelow(undefined);
   }, []);
 
@@ -396,15 +401,23 @@ function AppView({
     }
   }, [submitCount]);
 
+  // "N new below" hint, measured in rendered rows, not blocks: a streaming
+  // answer grows one block in place, so a block diff stays zero for the whole
+  // answer and the drift goes unannounced. The baseline freezes the moment
+  // follow turns off and never moves until the reader re-arms it at the bottom.
   useEffect(() => {
+    const wasFollowing = prevFollowLiveRef.current;
+    prevFollowLiveRef.current = followLive;
     if (followLive) {
-      seenBlocks.current = view.blocks.length;
+      seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+      if (wasFollowing) return;
       setNewBelow(undefined);
       return;
     }
-    const added = view.blocks.length - seenBlocks.current;
+    if (wasFollowing) seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+    const added = (transcriptRef.current?.rowCount() ?? 0) - seenRowsRef.current;
     setNewBelow(added > 0 ? added : undefined);
-  }, [followLive, view.blocks.length]);
+  }, [followLive, view, view.blocks.length]);
 
   useKeyboard((key) => {
     const currentView = viewRef.current;

@@ -175,7 +175,14 @@ export function createWebSearchTool(): ReturnType<
         yield* logger.debug("Web search started", { provider: selectedProvider });
 
         return yield* executor(args, apiKey).pipe(
-          Effect.map((result) => ({ success: true as const, result })),
+          Effect.map((result) => ({
+            success: true as const,
+            result,
+            untrusted: {
+              kind: "external" as const,
+              source: `web_search results from ${selectedProvider}`,
+            },
+          })),
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               const message = toError(error).message;

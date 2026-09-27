@@ -39,9 +39,10 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
   getGlobalUserDataDirectory,
-  getJazzHomeDirectory,
+  getGlobalConfigFilePath,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
@@ -181,7 +182,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           }
         }
 
-        const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
+        const path = this.configPath ?? getGlobalConfigFilePath();
         if (!this.configPath) {
           this.configPath = path;
           const dir = path.substring(0, path.lastIndexOf("/"));
@@ -242,7 +243,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         const effectiveRuntime =
           nextRuntime === undefined ? undefined : sanitizeEffectiveConfig(nextRuntime);
 
-        yield* writePrivateFile(this.fs, path, JSON.stringify(nextDocument, null, 2));
+        yield* writePrivateFile(path, JSON.stringify(nextDocument, null, 2));
         this.fileDocument = nextDocument;
         if (this.sources === undefined) {
           this.applyToRuntime(key, value, secret);
@@ -772,21 +773,11 @@ function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
 }
 
 /**
- * Write a file that only the owning user can read, repairing the mode on files
- * that already exist — `writeFileString`'s mode applies solely at creation.
+ * Durably replace a file that only the owning user can read. The replacement is a new file
+ * created with that mode, so a wider mode on the old file does not carry over.
  */
-function writePrivateFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  content: string,
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    yield* writeFileStringAtomic(fs, filePath, content, {
-      tempPrefix: "jazz-config",
-      mode: CONFIG_FILE_MODE,
-    }).pipe(Effect.orDie);
-    yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
-  });
+function writePrivateFile(filePath: string, content: string): Effect.Effect<void, never> {
+  return writeFileStringAtomic(filePath, content, { mode: CONFIG_FILE_MODE }).pipe(Effect.orDie);
 }
 
 /** chmod that tolerates both failures and FileSystem stubs without `chmod`. */
@@ -894,7 +885,7 @@ function resolveSecrets(
         deepDelete(cleaned, path);
       }
       if (droppedLegacy) delete cleaned["google"];
-      yield* writePrivateFile(fs, globalConfigPath, JSON.stringify(cleaned, null, 2));
+      yield* writePrivateFile(globalConfigPath, JSON.stringify(cleaned, null, 2));
       if (droppedLegacy) noticeLegacyGoogleRemoved(globalConfigPath);
       return { config: resolved as unknown as AppConfig, document: cleaned };
     }
@@ -1089,10 +1080,7 @@ function loadConfigFiles(
       };
     }
 
-    const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
-    const globalConfigPath = envConfigPath
-      ? expandHome(envConfigPath)
-      : `${getJazzHomeDirectory()}/config.json`;
+    const globalConfigPath = getGlobalConfigFilePath();
 
     const global = yield* readOptionalConfigFile(fs, globalConfigPath);
     const local = yield* readLocalConfigFile(fs, globalConfigPath);
@@ -1330,19 +1318,17 @@ function writeUserMcpDefinitions(
   return Effect.gen(function* () {
     const filePath = userAgentsMcpPath();
     yield* fs
-      .makeDirectory(path.dirname(filePath), { recursive: true })
+      .makeDirectory(path.dirname(filePath), { recursive: true, mode: stateDirectoryMode() })
       .pipe(Effect.catchAll(() => Effect.void));
     yield* writeFileStringAtomic(
-      fs,
       filePath,
       `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`,
-      { tempPrefix: "jazz-mcp", mode: CONFIG_FILE_MODE },
+      { mode: CONFIG_FILE_MODE },
     ).pipe(
       Effect.mapError(
         (cause) => new Error(`Could not write ${filePath}: ${String(cause)}`, { cause }),
       ),
     );
-    yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
   });
 }
 
