@@ -11,7 +11,7 @@ export {
 } from "./constants";
 export type { ChatCommandInfo } from "./constants";
 export { handleSpecialCommand } from "./handler";
-export { parseSpecialCommand } from "./parser";
+export { isCommandInput, isShellEscape, parseSpecialCommand, SHELL_ESCAPE_PREFIX } from "./parser";
 export type {
   CommandContext,
   CommandResult,
