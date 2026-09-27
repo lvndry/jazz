@@ -82,6 +82,13 @@ When the work genuinely needs a decision, `--park` saves the run instead, exits 
 
 A resumed run keeps the policy and the `--auto-approve-tools` list it started with. Answering one
 approval never widens the rest of the run to the default, and never drops a tier it was granted.
+It also keeps the rest of its boundary: a tool list a webhook or peer narrowed it to, tools it
+withheld, and its token, cost and time caps, of which it gets only what earlier segments left.
+
+Over the daemon's HTTP API, approving or answering a parked run also needs the operator token
+(`X-Jazz-Operator-Token`), so an agent that read the daemon token cannot approve its own run.
+Rejecting needs only the daemon token. See
+[granting authority over HTTP](../concepts/daemon.md#granting-authority-over-http).
 
 Park only where somebody will actually look.
 

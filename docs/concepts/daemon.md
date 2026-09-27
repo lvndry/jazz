@@ -30,9 +30,10 @@ curl -X POST http://localhost:4747/runs \
 # Poll it
 curl http://localhost:4747/runs/<runId> -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
 
-# If it parked on an approval, answer it
+# If it parked on an approval, approve it (a grant, so it needs the operator token too)
 curl -X POST http://localhost:4747/runs/<runId>/answer \
   -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
+  -H "X-Jazz-Operator-Token: $JAZZ_OPERATOR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"approved":true}'
 ```
@@ -64,6 +65,11 @@ One process, several jobs, most of them opt-in:
   _other_ peers, but nobody can ask yours. See [Agent-to-agent](./agent-to-agent.md).
 - **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook names. See
   [Webhooks](./webhooks.md).
+
+Webhook and peer runs are bounded per door: a budget, a concurrency cap (`429` past it), and a
+body cap. Each keyring credential they check is read once and trusted for 30 seconds, so a burst
+of requests does not spawn a keyring process each, and a rotated token takes effect without a
+restart.
 
 It is also the fallback ticker for [wake triggers](../tools/index.md): a trigger normally fires
 through a one-shot `launchd`/`at` job the host schedules directly, with no daemon required. The
@@ -130,8 +136,51 @@ A loopback port is inside the trust boundary of every page you have open, and a 
 Writing a client? Send `application/json` and no `Origin`, which is what every ordinary HTTP
 client already does.
 
-Peers and webhooks do not use this token. Each has its own. A credential that can start and
-approve runs is a much bigger grant than one that can ask a question.
+Peers and webhooks do not use this token. Each has its own. A credential that can start runs is
+a much bigger grant than one that can ask a question.
+
+### Granting authority over HTTP
+
+The daemon token proves a request came from a client of the daemon. It cannot prove the client is
+you. It sits in `$JAZZ_DAEMON_TOKEN` or, on a host with no OS keyring, in
+`$JAZZ_HOME/secrets.json`, and an agent that can read a file and send an HTTP request could
+replay it to accept its own goal at `high-risk` or approve its own parked run.
+
+So the requests that grant authority need a second credential, the **operator token**, in
+`X-Jazz-Operator-Token`:
+
+| Request                                          | Needs the operator token     |
+| ------------------------------------------------ | ---------------------------- |
+| `POST /goals/:id/accept`                         | yes                          |
+| `POST /loops` (start a loop)                     | yes                          |
+| `POST /loops/:loop/resume`                       | yes                          |
+| `POST /runs/:id/answer` that approves or answers | yes                          |
+| `POST /runs/:id/answer` that rejects             | no, the daemon token will do |
+| pause, cancel, and every read                    | no                           |
+
+```bash
+jazz daemon operator-token          # generate, store in the OS keyring, print once
+jazz daemon forget-operator-token   # the daemon then grants nothing over HTTP
+```
+
+Restart the daemon after either. The operator token is kept where an agent's read tools cannot
+reach it:
+
+- **Only in the OS keyring,** the macOS keychain or the Linux Secret Service. Never in the
+  `secrets.json` fallback and never in an environment variable, since a process's environment is
+  readable at `/proc/<pid>/environ` by anything running as the same user. A host with no OS
+  keyring has no operator token.
+- **Minted only by you.** `jazz daemon operator-token` refuses to run inside a process a Jazz
+  agent started, and a daemon an agent started grants nothing over HTTP, whatever it is sent.
+- **Never loaded into config,** so nothing that prints config can show it.
+
+Without an operator token the daemon still serves everything else, and you grant from the CLI on
+the machine instead: `jazz runs approve <id>`, `jazz goal accept`, `jazz loop start`. Those act on
+the same stores directly and need no daemon.
+
+This does not stop an agent that has a shell: it can ask the keychain for the entry itself. Such
+an agent already holds more than any grant could add. What the operator token closes is the
+escalation from read-and-send tools to `high-risk`.
 
 ### Reaching it from another machine
 
