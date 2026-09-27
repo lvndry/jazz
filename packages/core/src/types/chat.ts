@@ -8,6 +8,28 @@ import type { ReasoningSelection } from "@/core/types/model-capabilities";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
+/**
+ * Why the model stopped generating. `unknown` means the stream ended without
+ * telling us, which a caller must treat like any other non-`stop` reason.
+ */
+export type FinishReason =
+  "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown";
+
+const FINISH_REASONS: ReadonlySet<string> = new Set<FinishReason>([
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+  "unknown",
+]);
+
+/** Narrow a provider's finish reason to {@link FinishReason}; anything else is `unknown`. */
+export function toFinishReason(value: string | undefined): FinishReason {
+  return value !== undefined && FINISH_REASONS.has(value) ? (value as FinishReason) : "unknown";
+}
+
 export interface ChatCompletionResponse {
   id: string;
   model: string;
@@ -39,6 +61,8 @@ export interface ChatCompletionResponse {
     cacheWriteTokens?: number;
   };
   toolsDisabled?: boolean;
+  /** Why the model stopped. Absent only from responses built outside a provider call. */
+  finishReason?: FinishReason;
   /** Estimated character count of tool definitions sent in this request (for telemetry). */
   toolDefinitionChars?: number;
   /** Number of tool definitions sent in this request (for telemetry). */

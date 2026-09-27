@@ -3,6 +3,7 @@ import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
+import type { FinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
@@ -339,9 +340,27 @@ export interface AgentResponse {
    */
   readonly artifacts?: readonly GeneratedArtifact[];
   /**
-   * Indicates tools were provided but disabled for the selected model.
+   * Tools were configured but none were sent, because Jazz does not know the
+   * model supports tool calling. Every surface shows this loudly: the agent
+   * cannot act, only talk.
    */
   readonly toolsDisabled?: boolean;
+  /**
+   * Why the model stopped producing the final answer. `length` means the answer
+   * was cut off; `content-filter` means the provider withheld it.
+   */
+  readonly finishReason?: FinishReason;
+  /**
+   * True when the run used every allowed iteration (`maxIterations`) without a
+   * final answer. `content` is then empty, so callers read this flag instead of
+   * guessing from the missing text.
+   */
+  readonly iterationLimited?: boolean;
+  /**
+   * True when the final model call returned no visible text and reported zero
+   * completion tokens: the provider answered, but with nothing.
+   */
+  readonly emptyCompletion?: boolean;
   /** Set when the user stopped the run (Esc, Ctrl+C) before it finished. */
   readonly interrupted?: boolean;
   /**

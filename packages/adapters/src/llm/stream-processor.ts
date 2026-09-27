@@ -10,6 +10,7 @@
 
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
+import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
 import type { streamText } from "ai";
@@ -189,7 +190,7 @@ interface StreamProcessorState {
 
   // Completion tracking
   finishEventReceived: boolean;
-  finishReason: string | undefined;
+  finishReason: FinishReason | undefined;
 
   // Interruption
   cancelled: boolean;
@@ -506,7 +507,7 @@ export class StreamProcessor {
               this.state.pendingNativeToolCalls.delete(id);
             }
 
-            const finishReason = part.finishReason || "unknown";
+            const finishReason = toFinishReason(part.finishReason);
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
 
@@ -682,6 +683,7 @@ export class StreamProcessor {
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
+      finishReason: this.state.finishReason ?? "unknown",
       ...(this.config.toolDefinitionChars != null
         ? { toolDefinitionChars: this.config.toolDefinitionChars }
         : {}),

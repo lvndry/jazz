@@ -3,6 +3,7 @@ import {
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
+import { isEmptyCompletion, judgeAnswer } from "@/core/agent/run/answer-outcome";
 import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -334,14 +335,24 @@ export function executeWithStreaming(
         return Effect.void;
       },
 
-      onComplete(agentName, _completion) {
+      onComplete(agentName, completion) {
         return Effect.gen(function* () {
           if (Option.isSome(notificationServiceOption)) {
+            const verdict = judgeAnswer({
+              content: completion.content,
+              ...(completion.artifacts ? { artifacts: completion.artifacts } : {}),
+              ...(completion.finishReason ? { finishReason: completion.finishReason } : {}),
+              emptyCompletion: isEmptyCompletion(completion.content, completion.usage),
+            });
+            const notice =
+              verdict.kind === "failed"
+                ? {
+                    message: `${agentName} finished without an answer. ${verdict.message}`,
+                    title: "Jazz Task Failed",
+                  }
+                : { message: `${agentName} has completed the task.`, title: "Jazz Task Complete" };
             yield* notificationServiceOption.value
-              .notify(`${agentName} has completed the task.`, {
-                title: "Jazz Task Complete",
-                sound: true,
-              })
+              .notify(notice.message, { title: notice.title, sound: true })
               .pipe(Effect.catchAll(() => Effect.void));
           }
         });
