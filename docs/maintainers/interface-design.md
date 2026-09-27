@@ -83,8 +83,17 @@ into the scrollable details, shows long field values in full, and uses a second
 control row for scrolling and the always-allow action. That keeps the action,
 account, fields, consequence, and accept/reject controls inspectable without
 requiring the former 60×12 layout. Below 32×10 there is not enough room for a
-transcript row and those approval controls together: startup uses the append-only
-CLI presentation, and a live resize shows a clipped resize hint.
+transcript row and those approval controls together: startup uses the classic
+inline Ink interface, and a live resize shows a clipped resize hint.
+
+The same classic interface serves every terminal that can prompt but should not
+get the alternate screen: `CI` set, `TERM=dumb`, and screen readers
+(`JAZZ_A11Y=1`, `INK_SCREEN_READER=1`). Plain output is reserved for
+print-and-exit modes (`--no-tui`, `--output raw` or `quiet`) and for sessions
+without a terminal. Plain prompts never invent an answer: `ask` reads the next
+stdin line and resolves `undefined` at end of input, and menus and confirmations
+resolve `undefined`. Commands that cannot work that way refuse up front and exit
+`2`.
 
 ---
 

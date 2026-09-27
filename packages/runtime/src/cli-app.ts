@@ -2800,7 +2800,42 @@ function registerWorkflowCommands(program: Command): void {
  * - MCP server management
  * - Update command
  */
-export function createCLIApp(): Command {
+/**
+ * The first command-line operand (a subcommand name, typo or not), skipping the
+ * program's own options and the values they take. `jazz --no-tui` and
+ * `jazz --data-dir ~/work` have none, so they open the interactive home;
+ * `jazz agent list` and `jazz agnt` do, so Commander routes or rejects them.
+ */
+export function firstOperand(program: Command, args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === "--") {
+      return args[index + 1];
+    }
+    if (arg === "-" || !arg.startsWith("-")) {
+      return arg;
+    }
+    if (arg.includes("=")) {
+      continue;
+    }
+    const option = program.options.find(
+      (candidate) => candidate.long === arg || candidate.short === arg,
+    );
+    const next = args[index + 1];
+    const takesValue =
+      option !== undefined &&
+      (option.required || (option.optional && next !== undefined && !next.startsWith("-")));
+    if (takesValue) {
+      index += 1;
+    }
+  }
+  return undefined;
+}
+
+export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
   program
@@ -2864,7 +2899,7 @@ export function createCLIApp(): Command {
   registerRunsCommands(program);
   registerWorkflowCommands(program);
 
-  if (process.argv.length <= 2) {
+  if (firstOperand(program, argv.slice(2)) === undefined) {
     program.action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/wizard").then((mod) => mod.wizardCommand()),

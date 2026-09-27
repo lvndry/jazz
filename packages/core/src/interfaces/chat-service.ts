@@ -19,6 +19,17 @@ import type { PresentationService } from "./presentation";
 import type { TerminalService } from "./terminal";
 import type { ToolRegistry, ToolRequirements } from "./tool-registry";
 
+/** How a chat session ended, so the command can pick its exit code. */
+export interface ChatSessionEnd {
+  /**
+   * `exit` when the user left (`/exit`, a command that ends the chat, or a
+   * failure). `end-of-input` when a non-interactive terminal ran out of stdin.
+   */
+  readonly reason: "exit" | "end-of-input";
+  /** Messages and commands the session received from the user. */
+  readonly messagesReceived: number;
+}
+
 /**
  * Chat service interface for managing chat sessions with AI agents
  *
@@ -34,7 +45,7 @@ export interface ChatService {
    *
    * @param agent - The agent to chat with
    * @param options - Optional configuration for the chat session
-   * @returns An Effect that resolves when the chat session ends
+   * @returns An Effect that resolves with how the session ended
    */
   readonly startChatSession: (
     agent: Agent,
@@ -51,7 +62,7 @@ export interface ChatService {
       ephemeral?: boolean;
     },
   ) => Effect.Effect<
-    void,
+    ChatSessionEnd,
     never,
     | TerminalService
     | LoggerService

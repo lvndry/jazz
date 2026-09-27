@@ -193,6 +193,14 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
       };
     }
 
+    case "InteractiveTerminalRequiredError": {
+      return {
+        title: "Interactive Terminal Required",
+        message: `${error.command}: ${error.message}`,
+        suggestion: error.suggestion,
+      };
+    }
+
     case "ValidationError": {
       return {
         title: "Validation Error",
@@ -515,7 +523,7 @@ export function handleError(
     if (unknownException) {
       const cause = unknownException.error;
       const message = toError(cause).message;
-      yield* presentation.writeOutput(
+      yield* presentation.writeError(
         `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help\n`,
       );
       return;
@@ -524,11 +532,11 @@ export function handleError(
     // Check if it's a JazzError (has _tag property)
     if ("_tag" in error && typeof error._tag === "string") {
       const formattedError = formatError(error);
-      yield* presentation.writeOutput(formattedError);
+      yield* presentation.writeError(formattedError);
     } else {
       // Handle generic Error objects
       const genericError = error;
-      yield* presentation.writeOutput(
+      yield* presentation.writeError(
         `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Related Commands:\n   • jazz --help\n   • jazz logs\n`,
       );
     }
