@@ -83,6 +83,29 @@ export function doneSummary(envelope: JazzSuccessEnvelope, toolsUsed: readonly s
   return [line(...spans), ...usageLines(envelope.tokenUsage)];
 }
 
+/**
+ * Warnings that must reach the person under an answer, in plain text so every
+ * surface can show them. Tools being off is the loud one: the agent could not
+ * act, only talk, and nothing in the answer itself says so.
+ */
+export function answerNotices(
+  envelope: Pick<JazzSuccessEnvelope, "toolsDisabled" | "truncated" | "iterationLimited">,
+): readonly string[] {
+  const notices: string[] = [];
+  if (envelope.toolsDisabled === true) {
+    notices.push(
+      "⚠️ Tools were OFF for this answer: Jazz does not know whether this agent's model supports tool calling, so it could only reply in text. The operator can turn them on with llm.capabilityOverrides in the Jazz config.",
+    );
+  }
+  if (envelope.truncated === true) {
+    notices.push("⚠️ The answer was cut off at the model's output limit.");
+  }
+  if (envelope.iterationLimited === true) {
+    notices.push("⚠️ The agent hit its iteration limit before finishing.");
+  }
+  return notices;
+}
+
 export function cancelledSummary(): RichText {
   return [line(bold("⏹ Cancelled"))];
 }

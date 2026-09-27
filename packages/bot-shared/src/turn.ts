@@ -22,6 +22,7 @@ import {
   writeAgentFile,
 } from "./agent-file";
 import {
+  answerNotices,
   cancelledSummary,
   deliverComposition,
   doneSummary,
@@ -465,6 +466,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     await surface.send(chatId, {
       body: [
         plainLine(envelope.answer),
+        ...answerNotices(envelope).flatMap((notice) => [plainLine(""), plainLine(notice)]),
         // Where the progress display could not show it — an append-only surface
         // has no bubble to close — the summary rides under the answer rather
         // than costing its own notification.

@@ -13,7 +13,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
-import { formatTokenCount } from "@jazz/bot-shared/answer";
+import { answerNotices, formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
@@ -32,6 +32,7 @@ import {
   sandboxCommand,
   sandboxEnv,
 } from "@jazz/bot-shared/chat-sandbox";
+import type { JazzComposition, JazzEnvelope, JazzSuccessEnvelope } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -193,38 +194,6 @@ interface BridgeConfig extends AccessConfig {
   readonly showReasoning: boolean;
   readonly publicBaseUrl: string | undefined;
 }
-
-interface JazzComposition {
-  readonly id: string;
-  readonly mode: "static" | "interactive";
-  readonly title: string;
-  readonly sessionId: string;
-  readonly filename: string;
-  readonly htmlPath: string;
-  readonly imagePath?: string;
-}
-
-interface JazzSuccessEnvelope {
-  readonly ok: true;
-  readonly answer: string;
-  readonly costUSD: number;
-  readonly costKnown?: boolean;
-  readonly tokenUsage?: {
-    readonly totalTokens?: number;
-    readonly promptTokens?: number;
-    readonly completionTokens?: number;
-    readonly cacheReadTokens?: number;
-  };
-  readonly composition?: JazzComposition;
-  readonly messages?: unknown[];
-}
-
-interface JazzErrorEnvelope {
-  readonly ok: false;
-  readonly error: string;
-}
-
-type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
 
 interface Runtime {
   botUserId: string;
@@ -941,6 +910,10 @@ async function handleMessage(
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, channelId, answerMessageId, text, envelope.answer);
+      }
+      const notices = answerNotices(envelope);
+      if (notices.length > 0) {
+        await sendReply(config, channelId, notices.join("\n"), replyReference);
       }
       if (config.showReasoning) {
         await sendReasoningLog(config, channelId, reporter?.reasoningLog() ?? "");

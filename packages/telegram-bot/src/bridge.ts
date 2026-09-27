@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
-import { formatTokenCount } from "@jazz/bot-shared/answer";
+import { answerNotices, formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
@@ -40,6 +40,7 @@ import {
   sandboxCommand,
   sandboxEnv,
 } from "@jazz/bot-shared/chat-sandbox";
+import type { JazzComposition, JazzEnvelope, JazzSuccessEnvelope } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -201,44 +202,6 @@ interface BridgeConfig {
    */
   readonly webAppBaseUrl: string | undefined;
 }
-
-interface JazzComposition {
-  readonly id: string;
-  readonly mode: "static" | "interactive";
-  readonly title: string;
-  readonly sessionId: string;
-  readonly filename: string;
-  readonly htmlPath: string;
-  readonly imagePath?: string;
-}
-
-interface JazzSuccessEnvelope {
-  readonly ok: true;
-  readonly answer: string;
-  readonly costUSD: number;
-  readonly costKnown?: boolean;
-  readonly tokenUsage?: {
-    readonly totalTokens?: number;
-    readonly promptTokens?: number;
-    readonly completionTokens?: number;
-    readonly cacheReadTokens?: number;
-  };
-  readonly composition?: JazzComposition;
-  /**
-   * Only present for `--ephemeral` runs (incognito chats): the full
-   * transcript, opaque to the bridge, round-tripped back in as
-   * `--history-json` on that chat's next turn instead of loading it from
-   * disk. See `incognitoHistory` below.
-   */
-  readonly messages?: unknown[];
-}
-
-interface JazzErrorEnvelope {
-  readonly ok: false;
-  readonly error: string;
-}
-
-type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -1256,6 +1219,12 @@ async function handleMessage(
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
+      }
+      const notices = answerNotices(envelope);
+      if (notices.length > 0) {
+        await sendReply(config, chatId, escapeHtml(notices.join("\n")), {
+          replyTo: replyToMessageId,
+        });
       }
       if (config.showReasoning) {
         await sendReasoningLog(config, chatId, reporter?.reasoningLog() ?? "");

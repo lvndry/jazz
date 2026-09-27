@@ -55,6 +55,12 @@ export interface JazzSuccessEnvelope {
     readonly cacheReadTokens?: number;
   };
   readonly composition?: JazzComposition;
+  /** True when the agent has tools but none were sent: the model could only reply in text. */
+  readonly toolsDisabled?: boolean;
+  /** True when the answer was cut off at the model's output limit. */
+  readonly truncated?: boolean;
+  /** True when the run used every allowed iteration without a final answer. */
+  readonly iterationLimited?: boolean;
   /**
    * Only present for `--ephemeral` runs (incognito conversations): the full
    * transcript, opaque to the bridge, round-tripped back in as `--history-json`
