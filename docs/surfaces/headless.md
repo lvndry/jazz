@@ -273,22 +273,22 @@ Unattended runs have nobody to ask, so `--approval-policy` decides in advance. T
 above the tier are **declined**: the agent gets a refusal it can reason about and route
 around, rather than hanging forever on a prompt nobody will answer.
 
-| Policy      | Auto-approves                                                     |
-| ----------- | ----------------------------------------------------------------- |
-| _(omitted)_ | Nothing. Every gated tool is declined.                            |
-| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`    |
-| `low-risk`  | + work-state/todo writes, subagents, low-risk classified commands |
-| `high-risk` | + file writes, shell commands, git commit and push                |
+| Policy      | Auto-approves                                                      |
+| ----------- | ------------------------------------------------------------------ |
+| _(omitted)_ | Nothing. Every gated tool is declined.                             |
+| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`     |
+| `low-risk`  | + memory writes, reminders, triggers, low-risk classified commands |
+| `high-risk` | + file writes, shell commands, git commit and push                 |
 
-Omitting the policy really does grant nothing here. The interactive default auto-approves
-read-only and low-risk tools, but that is a statement about prompts it is not worth showing
-a person: with nobody to show, an absent policy falls back to declining everything. Shell
+Omitting the policy grants nothing, here and in the interactive terminal alike: with nobody to
+ask, every gated call is declined. To run everything unasked, pass `--approval-policy high-risk`
+explicitly (see [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo)). Shell
 commands under `read-only` and `low-risk` are admitted per command by the
 [classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
 `git log` through without also unlocking `git push`.
 
-> ⚠️ **`low-risk` is narrower than it sounds.** It includes durable work-state, memory,
-> reminders, triggers, and subagents, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
+> ⚠️ **`low-risk` is narrower than it sounds.** It includes memory, reminders and
+> triggers, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See the [tool inventory](../tools/index.md#what-is-not-a-built-in-tool).

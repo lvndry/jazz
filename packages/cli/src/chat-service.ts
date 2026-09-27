@@ -65,6 +65,7 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -240,7 +241,7 @@ export class ChatServiceImpl implements ChatService {
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
       let sessionLimits: SessionLimits = {};
-      let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
@@ -305,14 +306,13 @@ export class ChatServiceImpl implements ChatService {
 
       // Register mode switch handler for Shift+Tab toggle
       store.registerModeSwitchHandler((mode) => {
-        const newPolicy = mode === "yolo";
-        if (autoApprovePolicy !== newPolicy) {
-          autoApprovePolicy = newPolicy;
-          store.setModeIsYolo(newPolicy);
+        if (chatModeForPolicy(autoApprovePolicy) !== mode) {
+          autoApprovePolicy = policyForChatMode(mode);
+          store.setModeIsYolo(mode === "yolo");
           const message =
             mode === "yolo"
-              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
-              : "🛡️ Switched to safe mode — all tool calls require approval";
+              ? "🚀 Switched to yolo mode: all tool calls auto-approved"
+              : "🛡️ Switched to safe mode: high-risk tool calls require approval";
           store.showModeToast(message);
         }
       });
@@ -488,7 +488,7 @@ export class ChatServiceImpl implements ChatService {
               sessionLimits,
               sessionStartedAt,
               lastUsedAgentId,
-              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              autoApprovePolicy,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -599,9 +599,9 @@ export class ChatServiceImpl implements ChatService {
               startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
-              autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle
-              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
+              store.setModeIsYolo(chatModeForPolicy(autoApprovePolicy) === "yolo");
             }
             if (commandResult.newSessionLimits !== undefined) {
               sessionLimits = commandResult.newSessionLimits;

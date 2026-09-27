@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import type { ToolExecutionContext, ToolExecutionResult, ToolRiskLevel } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -342,6 +342,17 @@ function parseJsonBody(text: string): { data: unknown; error?: string } {
   }
 }
 
+/** Methods that only read, so a call using one is judged `read-only`. */
+const READ_ONLY_HTTP_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+
+/** `GET` and `HEAD` read; every other method, or a missing or unrecognized one, can mutate. */
+export function httpRequestRiskLevel(args: Record<string, unknown>): ToolRiskLevel {
+  const method = args["method"];
+  return typeof method === "string" && READ_ONLY_HTTP_METHODS.has(method.toUpperCase())
+    ? "read-only"
+    : "high-risk";
+}
+
 export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
@@ -353,6 +364,8 @@ export function createHttpRequestTool(): Tool<never> {
     description:
       "Call an HTTP API. JSON responses are parsed, media comes back as base64, anything else as text. It can reach private networks. To read an article, use web_fetch.",
     tags: ["http", "network", "api"],
+    riskLevel: "high-risk",
+    resolveRiskLevel: httpRequestRiskLevel,
     parameters: HttpRequestSchema,
     validate: makeZodValidator(HttpRequestSchema),
     handler: (args: HttpRequestArgs, _context: ToolExecutionContext) =>
