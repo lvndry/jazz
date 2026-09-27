@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { validatePluginManifest } from "@jazz/core/agent/plugins/validation";
+import { PLUGIN_LIFECYCLE_EVENTS } from "@jazz/core/types/plugin";
 import { describe, expect, test } from "bun:test";
 import { acquirePluginManifest, PluginArtifactInstaller } from "./artifact-installer";
 import { parsePluginManifest } from "./manifest-schema";
@@ -28,6 +30,21 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe("parsePluginManifest", () => {
+  test("accepts every supported lifecycle event at both installation and runtime", () => {
+    const parsed = parsePluginManifest(manifest({ lifecycleHooks: [...PLUGIN_LIFECYCLE_EVENTS] }));
+    expect(validatePluginManifest(parsed).lifecycleHooks).toEqual(PLUGIN_LIFECYCLE_EVENTS);
+  });
+
+  for (const lifecycleHooks of [["not-an-event"], ["run-complete", "run-complete"]]) {
+    test(`rejects invalid lifecycle declarations at both boundaries: ${JSON.stringify(lifecycleHooks)}`, () => {
+      expect(() => parsePluginManifest(manifest({ lifecycleHooks }))).toThrow();
+      const parsed = parsePluginManifest(manifest());
+      expect(() =>
+        validatePluginManifest({ ...parsed, lifecycleHooks: lifecycleHooks as never }),
+      ).toThrow();
+    });
+  }
+
   test("normalizes a complete strict manifest", () => {
     const parsed = parsePluginManifest(manifest());
     expect(parsed.id).toBe("com.jazz.test.router");
