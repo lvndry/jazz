@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
   hintsFor,
-  overlayLeavesTranscriptScrollable,
   INTERRUPT_WINDOW_MS,
   isBackgroundChord,
   isComposerNewline,
@@ -422,15 +421,5 @@ describe("hints are font-safe", () => {
         }
       }
     }
-  });
-});
-
-describe("scrolling under an overlay", () => {
-  it("keeps the conversation scrollable under a question or approval, not under a list", () => {
-    expect(overlayLeavesTranscriptScrollable("question")).toBe(true);
-    expect(overlayLeavesTranscriptScrollable("approval")).toBe(true);
-    expect(overlayLeavesTranscriptScrollable("text")).toBe(true);
-    expect(overlayLeavesTranscriptScrollable("search")).toBe(false);
-    expect(overlayLeavesTranscriptScrollable("filepicker")).toBe(false);
   });
 });

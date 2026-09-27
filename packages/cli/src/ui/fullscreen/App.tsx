@@ -43,16 +43,16 @@ import {
   normalizeKey,
   resolveEscape,
   resolveFocusKey,
-  overlayLeavesTranscriptScrollable,
   resolveScrollKey,
   type KeyAction,
 } from "./keymap";
 import { LiveZone } from "./LiveZone";
-import { Approval } from "./overlays/Approval";
-import { FilePicker } from "./overlays/FilePicker";
-import { Question } from "./overlays/Question";
-import { Search } from "./overlays/Search";
-import { TextPrompt } from "./overlays/TextPrompt";
+import { Approval, approvalLayout } from "./overlays/Approval";
+import { FilePicker, filePickerLayout } from "./overlays/FilePicker";
+import { overlayReservedRows } from "./overlays/overlay-frame";
+import { Question, questionLayout } from "./overlays/Question";
+import { Search, searchLayout } from "./overlays/Search";
+import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
 import { clipTerminalCells } from "./terminal-cells";
@@ -184,6 +184,22 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
       ))}
     </box>
   );
+}
+
+/** Rows the open card keeps from the transcript, from the same layout it draws with. */
+function overlayRows(overlay: Overlay, viewport: Viewport): number {
+  switch (overlay.kind) {
+    case "approval":
+      return overlayReservedRows(approvalLayout(overlay, viewport));
+    case "search":
+      return overlayReservedRows(searchLayout(viewport));
+    case "question":
+      return overlayReservedRows(questionLayout(overlay, viewport));
+    case "text":
+      return overlayReservedRows(textPromptLayout(overlay, viewport));
+    case "filepicker":
+      return overlayReservedRows(filePickerLayout(overlay, viewport));
+  }
 }
 
 function renderOverlay(
@@ -609,14 +625,25 @@ function AppView({
     inputFocused,
     subagentRows,
   });
-  const visibleCount = regions.transcript;
+  // The transcript's box keeps its full height so the composer and footer stay where they are;
+  // with a card open, only the rows drawn in it shrink, so the last one sits above the card.
+  const visibleCount =
+    view.overlay === undefined
+      ? regions.transcript
+      : allocateRegions({
+          viewport,
+          live: view.live,
+          input: inputModel,
+          inputFocused,
+          subagentRows,
+          overlayRows: overlayRows(view.overlay, viewport),
+        }).transcript;
   visibleCountRef.current = visibleCount;
 
   return (
     <box
       style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
       onMouseScroll={(event) => {
-        if (overlayOpen && !overlayLeavesTranscriptScrollable(view.overlay?.kind)) return;
         const scroll = event.scroll;
         if (scroll === undefined) return;
         scrollTranscriptByWheel(scroll.direction, scroll.delta);
@@ -644,11 +671,11 @@ function AppView({
       <box
         style={{
           width,
-          height: visibleCount,
+          height: regions.transcript,
           flexGrow: 1,
           flexShrink: 1,
           minHeight: 0,
-          maxHeight: visibleCount,
+          maxHeight: regions.transcript,
           overflow: "hidden",
           flexDirection: "column",
         }}

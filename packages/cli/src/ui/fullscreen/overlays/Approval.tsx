@@ -32,10 +32,9 @@ import { THEME } from "../../theme";
 import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
+import { overlayWidth, placeOverlay } from "./overlay-frame";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-const MAX_WIDTH = 96;
-const MIN_WINDOWED_HEIGHT = 20;
 
 /** One column of breathing room inside the frame, on each side. */
 const CARD_PAD = 1;
@@ -179,19 +178,12 @@ function frameChars(glyphs: GlyphSet): BorderCharacters {
   };
 }
 
-export interface ApprovalProps {
-  readonly model: ApprovalOverlay;
-  readonly viewport: Viewport;
-}
-
-export function Approval({ model, viewport }: ApprovalProps): ReactNode {
-  const glyphs = getGlyphs();
+/** The card's size, placement, and visible body rows; `height` is what the layout reserves. */
+export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   const compact = viewport.width < COMPACT_WIDTH || viewport.height < COMPACT_HEIGHT;
 
-  // Below the windowed size a centred panel is mostly frame, so the overlay
-  // takes the whole viewport instead of drawing a cramped card.
-  const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
-  const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
+  const frame = overlayWidth(viewport);
+  const { fullscreen, width } = frame;
   const inner = Math.max(8, width - 2 - CARD_PAD * 2);
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
@@ -215,7 +207,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const fixedCardRows = compact ? COMPACT_FIXED_CARD_ROWS : FIXED_CARD_ROWS;
   const controlRows = compact ? COMPACT_CONTROL_ROWS : CONTROL_ROWS;
   const windowedHeight = fixedCardRows + bodyRows.length + controlRows;
-  const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
+  const placement = placeOverlay(viewport, frame, windowedHeight);
+  const { height, left, top } = placement;
   const cardHeight = Math.max(1, height - controlRows);
 
   // Everything below the rule is on screen before you commit — so when the
@@ -228,8 +221,50 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const bodyPad = Math.max(0, bodyCapacity - visibleBody.length);
   const belowCount = Math.max(0, bodyRows.length - (bodyOffset + visibleBody.length));
 
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
+  return {
+    fullscreen,
+    compact,
+    width,
+    inner,
+    valueWidth,
+    expanded,
+    expandable,
+    height,
+    cardHeight,
+    bodyCapacity,
+    bodyScrolls,
+    visibleBody,
+    bodyPad,
+    belowCount,
+    left,
+    top,
+  };
+}
+
+export interface ApprovalProps {
+  readonly model: ApprovalOverlay;
+  readonly viewport: Viewport;
+}
+
+export function Approval({ model, viewport }: ApprovalProps): ReactNode {
+  const glyphs = getGlyphs();
+  const {
+    compact,
+    width,
+    inner,
+    valueWidth,
+    expanded,
+    expandable,
+    height,
+    cardHeight,
+    bodyCapacity,
+    bodyScrolls,
+    visibleBody,
+    bodyPad,
+    belowCount,
+    left,
+    top,
+  } = approvalLayout(model, viewport);
 
   const bodyContent = visibleBody.map((row) => {
     if (row.kind === "blank") {

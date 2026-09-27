@@ -26,6 +26,7 @@
 import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
+import { overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
@@ -34,8 +35,6 @@ import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../term
 import type { Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-const MAX_WIDTH = 96;
-const MIN_WINDOWED_HEIGHT = 20;
 
 /** One column of breathing room inside the frame, on each side. */
 const CARD_PAD = 1;
@@ -239,11 +238,10 @@ export interface QuestionProps {
   readonly viewport: Viewport;
 }
 
-export function Question({ model, viewport }: QuestionProps): ReactNode {
-  const glyphs = getGlyphs();
-
-  const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
-  const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
+/** The card's size, placement, and visible choices; `height` is what the layout reserves. */
+export function questionLayout(model: QuestionModel, viewport: Viewport) {
+  const frame = overlayWidth(viewport);
+  const { fullscreen, width } = frame;
   const inner = Math.max(8, width - 2 - CARD_PAD * 2);
 
   const filterable = model.filterable === true;
@@ -316,12 +314,59 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const listOffset =
     filterable || widestOptionRow >= inner ? 0 : centeredOffset(widestOptionRow, inner);
 
-  const windowedHeight = fixedRows + listRows + HINT_ROWS;
-  const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
+  const { height, left, top } = placeOverlay(viewport, frame, fixedRows + listRows + HINT_ROWS);
   const cardHeight = Math.max(1, height - HINT_ROWS);
+  return {
+    fullscreen,
+    width,
+    inner,
+    filterable,
+    checkbox,
+    checked,
+    message,
+    total,
+    selected,
+    labelWidth,
+    descriptionWidth,
+    items,
+    layouts,
+    heights,
+    listRows,
+    visible,
+    start,
+    listOffset,
+    height,
+    cardHeight,
+    left,
+    top,
+  };
+}
 
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, viewport.height - height);
+export function Question({ model, viewport }: QuestionProps): ReactNode {
+  const glyphs = getGlyphs();
+  const {
+    width,
+    inner,
+    filterable,
+    checkbox,
+    checked,
+    message,
+    total,
+    selected,
+    labelWidth,
+    descriptionWidth,
+    items,
+    layouts,
+    heights,
+    listRows,
+    visible,
+    start,
+    listOffset,
+    height,
+    cardHeight,
+    left,
+    top,
+  } = questionLayout(model, viewport);
 
   const hints: readonly Hint[] = checkbox
     ? [

@@ -450,7 +450,7 @@ describe("question overlay", () => {
     renderer.destroy();
   });
 
-  it("sits on the bottom so the conversation stays visible above it", async () => {
+  it("docks above the footer so the conversation stays visible above it", async () => {
     const { renderer, captureCharFrame } = await draw(
       <Question
         model={QUESTION}
@@ -463,7 +463,8 @@ describe("question overlay", () => {
 
     expect(lines[0]?.includes(glyphs.boxTL) ?? true).toBe(false);
     expect(lines.some((line) => line.includes(glyphs.boxTL))).toBe(true);
-    expect(lines.at(-1)).toContain("move");
+    expect(lines.at(-2)).toContain("move");
+    expect(lines.at(-1)?.trim()).toBe("");
 
     renderer.destroy();
   });
@@ -554,7 +555,7 @@ describe("question overlay", () => {
       />,
       SMALL,
     );
-    const keys = rows(captureCharFrame()).at(-1) ?? "";
+    const keys = rows(captureCharFrame()).at(-2) ?? "";
 
     // The row is too narrow for the whole legend, so the arrow cluster goes —
     // and the one key that gets a user out of a modal stays.
@@ -858,7 +859,7 @@ describe("file picker overlay", () => {
       />,
       SMALL,
     );
-    const keys = rows(captureCharFrame()).at(-1) ?? "";
+    const keys = rows(captureCharFrame()).at(-2) ?? "";
 
     expect(keys).toContain("esc cancel");
     expect(keys).toContain("enter choose");

@@ -465,17 +465,6 @@ export function isPrintableSequence(sequence: string, ctrl = false, superKey = f
  * Key names stay ASCII. `⏎` and `↑` live in Miscellaneous Technical and Arrows
  * — 7/256 and 11/112 in SF Mono — and would shift the cost column.
  */
-/**
- * Whether the wheel still scrolls the conversation under this overlay. A question or an approval
- * is about what the conversation above it says (a plan, a command), so reading it must stay
- * possible; search and the file picker scroll their own lists.
- */
-export function overlayLeavesTranscriptScrollable(
-  overlay: "approval" | "search" | "question" | "text" | "filepicker" | undefined,
-): boolean {
-  return overlay === "approval" || overlay === "question" || overlay === "text";
-}
-
 export function hintsFor(
   focus: Focus,
   runActive: boolean,

@@ -237,6 +237,29 @@ async function settle(flush: () => Promise<void>, delayMs: 0 | 100 = 0): Promise
   await flush();
 }
 
+describe("a question card over the conversation", () => {
+  it("keeps the conversation's last line visible above the card", async () => {
+    const view: ViewModel = {
+      ...tallTranscriptView(),
+      overlay: {
+        kind: "question",
+        mode: "select",
+        message: "Start this goal?",
+        choices: [
+          { label: "Yes", value: "yes" },
+          { label: "No", value: "no" },
+        ],
+        selected: 0,
+      },
+    };
+    const frame = await frameOf(view);
+    const lastLine = frame.rows.findIndex((row) => row.includes("line-39"));
+    const cardTop = frame.rows.findIndex((row) => row.includes("Start this goal?"));
+    expect(lastLine).toBeGreaterThan(-1);
+    expect(lastLine).toBeLessThan(cardTop);
+  });
+});
+
 describe("transcript wheel and type-to-input", () => {
   it("scrolls older conversation lines into view with the mouse wheel", async () => {
     const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await testRender(
