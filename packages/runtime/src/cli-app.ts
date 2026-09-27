@@ -599,10 +599,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("get <key>")
-    .description("Get a configuration value")
-    .action((key: string) =>
+    .description("Get a configuration value (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((key: string, options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.getConfigCommand(key)),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.getConfigCommand(key, { reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -619,10 +623,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("show")
-    .description("Show all configuration values")
-    .action(() =>
+    .description("Show all configuration values (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.listConfigCommand()),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.listConfigCommand({ reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );

@@ -204,6 +204,8 @@ Jazz resolves every secret in this order, and uses the first hit:
    on. Nothing touches disk. Best for containers and CI.
 2. **OS keyring**: macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
    when available. Keys already sitting in `~/.jazz/config.json` are moved here on next start.
+   Entries are scoped to the Jazz home (service `jazz.<hash of the home path>`), so one
+   `JAZZ_HOME` cannot read another's keys.
 3. **`~/.jazz/config.json`**: the fallback when there is no keyring, e.g. a headless server with
    no session D-Bus. Jazz creates the file mode `0600` and repairs looser modes on load, but the
    keys are plaintext to anyone who can read that file (including `root`).
