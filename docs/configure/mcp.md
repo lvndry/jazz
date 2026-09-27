@@ -55,6 +55,12 @@ Equivalent JSON:
 }
 ```
 
+Jazz infers the transport from the definition: an entry with `url` is a remote (HTTP) server, and
+an entry with `command` is a local (stdio) server, so `transport` can be left out. `"transport":
+"sse"` is read as HTTP. An entry that sets both `url` and `command`, neither, or a `transport` that
+contradicts them is skipped with a warning naming the server and its file, and `jazz mcp add`
+refuses it.
+
 Use `--env KEY=value` for values the child process needs. Treat committed project MCP definitions as executable configuration: review commands, packages, arguments, and environment access before running them.
 
 ## Add a remote server with OAuth

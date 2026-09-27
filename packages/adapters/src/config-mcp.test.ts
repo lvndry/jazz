@@ -6,7 +6,11 @@ import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import type { MCPServerConfigStdio } from "@jazz/core/interfaces/mcp-server";
+import {
+  isHttpConfig,
+  type MCPServerConfigHttp,
+  type MCPServerConfigStdio,
+} from "@jazz/core/interfaces/mcp-server";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
@@ -278,5 +282,55 @@ describe("MCP env and header secrets", () => {
       await Effect.runPromise(keyringGet("file", "mcpServers.svc.env.NEW_KEY")),
     ).toBeUndefined();
     expect(JSON.parse(fs.readFileSync(userMcpPath(), "utf8")).mcpServers).toEqual({});
+  });
+});
+
+describe("MCP transport inference", () => {
+  function load() {
+    return captureStderr(() =>
+      run(
+        Effect.flatMap(FileSystem.FileSystem, (fileSystem) =>
+          loadAgentsMcpServers(fileSystem, "none"),
+        ),
+      ),
+    );
+  }
+
+  it("treats a url as HTTP and a command as stdio without an explicit transport", async () => {
+    writeJson(userMcpPath(), {
+      mcpServers: {
+        remote: { url: "https://mcp.example/mcp" },
+        legacySse: { url: "https://sse.example/mcp", transport: "sse" },
+        local: { command: "notes-mcp" },
+      },
+    });
+
+    const { result: servers, stderr } = await load();
+
+    expect(isHttpConfig(servers["remote"]!)).toBe(true);
+    expect((servers["remote"] as MCPServerConfigHttp).url).toBe("https://mcp.example/mcp");
+    expect(isHttpConfig(servers["legacySse"]!)).toBe(true);
+    expect(isHttpConfig(servers["local"]!)).toBe(false);
+    expect((servers["local"] as MCPServerConfigStdio).transport).toBe("stdio");
+    expect(stderr).toBe("");
+  });
+
+  it("skips a definition with both, neither, or a contradicting transport, naming it", async () => {
+    writeJson(userMcpPath(), {
+      mcpServers: {
+        both: { url: "https://x.example", command: "x" },
+        neither: { args: ["x"] },
+        stdioUrl: { url: "https://y.example", transport: "stdio" },
+        httpCommand: { command: "y", transport: "http" },
+        fine: { command: "ok" },
+      },
+    });
+
+    const { result: servers, stderr } = await load();
+
+    expect(Object.keys(servers)).toEqual(["fine"]);
+    for (const name of ["both", "neither", "stdioUrl", "httpCommand"]) {
+      expect(stderr).toContain(`skipping MCP server "${name}" in ${userMcpPath()}`);
+    }
   });
 });

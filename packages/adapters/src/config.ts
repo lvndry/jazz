@@ -1205,6 +1205,39 @@ function resolveMcpServerSecrets(
   });
 }
 
+/** `transport` values an `mcp.json` may spell out. `sse` names the same HTTP client. */
+const HTTP_TRANSPORT_NAMES: ReadonlySet<unknown> = new Set(["http", "sse"]);
+
+/**
+ * Settle one definition's transport from what it declares: a `url` makes it an HTTP server and a
+ * `command` a stdio server, whether or not `transport` is spelled out. Drops `trusted` and
+ * `definedIn`, which no `mcp.json` may set. Returns the reason when the definition names both,
+ * neither, or a `transport` that contradicts them.
+ */
+export function normalizeMcpDefinition(
+  definition: Record<string, unknown>,
+): Record<string, unknown> | string {
+  const { trusted: _trusted, definedIn: _definedIn, transport, ...rest } = definition;
+  const hasUrl = typeof rest["url"] === "string" && rest["url"].trim() !== "";
+  const hasCommand = typeof rest["command"] === "string" && rest["command"].trim() !== "";
+  if (hasUrl && hasCommand) {
+    return "it sets both `url` and `command`; keep `url` for a remote server or `command` for a local one.";
+  }
+  if (!hasUrl && !hasCommand) {
+    return "it sets neither `url` (a remote server) nor `command` (a local one).";
+  }
+  if (hasUrl) {
+    if (transport !== undefined && !HTTP_TRANSPORT_NAMES.has(transport)) {
+      return `it has a \`url\` but \`transport\` is ${JSON.stringify(transport)}; use "http" or leave it out.`;
+    }
+    return { ...rest, transport: "http" };
+  }
+  if (transport !== undefined && transport !== "stdio") {
+    return `it has a \`command\` but \`transport\` is ${JSON.stringify(transport)}; use "stdio" or leave it out.`;
+  }
+  return { ...rest, transport: "stdio" };
+}
+
 /**
  * Load MCP server definitions from the user's `~/.agents/mcp.json` and the project's
  * `./.agents/mcp.json`, tagging each with where it came from.
@@ -1226,16 +1259,22 @@ export function loadAgentsMcpServers(
       path.resolve(userPath) === projectPath ? {} : yield* readMcpDefinitions(fs, projectPath);
 
     const servers: Record<string, MCPServerConfig> = {};
-    const tag = (
+    const add = (
+      name: string,
       definition: Record<string, unknown>,
       definedIn: MCPServerDefinitionSource,
-    ): MCPServerConfig => {
-      const { trusted: _trusted, definedIn: _definedIn, ...rest } = definition;
-      return { ...rest, definedIn } as unknown as MCPServerConfig;
+      filePath: string,
+    ): void => {
+      const normalized = normalizeMcpDefinition(definition);
+      if (typeof normalized === "string") {
+        process.stderr.write(`jazz: skipping MCP server "${name}" in ${filePath}: ${normalized}\n`);
+        return;
+      }
+      servers[name] = { ...normalized, definedIn } as unknown as MCPServerConfig;
     };
 
     for (const [name, definition] of Object.entries(user)) {
-      servers[name] = tag(yield* resolveMcpServerSecrets(backend, name, definition), "user");
+      add(name, yield* resolveMcpServerSecrets(backend, name, definition), "user", userPath);
     }
     for (const [name, definition] of Object.entries(project)) {
       if (name in user) {
@@ -1245,7 +1284,7 @@ export function loadAgentsMcpServers(
         );
         continue;
       }
-      servers[name] = tag(definition, "project");
+      add(name, definition, "project", projectPath);
     }
     return servers;
   });

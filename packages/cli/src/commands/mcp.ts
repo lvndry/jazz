@@ -10,7 +10,11 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { writeAgentsMcpServer, removeAgentsMcpServer } from "@jazz/adapters/config";
+import {
+  normalizeMcpDefinition,
+  removeAgentsMcpServer,
+  writeAgentsMcpServer,
+} from "@jazz/adapters/config";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
@@ -47,7 +51,7 @@ const StdioServerConfigSchema = z.object({
 });
 
 const HttpServerConfigSchema = z.object({
-  transport: z.literal("http"),
+  transport: z.literal("http").optional(),
   url: z.string(),
   headers: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
@@ -125,6 +129,14 @@ function parseAndSaveMcpServers(
     }
 
     const entries = Object.entries(result.data);
+
+    for (const [name, definition] of Object.entries(parsed as Record<string, unknown>)) {
+      const normalized = normalizeMcpDefinition(definition as Record<string, unknown>);
+      if (typeof normalized === "string") {
+        yield* terminal.error(`Invalid MCP server "${name}": ${normalized}`);
+        return;
+      }
+    }
 
     if (entries.length === 0) {
       yield* terminal.warn("No servers found in the provided JSON.");
