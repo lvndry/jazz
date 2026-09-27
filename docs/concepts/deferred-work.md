@@ -52,9 +52,45 @@ calendar scheduling has minute resolution, so "run this now" either misses the c
 waits up to sixty seconds for it, and a two-second retry backoff cannot be expressed at all.
 
 `jazz daemon`'s ticker is the fallback where neither host scheduler exists, which mostly means
-containers and some CI images, and the safety net for a batch whose worker was killed mid-flight.
+containers and some CI images, and the safety net for a batch whose worker was killed mid-flight
+and for retries. When the ticker delivers an item, it removes the host scheduler's one-shot job for
+it, so no stale job is left behind to fire later.
+
+A job's worker renews its claim (its lease) every minute while the job runs. A worker on the same
+machine is judged by whether its process is still alive, not by the clock, so a laptop that sleeps
+through a long job does not have that job taken away and run a second time.
 Scheduling with the host is best-effort: if it fails, registration still succeeds and the ticker
 covers it.
+
+## Delivered at least once
+
+A reminder, a wake trigger, and a batch's fan-in (the turn that hands the results back) are each
+delivered at least once, never silently dropped:
+
+1. **Claimed.** Whichever process gets there first (the host scheduler's one-shot job, the
+   daemon's ticker, or a chat bridge's sweep) marks the item as being delivered, in one locked
+   step. Nobody else fires it while that claim's process is alive. If the process dies mid-way,
+   the next sweep takes the item again.
+2. **Delivered.** The notification was shown, the chat message was sent, or the resumed turn
+   finished or parked for approval. Only then is the reminder or trigger removed, and the batch
+   marked delivered.
+3. **Failed.** The error and the attempt count are kept on the item, and it is retried with a
+   backoff (one minute, then doubling up to an hour), five attempts in all. After that, or when
+   retrying cannot help (the agent no longer exists), it stays on disk as failed, and
+   `list_reminders` and `list_triggers` show the error.
+
+A desktop reminder on a host with no desktop session (a headless server, a system service) is
+kept as failed with that reason rather than consumed unseen. A chat bridge only marks a reminder
+delivered after the send succeeded, and a reminder whose chat it cannot resolve yet waits instead
+of being dropped.
+
+At least once means a turn can run twice when a process dies after the work but before recording
+it. A trigger that fires late says so: the resumed turn is told when it was scheduled for, when it
+actually fired, and how late that is, so a "leave for the airport at 9:00" that fires at 18:00
+after the laptop slept is not acted on as if it were on time.
+
+Absolute times are checked against the calendar: `2026-02-31 10:00` is refused rather than read as
+March 3.
 
 ## When the resumed turn needs a person
 

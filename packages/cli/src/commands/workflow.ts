@@ -24,7 +24,9 @@ import {
   loadRunHistory,
   MANUAL_RUN_LABEL,
   runScheduleLabel,
+  markInterruptedRuns,
   updateRunRecord,
+  type WorkflowRunStatus,
   type WorkflowRunUpdate,
 } from "@jazz/core/workflows/run-history";
 import {
@@ -920,6 +922,7 @@ export function workflowHistoryCommand(workflowName?: string) {
     }
     yield* terminal.log("");
 
+    yield* markInterruptedRuns().pipe(Effect.catchAll(() => Effect.succeed(0)));
     const runs = yield* getRecentRuns(20);
 
     // Filter by workflow name if provided
@@ -940,14 +943,7 @@ export function workflowHistoryCommand(workflowName?: string) {
         Number.isFinite(startedAtMs) &&
         Date.now() - startedAtMs > STALE_THRESHOLD_MS;
       const displayStatus = isStale ? "failed" : run.status;
-      const statusIcon =
-        displayStatus === "completed"
-          ? "✓"
-          : displayStatus === "failed"
-            ? "✗"
-            : displayStatus === "skipped"
-              ? "⊘"
-              : "…";
+      const statusIcon = RUN_STATUS_ICONS[displayStatus];
 
       const duration = run.completedAt
         ? `${Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
@@ -970,6 +966,14 @@ export function workflowHistoryCommand(workflowName?: string) {
     yield* terminal.info(`Showing ${filteredRuns.length} most recent run(s)`);
   });
 }
+
+const RUN_STATUS_ICONS: Readonly<Record<WorkflowRunStatus, string>> = {
+  completed: "✓",
+  failed: "✗",
+  interrupted: "✗",
+  skipped: "⊘",
+  running: "…",
+};
 
 function runCostFields(result: {
   costUSD?: number;

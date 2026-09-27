@@ -23,6 +23,10 @@ runs nothing. See [deferred work](../concepts/deferred-work.md) for the last two
 lighter than a workflow: one prompt rerun on an interval or cron schedule in its own
 conversation, which ends itself once its purpose is met; see [Goals and loops](./goals-and-loops.md).
 
+Wake triggers, reminders, and a background batch's hand-back are delivered at least once: each is
+removed only after it was delivered, and a failed delivery is kept with its error and retried.
+See [delivered at least once](../concepts/deferred-work.md#delivered-at-least-once).
+
 Unattended runs cannot answer interactive questions. They must decline gated actions, receive an explicit auto-approval policy, or use `--park` so a person can approve and resume the saved run later.
 
 Start with [Scheduled runs](../surfaces/scheduled.md), [Headless runs](../surfaces/headless.md), or [Webhooks](../concepts/webhooks.md). The last has a [step-by-step build](../guides/webhook-endpoint.md).

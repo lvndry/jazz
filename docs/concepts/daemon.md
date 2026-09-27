@@ -65,9 +65,30 @@ One process, several jobs, most of them opt-in:
 - **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook names. See
   [Webhooks](./webhooks.md).
 
-It is also the fallback ticker for [wake triggers](../tools/index.md): a trigger normally fires
-through a one-shot `launchd`/`at` job the host schedules directly, with no daemon required. The
-in-process ticker only matters on a host with neither, which mostly means containers.
+It is also the fallback ticker for [wake triggers and reminders](./deferred-work.md): a trigger
+normally fires through a one-shot `launchd`/`at` job the host schedules directly, with no daemon
+required. The in-process ticker matters on a host with neither, which mostly means containers,
+and for retrying a delivery that failed.
+
+### How a tick works
+
+Every few seconds the daemon claims what is due (workflow slots, wake triggers, reminders, goal
+cycles, loop runs, job batches) and starts each piece of work on its own. The tick itself only
+reads files and takes short locks, so a thirty-minute workflow never delays a reminder, and a
+long job drain is not started twice.
+
+A workflow slot is decided and recorded in one step under the run-history lock, so a daemon and a
+CLI starting up cannot both run the same slot. Run history keeps the last 20 runs of each
+schedule, so a workflow that runs every few minutes cannot push another's record out and make it
+run again. A slot missed by more than its catch-up window is recorded as `skipped`, and a run
+whose process died is marked `interrupted` the next time a daemon or CLI starts, instead of
+staying `running` forever.
+
+### One daemon per home
+
+A daemon holds a lock on its `$JAZZ_HOME` for as long as it runs. A second `jazz daemon` against
+the same home, even on another port, refuses to start and says so. Give it its own `--data-dir`
+to run two. A daemon that crashed leaves nothing that blocks the next one.
 
 None of this needs all of it. A daemon started plain serves runs and the catalogue, and ticks
 workflows if `scheduler.mode` says so. Peers and webhooks activate on top of that, not instead

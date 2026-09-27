@@ -438,8 +438,11 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-        void releaseHomeLock();
-        resume(Effect.void);
+        // The home lock is released before the process ends (a few file operations), so the
+        // next daemon finds nothing of this one's to clean up.
+        void releaseHomeLock()
+          .catch(() => undefined)
+          .finally(() => resume(Effect.void));
       };
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
@@ -448,8 +451,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-        void releaseHomeLock();
-      });
+      }).pipe(Effect.zipRight(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
     });
 
     yield* logger.info("Daemon stopped");
