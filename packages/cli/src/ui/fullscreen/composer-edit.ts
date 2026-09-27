@@ -4,6 +4,8 @@
  * the authority and the frame stays a function of data.
  */
 
+import { SHELL_ESCAPE_PREFIX } from "@/cli/chat/commands/parser";
+
 export interface ComposerBuffer {
   readonly text: string;
   readonly caret: number;
@@ -88,6 +90,27 @@ export function insertText(buffer: ComposerBuffer, text: string): ComposerBuffer
   }
   const current = normalizeBuffer(buffer);
   return replaceRange(current, current.caret, current.caret, text);
+}
+
+const SHELL_ESCAPE_BANG = "!";
+
+/**
+ * Insert one typed character. A `!` on an empty composer becomes the shell
+ * escape prefix (`! `) so the line is ready for a command. A second `!` typed
+ * right after that prefix takes the space back, so typing `!!! urgent` spells
+ * `!!! urgent`, which is prose rather than a shell escape.
+ */
+export function typeCharacter(buffer: ComposerBuffer, character: string): ComposerBuffer {
+  if (character === SHELL_ESCAPE_BANG && !hasSelection(buffer)) {
+    if (buffer.text.length === 0) {
+      return insertText(buffer, SHELL_ESCAPE_PREFIX);
+    }
+    const prefixLength = [...SHELL_ESCAPE_PREFIX].length;
+    if (buffer.text === SHELL_ESCAPE_PREFIX && buffer.caret === prefixLength) {
+      return replaceRange(buffer, 1, prefixLength, SHELL_ESCAPE_BANG);
+    }
+  }
+  return insertText(buffer, character);
 }
 
 export function deleteBackward(buffer: ComposerBuffer): ComposerBuffer {

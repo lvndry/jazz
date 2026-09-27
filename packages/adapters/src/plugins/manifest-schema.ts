@@ -73,7 +73,15 @@ function exactKeys(
     throw new Error(`${label} contains unknown field(s): ${unknown.join(", ")}`);
 }
 
-function boundedString(value: unknown, label: string, max: number): string {
+/** Line breaks and tabs, which multi-line document fields such as skill bodies need. */
+const DOCUMENT_WHITESPACE = new Set(["\n", "\r", "\t"]);
+
+function boundedString(
+  value: unknown,
+  label: string,
+  max: number,
+  allowed: ReadonlySet<string> = new Set(),
+): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string`);
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > max) {
@@ -82,7 +90,7 @@ function boundedString(value: unknown, label: string, max: number): string {
   if (
     [...normalized].some((character) => {
       const code = character.charCodeAt(0);
-      return code <= 0x1f || code === 0x7f;
+      return (code <= 0x1f || code === 0x7f) && !allowed.has(character);
     })
   ) {
     throw new Error(`${label} contains control characters`);
@@ -190,6 +198,7 @@ function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDe
     item["systemPrompt"],
     `personas[${index}].systemPrompt`,
     16384,
+    DOCUMENT_WHITESPACE,
   );
   const base = { name, description, systemPrompt };
   const tone =
@@ -225,7 +234,12 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
   const name = boundedString(item["name"], `skills[${index}].name`, 64);
   if (!TOOL_NAME.test(name)) throw new Error(`skills[${index}].name has an invalid format`);
   const description = boundedString(item["description"], `skills[${index}].description`, 1024);
-  const content = boundedString(item["content"], `skills[${index}].content`, 32768);
+  const content = boundedString(
+    item["content"],
+    `skills[${index}].content`,
+    32768,
+    DOCUMENT_WHITESPACE,
+  );
   return { name, description, content };
 }
 
@@ -361,6 +375,25 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   };
 }
 
+/** The entry a source manifest gets when it names none. */
+export const DEFAULT_PLUGIN_SOURCE_ENTRY = "src/index.ts";
+
+/**
+ * Validate a source plugin's `entry`: a forward-slash path relative to the plugin root with no
+ * empty, `.`, or `..` segment, so joining it onto the root can never name a file outside it.
+ */
+export function parsePluginSourceEntry(value: unknown): string {
+  const entry = boundedString(value, "entry", 2048);
+  if (
+    entry.startsWith("/") ||
+    entry.includes("\\") ||
+    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error("entry must be a safe relative path");
+  }
+  return entry;
+}
+
 /** Parse the authoring manifest stored as `jazz-plugin.json` before a source tree is installed. */
 export function parsePluginSourceManifest(input: unknown): {
   readonly manifest: PluginManifest;
@@ -369,14 +402,9 @@ export function parsePluginSourceManifest(input: unknown): {
   const root = record(input, "plugin source manifest");
   exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "entry"], "plugin source manifest");
   const entry =
-    root["entry"] === undefined ? "src/index.ts" : boundedString(root["entry"], "entry", 2048);
-  if (
-    entry.startsWith("/") ||
-    entry.includes("\\") ||
-    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
-  ) {
-    throw new Error("entry must be a safe relative path");
-  }
+    root["entry"] === undefined
+      ? DEFAULT_PLUGIN_SOURCE_ENTRY
+      : parsePluginSourceEntry(root["entry"]);
   const { entry: _entry, ...installMetadata } = root;
   return {
     manifest: parsePluginManifest({
