@@ -13,7 +13,8 @@
 #   comment "/jazz <req>"   -> assistant
 #   Actions tab dispatch    -> either job
 #
-# Configuration lives in .github/jazz/ (agent configs + workflow prompts).
+# Configuration lives in .github/jazz/ (agent configs, workflow prompts, and the
+# scripts/ the steps below call).
 # Secrets: GITHUB_TOKEN (automatic), plus the <PROVIDER>_API_KEY your agent configs
 #          name — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, any of them.
 # Setup and customization guide: .github/jazz/README.md
@@ -57,9 +58,15 @@ on:
 permissions:
   contents: read
 
+env:
+  # Per-run spend ceiling for each agent run, passed as --max-cost-usd. The run stops between
+  # iterations once it is reached; timeout-minutes on each job is the hard stop.
+  JAZZ_MAX_COST_USD: "2"
+
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: write
       issues: write
@@ -73,7 +80,7 @@ jobs:
     steps:
       - name: Resolve PR context
         id: resolve
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             function extractRequest(body) {
@@ -196,7 +203,7 @@ jobs:
             github.event.comment.author_association == 'COLLABORATOR'
           ) &&
           steps.resolve.outputs.pr_head_repo_full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const commentId = context.payload.comment?.id;
@@ -233,6 +240,7 @@ jobs:
   code-review:
     needs: resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -248,13 +256,14 @@ jobs:
       (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -275,37 +284,22 @@ jobs:
           cat workflows/code-review/WORKFLOW.md
 
       - name: Snapshot PR context
-        # Pre-fetch PR metadata (title, body, labels, conversation comments,
-        # review summaries, inline review comments) into a static JSON file the
-        # agent reads via read_file. This avoids handing GITHUB_TOKEN to the
-        # agent or shell while still letting it answer "what does the PR claim
-        # to do? what's already been said in review?".
+        # Pre-fetch PR metadata (title, body, labels, and the comments, reviews and inline
+        # review comments of trusted authors) into a static JSON file the agent reads via
+        # read_file. The agent never gets GITHUB_TOKEN: the checkout does not persist it
+        # (persist-credentials: false) and only this step and the github-script steps hold it.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          OUT=/tmp/jazz-pr-context.json
-          if gh pr view "$PR_NUMBER" --repo "$REPO" \
-               --json title,body,labels,comments,reviews \
-               > /tmp/pr-base.json \
-             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
-                  > /tmp/pr-review-comments.json; then
-            jq -s '.[0] + {reviewComments: .[1]}' \
-              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
-          else
-            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
-          fi
-          echo "--- PR context (first 200 lines) ---"
-          head -n 200 "$OUT"
+        run: .github/jazz/scripts/snapshot-pr-context.sh "$REPO" "$PR_NUMBER" /tmp/jazz-pr-context.json
 
       - name: Post status comment
         id: status
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
@@ -328,13 +322,19 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
+        # Never fails the step: the posting step reads the envelope and the exit code and
+        # decides whether the job fails (it does for a broken setup, not for a rate limit).
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
-            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            exit 1
+            message="No model provider API key found. Add <PROVIDER>_API_KEY (OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name) as a GitHub Actions secret (Settings, Secrets and variables, Actions)."
+            echo "::error::$message"
+            jq -cn --arg error "$message" '{ok: false, error: $error}' > /tmp/jazz-review.txt
+            echo 1 > /tmp/jazz-review-exit
+            exit 0
           fi
-          jazz workflow run code-review --auto-approve --agent ci-reviewer --json --events tools | tee /tmp/jazz-review.txt
+          jazz workflow run code-review --auto-approve --agent ci-reviewer \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
       - name: Post review comments
@@ -344,23 +344,16 @@ jobs:
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const fs = require('fs');
-            const raw = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            const { readRunOutcome, describeFailure } = require('./.github/jazz/scripts/run-outcome.cjs');
+            const outcome = readRunOutcome('/tmp/jazz-review.txt', '/tmp/jazz-review-exit');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
             const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
-
-            // --json wraps the answer in a JSON envelope; extract the answer field.
-            let output = raw;
-            try {
-              const firstBrace = raw.indexOf('{');
-              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
-              output = json.answer ?? raw;
-            } catch (_) {}
 
             const postOrUpdate = async (body) => {
               if (statusCommentId > 0) {
@@ -380,16 +373,6 @@ jobs:
               }
             };
 
-            // The run step captures jazz's exit code without failing the step
-            // (the free tier throttles routinely; red CI on every throttle is
-            // noise). A missing file means the run step didn't get that far —
-            // treat that as success so older behavior for unrelated failures
-            // is unaffected.
-            let jazzExitCode = 0;
-            try {
-              jazzExitCode = parseInt(fs.readFileSync('/tmp/jazz-review-exit', 'utf8').trim(), 10) || 0;
-            } catch (_) {}
-
             // Read model from agent config for display in review comment
             let modelLabel = '';
             try {
@@ -399,10 +382,21 @@ jobs:
               }
             } catch (_) {}
 
-            if (jazzExitCode !== 0) {
-              core.warning(`jazz code review exited with status ${jazzExitCode} (provider error or rate limit); posted a could-not-run notice instead of a verdict.`);
-              await postOrUpdate(`## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit). See the [workflow run](${runUrl}) for the job log. Re-run the workflow to retry.${modelLabel}`);
+            if (outcome.kind !== 'answered') {
+              const notice = describeFailure(outcome, runUrl, 'Review');
+              await postOrUpdate(`## Jazz Code Review\n\n⚠️ ${notice}${modelLabel}`);
+              await core.summary.addHeading('Jazz Code Review', 2).addRaw(notice, true).write();
+              if (outcome.transient) {
+                core.warning(`Jazz code review skipped: ${outcome.headline}.`);
+              } else {
+                core.setFailed(`Jazz code review skipped: ${outcome.headline}.`);
+              }
               return;
+            }
+
+            const output = outcome.answer;
+            if (outcome.costUSD !== undefined) {
+              await core.summary.addHeading('Jazz Code Review', 2).addRaw(`Review ran for $${outcome.costUSD.toFixed(4)}.`, true).write();
             }
 
             // Extract the markdown summary block (Block 1).
@@ -450,7 +444,7 @@ jobs:
             const summarySection = markdownSummary
               || (Array.isArray(comments) && comments.length > 0
                 ? `Found ${comments.length} issue(s). See inline comments below.`
-                : `⚠️ The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block). Treat this PR as **not reviewed** — see the [workflow run](${runUrl}) for the cause, then re-run the workflow or review manually.`);
+                : `⚠️ The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block)${outcome.capped ? ', because the run stopped at its spend, token or time cap' : ''}. Treat this PR as **not reviewed**. See the [workflow run](${runUrl}) for the cause, then re-run the workflow or review manually.`);
             if (!reviewCompleted) {
               core.warning('jazz code review produced no parseable output; posted a not-reviewed notice instead of a verdict.');
             }
@@ -639,6 +633,7 @@ jobs:
     # and the two jazz jobs don't burst the same provider account concurrently.
     needs: [resolve]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -655,13 +650,14 @@ jobs:
       )
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -705,28 +701,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           REPO: ${{ github.repository }}
-        run: |
-          set -uo pipefail
-          OUT=/tmp/jazz-pr-context.json
-          if gh pr view "$PR_NUMBER" --repo "$REPO" \
-               --json title,body,labels,comments,reviews \
-               > /tmp/pr-base.json \
-             && gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" \
-                  > /tmp/pr-review-comments.json; then
-            jq -s '.[0] + {reviewComments: .[1]}' \
-              /tmp/pr-base.json /tmp/pr-review-comments.json > "$OUT"
-          else
-            echo '{"error":"Failed to fetch PR context; agent will proceed without it."}' > "$OUT"
-          fi
-          echo "--- PR context (first 200 lines) ---"
-          head -n 200 "$OUT"
+        run: .github/jazz/scripts/snapshot-pr-context.sh "$REPO" "$PR_NUMBER" /tmp/jazz-pr-context.json
 
       - name: Post status comment
         id: assist-status
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
@@ -749,14 +731,20 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
+        # Never fails the step: the posting step reads the envelope and the exit code and
+        # decides whether the job fails.
         run: |
-          set -euo pipefail
+          set +e -uo pipefail
           if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
-            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            exit 1
+            message="No model provider API key found. Add <PROVIDER>_API_KEY (OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name) as a GitHub Actions secret (Settings, Secrets and variables, Actions)."
+            echo "::error::$message"
+            jq -cn --arg error "$message" '{ok: false, error: $error}' > /tmp/jazz-pr-assistant.txt
+            echo 1 > /tmp/jazz-pr-assistant-exit
+            exit 0
           fi
-          jazz workflow run pr-assistant --auto-approve --agent pr-assistant --json --events tools \
-            | tee /tmp/jazz-pr-assistant.txt
+          jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-pr-assistant.txt
+          echo "${PIPESTATUS[0]}" > /tmp/jazz-pr-assistant-exit
 
       - name: Post PR comment
         if: always()
@@ -764,21 +752,14 @@ jobs:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           STATUS_COMMENT_ID: ${{ steps.assist-status.outputs.comment_id }}
           RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
-            const fs = require('fs');
-            const raw = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
+            const { readRunOutcome, describeFailure } = require('./.github/jazz/scripts/run-outcome.cjs');
+            const outcome = readRunOutcome('/tmp/jazz-pr-assistant.txt', '/tmp/jazz-pr-assistant-exit');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
-
-            let output = raw;
-            try {
-              const firstBrace = raw.indexOf('{');
-              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
-              output = json.answer ?? raw;
-            } catch (_) {}
 
             const postOrUpdate = async (body) => {
               if (statusCommentId > 0) {
@@ -816,7 +797,19 @@ jobs:
               return null;
             };
 
-            const extracted = extractAnswer(output);
+            if (outcome.kind !== 'answered') {
+              const notice = describeFailure(outcome, runUrl, 'Answer');
+              await postOrUpdate(`## Jazz PR Assistant\n\n⚠️ ${notice}`);
+              await core.summary.addHeading('Jazz PR Assistant', 2).addRaw(notice, true).write();
+              if (outcome.transient) {
+                core.warning(`Jazz PR assistant skipped: ${outcome.headline}.`);
+              } else {
+                core.setFailed(`Jazz PR assistant skipped: ${outcome.headline}.`);
+              }
+              return;
+            }
+
+            const extracted = extractAnswer(outcome.answer);
             let commentBody;
             if (!extracted || !extracted.body.trim()) {
               commentBody = `_The Jazz assistant didn't produce a usable answer. ` +

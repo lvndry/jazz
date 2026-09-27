@@ -30,10 +30,10 @@ repo. This is the guide for doing that.
 
 ## Required secrets
 
-| Secret                | Needed?                                  | Purpose                                           |
-| --------------------- | ---------------------------------------- | ------------------------------------------------- |
-| `GITHUB_TOKEN`        | automatic                                | Read PR context, post comments (no action needed) |
-| `<PROVIDER>_API_KEY`  | one, for the provider your agents use    | Model access for the agents                       |
+| Secret               | Needed?                               | Purpose                                           |
+| -------------------- | ------------------------------------- | ------------------------------------------------- |
+| `GITHUB_TOKEN`       | automatic                             | Read PR context, post comments (no action needed) |
+| `<PROVIDER>_API_KEY` | one, for the provider your agents use | Model access for the agents                       |
 
 You only need the key that matches the provider in your agent configs ,
 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
@@ -45,9 +45,9 @@ OpenAI. On another provider, add that provider's line next to it in both the
 `Run code review` and `Run Jazz assistant` steps:
 
 ```yaml
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # ← yours
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # ← yours
 ```
 
 ## File structure
@@ -59,6 +59,9 @@ OpenAI. On another provider, add that provider's line next to it in both the
     agents/
       ci-reviewer.json                   # agent for /jazz-review (inline review)
       pr-assistant.json                  # agent for /jazz (conversational)
+    scripts/
+      snapshot-pr-context.sh             # trusted PR context for the agents
+      run-outcome.cjs                    # reads the run's JSON envelope for posting
     workflows/
       code-review/WORKFLOW.md            # instructions for the reviewer
       pr-assistant/WORKFLOW.md           # instructions for the assistant
@@ -74,7 +77,7 @@ Two files almost certainly need editing: the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
 1. **`agents/*.json`: pick your model.**
-   Change `llmProvider`, `llmModel`, and optionally `reasoningEffort`. The checked-in configs use `openai/gpt-5.4-mini`; use the provider key that matches your choice.
+   Change `llmProvider`, `llmModel`, and optionally `reasoning` (for example `medium`, or `disable`). The checked-in configs use `openai/gpt-5.4-mini`; use the provider key that matches your choice.
 2. **`workflows/code-review/WORKFLOW.md`: match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk
@@ -102,6 +105,26 @@ Comment triggers are restricted to trusted authors. `OWNER`, `MEMBER`, or
 `COLLABORATOR`. Comments from other users are ignored, so drive-by commenters
 can't spend your model budget.
 
+## What the agent can reach
+
+The diff, the PR text and its comments are untrusted input to an agent with shell
+access, so the workflow keeps that agent's reach small:
+
+- **No GitHub token.** Checkouts use `persist-credentials: false`. Only the
+  snapshot step and the posting steps hold `GITHUB_TOKEN`; the agent reads a
+  static JSON file and prints its answer, and the posting steps write to GitHub.
+- **Only trusted comments.** The snapshot keeps comments and reviews from
+  `OWNER`, `MEMBER` and `COLLABORATOR` authors, plus the workflow's own earlier
+  reviews (the `github-actions` bot). Other comments are dropped and counted in
+  `omittedUntrusted`.
+- **Read-only.** Both workflows use `autoApprove: read-only` and approve a short
+  `autoApprovedCommands` list of read-only `git` subcommands. Any other command
+  runs only if Jazz's classifier judges it read-only. The agents have no
+  `http_request` and no file-writing tools.
+- **Bounded.** Each job has `timeout-minutes`; each run passes
+  `--max-cost-usd "$JAZZ_MAX_COST_USD"`, set once at the top of `jazz.yml`.
+- **Pinned.** Third-party actions are pinned to commit SHAs.
+
 ## Forks and security
 
 The jobs only run for PRs from **the same repository** (a
@@ -111,9 +134,10 @@ secrets, so the reviewer can't run there safely. If you need review on external
 contributors' PRs, that's the point where a GitHub App (with its own installation
 token) becomes the right tool instead of Actions.
 
-## Cost and free-tier behavior
+## Cost and failures
 
-The code-review job **does not fail CI** when the model provider throttles or
-errors. It posts a "could not run, re-run to retry" notice instead of a red X,
-so a rate-limited free tier doesn't spam failures. Swap in a paid model if you
-want reliable, higher-quality reviews.
+When a run fails, the PR comment and the job summary say why, for example
+"Review skipped: provider authentication failed." A rate limit or timeout only
+warns, so a throttled free tier doesn't paint CI red. A setup problem, such as a
+rejected or missing API key, fails the job so it gets noticed. Raise
+`JAZZ_MAX_COST_USD` in `jazz.yml` if reviews on large PRs stop at the cap.

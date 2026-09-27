@@ -17,6 +17,8 @@ Copy these paths from the Jazz repository into the same paths in yours:
 .github/jazz/
   agents/ci-reviewer.json
   agents/pr-assistant.json
+  scripts/snapshot-pr-context.sh
+  scripts/run-outcome.cjs
   workflows/code-review/WORKFLOW.md
   workflows/pr-assistant/WORKFLOW.md
 ```
@@ -105,11 +107,15 @@ The maintained Actions workflow:
 
 - skips fork pull requests so untrusted workflow changes cannot receive provider secrets;
 - accepts `/jazz` and `/jazz-review` only from owners, members, or collaborators;
-- checks out the resolved pull-request head with full history;
+- checks out the resolved pull-request head with full history and `persist-credentials: false`, so no GitHub token is left in `.git/config`;
+- gives the agent only comments and reviews from owners, members, collaborators, and the workflow's own bot;
+- runs the agent at `autoApprove: read-only` with an allowlist of read-only `git` subcommands, and without `http_request`;
+- caps each run with `--max-cost-usd` and each job with `timeout-minutes`;
+- pins every third-party action to a commit SHA;
 - validates every proposed inline comment against real diff hunks;
 - converts invalid line comments into general review text instead of failing the GitHub API call;
 - uses job-scoped GitHub permissions;
-- treats provider failure as “not reviewed,” never as approval.
+- treats provider failure as “not reviewed,” never as approval, and names the cause in the comment and the job summary.
 
 The pull-request diff, title, body, and comments are untrusted model input. Keep the reviewer read-only and let the deterministic posting step own mutation.
 

@@ -51,7 +51,8 @@ flowchart TD
 
 Release notes work the same way: [`release.yml`](../../.github/workflows/release.yml) bumps
 the version, tags it, then runs an agent over every commit since the last tag and creates
-the GitHub Release with the result.
+the GitHub Release with the result. The agent runs in its own job with a read-only
+`GITHUB_TOKEN` and a read-only approval policy; a separate job creates the release.
 
 ---
 
@@ -101,20 +102,25 @@ sequenceDiagram
     participant JZ as jazz
     participant API as GitHub API
 
-    GH->>FS: checkout PR head (fetch-depth 0)
-    GH->>FS: npm install -g jazz-ai
+    GH->>FS: checkout PR head (fetch-depth 0, no persisted token)
+    GH->>FS: bun install -g jazz-ai
     GH->>FS: copy .github/jazz/agents/*.json → ~/.jazz/agents/
     GH->>FS: substitute __PR_BASE_SHA__, __PR_HEAD_SHA__,<br/>__WORKSPACE__ into WORKFLOW.md
-    GH->>JZ: jazz --output raw workflow run code-review<br/>--auto-approve --agent ci-reviewer
+    GH->>API: snapshot PR text and trusted authors' comments
+    GH->>JZ: jazz workflow run code-review --auto-approve<br/>--agent ci-reviewer --max-cost-usd 2 --json
     JZ->>FS: git diff base..head, read files, grep
-    JZ-->>GH: structured findings on stdout
+    JZ-->>GH: one JSON envelope on stdout
     GH->>API: create review with inline comments
 ```
 
-Two flags do the CI-specific work:
+Three flags do the CI-specific work:
 
-- `--output raw`: no ANSI colors, no TUI, no progress spinners. Log-friendly text.
-- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner.
+- `--json`: stdout carries exactly one envelope, `{"ok":true,"answer":…}` or
+  `{"ok":false,"error":…}`. The posting step reads it, so a failed run is reported with
+  its cause ("Review skipped: provider authentication failed.") in the PR comment and
+  the job summary.
+- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner. The shipped workflows use `read-only` plus an `autoApprovedCommands` list of read-only `git` subcommands.
+- `--max-cost-usd`: stop the run between iterations once it has spent this much.
 
 `fetch-depth: 0` matters: the agent needs real history to diff against the base.
 
@@ -152,15 +158,15 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 
 ## Practical notes for unattended runs
 
-| Concern                           | What to do                                                                                                                                                                              |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Runaway cost**                  | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run: log it and alert on it.                                                                        |
-| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.       |
-| **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works: a reviewer needs to _read_, not to `git push`.                                                          |
-| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                 |
-| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                       |
-| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                     |
-| **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only: jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox). |
+| Concern                           | What to do                                                                                                                                                                                                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Runaway cost**                  | Set `--max-cost-usd`, `--max-iterations` and `--timeout`, and `timeout-minutes` on the job. The `--json` envelope reports `costUSD` per run: log it and alert on it.                                                                                            |
+| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.                                                                               |
+| **Prompt injection via the diff** | The diff, the PR text and its comments are untrusted input. Keep the reviewer at `read-only`, leave `http_request` out of its tools, feed it only trusted authors' comments, and check out with `persist-credentials: false` so no token sits in `.git/config`. |
+| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                                                                                         |
+| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                                                                                               |
+| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                                                                                             |
+| **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only: jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox).                                                                         |
 
 ---
 
