@@ -90,8 +90,15 @@ treated as untrusted text.
 interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
 for the enforcement model and how they differ from `--timeout`.
 
-**Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and
-the message goes to stderr; in `--json` mode stdout always carries exactly one object.
+**Exit codes:** `0` on success; `1` on failure, including a run that finishes without a usable
+answer (an empty zero-token completion, a non-`stop` finish with no text, or a content-filtered
+answer); `2` when `--park` parks the run on an approval; `130` or `143` when SIGINT or SIGTERM
+stops it. In plain mode stdout is empty on failure and the message goes to stderr; in `--json`
+mode stdout always carries exactly one object, with a `code` on failures (`failed`,
+`empty_response`, `no_answer`, `content_filtered`, `interrupted`). A cut-off answer
+(`truncated`), an iteration limit (`iterationLimited`) and dropped tools (`toolsDisabled`) are
+flagged in the envelope and warned about on stderr. See
+[Headless → JSON](./surfaces/headless.md#json---json).
 
 Full contract, examples, and a complete bridge implementation:
 [Surfaces → Headless](./surfaces/headless.md).
@@ -165,6 +172,11 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 | `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors         |
 | `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)      |
 | `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron) |
+
+A workflow run that finishes without a usable answer (an empty zero-token completion, a
+non-`stop` finish with no text, or a content-filtered answer) is recorded as failed in
+`jazz workflow history` and exits `1`, with the same `code` in its `--json` envelope as
+`jazz run`.
 
 ### Several schedules for one workflow
 
