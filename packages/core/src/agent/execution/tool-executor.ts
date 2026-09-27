@@ -898,127 +898,147 @@ export class ToolExecutor {
       const park = yield* parkTheBatch;
       if (park !== undefined) return yield* Effect.fail(park);
 
-      // Limit concurrency to prevent resource exhaustion when many tools are requested.
-      // Forked as daemon fibers (not structured children of this generator) so a
-      // detached-into-the-background call survives past this function returning — a
-      // plain `Effect.fork` child gets auto-interrupted the moment its parent scope
-      // closes, which is exactly what "detach" must not do. `Fiber.interrupt`,
-      // `Fiber.join`, and `Fiber.poll` all work the same on a daemon fiber, so this
-      // changes nothing about the existing interrupt/normal-completion paths.
-      const toolFibers = yield* Effect.all(
-        toolCalls.map((toolCall) =>
-          Effect.forkDaemon(
-            // Tapped once here rather than at each of the several places a call can
-            // finish, so a new return path cannot quietly stop reporting.
-            ToolExecutor.executeToolCall(
-              toolCall,
-              context,
-              displayConfig,
-              renderer,
-              runMetrics,
-              agentId,
-              conversationId,
-              approvalSet,
-              false,
-              preclassifiedRisk,
-            ).pipe(
-              Effect.tap((outcome) =>
-                Effect.sync(() => {
-                  const returned = toolResultForProgress(outcome.result);
-                  context.onToolEvent?.({
-                    kind: "tool-finished",
-                    toolName: outcome.name,
-                    toolCallId: outcome.toolCallId,
-                    ok: outcome.success,
-                    ...(returned !== undefined
-                      ? {
-                          result: returned.text,
-                          ...(returned.truncated ? { resultTruncated: true } : {}),
-                        }
-                      : {}),
+      const settleToolBatch = (
+        toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
+      ) =>
+        Effect.gen(function* () {
+          const awaitResults = Effect.all(
+            toolFibers.map((fiber) => Fiber.join(fiber)),
+            { concurrency: "unbounded" },
+          );
+
+          // Both signals are optional and mutually exclusive per race: whichever fires first
+          // (if either does) decides how this batch resolves. Racing them against each other
+          // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
+          // the outcome type to one flat union instead of an awkward `let`-reassigned one.
+          const interruptOrBackground = interruptSignal?.pipe(
+            Effect.as({ type: "interrupt" as const }),
+          );
+          const backgroundOrInterrupt = backgroundSignal?.pipe(
+            Effect.as({ type: "background" as const }),
+          );
+          const signalEffect =
+            interruptOrBackground && backgroundOrInterrupt
+              ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
+              : (interruptOrBackground ?? backgroundOrInterrupt);
+
+          if (!signalEffect) {
+            return yield* awaitResults;
+          }
+
+          // `raceFirst`: a failed batch fails now instead of waiting on a signal that may
+          // never come.
+          const resultsOrSignal = yield* Effect.raceFirst(
+            awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
+            signalEffect,
+          );
+
+          if (resultsOrSignal.type === "interrupt") {
+            // Settle the UI before waiting on fiber interrupt, so a slow finalizer
+            // cannot leave the 30s "still running" timer armed across the next turn.
+            if (renderer && displayConfig.showToolExecution) {
+              for (let index = 0; index < toolFibers.length; index++) {
+                const fiber = toolFibers[index];
+                const toolCall = toolCalls[index];
+                if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
+                  continue;
+                }
+                const poll = yield* Fiber.poll(fiber);
+                if (
+                  Option.isNone(poll) ||
+                  (Option.isSome(poll) && Exit.isInterrupted(poll.value))
+                ) {
+                  yield* renderer.handleEvent({
+                    type: "tool_execution_complete",
+                    toolCallId: toolCall.id,
+                    result: "Interrupted by user",
+                    durationMs: 0,
+                    success: false,
+                    error: "Interrupted by user",
                   });
-                }),
+                }
+              }
+            }
+            yield* Effect.all(
+              toolFibers.map((fiber) => Fiber.interrupt(fiber)),
+              { concurrency: "unbounded" },
+            );
+            return yield* Effect.fail(
+              new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
+            );
+          }
+
+          if (resultsOrSignal.type === "background") {
+            return yield* detachInFlightToolCalls(
+              toolFibers,
+              toolCalls,
+              renderer,
+              displayConfig,
+              onDetachedToolComplete,
+            );
+          }
+
+          return resultsOrSignal.results;
+        });
+
+      /**
+       * Tool calls run as daemon fibers so a call detached into the background (Ctrl+B)
+       * outlives this batch; a plain `Effect.fork` child is interrupted as soon as its
+       * parent scope closes. Being daemons, they are not interrupted with the run on their
+       * own, so every fiber is interrupted explicitly when this batch is interrupted
+       * (`--timeout`, SIGTERM, a run deadline, a parent's race). `Fiber.interrupt` waits for
+       * each fiber's finalizers, which is what kills a running shell command's process group.
+       * Forking happens with interruption masked so no fiber can start without being tracked.
+       */
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const toolFibers = yield* Effect.all(
+            toolCalls.map((toolCall) =>
+              Effect.forkDaemon(
+                Effect.interruptible(
+                  // Tapped once here rather than at each of the several places a call can
+                  // finish, so a new return path cannot quietly stop reporting.
+                  ToolExecutor.executeToolCall(
+                    toolCall,
+                    context,
+                    displayConfig,
+                    renderer,
+                    runMetrics,
+                    agentId,
+                    conversationId,
+                    approvalSet,
+                    false,
+                    preclassifiedRisk,
+                  ).pipe(
+                    Effect.tap((outcome) =>
+                      Effect.sync(() => {
+                        const returned = toolResultForProgress(outcome.result);
+                        context.onToolEvent?.({
+                          kind: "tool-finished",
+                          toolName: outcome.name,
+                          toolCallId: outcome.toolCallId,
+                          ok: outcome.success,
+                          ...(returned !== undefined
+                            ? {
+                                result: returned.text,
+                                ...(returned.truncated ? { resultTruncated: true } : {}),
+                              }
+                            : {}),
+                        });
+                      }),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        { concurrency: MAX_CONCURRENT_TOOLS },
+            { concurrency: MAX_CONCURRENT_TOOLS },
+          );
+
+          return yield* restore(settleToolBatch(toolFibers)).pipe(
+            Effect.onInterrupt(() => Fiber.interruptAll(toolFibers)),
+          );
+        }),
       );
-
-      const awaitResults = Effect.all(
-        toolFibers.map((fiber) => Fiber.join(fiber)),
-        { concurrency: "unbounded" },
-      );
-
-      // Both signals are optional and mutually exclusive per race: whichever fires first
-      // (if either does) decides how this batch resolves. Racing them against each other
-      // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
-      // the outcome type to one flat union instead of an awkward `let`-reassigned one.
-      const interruptOrBackground = interruptSignal?.pipe(
-        Effect.as({ type: "interrupt" as const }),
-      );
-      const backgroundOrInterrupt = backgroundSignal?.pipe(
-        Effect.as({ type: "background" as const }),
-      );
-      const signalEffect =
-        interruptOrBackground && backgroundOrInterrupt
-          ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
-          : (interruptOrBackground ?? backgroundOrInterrupt);
-
-      if (!signalEffect) {
-        return yield* awaitResults;
-      }
-
-      const resultsOrSignal = yield* Effect.race(
-        awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
-        signalEffect,
-      );
-
-      if (resultsOrSignal.type === "interrupt") {
-        // Settle the UI before waiting on fiber interrupt: execute_command used
-        // to wrap spawn in Effect.promise, which is uninterruptible, so this
-        // wait could block until the child exited — leaving the 30s "still
-        // running" timer armed across the next turn.
-        if (renderer && displayConfig.showToolExecution) {
-          for (let index = 0; index < toolFibers.length; index++) {
-            const fiber = toolFibers[index];
-            const toolCall = toolCalls[index];
-            if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
-              continue;
-            }
-            const poll = yield* Fiber.poll(fiber);
-            if (Option.isNone(poll) || (Option.isSome(poll) && Exit.isInterrupted(poll.value))) {
-              yield* renderer.handleEvent({
-                type: "tool_execution_complete",
-                toolCallId: toolCall.id,
-                result: "Interrupted by user",
-                durationMs: 0,
-                success: false,
-                error: "Interrupted by user",
-              });
-            }
-          }
-        }
-        yield* Effect.all(
-          toolFibers.map((fiber) => Fiber.interrupt(fiber)),
-          { concurrency: "unbounded" },
-        );
-        return yield* Effect.fail(
-          new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
-        );
-      }
-
-      if (resultsOrSignal.type === "background") {
-        return yield* detachInFlightToolCalls(
-          toolFibers,
-          toolCalls,
-          renderer,
-          displayConfig,
-          onDetachedToolComplete,
-        );
-      }
-
-      return resultsOrSignal.results;
     });
   }
 }

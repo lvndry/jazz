@@ -160,6 +160,10 @@ export function execCommand(
     child.on("error", (err) => {
       resume(Effect.fail(err));
     });
+
+    return Effect.sync(() => {
+      child.kill("SIGKILL");
+    });
   });
 }
 
@@ -213,6 +217,10 @@ export function execCommandWithStdin(
       child.stdin.write(stdin);
       child.stdin.end();
     }
+
+    return Effect.sync(() => {
+      child.kill("SIGKILL");
+    });
   });
 }
 
@@ -273,5 +281,9 @@ export function execCommandWithStdinCapturingOutput(
       child.stdin.write(stdin);
       child.stdin.end();
     }
+
+    return Effect.sync(() => {
+      child.kill("SIGKILL");
+    });
   });
 }

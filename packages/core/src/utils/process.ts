@@ -1,6 +1,8 @@
 /**
- * Whether a process recorded by pid (a lock holder, a run's owner) is still running.
+ * Process helpers: whether a process recorded by pid (a lock holder, a run's owner) is still
+ * running, and how to kill a spawned command together with everything it started.
  */
+import type { ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
 
 /** A process that holds something: a lock, a cycle, a working run. */
@@ -89,4 +91,34 @@ export function localOwnerStatus(owner: ProcessOwner): "alive" | "gone" | "unver
  */
 export function isLocalOwnerGone(owner: ProcessOwner): boolean {
   return localOwnerStatus(owner) === "gone";
+}
+
+/**
+ * How long a spawned command's output may keep arriving after the process exits before its
+ * caller returns anyway. Pipe data lands a few milliseconds after `exit`; a pipe still open past
+ * this belongs to a background job the command started, which can hold it for as long as it runs.
+ */
+export const PIPE_DRAIN_GRACE_MS = 200;
+
+/**
+ * Signal a child spawned with `detached: true` and its whole process group: the shell, and every
+ * process the command started (a pipeline, a backgrounded `cmd &`, a script's own children).
+ * Killing only the child's pid leaves those grandchildren running. Falls back to the child alone
+ * when the group is already gone or the platform has no process groups.
+ */
+export function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals = "SIGKILL"): void {
+  const pid = child.pid;
+  if (pid !== undefined && process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // The group is gone or unreachable: signal the child directly below.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Already exited.
+  }
 }

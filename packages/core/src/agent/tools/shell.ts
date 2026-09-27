@@ -12,6 +12,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
+import { killProcessGroup, PIPE_DRAIN_GRACE_MS } from "@/core/utils/process";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -517,11 +518,13 @@ ${evalCommand}`;
 }
 
 /**
- * Spawn `sh -c command` in a way that Effect can interrupt. `Effect.promise`
- * is uninterruptible, so a double-Esc during a long `sleep` (or any other
- * hanging command) used to leave the child running and the UI stuck on
- * "still running after 30s". Returning an interrupt finalizer from
- * `Effect.async` SIGKILLs the child when the tool fiber is interrupted.
+ * Spawn `sh -c command` in a way that Effect can interrupt. The command runs in
+ * its own process group, and the interrupt finalizer returned from
+ * `Effect.async` SIGKILLs that whole group when the tool fiber is interrupted
+ * (Esc, `--timeout`, SIGTERM, a run deadline), so a pipeline or a script's own
+ * children die with it. The call resolves when the shell exits: a command that
+ * leaves a background job holding stdout (`server &`) returns once the shell
+ * is done, after {@link PIPE_DRAIN_GRACE_MS} for the pipes to drain.
  *
  * `interactive` loads the operator's own shell rc file (aliases, functions)
  * for zsh/bash — see {@link interactiveShellArgs}. Any other `$SHELL` falls
@@ -570,7 +573,7 @@ export function runShellCommand(input: {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         env: input.env,
-        detached: false,
+        detached: true,
       });
     } catch (spawnError) {
       finish(Effect.fail(toError(spawnError)));
@@ -583,7 +586,9 @@ export function runShellCommand(input: {
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
     // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
-      child?.kill("SIGKILL");
+      if (child !== undefined) {
+        killProcessGroup(child);
+      }
       const collected = snapshot();
       const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
       const stderr = formatCappedStream(
@@ -604,7 +609,11 @@ export function runShellCommand(input: {
       finish(Effect.fail(error));
     });
 
-    child.on("close", (code, signal) => {
+    const finishWithExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (pipeGraceId) {
+        clearTimeout(pipeGraceId);
+        pipeGraceId = null;
+      }
       const collected = snapshot();
       finish(
         Effect.succeed({
@@ -614,16 +623,37 @@ export function runShellCommand(input: {
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
         }),
       );
+    };
+
+    const spawned = child;
+    let pipeGraceId: ReturnType<typeof setTimeout> | null = null;
+
+    spawned.on("exit", (code, signal) => {
+      pipeGraceId = setTimeout(() => {
+        // A background job the command left running still holds the pipes open; stop
+        // reading them so the call returns now.
+        spawned.stdout?.destroy();
+        spawned.stderr?.destroy();
+        finishWithExit(code, signal);
+      }, PIPE_DRAIN_GRACE_MS);
+    });
+
+    spawned.on("close", (code, signal) => {
+      finishWithExit(code, signal);
     });
 
     return Effect.sync(() => {
+      if (pipeGraceId) {
+        clearTimeout(pipeGraceId);
+        pipeGraceId = null;
+      }
       if (settled) return;
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-      child?.kill("SIGKILL");
+      killProcessGroup(spawned);
     });
   });
 }

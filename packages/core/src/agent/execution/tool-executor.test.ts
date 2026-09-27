@@ -467,6 +467,63 @@ describe("ToolExecutor.executeToolCalls", () => {
     ).toBe(true);
   });
 
+  it("interrupts running tools, finalizers included, when the batch itself is interrupted", async () => {
+    let finalizerRan = false;
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "slow_tool",
+          timeoutMs: 60_000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.never.pipe(
+          Effect.onInterrupt(() =>
+            Effect.sleep("20 millis").pipe(
+              Effect.zipRight(
+                Effect.sync(() => {
+                  finalizerRan = true;
+                }),
+              ),
+            ),
+          ),
+        ),
+    } as unknown as ToolRegistry;
+
+    const toolCalls: ToolCall[] = [
+      { id: "call_slow", type: "function", function: { name: "slow_tool", arguments: "{}" } },
+    ];
+
+    const program = Effect.gen(function* () {
+      const fiber = yield* Effect.fork(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+          displayConfig,
+          null,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+        ),
+      );
+      yield* Effect.sleep("50 millis");
+      yield* Fiber.interrupt(fiber);
+      return finalizerRan;
+    });
+
+    const finalizedBeforeInterruptReturned = await Effect.runPromise(
+      program.pipe(Effect.provide(makeTestLayer({ registry: mockToolRegistry }))) as Effect.Effect<
+        boolean,
+        unknown,
+        never
+      >,
+    );
+
+    expect(finalizedBeforeInterruptReturned).toBe(true);
+  });
+
   it("detaches an in-flight tool call when the background signal fires, instead of killing it", async () => {
     const mockToolRegistry = {
       getTool: () =>
