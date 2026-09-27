@@ -68,6 +68,7 @@ function storeCredential(
         `$JAZZ_DISABLE_KEYRING is set, so jazz won't store this anywhere. Unset it and run ` +
           `this again, or set ${envVar} yourself wherever the daemon runs.`,
       );
+      process.exitCode = 1;
       return;
     }
 
@@ -77,6 +78,7 @@ function storeCredential(
         `Could not store the ${credential.noun}: neither the OS keyring nor the ` +
           `$JAZZ_HOME/secrets.json fallback could be written to. Check that $JAZZ_HOME is writable.`,
       );
+      process.exitCode = 1;
       return;
     }
 

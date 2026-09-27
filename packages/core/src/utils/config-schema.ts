@@ -375,7 +375,7 @@ const contextSchema = z.strictObject(contextShape).superRefine((context, refinem
     refinement.addIssue({
       code: "custom",
       path: ["warnThresholdRatio"],
-      message: "must be below compactThresholdRatio",
+      message: "a number below compactThresholdRatio",
     });
   }
 });
@@ -817,7 +817,9 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
-        expected: describeExpected(schemaAt(issue.path, working)),
+        // A refinement names its own rule; a structural issue is described from the schema.
+        expected:
+          issue.code === "custom" ? issue.message : describeExpected(schemaAt(issue.path, working)),
         actual,
       });
       removals.push(removed);

@@ -19,6 +19,7 @@
 
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
+import { toError } from "@jazz/core/utils/errors";
 import { getWebhookDeliveriesDirectory } from "@jazz/core/utils/paths";
 import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
@@ -63,21 +64,31 @@ export function claimDelivery(
     return Effect.succeed("fresh");
   }
   const filePath = ledgerPath(directory, webhookName);
-  return withLock(
-    `${filePath}.lock`,
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const claimed = yield* readClaimed(fs, filePath);
-      const known = new Set(claimed);
-      if (keys.some((key) => known.has(key))) {
-        return "duplicate" as const;
-      }
-      const kept = [...claimed, ...keys].slice(-MAX_REMEMBERED_DELIVERIES);
-      yield* writeFileStringAtomic(fs, filePath, JSON.stringify(kept), {
-        tempPrefix: "webhook-deliveries",
-        mode: 0o600,
-      });
-      return "fresh" as const;
-    }),
-  );
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs
+      .makeDirectory(directory, { recursive: true, mode: DELIVERIES_DIRECTORY_MODE })
+      .pipe(Effect.mapError(toError));
+    return yield* withLock(`${filePath}.lock`, claimUnderLock(fs, filePath, keys));
+  });
+}
+
+/** Owner-only, since the record says which deliveries reached this machine. */
+const DELIVERIES_DIRECTORY_MODE = 0o700;
+const DELIVERIES_FILE_MODE = 0o600;
+
+function claimUnderLock(fs: FileSystem.FileSystem, filePath: string, keys: readonly string[]) {
+  return Effect.gen(function* () {
+    const claimed = yield* readClaimed(fs, filePath);
+    const known = new Set(claimed);
+    if (keys.some((key) => known.has(key))) {
+      return "duplicate" as const;
+    }
+    const kept = [...claimed, ...keys].slice(-MAX_REMEMBERED_DELIVERIES);
+    yield* writeFileStringAtomic(fs, filePath, JSON.stringify(kept), {
+      tempPrefix: "webhook-deliveries",
+      mode: DELIVERIES_FILE_MODE,
+    });
+    return "fresh" as const;
+  });
 }
