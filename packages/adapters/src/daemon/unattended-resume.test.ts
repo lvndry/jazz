@@ -86,7 +86,7 @@ describe("approvalNotification", () => {
 
     const notification = approvalNotification({ source: "job batch", sourceId: "b1" }, outcome);
 
-    expect(notification.body).toContain("jazz runs resume run-1");
+    expect(notification.body).toContain("jazz runs approve run-1");
     expect(notification.body).toContain("execute_command");
     expect(notification.body).toContain("b1");
   });

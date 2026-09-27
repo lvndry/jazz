@@ -36,7 +36,6 @@ const ALLOW_LIST_ATTEMPTS = 3;
 
 const STORE_FILES = {
   timezone: "ph-tz.json",
-  usage: "ph-usage.json",
   sessions: "ph-sessions.json",
   mode: "ph-mode.json",
 } as const;
@@ -407,6 +406,7 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "photon",
     agentIdFor: (chatId) => agentIdForSpace(chatId),
   });
 

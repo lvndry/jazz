@@ -45,6 +45,8 @@ export interface WorkflowMetadata {
   readonly maxTokens?: number;
   /** Wall-clock spend budget in ms. Unset, the run falls back to config `maxDurationMs`; unset at both means uncapped. */
   readonly maxDurationMs?: number;
+  /** Notify channels (`notifications.channels.<name>`) that receive each run's answer. */
+  readonly deliver?: readonly string[];
 }
 
 /** Everything a WORKFLOW.md declares about itself, before Jazz knows where it lives. */
@@ -120,6 +122,8 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ? data["skills"].filter((s): s is string => typeof s === "string")
     : undefined;
 
+  const deliver = parseDeliver(data["deliver"]);
+
   // Build the metadata object using conditional spreading
   return {
     name,
@@ -136,7 +140,17 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ...(typeof data["maxCostUSD"] === "number" && { maxCostUSD: data["maxCostUSD"] }),
     ...(typeof data["maxTokens"] === "number" && { maxTokens: data["maxTokens"] }),
     ...(typeof data["maxDurationMs"] === "number" && { maxDurationMs: data["maxDurationMs"] }),
+    ...(deliver.length > 0 && { deliver }),
   };
+}
+
+/** `deliver: phone` or `deliver: [phone, team]`: the notify channels a result goes to. */
+function parseDeliver(value: unknown): readonly string[] {
+  const names = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  return names
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
 }
 
 /**

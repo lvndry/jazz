@@ -7,6 +7,8 @@
  * secrets without each call site knowing it is handling one.
  */
 
+import { NOTIFY_CHANNEL_SECRET_FIELDS } from "@jazz/core/types/notify";
+
 /** Keychain/libsecret service name under which Jazz stores its secrets. */
 export const KEYRING_SERVICE_NAME = "jazz";
 
@@ -159,6 +161,27 @@ export function peerTokenEnvVar(peerName: string): string {
   return `JAZZ_PEER_TOKEN_${peerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 }
 
+/** A notify channel's secret field, e.g. `notifications.channels.phone.botToken`. */
+const NOTIFY_CHANNEL_SECRET_PATH = new RegExp(
+  `^notifications\\.channels\\.([^.]+)\\.(${[
+    ...new Set(Object.values(NOTIFY_CHANNEL_SECRET_FIELDS).flat()),
+  ].join("|")})$`,
+);
+
+/** The config path holding one notify channel's secret field. */
+export function notifyChannelSecretPath(channel: string, field: string): string {
+  return `notifications.channels.${channel}.${field}`;
+}
+
+/**
+ * Environment variable supplying a notify channel's secret, for hosts with no keyring:
+ * `JAZZ_NOTIFY_PHONE_BOT_TOKEN` for `notifications.channels.phone.botToken`.
+ */
+export function notifyChannelSecretEnvVar(channel: string, field: string): string {
+  const fieldSuffix = field.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+  return `JAZZ_NOTIFY_${secretEnvVarSuffix(channel)}_${fieldSuffix}`;
+}
+
 /** Every config path Jazz treats as a secret. */
 export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
@@ -185,6 +208,9 @@ export function isSecretPath(path: string): boolean {
   // the same reason a peer token does: the config file names the webhook without ever
   // holding its credential.
   if (WEBHOOK_TOKEN_PATH.test(path)) return true;
+  // A notify channel's bot token, token-bearing webhook URL or signing key authenticates Jazz
+  // to your chat or endpoint; the config file names the channel without holding them.
+  if (NOTIFY_CHANNEL_SECRET_PATH.test(path)) return true;
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
@@ -216,5 +242,9 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
   if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
+  const channel = NOTIFY_CHANNEL_SECRET_PATH.exec(path);
+  if (channel?.[1] !== undefined && channel[2] !== undefined) {
+    return notifyChannelSecretEnvVar(channel[1], channel[2]);
+  }
   return SECRET_ENV_VARS[path];
 }

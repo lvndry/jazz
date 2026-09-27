@@ -141,6 +141,7 @@ export function servePeerRequest(request: ServePeerRequest) {
       userInput: `${peerPersonaPreamble(request.peer.name)}\n\nThe question:\n${request.question}`,
       conversationId,
       toolAllowlist,
+      origin: { source: "peer", name: request.peer.name },
       // `toolAllowlist` is the authorization boundary, already vetted above — nothing
       // outside it is ever reachable. `autoApprovedTools` is the wrong lever for this: it is
       // a session-scoped, interactively-originated escape hatch (mutated when a human picks

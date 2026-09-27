@@ -6,8 +6,10 @@ import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
+import type { NotifyChannelConfig } from "./notify";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
+import type { SpendConfig } from "./spend";
 import type { WebhookConfig } from "./webhook";
 
 export type SchedulerMode = "auto" | "in-process";
@@ -84,6 +86,11 @@ export interface AppConfig {
    * way (a bearer token in the keyring, never in this file).
    */
   readonly webhooks?: readonly WebhookConfig[];
+  /**
+   * Day and month spend ceilings for every run on this machine, one agent, or goal work.
+   * Unset means unlimited. Unattended runs refuse to start once one is reached; chat warns.
+   */
+  readonly spend?: SpendConfig;
 }
 
 export interface ContextConfig {
@@ -103,6 +110,8 @@ export interface ContextConfig {
 export interface NotificationsConfig {
   readonly enabled?: boolean;
   readonly sound?: boolean;
+  /** Named delivery targets for results, reminders, parked approvals and failures. */
+  readonly channels?: Readonly<Record<string, NotifyChannelConfig>>;
 }
 
 export interface TelemetryConfig {

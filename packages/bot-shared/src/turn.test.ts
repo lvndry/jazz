@@ -132,10 +132,10 @@ describe("turn runner", () => {
       showReasoning: false,
       files: {
         timezone: "t-tz.json",
-        usage: "t-usage.json",
         sessions: "t-sessions.json",
         mode: "t-mode.json",
       },
+      spendOrigin: "test",
       agentIdFor: (chatId) => `t_${chatId}`,
       onPendingChange: (_chatId, outstanding) => pendingSeen.push([...outstanding]),
       startRun: (_options, handlers) => {

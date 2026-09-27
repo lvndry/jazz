@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
@@ -174,6 +175,12 @@ export interface AgentRunnerOptions {
    * cycles get `report_goal_cycle`, and no other run gets either.
    */
   readonly startedBy?: RunStarter;
+  /**
+   * Which entry point started this run, for the spend ledger, the spend ceilings and the
+   * notify channel. Unset reads as `{ source: "run" }`: unattended, so a reached ceiling
+   * refuses it. Ignored for internal runs, whose cost is part of their parent's.
+   */
+  readonly origin?: RunOrigin;
   /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.

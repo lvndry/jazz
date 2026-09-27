@@ -24,6 +24,7 @@ import {
 } from "@jazz/bot-shared/approval-mode-store";
 import {
   adoptIntoSandbox,
+  bridgeRunEnv,
   type ChatSandbox,
   chatIsolationEnabled,
   ensureChatSandbox,
@@ -35,6 +36,11 @@ import {
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import {
+  answerRunFromChat,
+  isRunAnswerCommand,
+  parseOperatorIds,
+} from "@jazz/bot-shared/run-answer";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -50,7 +56,12 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
+import {
+  capBlockMessage,
+  dailyCostCapBlockReason,
+  recordUsage,
+  todayUsage,
+} from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -121,7 +132,8 @@ import {
 import { startReminderSweep } from "./reminders";
 
 const TZ_FILE = "dc-tz.json";
-const USAGE_FILE = "dc-usage.json";
+/** Names this bridge's runs in the spend ledger; its daily cap counts only these. */
+const SPEND_ORIGIN = "discord";
 const EPOCHS_FILE = "dc-sessions.json";
 const INCOGNITO_FILE = "dc-incognito.json";
 const MODE_FILE = "dc-mode.json";
@@ -180,6 +192,8 @@ interface BridgeConfig extends AccessConfig {
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
+  /** Discord user ids allowed to answer parked runs with /approve and /deny. */
+  readonly operatorIds: ReadonlySet<string>;
   readonly jazzHome: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
@@ -282,6 +296,7 @@ function loadConfig(): BridgeConfig {
       .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
+    operatorIds: parseOperatorIds(process.env["DISCORD_OPERATOR_IDS"]),
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
@@ -723,7 +738,7 @@ async function runJazz(
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env, "discord"),
+      env: bridgeRunEnv(sandbox, process.env, "discord"),
     },
   );
   activeRuns.set(runToken, { child, cancelled: false });
@@ -832,23 +847,15 @@ async function handleMessage(
   const replyReference =
     replyToMessageId !== undefined ? { message_reference: { message_id: replyToMessageId } } : {};
 
-  const usage = todayUsage(config.jazzHome, USAGE_FILE);
-  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
-  if (capBlockReason === "unpriced") {
+  const capBlockReason = dailyCostCapBlockReason(
+    await todayUsage(config.jazzHome, SPEND_ORIGIN),
+    config.dailyCostCapUsd,
+  );
+  if (capBlockReason !== undefined) {
     await sendReply(
       config,
       channelId,
-      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
-      replyReference,
-    );
-    return;
-  }
-
-  if (capBlockReason === "reached") {
-    await sendReply(
-      config,
-      channelId,
-      `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
+      capBlockMessage(capBlockReason, config.dailyCostCapUsd),
       replyReference,
     );
     return;
@@ -916,13 +923,12 @@ async function handleMessage(
         );
       }
       const costKnown = envelope.costKnown !== false;
-      recordUsage(
-        config.jazzHome,
-        USAGE_FILE,
-        envelope.costUSD,
-        envelope.tokenUsage?.totalTokens ?? 0,
+      await recordUsage(config.jazzHome, SPEND_ORIGIN, {
+        agentId: agentIdForChannel(channelId),
+        costUSD: envelope.costUSD,
+        tokens: envelope.tokenUsage?.totalTokens ?? 0,
         costKnown,
-      );
+      });
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ **Done**"];
       if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));
@@ -1183,6 +1189,7 @@ const HELP_TEXT = [
   "`/reminders` — list and cancel your reminders",
   "`/tz` — set your timezone so reminder times are local (e.g. `/tz zone:Europe/Paris`)",
   "`/status` — model, today's usage, uptime",
+  "`/approve <runId>`, `/deny <runId> [why]`: answer a parked run a notification told you about (operator only)",
   "`/help` — show this",
   "",
   "In a server I only reply when mentioned, when you reply to me, or in a thread I already joined.",
@@ -1379,7 +1386,7 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config.jazzHome, USAGE_FILE);
+    const day = await todayUsage(config.jazzHome, SPEND_ORIGIN);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 **Status**",
@@ -1609,6 +1616,20 @@ async function dispatchMessage(
   if (stripped.length === 0) return;
 
   const parsed = parseCommand(stripped);
+  if (parsed !== undefined && isRunAnswerCommand(parsed.command)) {
+    const reply = await answerRunFromChat({
+      command: parsed.command,
+      args: parsed.args,
+      senderId: message.author.id,
+      operatorIds: config.operatorIds,
+      operatorSettingName: "DISCORD_OPERATOR_IDS",
+      jazzBinary: config.jazzBinary,
+      onAccepted: (runId) =>
+        sendReply(config, message.channel_id, `⏳ Answering run \`${runId}\`…`),
+    });
+    await sendReply(config, message.channel_id, reply);
+    return;
+  }
   const known = new Set([
     "help",
     "status",

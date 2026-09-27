@@ -32,6 +32,7 @@ import {
 } from "@jazz/bot-shared/approval-mode-store";
 import {
   adoptIntoSandbox,
+  bridgeRunEnv,
   type ChatSandbox,
   chatIsolationEnabled,
   ensureChatSandbox,
@@ -43,6 +44,11 @@ import {
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import {
+  answerRunFromChat,
+  isRunAnswerCommand,
+  parseOperatorIds,
+} from "@jazz/bot-shared/run-answer";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -58,7 +64,12 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
+import {
+  capBlockMessage,
+  dailyCostCapBlockReason,
+  recordUsage,
+  todayUsage,
+} from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
@@ -93,7 +104,8 @@ import {
 } from "./telegram-html";
 
 const TZ_FILE = "tg-tz.json";
-const USAGE_FILE = "tg-usage.json";
+/** Names this bridge's runs in the spend ledger; its daily cap counts only these. */
+const SPEND_ORIGIN = "telegram";
 const EPOCHS_FILE = "tg-sessions.json";
 const INCOGNITO_FILE = "tg-incognito.json";
 const MODE_FILE = "tg-mode.json";
@@ -177,6 +189,8 @@ interface BridgeConfig {
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
+  /** Telegram user ids allowed to answer parked runs with /approve and /deny. */
+  readonly operatorIds: ReadonlySet<string>;
   readonly jazzHome: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
@@ -289,6 +303,7 @@ function loadConfig(): BridgeConfig {
       .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
+    operatorIds: parseOperatorIds(process.env["TELEGRAM_OPERATOR_IDS"]),
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
@@ -1029,7 +1044,7 @@ async function runJazz(
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env, "telegram"),
+      env: bridgeRunEnv(sandbox, process.env, "telegram"),
     },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
@@ -1139,25 +1154,14 @@ async function handleMessage(
 ): Promise<void> {
   ensureChatAgent(config.jazzHome, sandboxForChat(config, chatId), chatId, config.baseAgentId);
 
-  const usage = todayUsage(config.jazzHome, USAGE_FILE);
-  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
-  if (capBlockReason === "unpriced") {
-    await sendReply(
-      config,
-      chatId,
-      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
-      { replyTo: replyToMessageId },
-    );
-    return;
-  }
-
-  if (capBlockReason === "reached") {
-    await sendReply(
-      config,
-      chatId,
-      `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
-      { replyTo: replyToMessageId },
-    );
+  const capBlockReason = dailyCostCapBlockReason(
+    await todayUsage(config.jazzHome, SPEND_ORIGIN),
+    config.dailyCostCapUsd,
+  );
+  if (capBlockReason !== undefined) {
+    await sendReply(config, chatId, capBlockMessage(capBlockReason, config.dailyCostCapUsd), {
+      replyTo: replyToMessageId,
+    });
     return;
   }
 
@@ -1226,13 +1230,12 @@ async function handleMessage(
         );
       }
       const costKnown = envelope.costKnown !== false;
-      recordUsage(
-        config.jazzHome,
-        USAGE_FILE,
-        envelope.costUSD,
-        envelope.tokenUsage?.totalTokens ?? 0,
+      await recordUsage(config.jazzHome, SPEND_ORIGIN, {
+        agentId: agentIdForChat(chatId),
+        costUSD: envelope.costUSD,
+        tokens: envelope.tokenUsage?.totalTokens ?? 0,
         costKnown,
-      );
+      });
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ <b>Done</b>"];
       if (used.length > 0) {
@@ -1546,6 +1549,7 @@ const HELP_TEXT = [
   "/reminders — list and cancel your reminders",
   "/tz — set your timezone so reminder times are local (e.g. /tz Europe/Paris)",
   "/status — model, today's usage, uptime",
+  "/approve <runId>, /deny <runId> [why]: answer a parked run a notification told you about (operator only)",
   "/help — show this",
   "",
   "📍 Share your location (📎 → Location) and I'll tell you where you are, find nearby places, and set your timezone.",
@@ -1732,7 +1736,7 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config.jazzHome, USAGE_FILE);
+    const day = await todayUsage(config.jazzHome, SPEND_ORIGIN);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 <b>Status</b>",
@@ -2146,6 +2150,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 interface TelegramMessage extends TelegramMediaFields {
   readonly chat?: { readonly id?: number };
   readonly from?: {
+    readonly id?: number;
     readonly first_name?: string;
     readonly username?: string;
     readonly is_bot?: boolean;
@@ -2224,9 +2229,23 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
   if (typeof text === "string" && text.length > 0) {
     const parsed = parseCommand(text);
     work =
-      parsed !== undefined
-        ? handleCommand(config, chatId, parsed.command, parsed.args)
-        : handleMessage(config, chatId, withReplyContext(message ?? {}, text));
+      parsed !== undefined && isRunAnswerCommand(parsed.command)
+        ? answerRunFromChat({
+            command: parsed.command,
+            args: parsed.args,
+            senderId:
+              message?.from?.is_bot === true || message?.from?.id === undefined
+                ? undefined
+                : String(message.from.id),
+            operatorIds: config.operatorIds,
+            operatorSettingName: "TELEGRAM_OPERATOR_IDS",
+            jazzBinary: config.jazzBinary,
+            onAccepted: (runId) =>
+              sendReply(config, chatId, `⏳ Answering run <code>${escapeHtml(runId)}</code>…`),
+          }).then((reply) => sendReply(config, chatId, escapeHtml(reply)).then(() => undefined))
+        : parsed !== undefined
+          ? handleCommand(config, chatId, parsed.command, parsed.args)
+          : handleMessage(config, chatId, withReplyContext(message ?? {}, text));
   } else if (
     typeof latitude === "number" &&
     Number.isFinite(latitude) &&

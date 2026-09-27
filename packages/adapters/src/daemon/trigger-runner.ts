@@ -10,11 +10,15 @@
  *
  * Reminders and wake triggers are delivered at least once: the record is claimed before the
  * effect, removed only after it succeeded, and kept with the error and a retry time when it
- * failed (see `delivery.ts` in core).
+ * failed (see `delivery.ts` in core). Each tick also drains the notify outbox and compacts the
+ * spend ledger's finished days.
  */
 
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import type { WakeTriggerRecord } from "@jazz/core/interfaces/wake-trigger-service";
+import { enqueueNotification } from "@jazz/core/notify/outbox";
+import { compactSpendLedger } from "@jazz/core/spend/ledger";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
@@ -35,6 +39,7 @@ import { Cause, Effect, Exit } from "effect";
 import { runDueJobs } from "@/adapters/daemon/job-worker";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import { runDueDetachedJobs } from "@/adapters/detach/job";
+import { drainNotifyOutbox } from "@/adapters/notification/outbox-drain";
 import { claimDueReminders, isBotHostedAgentId, settleReminder } from "@/adapters/reminder-service";
 import type { ScheduledItemClaim } from "@/adapters/storage/scheduled-items";
 import { claimDueWakeTriggers, settleWakeTrigger } from "@/adapters/wake-trigger-service";
@@ -107,25 +112,54 @@ export function deliverWakeTrigger(agentId: string, trigger: WakeTriggerRecord) 
   });
 }
 
-/** What a reminder records when no desktop notification could be shown. */
-const DESKTOP_NOTIFICATION_UNAVAILABLE =
-  "No desktop notification could be shown (no notifier installed, or no desktop session on this host).";
+/** What a reminder records when it could be shown neither on the desktop nor on a channel. */
+const REMINDER_UNDELIVERABLE =
+  "No desktop notification could be shown (no notifier installed, or no desktop session on this host), and no notify channel takes reminders.";
 
 /**
- * Show a claimed reminder as a desktop notification and settle the claim. When nothing could
- * be shown (a headless host, a system service with no desktop session), the reminder stays on
- * disk as failed with that reason, so a later sweep or another delivery channel can still
- * deliver it instead of it being consumed unseen.
+ * Deliver a claimed reminder and settle the claim. The desktop comes first; when nothing can be
+ * shown there (a headless host, a system service with no desktop session), the reminder is
+ * handed to every notify channel that takes reminders. The outbox retries a channel that is
+ * down, so a reminder handed over is delivered. With no desktop and no channel, the reminder
+ * stays on disk as failed with that reason instead of being consumed unseen.
  */
-export function deliverReminderToDesktop(agentId: string, reminder: ReminderRecord) {
+export function deliverReminder(agentId: string, reminder: ReminderRecord) {
   return Effect.gen(function* () {
     const shown = yield* sendDesktopNotification("Jazz reminder", reminder.text).pipe(
       Effect.catchAll(() => Effect.succeed(false)),
     );
-    const outcome: DeliveryOutcome = shown
-      ? { delivered: true }
-      : { delivered: false, error: DESKTOP_NOTIFICATION_UNAVAILABLE, retryable: true };
-    return yield* settleReminder(reminderDirectory(), agentId, reminder.id, outcome);
+    const handedOff = shown ? false : yield* handReminderToChannels(agentId, reminder);
+    const outcome: DeliveryOutcome =
+      shown || handedOff
+        ? { delivered: true }
+        : { delivered: false, error: REMINDER_UNDELIVERABLE, retryable: true };
+    const settled = yield* settleReminder(reminderDirectory(), agentId, reminder.id, outcome);
+    if (handedOff) {
+      yield* drainNotifyOutbox();
+    }
+    return settled;
+  });
+}
+
+function handReminderToChannels(agentId: string, reminder: ReminderRecord) {
+  return Effect.gen(function* () {
+    const config = yield* AgentConfigServiceTag;
+    const appConfig = yield* config.appConfig;
+    const result = yield* enqueueNotification(
+      appConfig.notifications?.channels,
+      { kind: "reminder", agentId, text: reminder.text, fireAt: reminder.fireAt },
+      { excludeTypes: ["desktop"] },
+    ).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          process.stderr.write(
+            `[jazz] Could not queue a reminder notification: ${error.message}\n`,
+          );
+          return { queued: [] as readonly string[] };
+        }),
+      ),
+    );
+    return result.queued.length > 0;
   });
 }
 
@@ -190,6 +224,8 @@ export interface TickWork<R> {
   ) => Effect.Effect<void, unknown, R>;
   readonly drainDetachedJobs: Effect.Effect<void, unknown, R>;
   readonly drainJobBatches: Effect.Effect<void, unknown, R>;
+  readonly drainNotifications: Effect.Effect<void, unknown, R>;
+  readonly compactSpendLedger: Effect.Effect<void, unknown, R>;
 }
 
 /** The daemon's real tick work. */
@@ -216,9 +252,11 @@ export const daemonTickWork = {
       ),
     ),
   deliverReminder: (agentId: string, reminder: ReminderRecord) =>
-    deliverReminderToDesktop(agentId, reminder).pipe(Effect.asVoid),
+    deliverReminder(agentId, reminder).pipe(Effect.asVoid),
   drainDetachedJobs: runDueDetachedJobs(),
   drainJobBatches: runDueJobs(),
+  drainNotifications: drainNotifyOutbox().pipe(Effect.asVoid),
+  compactSpendLedger: compactSpendLedger(),
 };
 
 /**
@@ -283,6 +321,14 @@ export function runTick<R>(options: { readonly runWorkflows?: boolean }, work: T
     yield* forkOnce(
       "job batches",
       work.drainJobBatches.pipe(Effect.catchAllCause(reportFailure("jobs"))),
+    );
+    yield* forkOnce(
+      "notifications",
+      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
+    );
+    yield* forkOnce(
+      "spend ledger",
+      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
     );
   });
 }

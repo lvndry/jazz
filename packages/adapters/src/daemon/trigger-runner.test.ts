@@ -20,6 +20,8 @@ function tickWork(overrides: Partial<TickWork<never>>): TickWork<never> {
     deliverReminder: () => Effect.void,
     drainDetachedJobs: Effect.void,
     drainJobBatches: Effect.void,
+    drainNotifications: Effect.void,
+    compactSpendLedger: Effect.void,
     ...overrides,
   };
 }
