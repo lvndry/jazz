@@ -39,6 +39,7 @@ import { Effect, Option } from "effect";
 import {
   agentConversationLockPath,
   archiveConversationLog,
+  countConversationLogs,
   getHistoryArchiveDirectory,
   listConversationLogs,
   readConversationLog,
@@ -134,6 +135,11 @@ function archiveBeyondRetention(
   conversationsInUse: ConversationsInUse,
 ): Effect.Effect<readonly string[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    // Counting names is one directory read; listing reads every log's header, which only an
+    // agent over its limit needs.
+    if ((yield* countConversationLogs(agentId, dir)) <= conversationRetentionLimit) {
+      return [];
+    }
     const logs = yield* listConversationLogs(agentId, dir);
     const candidates = logs.slice(conversationRetentionLimit);
     if (candidates.length === 0) {

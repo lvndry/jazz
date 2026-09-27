@@ -36,6 +36,7 @@
  * the next save reads the file again.
  */
 import { createHash } from "node:crypto";
+import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
@@ -393,29 +394,32 @@ function readLogContent(
  * The first line of a file, read in small chunks so listing a directory of long logs costs
  * their headers rather than their whole bodies. Null when the file cannot be read.
  */
-function readFirstLine(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-): Effect.Effect<string | null, never> {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const file = yield* fs.open(filePath, { flag: "r" });
-      const decoder = new TextDecoder();
-      let line = "";
-      while (true) {
-        const chunk = yield* file.readAlloc(FileSystem.Size(HEADER_READ_CHUNK_BYTES));
-        if (Option.isNone(chunk)) {
-          return line;
-        }
-        const text = decoder.decode(chunk.value, { stream: true });
-        const newline = text.indexOf("\n");
-        if (newline !== -1) {
-          return line + text.slice(0, newline);
-        }
-        line += text;
+async function readFirstLine(filePath: string): Promise<string | null> {
+  let handle: nodeFs.FileHandle | undefined;
+  try {
+    handle = await nodeFs.open(filePath, "r");
+    const chunks: Buffer[] = [];
+    let position = 0;
+    while (true) {
+      const chunk = Buffer.alloc(HEADER_READ_CHUNK_BYTES);
+      const { bytesRead } = await handle.read(chunk, 0, HEADER_READ_CHUNK_BYTES, position);
+      if (bytesRead === 0) {
+        return Buffer.concat(chunks).toString("utf-8");
       }
-    }),
-  ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const read = chunk.subarray(0, bytesRead);
+      const newline = read.indexOf(0x0a);
+      if (newline !== -1) {
+        chunks.push(read.subarray(0, newline));
+        return Buffer.concat(chunks).toString("utf-8");
+      }
+      chunks.push(read);
+      position += bytesRead;
+    }
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 /** Parses a log body into events, skipping lines a crash left unreadable. */
@@ -469,7 +473,7 @@ export function listConversationLogs(
       const info = yield* fs.stat(filePath).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info || info.type !== "File") continue;
 
-      const headerLine = yield* readFirstLine(fs, filePath);
+      const headerLine = yield* Effect.promise(() => readFirstLine(filePath));
       if (headerLine === null) continue;
       const header = parseConversationLogLine(headerLine);
       if (header?.type !== "conversation") continue;
@@ -486,6 +490,20 @@ export function listConversationLogs(
     }
 
     return infos.sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+  });
+}
+
+/** How many conversation logs an agent has, from the directory listing alone. */
+export function countConversationLogs(
+  agentId: string,
+  historyDirectory?: string,
+): Effect.Effect<number, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const names = yield* fs
+      .readDirectory(agentConversationsDirectory(agentId, historyDirectory))
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    return names.filter((name) => name.endsWith(CONVERSATION_LOG_EXTENSION)).length;
   });
 }
 
