@@ -12,7 +12,7 @@ import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
-import type { streamText } from "ai";
+import type { LanguageModelUsage, streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
@@ -157,6 +157,13 @@ interface StreamProcessorConfig {
 }
 
 /**
+ * How long to wait for `result.usage` when the stream's `finish` part carried none. Usage
+ * normally settles with the stream; a provider that never reports it would otherwise hold the
+ * completion open, so past this the response goes out marked as missing usage.
+ */
+const USAGE_SETTLE_TIMEOUT_MS = 2_000;
+
+/**
  * Stream processor state
  */
 interface StreamProcessorState {
@@ -191,6 +198,8 @@ interface StreamProcessorState {
   // Completion tracking
   finishEventReceived: boolean;
   finishReason: string | undefined;
+  /** Usage the `finish` part carried, which arrives in-stream before `result.usage` settles. */
+  finishUsage: LanguageModelUsage | undefined;
 
   // Interruption
   cancelled: boolean;
@@ -215,6 +224,7 @@ function createInitialState(): StreamProcessorState {
     firstReasoningTime: null,
     finishEventReceived: false,
     finishReason: undefined,
+    finishUsage: undefined,
     cancelled: false,
   };
 }
@@ -492,6 +502,9 @@ export class StreamProcessor {
             const finishReason = part.finishReason || "unknown";
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
+            if ("totalUsage" in part && part.totalUsage) {
+              this.state.finishUsage = part.totalUsage;
+            }
 
             // Handle error finish reason
             if (finishReason === "error") {
@@ -609,10 +622,14 @@ export class StreamProcessor {
 
     let usage: ChatCompletionResponse["usage"];
     try {
-      const usageResult = await Promise.race([
-        result.usage,
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
-      ]);
+      const usageResult =
+        this.state.finishUsage ??
+        (await Promise.race([
+          result.usage,
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), USAGE_SETTLE_TIMEOUT_MS),
+          ),
+        ]));
 
       if (usageResult) {
         usage = {
@@ -638,7 +655,7 @@ export class StreamProcessor {
         void this.emitEvent({ type: "usage_update", usage });
       }
     } catch {
-      // Ignore usage errors
+      // Handled below: a response without usage is reported as such.
     }
 
     let reasoningParts: ChatCompletionResponse["reasoningParts"];

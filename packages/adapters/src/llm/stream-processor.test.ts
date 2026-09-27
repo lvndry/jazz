@@ -89,6 +89,33 @@ describe("StreamProcessor", () => {
     expect(complete.metrics.tokensPerSecond).toBeGreaterThan(upperBound / 3);
   });
 
+  it("takes usage from the finish part without waiting on result.usage", async () => {
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      () => {},
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "Hello" };
+        yield {
+          type: "finish",
+          finishReason: "stop",
+          totalUsage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
+        };
+      })(),
+      usage: new Promise(() => {}),
+      response: Promise.resolve({ messages: [] }),
+    } as any;
+
+    const startedAt = Date.now();
+    const finalResponse = await processor.process(mockResult);
+
+    expect(finalResponse.usage).toMatchObject({ promptTokens: 12, completionTokens: 3 });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   it("omits tokens per second when the provider reports no output tokens", async () => {
     const events: any[] = [];
     const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {

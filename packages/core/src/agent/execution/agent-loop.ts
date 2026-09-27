@@ -1363,6 +1363,11 @@ function runIteration(
 
     if (result.interrupted) {
       const completion = result.completion;
+      // A stopped request was billed for what it had streamed; with no usage report, the
+      // run's totals cannot claim to be complete.
+      if (completion.usage === undefined) {
+        runMetrics.usageMissing = true;
+      }
       state.response = {
         ...state.response,
         content: completion.content,
@@ -1404,6 +1409,12 @@ function runIteration(
         messagesAtCallTime: state.currentMessages,
         provider,
         modelId: model,
+      });
+    } else {
+      runMetrics.usageMissing = true;
+      yield* logger.warn("Model response carried no token usage; run cost is incomplete", {
+        agentId: agent.id,
+        provider,
       });
     }
 
