@@ -51,6 +51,8 @@ Edit `.env` and set at least:
 
 - `TELEGRAM_BOT_TOKEN`: from step 1.
 - `TELEGRAM_ALLOWED_CHAT_IDS`: your id from step 2 (comma-separated if more than one).
+- `TELEGRAM_OPERATOR_IDS`: your id again, if you want to be able to turn approvals off with
+  `/mode yolo` or use "Always allow". See [Operators](#operators).
 - A model backend. `OPENAI_API_KEY` is set by default (`JAZZ_TELEGRAM_PROVIDER=openai`,
   `JAZZ_TELEGRAM_MODEL=gpt-5.4`). To run fully local instead, set
   `JAZZ_TELEGRAM_PROVIDER=ollama` and `JAZZ_TELEGRAM_MODEL=<a model you've pulled>`.
@@ -135,6 +137,9 @@ Edit `.env` and set at least:
 - `DISCORD_BOT_TOKEN`: from step 1.
 - One allowlist: `DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_CHANNEL_IDS`, and/or
   `DISCORD_ALLOWED_GUILD_IDS`.
+- `DISCORD_OPERATOR_IDS`: your user id, if you want to be able to turn approvals off with
+  `/mode yolo`. With a guild allowlist everyone in the server can talk to the bot, so this is
+  what keeps them from switching it to yolo. See [Operators](#operators).
 - A model backend. `OPENAI_API_KEY` is set by default (`JAZZ_DISCORD_PROVIDER=openai`,
   `JAZZ_DISCORD_MODEL=gpt-5.4`). To run fully local instead, set
   `JAZZ_DISCORD_PROVIDER=ollama` and `JAZZ_DISCORD_MODEL=<a model you've pulled>`.
@@ -343,6 +348,29 @@ separate business number, and only allows template messages outside a 24-hour re
 , which is why it is not what this uses.
 
 Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
+
+---
+
+## Operators
+
+Being on an allowlist lets someone talk to the agent. It does not let them widen what the
+agent may do without asking: `/mode yolo` (every tool runs unprompted, shell included) and
+Telegram's "Always allow" are for operators only. Everyone else who tries is told they cannot,
+with the id to add if they should.
+
+| Bridge   | Operators                                                                      |
+| -------- | ------------------------------------------------------------------------------ |
+| Telegram | `TELEGRAM_OPERATOR_IDS`: comma-separated Telegram user ids                     |
+| Discord  | `DISCORD_OPERATOR_IDS`: comma-separated Discord user ids                       |
+| WhatsApp | `WHATSAPP_OPERATOR_NUMBERS`: comma-separated numbers, international form       |
+| iMessage | `IMESSAGE_OPERATOR_HANDLES`: numbers or Apple IDs; the account owner always is |
+| Photon   | `PHOTON_OPERATOR_HANDLES`: numbers or Apple IDs                                |
+
+Unset means nobody can turn approvals off from a chat, which is the safe default for a bot
+several people share. Setting it back with `/mode safe` is open to anyone.
+
+In a group, an approval belongs to the person whose message started the run: only they can
+approve, reject or answer it, by button or by replying with the number.
 
 ---
 

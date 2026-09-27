@@ -172,8 +172,8 @@ function registerRunCommand(program: Command): void {
       "Skip Jazz conversation/session persistence: --conversation is ignored (no history load/save) and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
     .option(
-      "--history-json <json>",
-      "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
+      "--input-stdin",
+      'Read the prompt from the first stdin line as JSON: {"prompt": "...", "history": [...]}. `history` (with --ephemeral) is the `messages` field of the previous --ephemeral --json envelope. Keeps a relayed message and transcript off the command line; later stdin lines still carry --interactive-stdin answers.',
     )
     .option(
       "--park",
@@ -213,7 +213,7 @@ function registerRunCommand(program: Command): void {
           noStream?: boolean;
           interactiveStdin?: boolean;
           ephemeral?: boolean;
-          historyJson?: string;
+          inputStdin?: boolean;
           park?: boolean;
           withVision?: string;
           withAudio?: string;
@@ -360,7 +360,7 @@ function registerRunCommand(program: Command): void {
                 ...resolveStreamOption(options, eventCategories),
                 ...(options.interactiveStdin === true ? { interactiveStdin: true } : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
-                ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
+                ...(options.inputStdin === true ? { inputStdin: true } : {}),
                 ...(options.park === true ? { park: true } : {}),
                 ...(companionFlags.some((entry) => entry.value !== undefined)
                   ? {

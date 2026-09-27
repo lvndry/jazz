@@ -56,9 +56,9 @@ agent turn, prints a clean payload. **stdout is the answer; all chatter goes to 
 jazz run --agent <id> [prompt]
 ```
 
-The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
-treated as untrusted text.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or from piped
+stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
+memory write; plain piped stdin is treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -80,7 +80,7 @@ treated as untrusted text.
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                                         |
+| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                  |
 | `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
 | `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |

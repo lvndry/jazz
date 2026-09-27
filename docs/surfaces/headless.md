@@ -107,25 +107,42 @@ interpret that fallback as a free run.
 | `--with-video <p/m>`       | Same, for the `analyze:video` companion.                                                                                                                                                                                       |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                                                                                                    |
 | `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                                                                                            |
+| `--input-stdin`            | Read the prompt (and, with `--ephemeral`, prior `history`) from the first stdin line as JSON. See [below](#prompt-input-argument-stdin-or-an-input-frame).                                                                     |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--events reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path.                                                |
 
 ---
 
-## Prompt input: argument or stdin
+## Prompt input: argument, stdin, or an input frame
 
-The prompt comes from the positional argument, or: when that's absent and stdin isn't a
-TTY: from piped stdin.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or: when
+neither is given and stdin isn't a TTY: from piped stdin.
 
 ```bash
 jazz run --agent dev "review this diff"          # argument
 git diff | jazz run --agent dev                  # stdin
 echo "$UNTRUSTED_WEBHOOK_TEXT" | jazz run --agent bot   # stdin, preferred
+echo '{"prompt":"- buy milk"}' | jazz run --agent bot --input-stdin   # frame
 ```
 
 **Use stdin for anything a stranger typed.** Webhook text is untrusted; piping it avoids
 shell-escaping it into an argv, which is a whole class of injection bug you don't have to
 think about. (It does not make the _content_ trusted: see
 [Security](../../SECURITY.md).)
+
+**Keep relayed messages off the command line.** Every account on a host can read another
+process's arguments through `ps` and `/proc/<pid>/cmdline`, and Linux caps a single argument at
+128 KiB. A bridge that relays a person's message, and for an incognito chat that person's whole
+transcript, sends them in the `--input-stdin` frame: one JSON line, then the rest of stdin is
+free for `--interactive-stdin` answers.
+
+```json
+{ "prompt": "what did I say about the dentist?", "history": [] }
+```
+
+`history` is read only with `--ephemeral`: pass back the `messages` array of the previous
+`--ephemeral --json` envelope to keep multi-turn context without anything on disk. A framed
+prompt is the caller's own message, so like a positional prompt it may back a memory write; a
+body piped without the frame never can.
 
 ---
 

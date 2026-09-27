@@ -9,10 +9,8 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { existsSync } from "node:fs";
+import { removeAgentFile } from "@jazz/bot-shared/agent-file";
 import { formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
@@ -23,18 +21,27 @@ import {
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
 import {
-  adoptIntoSandbox,
   type ChatSandbox,
-  chatIsolationEnabled,
   ensureChatSandbox,
   listChatSandboxes,
   SANDBOX_UMASK,
   sandboxCommand,
   sandboxEnv,
+  sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
+import {
+  compositionIdFromPath,
+  compositionLinkPath,
+  type CompositionLinks,
+  createCompositionLinks,
+  readCompositionImage,
+} from "@jazz/bot-shared/compositions";
+import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -50,12 +57,11 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
+import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { Effect } from "effect";
 import {
   type AccessConfig,
   hasAnyAllowlist,
@@ -69,6 +75,7 @@ import {
 import {
   agentIdForChannel,
   agentPath,
+  channelIdFromAgentId,
   ensureChatAgent,
   hasChatAgent,
   readAgentFile,
@@ -114,13 +121,14 @@ import {
 } from "./discord";
 import {
   neutralizeBroadcastMentions,
+  renderDiscordMarkdown,
   spoilerBlock,
   splitForDiscord,
   threadNameFromPrompt,
 } from "./discord-md";
-import { startReminderSweep } from "./reminders";
 
 const TZ_FILE = "dc-tz.json";
+const COMPOSITIONS_FILE = "dc-compositions.json";
 const USAGE_FILE = "dc-usage.json";
 const EPOCHS_FILE = "dc-sessions.json";
 const INCOGNITO_FILE = "dc-incognito.json";
@@ -142,7 +150,13 @@ const BRIDGE_STARTED_AT = Date.now();
 
 const activeRuns = new Map<
   string,
-  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+  {
+    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
+    cancelled: boolean;
+    channelId: string;
+    /** Whose message started the run: the one person who answers its prompts. */
+    requesterId: string;
+  }
 >();
 interface PendingApproval {
   toolCallId: string;
@@ -171,6 +185,12 @@ const channelCache = new Map<string, ChannelMeta>();
 
 interface BridgeConfig extends AccessConfig {
   readonly botToken: string;
+  /**
+   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`). Being
+   * allowed to talk to the bot is not enough: with a guild allowlist that is the whole
+   * server.
+   */
+  readonly operatorIds: ReadonlySet<string>;
   readonly createThreads: boolean;
   readonly baseAgentId: string;
   readonly provider: string;
@@ -266,6 +286,7 @@ function loadConfig(): BridgeConfig {
 
   return {
     botToken: requireEnv("DISCORD_BOT_TOKEN"),
+    operatorIds: parseSnowflakeList(process.env["DISCORD_OPERATOR_IDS"] ?? ""),
     allowedUserIds,
     allowedChannelIds,
     allowedGuildIds,
@@ -302,23 +323,12 @@ function sandboxForChannel(config: BridgeConfig, channelId: string): ChatSandbox
   return ensureChatSandbox(config.jazzHome, agentIdForChannel(channelId));
 }
 
-/**
- * Every file a `/compositions/<session>/<name>.html` request could be asking for.
- *
- * The URL carries only the app's id, and with one Jazz home per conversation
- * there is no channel to key that on, so each home is a candidate. The health
- * server runs in the bridge process, which is the one identity allowed to read
- * across sandboxes.
- */
-function compositionCandidatePaths(
-  config: BridgeConfig,
-  sessionId: string,
-  filename: string,
-): string[] {
-  const homes = chatIsolationEnabled()
-    ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
-    : [config.jazzHome];
-  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
+let publishedCompositions: CompositionLinks | undefined;
+
+/** The web apps this bridge has handed out links to, served by opaque id. */
+function compositionLinks(config: BridgeConfig): CompositionLinks {
+  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  return publishedCompositions;
 }
 
 function formatUptime(ms: number): string {
@@ -481,6 +491,14 @@ function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string 
     `✅ Mode → **${APPROVAL_MODE_LABELS[mode]}**\n${modeExplanation(mode, configuredPolicy)}` +
     (mode === "yolo" ? "\nSend `/mode mode:safe` to turn approvals back on." : "")
   );
+}
+
+/** Why a click on someone else's prompt did nothing. */
+const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
+
+/** The refusal for an operator-only action, naming the clicker's id for the operator. */
+function operatorOnlyMarkdown(userId: string, what: string): string {
+  return renderDiscordMarkdown(operatorOnlyMessage(userId, what, "DISCORD_OPERATOR_IDS"));
 }
 
 function followupComponents(): unknown[] {
@@ -682,6 +700,7 @@ async function sendApprovalRequest(
 async function runJazz(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   prompt: string,
   onEvent: (event: JazzEvent) => void,
   runToken: string,
@@ -698,6 +717,7 @@ async function runJazz(
       "--events",
       "tools,reasoning,text,approval,subagent",
       "--interactive-stdin",
+      "--input-stdin",
       "--agent",
       agentIdForChannel(channelId),
       "--approval-policy",
@@ -708,17 +728,10 @@ async function runJazz(
       "--timezone",
       tzForChat(config.jazzHome, TZ_FILE, channelId),
       ...(incognito
-        ? [
-            "--ephemeral",
-            ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
-              ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
-              : []),
-          ]
+        ? ["--ephemeral"]
         : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, channelId)]),
       "--timeout",
       String(config.runTimeoutMs),
-      "--",
-      prompt,
     ]),
     {
       stdout: "pipe",
@@ -727,7 +740,15 @@ async function runJazz(
       env: sandboxEnv(sandbox, process.env, "discord"),
     },
   );
-  activeRuns.set(runToken, { child, cancelled: false });
+  activeRuns.set(runToken, { child, cancelled: false, channelId, requesterId });
+  // The message and an incognito transcript go in the stdin frame, never on
+  // argv, where `ps` shows them to every account on the host.
+  await writeStdinFrame(child, {
+    prompt,
+    ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
+      ? { history: priorIncognitoMessages }
+      : {}),
+  });
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
   const stderrTail: string[] = [];
@@ -785,18 +806,21 @@ async function deliverComposition(
   channelId: string,
   composition: JazzComposition,
 ): Promise<void> {
+  const home = sandboxForChannel(config, channelId).home;
   if (composition.mode === "static") {
-    if (composition.imagePath === undefined) {
+    // Read from this conversation's own compositions, whatever path the envelope claims.
+    const image = readCompositionImage(home, composition);
+    if (image === undefined) {
       console.error(
-        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
       );
       return;
     }
     await sendAttachment(
       config.botToken,
       channelId,
-      composition.imagePath,
-      "composition.png",
+      new Blob([image.bytes], { type: "image/png" }),
+      image.filename,
       composition.title,
     );
     return;
@@ -812,13 +836,19 @@ async function deliverComposition(
     return;
   }
 
-  const url = `${config.publicBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  const linkId = compositionLinks(config).publish(agentIdForChannel(channelId), composition);
+  if (linkId === undefined) {
+    console.error(`create_composition returned unusable names (id=${composition.id})`);
+    return;
+  }
+  const url = `${config.publicBaseUrl}${compositionLinkPath(linkId)}`;
   await sendReply(config, channelId, `Open **${composition.title}**: ${url}`);
 }
 
 async function handleMessage(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   text: string,
   progressMessageId?: string,
   replyToMessageId?: string,
@@ -891,6 +921,7 @@ async function handleMessage(
     const envelope = await runJazz(
       config,
       channelId,
+      requesterId,
       text,
       (event) => reporter?.onEvent(event),
       runToken,
@@ -1053,14 +1084,20 @@ async function jazzJson(
       "run",
       "--no-tui",
       "--json",
+      "--input-stdin",
       "--agent",
       agentId,
       ...extraArgs,
-      "--",
-      prompt,
     ]),
-    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "discord") },
+    {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: sandboxEnv(sandbox, process.env, "discord"),
+    },
   );
+  await writeStdinFrame(child, { prompt });
+  await child.stdin.end();
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([
     new Response(child.stdout).text(),
@@ -1177,7 +1214,7 @@ const HELP_TEXT = [
   "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
     "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
-  "`/mode` — safe (I ask before risky tools) or yolo (I never ask), e.g. `/mode mode:yolo`",
+  "`/mode` — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. `/mode mode:yolo`",
   "`/new` — start a fresh conversation (clears earlier context)",
   "`/incognito` — start a private conversation (nothing saved) until `/new`",
   "`/remind <when> <text>` — e.g. `/remind when:30m text:take pizza out`",
@@ -1242,37 +1279,14 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
 ];
 
-function remindersFilePath(home: string, channelId: string): string {
-  return join(home, "reminders", `${agentIdForChannel(channelId)}.json`);
-}
-
-function readRemindersForDisplay(home: string, channelId: string): ReminderRecord[] {
-  try {
-    const path = remindersFilePath(home, channelId);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function cancelReminderForChannel(
+/** Cancel one of this conversation's reminders, written back to its own uid. */
+function cancelReminderForChannel(
   config: BridgeConfig,
   channelId: string,
   id: string,
 ): Promise<boolean> {
   const sandbox = sandboxForChannel(config, channelId);
-  const service = new ReminderServiceImpl({
-    baseReminderDirectory: join(sandbox.home, "reminders"),
-  });
-  const outcome = await Effect.runPromise(
-    service.cancel(agentIdForChannel(channelId), id).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
-  // Cancelling rewrites the file as root; hand it back or the conversation's
-  // own agent can no longer add or cancel reminders itself.
-  adoptIntoSandbox(sandbox, remindersFilePath(sandbox.home, channelId));
-  return outcome.success;
+  return cancelReminder(sandbox.home, agentIdForChannel(channelId), id, sandboxOwnership(sandbox));
 }
 
 function listPersonas(config: BridgeConfig): Promise<string[]> {
@@ -1288,6 +1302,7 @@ interface CommandResult {
 async function handleCommand(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   command: string,
   args: string,
 ): Promise<CommandResult> {
@@ -1336,9 +1351,10 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readRemindersForDisplay(sandboxForChannel(config, channelId).home, channelId).sort(
-      (left, right) => left.fireAt - right.fireAt,
-    );
+    const mine = readReminders(
+      sandboxForChannel(config, channelId).home,
+      agentIdForChannel(channelId),
+    ).sort((left, right) => left.fireAt - right.fireAt);
     if (mine.length === 0) {
       return { content: "No reminders set. Use `/remind when:<when> text:<text>`." };
     }
@@ -1460,6 +1476,9 @@ async function handleCommand(
           content:
             "⚠️ Usage: `/mode safe` or `/mode yolo`, or send `/mode` on its own to pick from buttons.",
         };
+      }
+      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
+        return { content: operatorOnlyMarkdown(requesterId, "Turning approvals off") };
       }
       setApprovalMode(config.jazzHome, MODE_FILE, channelId, requested);
       return { content: modeConfirmation(requested, config.approvalPolicy) };
@@ -1629,18 +1648,24 @@ async function dispatchMessage(
   try {
     if (parsed !== undefined && known.has(parsed.command)) {
       const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-      const result = await handleCommand(config, bound.channelId, parsed.command, parsed.args);
+      const result = await handleCommand(
+        config,
+        bound.channelId,
+        message.author.id,
+        parsed.command,
+        parsed.args,
+      );
       await sendReply(config, bound.channelId, result.content, {
         ...(result.components !== undefined ? { components: result.components } : {}),
       });
       if (result.runPrompt !== undefined) {
-        await handleMessage(config, bound.channelId, result.runPrompt);
+        await handleMessage(config, bound.channelId, message.author.id, result.runPrompt);
       }
       return;
     }
 
     const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-    await handleMessage(config, bound.channelId, stripped);
+    await handleMessage(config, bound.channelId, message.author.id, stripped);
   } catch (error) {
     console.error(`Handling failed for ${message.channel_id}: ${String(error)}`);
     await sendReply(
@@ -1716,12 +1741,13 @@ async function dispatchSlash(
     });
   }
 
-  const result = await handleCommand(config, channelId, name, args);
+  const invokerId = interactionUserId(interaction) ?? "";
+  const result = await handleCommand(config, channelId, invokerId, name, args);
 
   if (needsDefer) {
     if (result.runPrompt !== undefined) {
       const original = await getOriginalInteraction(runtime.applicationId, interaction.token);
-      await handleMessage(config, channelId, result.runPrompt, original?.id);
+      await handleMessage(config, channelId, invokerId, result.runPrompt, original?.id);
       return;
     }
     await editOriginalInteraction(runtime.applicationId, interaction.token, {
@@ -1767,6 +1793,13 @@ async function dispatchComponent(
 
   const parts = customId.split(":");
   const kind = parts[0];
+  const clickerId = interactionUserId(interaction) ?? "";
+  /** Tell the clicker why nothing happened, in a reply only they see. */
+  const refuse = (content: string): Promise<unknown> =>
+    interactionCallback(interaction.id, interaction.token, {
+      type: CALLBACK_CHANNEL_MESSAGE,
+      data: { content, flags: FLAG_EPHEMERAL },
+    });
 
   if (kind === "s") {
     const items = suggestionStore.get(parts[1] ?? "");
@@ -1793,15 +1826,20 @@ async function dispatchComponent(
     await sendReply(config, channelId, `-# ${echo}`, {
       message_reference: { message_id: messageId },
     });
-    void handleMessage(config, channelId, item.prompt, undefined, messageId).catch((error) =>
-      console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
+    void handleMessage(config, channelId, clickerId, item.prompt, undefined, messageId).catch(
+      (error) => console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;
   }
 
   if (kind === "x") {
     const runToken = parts[1] ?? "";
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.channelId === channelId ? found : undefined;
+    if (run && run.requesterId !== clickerId && !config.operatorIds.has(clickerId)) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1823,8 +1861,13 @@ async function dispatchComponent(
   if (kind === "a") {
     const token = parts[1] ?? "";
     const approved = parts[2] === "1";
-    const pending = pendingApprovals.get(token);
+    const found = pendingApprovals.get(token);
+    const pending = found?.channelId === channelId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
+    if (run && run.requesterId !== clickerId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (!pending || !run) {
       await interactionCallback(interaction.id, interaction.token, {
         type: CALLBACK_CHANNEL_MESSAGE,
@@ -1854,7 +1897,12 @@ async function dispatchComponent(
     const runToken = parts[1] ?? "";
     const approved = parts[2] === "1";
     const outstanding = pendingApprovalsForRun(runToken);
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.channelId === channelId ? found : undefined;
+    if (run && run.requesterId !== clickerId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (outstanding.length === 0 || !run) {
       await interactionCallback(interaction.id, interaction.token, {
         type: CALLBACK_CHANNEL_MESSAGE,
@@ -1890,6 +1938,10 @@ async function dispatchComponent(
 
   if (kind === "md") {
     const mode: ApprovalMode = parts[1] === "yolo" ? "yolo" : "safe";
+    if (mode === "yolo" && !config.operatorIds.has(clickerId)) {
+      await refuse(operatorOnlyMarkdown(clickerId, "Turning approvals off"));
+      return;
+    }
     setApprovalMode(config.jazzHome, MODE_FILE, channelId, mode);
     await interactionCallback(interaction.id, interaction.token, {
       type: CALLBACK_UPDATE_MESSAGE,
@@ -1913,8 +1965,8 @@ async function dispatchComponent(
     await sendReply(config, channelId, option.label, {
       message_reference: { message_id: messageId },
     });
-    void handleMessage(config, channelId, option.prompt, undefined, messageId).catch((error) =>
-      console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
+    void handleMessage(config, channelId, clickerId, option.prompt, undefined, messageId).catch(
+      (error) => console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;
   }
@@ -1977,24 +2029,18 @@ async function dispatchInteraction(
 function startHealthServer(config: BridgeConfig): void {
   Bun.serve({
     port: config.port,
-    async fetch(request) {
+    fetch(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         return new Response("ok", { status: 200 });
       }
-      const compositionMatch =
-        request.method === "GET"
-          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
-          : null;
-      if (compositionMatch) {
-        const [, sessionId, filename] = compositionMatch;
-        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
-          const file = Bun.file(path);
-          if (await file.exists()) {
-            return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
-          }
-        }
-        return new Response("not found", { status: 404 });
+      const compositionId =
+        request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
+      if (compositionId !== undefined) {
+        const page = compositionLinks(config).page(compositionId);
+        return page === undefined
+          ? new Response("not found", { status: 404 })
+          : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
       return new Response("not found", { status: 404 });
     },
@@ -2031,12 +2077,14 @@ function start(): void {
     config.jazzHome,
     ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
   ]) {
-    rmSync(agentPath(home, SUGGEST_AGENT_ID), { force: true });
+    removeAgentFile(home, SUGGEST_AGENT_ID);
   }
   startHealthServer(config);
-  startReminderSweep(config.jazzHome, (channelId, markdown) =>
-    sendReply(config, channelId, markdown),
-  );
+  startReminderSweep({
+    dataDir: config.jazzHome,
+    decodeScope: (agentId) => channelIdFromAgentId(agentId) ?? undefined,
+    send: (channelId, body) => sendReply(config, channelId, renderDiscordMarkdown(body)),
+  });
 
   let runtime: Runtime | undefined;
 

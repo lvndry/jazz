@@ -21,14 +21,10 @@ import {
   agentPath,
   ensureScopedAgentFrom,
   readAgentFile,
-  syncAgentDisplayName as syncScopedAgentDisplayName,
+  syncAgentDisplayNameEverywhere,
   writeAgentFile,
 } from "@jazz/bot-shared/agent-file";
-import {
-  adoptIntoSandbox,
-  type ChatSandbox,
-  listChatSandboxes,
-} from "@jazz/bot-shared/chat-sandbox";
+import { type ChatSandbox, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 
 export type { AgentConfig, AgentFile };
 export { agentPath, readAgentFile };
@@ -42,21 +38,33 @@ export function isChatAgentId(agentId: string): boolean {
   return /^tg_n?\d+$/.test(agentId);
 }
 
+/** `tg_<chatId>` with negative ids encoded as `n<abs>`: the reverse of `agentIdForChat`. */
+export function chatIdFromAgentId(agentId: string): number | undefined {
+  if (!isChatAgentId(agentId)) return undefined;
+  const suffix = agentId.slice("tg_".length);
+  const numeric = suffix.startsWith("n") ? `-${suffix.slice(1)}` : suffix;
+  const chatId = Number.parseInt(numeric, 10);
+  return Number.isFinite(chatId) ? chatId : undefined;
+}
+
 export function ensureChatAgent(
   dataDir: string,
   sandbox: ChatSandbox,
   chatId: number,
   baseAgentId: string,
 ): AgentFile {
-  const agent = ensureScopedAgentFrom(dataDir, sandbox.home, agentIdForChat(chatId), baseAgentId);
-  adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
-  return agent;
+  return ensureScopedAgentFrom(
+    dataDir,
+    sandbox.home,
+    agentIdForChat(chatId),
+    baseAgentId,
+    sandboxOwnership(sandbox),
+  );
 }
 
 /** Write an agent file into a chat's own home, leaving it owned by that chat. */
 export function writeChatAgentFile(sandbox: ChatSandbox, agent: AgentFile): void {
-  writeAgentFile(sandbox.home, agent);
-  adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
+  writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
 }
 
 /**
@@ -72,8 +80,5 @@ export function syncAgentDisplayName(
   baseAgentId: string,
   displayName: string,
 ): void {
-  syncScopedAgentDisplayName(dataDir, baseAgentId, displayName, isChatAgentId);
-  for (const { home } of listChatSandboxes(dataDir)) {
-    syncScopedAgentDisplayName(home, baseAgentId, displayName, isChatAgentId);
-  }
+  syncAgentDisplayNameEverywhere(dataDir, baseAgentId, displayName, isChatAgentId);
 }
