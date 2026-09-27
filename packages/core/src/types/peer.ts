@@ -16,6 +16,7 @@
  */
 
 import { DISCLOSURE_TIERS, isDisclosureTier, type DisclosureTier } from "./disclosure-tier";
+import type { DoorLimits } from "./remote-door";
 
 /**
  * How much a peer's agent may learn.
@@ -31,7 +32,7 @@ export const PEER_TIERS: readonly PeerTier[] = DISCLOSURE_TIERS;
 
 export const isPeerTier: (value: string) => value is PeerTier = isDisclosureTier;
 
-export interface PeerConfig {
+export interface PeerConfig extends DoorLimits {
   /** Local name, used in commands and in the ledger. Unique. */
   readonly name: string;
   /**

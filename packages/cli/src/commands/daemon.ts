@@ -11,6 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
 import {
@@ -49,7 +50,7 @@ import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
+import { resolveWebhookSecret, resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -328,27 +329,27 @@ export function daemonCommand(options: DaemonCommandOptions) {
       const resolvePeers = () => readLive((appConfig) => appConfig.peers ?? []);
       const resolveWebhooks = () => readLive((appConfig) => appConfig.webhooks ?? []);
 
+      // One cache per credential kind, shared by every door that checks it, so the peer door
+      // and `/a2a` never read one peer's token twice within the cache's lifetime.
+      const peerToken = cacheCredentialResolver((peerName) =>
+        Effect.runPromise(resolvePeerToken(peerName)),
+      );
+      const webhookToken = cacheCredentialResolver((webhookName) =>
+        Effect.runPromise(resolveWebhookToken(webhookName)),
+      );
+      const webhookSecret = cacheCredentialResolver((webhookName) =>
+        Effect.runPromise(resolveWebhookSecret(webhookName)),
+      );
+
       const handle = makeHandler(daemonOptions, run);
-      const handlePeer = makePeerHandler(
-        daemonOptions,
-        resolvePeers,
-        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
-        run,
-      );
+      const handlePeer = makePeerHandler(daemonOptions, resolvePeers, peerToken, run);
       const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
-      const handleWebhook = makeWebhookHandler(
-        resolveWebhooks,
-        (webhookName) => Effect.runPromise(resolveWebhookToken(webhookName)),
-        run,
-      );
+      const handleWebhook = makeWebhookHandler(resolveWebhooks, webhookToken, run, {
+        resolveSecret: webhookSecret,
+      });
       // A2A is a second door into the same peer-serving logic `handlePeer` already
       // authenticates and answers through — see `makeA2AHandler`'s own comment.
-      const handleA2A = makeA2AHandler(
-        daemonOptions,
-        resolvePeers,
-        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
-        run,
-      );
+      const handleA2A = makeA2AHandler(daemonOptions, resolvePeers, peerToken, run);
 
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },

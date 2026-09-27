@@ -15,8 +15,8 @@
  * - **How many runs may be in flight at once** ({@link DoorLimits.maxConcurrentRuns}). A caller
  *   past the cap is answered `429` instead of queued behind the operator's own work.
  *
- * Types and constants only: `types/peer` imports this, and that module sits on the CLI's
- * startup path.
+ * No runtime imports: `types/peer` imports this, and that module sits on the CLI's startup
+ * path.
  */
 
 /** Which kind of remote door started a run. `/a2a` is the peer door in another wire format. */
@@ -58,3 +58,12 @@ export interface DoorLimits {
  * sender saturate the machine.
  */
 export const DEFAULT_MAX_CONCURRENT_DOOR_RUNS = 4;
+
+/** A budget's caps as run options, leaving out the ones it does not set. */
+export function runBudgetOptions(budget: RunBudget | undefined): RunBudget {
+  return {
+    ...(budget?.maxTokens !== undefined ? { maxTokens: budget.maxTokens } : {}),
+    ...(budget?.maxCostUSD !== undefined ? { maxCostUSD: budget.maxCostUSD } : {}),
+    ...(budget?.maxDurationMs !== undefined ? { maxDurationMs: budget.maxDurationMs } : {}),
+  };
+}

@@ -569,10 +569,12 @@ Conversation history and current working state are separate. See [Conversations,
 
 ## `jazz webhook`
 
-| Command                            | Purpose                                          |
-| ---------------------------------- | ------------------------------------------------ |
-| `jazz webhook token <name>`        | Generate and store a bearer token; print it once |
-| `jazz webhook forget-token <name>` | Remove a webhook's stored token                  |
+| Command                             | Purpose                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `jazz webhook token <name>`         | Generate and store a bearer token; print it once                                     |
+| `jazz webhook forget-token <name>`  | Remove a webhook's stored token                                                      |
+| `jazz webhook secret <name>`        | Generate and store the secret its sender signs bodies with (GitHub's webhook secret) |
+| `jazz webhook forget-secret <name>` | Remove a webhook's stored signing secret                                             |
 
 Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhooks.md).
 

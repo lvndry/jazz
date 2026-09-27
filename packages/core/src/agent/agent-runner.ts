@@ -52,7 +52,7 @@ import {
   type SkillRouteOutcome,
   type WorkspaceContextInput,
 } from "@/core/types/plugin";
-import type { RunBudget } from "@/core/types/remote-door";
+import { runBudgetOptions } from "@/core/types/remote-door";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -922,11 +922,7 @@ function initializeAgentRun(
 
 /** The limits a parked record must restore on resume, from the options the run started with. */
 export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundary {
-  const budget: RunBudget = {
-    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-    ...(options.maxCostUSD !== undefined ? { maxCostUSD: options.maxCostUSD } : {}),
-    ...(options.maxDurationMs !== undefined ? { maxDurationMs: options.maxDurationMs } : {}),
-  };
+  const budget = runBudgetOptions(options);
   return {
     ...(options.toolAllowlist !== undefined ? { toolAllowlist: options.toolAllowlist } : {}),
     ...(options.withholdInteractiveTools === true ? { withholdInteractiveTools: true } : {}),

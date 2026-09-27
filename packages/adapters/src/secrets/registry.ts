@@ -7,6 +7,8 @@
  * secrets without each call site knowing it is handling one.
  */
 
+import { secretEnvVarSuffix } from "@jazz/core/utils/secret-env-var";
+
 /** Keychain/libsecret service name under which Jazz stores its secrets. */
 export const KEYRING_SERVICE_NAME = "jazz";
 
@@ -133,6 +135,19 @@ export function webhookTokenPath(webhookName: string): string {
   return `webhooks.${webhookName}.token`;
 }
 
+/** A webhook's signing secret, e.g. `webhooks.github-deploy.secret`. */
+const WEBHOOK_SECRET_PATH = /^webhooks\.[^.]+\.secret$/;
+
+/** The config path holding the secret one webhook's sender signs its bodies with. */
+export function webhookSecretPath(webhookName: string): string {
+  return `webhooks.${webhookName}.secret`;
+}
+
+/** Environment variable supplying a webhook's signing secret, for hosts with no keyring. */
+export function webhookSecretEnvVar(webhookName: string): string {
+  return `JAZZ_WEBHOOK_SECRET_${secretEnvVarSuffix(webhookName)}`;
+}
+
 /**
  * Environment variable supplying a webhook's token, for hosts with no keyring.
  *
@@ -141,10 +156,6 @@ export function webhookTokenPath(webhookName: string): string {
  */
 export function webhookTokenEnvVar(webhookName: string): string {
   return `JAZZ_WEBHOOK_TOKEN_${secretEnvVarSuffix(webhookName)}`;
-}
-
-function secretEnvVarSuffix(name: string): string {
-  return name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
 /**
@@ -156,7 +167,7 @@ function secretEnvVarSuffix(name: string): string {
  * containerised jazz could not authenticate a peer at all.
  */
 export function peerTokenEnvVar(peerName: string): string {
-  return `JAZZ_PEER_TOKEN_${peerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+  return `JAZZ_PEER_TOKEN_${secretEnvVarSuffix(peerName)}`;
 }
 
 /** Every config path Jazz treats as a secret. */
@@ -185,6 +196,9 @@ export function isSecretPath(path: string): boolean {
   // the same reason a peer token does: the config file names the webhook without ever
   // holding its credential.
   if (WEBHOOK_TOKEN_PATH.test(path)) return true;
+  if (WEBHOOK_SECRET_PATH.test(path)) {
+    return true;
+  }
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
@@ -216,5 +230,9 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
   if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
+  const webhookSecret = /^webhooks\.([^.]+)\.secret$/.exec(path);
+  if (webhookSecret?.[1] !== undefined) {
+    return webhookSecretEnvVar(webhookSecret[1]);
+  }
   return SECRET_ENV_VARS[path];
 }

@@ -898,8 +898,9 @@ function registerDetachCommands(program: Command): void {
 }
 
 /**
- * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
- * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ * Register `jazz webhook token|forget-token|secret|forget-secret`: minting a webhook's bearer
+ * token or signing secret instead of asking somebody to invent one, the way
+ * `jazz daemon set-token` already does for the daemon.
  */
 function registerWebhookCommands(program: Command): void {
   const webhookCommand = program
@@ -923,6 +924,29 @@ function registerWebhookCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("secret <name>")
+    .description(
+      "Generate and store the secret a webhook's sender signs bodies with (GitHub's webhook secret), printing it once",
+    )
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookSecretCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-secret <name>")
+    .description("Remove a webhook's stored signing secret")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookSecretCommand(name)),
         cliRuntimeOptions(program),
       ),
     );
