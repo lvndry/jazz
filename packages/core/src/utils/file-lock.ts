@@ -59,8 +59,9 @@ const RECOVERY_MARGIN_MS = 10_000;
 export const FILE_LOCK_MAX_WAIT_MS = DEFAULT_STALE_MS + GUARD_STALE_MS + RECOVERY_MARGIN_MS;
 const DEFAULT_RETRY_DELAY_MS = 25;
 /**
- * Checking a holder's start time spawns `ps`, so a waiter re-checks one live holder at most
- * this often instead of on every retry.
+ * Checking a holder's start time spawns `ps` (synchronously), so a waiter re-checks one live
+ * holder process at most this often, whichever of its locks it is waiting on, instead of on
+ * every retry. A holder in this same process is never checked: it is alive.
  */
 const LIVENESS_RECHECK_MS = 1_000;
 
@@ -90,8 +91,18 @@ async function readHolder(lockDirectory: string): Promise<LockHolder | undefined
   }
 }
 
-/** One waiter's memory of which holder tokens it has already seen alive, and when. */
+/** One waiter's memory of which holder processes it has already seen alive, and when. */
 type LivenessCache = Map<string, number>;
+
+function holderProcessKey(holder: LockHolder): string {
+  return `${holder.host}:${holder.pid}:${holder.startedAt ?? ""}`;
+}
+
+/** Whether the holder is this very process, which is alive by definition. */
+function isThisProcess(holder: LockHolder): boolean {
+  const self = currentProcessOwner();
+  return holder.pid === self.pid && holder.host === self.host;
+}
 
 async function isStale(
   lockDirectory: string,
@@ -108,7 +119,11 @@ async function isStale(
   if (holder === undefined) {
     return heldForMs > staleMs;
   }
-  const lastSeenAlive = seenAlive.get(holder.token);
+  if (isThisProcess(holder)) {
+    return false;
+  }
+  const processKey = holderProcessKey(holder);
+  const lastSeenAlive = seenAlive.get(processKey);
   if (lastSeenAlive !== undefined && Date.now() - lastSeenAlive < LIVENESS_RECHECK_MS) {
     return false;
   }
@@ -119,7 +134,7 @@ async function isStale(
   if (status === "unverifiable") {
     return heldForMs > maxHoldMs;
   }
-  seenAlive.set(holder.token, Date.now());
+  seenAlive.set(processKey, Date.now());
   return false;
 }
 
