@@ -12,7 +12,7 @@
     // Enforcing a column count on documentation produces thousands of findings and no value.
     "MD013": false,
 
-    // The README uses <div align="center"> and <img> for the header and demo GIF, which
+    // The README uses <div align="center"> and <video> for the header and demo video, which
     // Markdown cannot express.
     "MD033": false,
 
