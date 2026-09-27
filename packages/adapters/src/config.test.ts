@@ -52,9 +52,11 @@ function tempConfigPath(name: string): string {
 }
 
 /** What the last write left in `filePath`, parsed. */
-function readWritten(filePath: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+function readWritten<Document = Record<string, unknown>>(filePath: string): Document {
+  return JSON.parse(readFileSync(filePath, "utf8")) as Document;
 }
+
+type WrittenMcpServers = { mcpServers: Record<string, Record<string, unknown>> };
 
 async function captureStderr<T>(run: () => Promise<T>): Promise<{ result: T; stderr: string }> {
   const original = process.stderr.write.bind(process.stderr);
@@ -177,8 +179,8 @@ describe("AgentConfigService", () => {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     expect(parsed.mcpServers).toBeDefined();
-    expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
-    expect(parsed.mcpServers.testServer.command).toBeUndefined();
+    expect(parsed.mcpServers["testServer"]).toEqual({ enabled: false });
+    expect(parsed.mcpServers["testServer"]?.["command"]).toBeUndefined();
   });
 
   it("should persist the trusted override alongside enabled", async () => {
@@ -206,8 +208,8 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
 
-    const parsed = readWritten(configPath) as { mcpServers: Record<string, unknown> };
-    expect(parsed.mcpServers.testServer).toEqual({ enabled: true, trusted: true });
+    const parsed = readWritten<WrittenMcpServers>(configPath);
+    expect(parsed.mcpServers["testServer"]).toEqual({ enabled: true, trusted: true });
   });
 
   it("should persist a trusted override for a server whose enabled state was never set", async () => {
@@ -222,8 +224,8 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
 
-    const parsed = readWritten(configPath) as { mcpServers: Record<string, unknown> };
-    expect(parsed.mcpServers.testServer).toEqual({ trusted: true });
+    const parsed = readWritten<WrittenMcpServers>(configPath);
+    expect(parsed.mcpServers["testServer"]).toEqual({ trusted: true });
   });
 });
 
@@ -850,8 +852,8 @@ describe("AgentConfigService.set checks what callers hand it", () => {
 
     await Effect.runPromise(service.set("mcpServers.github", { trusted: true }));
 
-    const written = readWritten(configPath) as { mcpServers: Record<string, unknown> };
-    expect(written.mcpServers.github).toEqual({ enabled: false, trusted: true });
+    const written = readWritten<WrittenMcpServers>(configPath);
+    expect(written.mcpServers["github"]).toEqual({ enabled: false, trusted: true });
   });
 
   it("patches a server whose name contains dots at the literal key, not a nested path", async () => {
@@ -866,7 +868,7 @@ describe("AgentConfigService.set checks what callers hand it", () => {
     // `jazz mcp trust com.example.mcp` runs exactly this write; it used to die.
     await Effect.runPromise(service.set("mcpServers.com.example.mcp", { trusted: true }));
 
-    const written = readWritten(configPath) as { mcpServers: Record<string, unknown> };
+    const written = readWritten<WrittenMcpServers>(configPath);
     expect(written.mcpServers).toEqual({ "com.example.mcp": { enabled: true, trusted: true } });
   });
 

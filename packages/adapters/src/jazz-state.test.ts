@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
+import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { createJazzStateServiceLayer } from "./jazz-state";
@@ -10,12 +10,9 @@ function stateDirectory(): string {
   return mkdtempSync(join(tmpdir(), "jazz-state-"));
 }
 
-function withState<A>(statePath: string, program: Effect.Effect<A, Error, never>) {
+function withState<A, E>(statePath: string, program: Effect.Effect<A, E, JazzStateService>) {
   return Effect.runPromise(
-    program.pipe(Effect.provide(createJazzStateServiceLayer({ statePath }))) as Effect.Effect<
-      A,
-      Error
-    >,
+    program.pipe(Effect.provide(createJazzStateServiceLayer({ statePath }))),
   );
 }
 
