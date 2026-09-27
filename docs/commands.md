@@ -584,6 +584,9 @@ Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhoo
 | `jazz update`         | Update Jazz to the latest version    |
 | `jazz update --check` | Check for updates without installing |
 
+Both exit 1 when the version check or the install fails, so a script can tell a failed update
+from "already up to date".
+
 ---
 
 ## In-chat commands

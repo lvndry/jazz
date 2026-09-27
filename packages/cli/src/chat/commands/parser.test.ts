@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { setSkillCommands } from "./constants";
+import { CHAT_COMMANDS, setSkillCommands } from "./constants";
 import { isCommandInput, isShellEscape, parseSpecialCommand } from "./parser";
 
 describe("parseSpecialCommand", () => {
@@ -280,6 +280,27 @@ describe("parseSpecialCommand", () => {
     it("should handle leading/trailing whitespace", () => {
       const result = parseSpecialCommand("  /help  ");
       expect(result.type).toBe("help");
+    });
+  });
+});
+
+describe("CHAT_COMMANDS registry", () => {
+  /** `/exit` ends the chat loop in chat-service before input reaches the parser. */
+  const COMMANDS_HANDLED_BEFORE_PARSING = new Set(["exit"]);
+
+  it("parses every advertised command to a recognized type", () => {
+    const unparsed = CHAT_COMMANDS.filter(
+      (command) =>
+        !COMMANDS_HANDLED_BEFORE_PARSING.has(command.name) &&
+        parseSpecialCommand(`/${command.name}`).type === "unknown",
+    ).map((command) => command.name);
+    expect(unparsed).toEqual([]);
+  });
+
+  it("parses /memory with its arguments", () => {
+    expect(parseSpecialCommand("/memory forget personal/notes.md")).toEqual({
+      type: "memory",
+      args: ["forget", "personal/notes.md"],
     });
   });
 });
