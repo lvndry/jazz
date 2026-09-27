@@ -2346,7 +2346,8 @@ function resolveMcpServerStatus(
     const enabled = config.enabled !== false;
     const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
     const usesOAuth = isHttpConfig(config) && !config.headers;
-    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+    const storedAuth =
+      usesOAuth && isHttpConfig(config) ? yield* hasStoredAuth(config.name, config.url) : false;
 
     const kind: McpStatusKind = !enabled
       ? "disabled"
@@ -2435,10 +2436,12 @@ function mcpServerActions(status: McpServerStatus): readonly { name: string; val
   if (status.usesOAuth && status.hasStoredAuth) {
     actions.push({ name: "Forget stored credentials", value: "logout" });
   }
-  actions.push({
-    name: status.config.trusted === true ? "Untrust" : "Trust",
-    value: "toggle-trust",
-  });
+  if (status.config.definedIn !== "project") {
+    actions.push({
+      name: status.config.trusted === true ? "Untrust" : "Trust",
+      value: "toggle-trust",
+    });
+  }
   actions.push({ name: "Disable", value: "disable" });
   actions.push({ name: "Back", value: "back" });
   return actions;
@@ -2510,7 +2513,8 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        yield* clearServerAuth(config.name);
+        if (!isHttpConfig(config)) return;
+        yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
       }

@@ -158,18 +158,18 @@ Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 
 ## `jazz mcp`
 
-| Command               | Purpose                                                                                                                                       |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header`, and optional `--trusted` |
-| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                               |
-| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                   |
-| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                          |
-| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                             |
-| `jazz mcp trust`      | Honor a server's read-only annotations when applying approval policy                                                                          |
-| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                               |
-| `jazz mcp remove`     | Remove a server                                                                                                                               |
-| `jazz mcp enable`     | Enable a disabled server                                                                                                                      |
-| `jazz mcp disable`    | Disable a server                                                                                                                              |
+| Command               | Purpose                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header` (values go to the keyring), and optional `--trusted` |
+| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                                                          |
+| `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                                              |
+| `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                                                     |
+| `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                                                        |
+| `jazz mcp trust`      | Honor the read-only annotations of a server defined in `~/.agents/mcp.json` when applying approval policy                                                                |
+| `jazz mcp untrust`    | Require approval for every tool from the server                                                                                                                          |
+| `jazz mcp remove`     | Remove a server                                                                                                                                                          |
+| `jazz mcp enable`     | Enable a disabled server                                                                                                                                                 |
+| `jazz mcp disable`    | Disable a server                                                                                                                                                         |
 
 See [MCP configuration](./configure/mcp.md).
 
@@ -275,6 +275,9 @@ one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-pe
 | `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
 | `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                     |
 | `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
+| `jazz daemon status`       | Whether the daemon is running or paused, what unattended runs spent today against the daily caps, and everything waiting for you with the command that answers it. `--json`                                                                                                                 |
+| `jazz daemon pause`        | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                      |
+| `jazz daemon resume`       | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day                                                                                                                                                                                           |
 | `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
 | `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
 
@@ -541,12 +544,12 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 
 ## `jazz config`
 
-| Command                         | Purpose                                             |
-| ------------------------------- | --------------------------------------------------- |
-| `jazz config show`              | Show all configuration values                       |
-| `jazz config validate`          | Check config files without starting the application |
-| `jazz config get <key>`         | Get one value                                       |
-| `jazz config set <key> [value]` | Set one value                                       |
+| Command                         | Purpose                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them    |
+| `jazz config validate`          | Check config files without starting the application                        |
+| `jazz config get <key>`         | Get one value, redacted when it is or holds a secret; `--reveal` prints it |
+| `jazz config set <key> [value]` | Set one value                                                              |
 
 See [Configuration](./configure/jazz.md).
 

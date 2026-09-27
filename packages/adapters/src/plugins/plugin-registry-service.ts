@@ -333,6 +333,7 @@ export class PluginRegistryServiceImpl {
           },
           previous: existing.current,
           enabledAgentIds: [],
+          enabledForAllAgents: false,
         };
         return {
           state: replaceEntry(state, pluginId, record),

@@ -13,7 +13,7 @@ import {
   keyringDelete,
   keyringSet,
 } from "@jazz/adapters/secrets/keyring";
-import { KEYRING_SERVICE_NAME, peerTokenPath } from "@jazz/adapters/secrets/registry";
+import { peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { LedgerEntry } from "@jazz/core/interfaces/peers";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -209,4 +209,4 @@ export function peerLogCommand(options: {
   });
 }
 
-export { KEYRING_SERVICE_NAME, PEER_TIERS, isPeerTier, describeTier };
+export { PEER_TIERS, isPeerTier, describeTier };
