@@ -358,9 +358,13 @@ export function toCoreMessages(
   providerName?: ProviderName,
   resolvedAttachments?: ResolvedAttachments,
 ): ModelMessage[] {
+  // An ephemeral nudge (context, budget, cost, time pressure) rides as a trailing user message
+  // but does not start a new turn. Counting it would put every reasoning part of the current
+  // tool loop "before the last user message" and drop it from the replay.
   let lastUserMessageIndex = -1;
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-    if (messages[messageIndex]?.role === "user") {
+    const message = messages[messageIndex];
+    if (message?.role === "user" && message.kind !== "ephemeral") {
       lastUserMessageIndex = messageIndex;
       break;
     }
