@@ -523,8 +523,7 @@ export async function startBridge(): Promise<void> {
     showReasoning: config.showReasoning,
     files: STORE_FILES,
     agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
-    isOperator: (senderId) =>
-      senderId === ACCOUNT_OWNER_SENDER || config.operatorHandles.has(senderId),
+    operators: new Set([ACCOUNT_OWNER_SENDER, ...config.operatorHandles]),
     operatorSettingName: "IMESSAGE_OPERATOR_HANDLES",
   });
 

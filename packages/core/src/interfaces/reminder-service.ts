@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import { z } from "zod";
 
 export interface ReminderRecord {
   readonly id: string;
@@ -15,6 +16,15 @@ export interface ReminderRecord {
    */
   readonly osSchedulerJobId?: string;
 }
+
+/** On-disk shape of one {@link ReminderRecord}, checked on every read. */
+export const ReminderRecordSchema: z.ZodType<ReminderRecord> = z.object({
+  id: z.string().min(1),
+  fireAt: z.number().finite(),
+  text: z.string(),
+  createdAt: z.number().finite(),
+  osSchedulerJobId: z.string().exactOptional(),
+});
 
 export type AddReminderOutcome =
   | { readonly success: true; readonly reminder: ReminderRecord }

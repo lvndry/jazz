@@ -191,7 +191,6 @@ describe("handleSpecialCommand resume", () => {
       get: () => Effect.succeed(undefined),
       set: () => Effect.void,
       load: () => Effect.succeed({}),
-      persist: () => Effect.void,
     } as unknown as JazzStateService);
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
@@ -236,7 +235,6 @@ describe("handleSpecialCommand resume", () => {
       get: () => Effect.succeed(undefined),
       set: () => Effect.void,
       load: () => Effect.succeed({}),
-      persist: () => Effect.void,
     } as unknown as JazzStateService);
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 

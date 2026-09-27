@@ -16,6 +16,7 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
 import { getMisfireLogDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { jsonBigIntReplacer } from "./tool-logging";
 
 const MISFIRE_LOG_FILENAME = "misfires.jsonl";
@@ -95,13 +96,12 @@ export function recordMisfire(
         durationMs,
         ...(serializedArgs !== undefined ? { args: serializedArgs } : {}),
       };
-      await nodeFs.mkdir(getMisfireLogDirectory(), { recursive: true });
+      await nodeFs.mkdir(getMisfireLogDirectory(), { recursive: true, mode: stateDirectoryMode() });
       const line = serialize(entry);
-      await nodeFs.appendFile(
-        misfireLogPath(),
-        (await endsMidLine()) ? `\n${line}` : line,
-        "utf-8",
-      );
+      await nodeFs.appendFile(misfireLogPath(), (await endsMidLine()) ? `\n${line}` : line, {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));

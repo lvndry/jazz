@@ -627,28 +627,137 @@ from "already up to date".
 
 ## In-chat commands
 
-Available inside an interactive session. Type `/help` for the current list.
+Available inside an interactive session. `/help` lists them, then your skills, MCP prompts, and
+plugin commands in their own sections, then the keys of the interface you are in. `/help <command>`
+shows every form of one command. The table below is generated from the same list
+(`bun run docs:chat-commands`).
 
-| Command                  | Purpose                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/help`                  | List commands                                                                                                                                                                                                                                                                                                                                  |
-| `/tools`                 | Show available tools                                                                                                                                                                                                                                                                                                                           |
-| `/skills`                | Search installed skills by name, source, or description; Enter opens details, Escape goes back                                                                                                                                                                                                                                                 |
-| `/workflows`             | Browse workflows                                                                                                                                                                                                                                                                                                                               |
-| `/mode`                  | Change approval mode (also Shift+Tab)                                                                                                                                                                                                                                                                                                          |
-| `/goal <objective>`      | Keep working toward an objective, turn after turn, in this conversation; the agent reports it done with evidence from tool output. `/goal` shows where it stands; `/goal pause`, `/goal resume [note]`, and `/goal clear` control it. Jazz also proposes goals on its own and asks before working on one. See [Goals in chat](#goals-in-chat). |
-| `/loop <every> <prompt>` | Rerun a prompt on a schedule in the background, like `/loop 10m check the deploy`; see [Loops in chat](#loops-in-chat)                                                                                                                                                                                                                         |
-| `/cost`                  | Tokens and USD for this session, including sub-agents                                                                                                                                                                                                                                                                                          |
-| `/context`               | Context window usage and the biggest consumers                                                                                                                                                                                                                                                                                                 |
-| `/compact`               | Force context compaction now                                                                                                                                                                                                                                                                                                                   |
-| `/switch`                | Switch agent                                                                                                                                                                                                                                                                                                                                   |
-| `/peers`                 | List configured peers and what each may learn or do                                                                                                                                                                                                                                                                                            |
-| `/new`                   | Start a fresh conversation                                                                                                                                                                                                                                                                                                                     |
-| `/fork`                  | Branch to a new conversation, keeping the full history; the original is preserved                                                                                                                                                                                                                                                              |
-| `/detach`                | Hand this conversation to a registered SSH host after reviewing its snapshot                                                                                                                                                                                                                                                                   |
+<!-- chat-commands:start -->
 
-**Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
-approval policy. Shift+Enter inserts a newline in the composer; Enter sends.
+| Command                                                                              | Purpose                                                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `/agents`                                                                            | List all available agents.                                                                                    |
+| `/peers`                                                                             | List configured peers and what each may learn or do.                                                          |
+| `/clear`                                                                             | Clear the screen.                                                                                             |
+| `/compact`                                                                           | Summarize older history now, keeping recent messages.                                                         |
+| `/config [tools]`                                                                    | Show the agent's configuration ('/config tools' toggles its tools).                                           |
+| `/context`                                                                           | Show context window usage and token breakdown.                                                                |
+| `/work [clear]`                                                                      | Show saved task state and compaction records ('/work clear' discards them).                                   |
+| `/copy`                                                                              | Copy the last agent response to clipboard.                                                                    |
+| `/cost`                                                                              | Show conversation token usage and estimated cost, including sub-agents.                                       |
+| `/exit`                                                                              | Exit the chat. Also `/quit`.                                                                                  |
+| `/export [path]`                                                                     | Export the conversation to a markdown file.                                                                   |
+| `/fork`                                                                              | Fork conversation into a new branch (keeps full history).                                                     |
+| `/detach <host>`                                                                     | Continue this conversation on a registered SSH host after this turn.                                          |
+| `/goal [objective\|pause\|resume\|clear\|list\|accept\|decline]`                     | Keep working toward an objective, turn after turn, in this conversation. See [Goals in chat](#goals-in-chat). |
+| `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
+| `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
+| `/memory [forget <path>]`                                                            | Show what this agent has remembered about you, or forget one file.                                            |
+| `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
+| `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |
+| `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |
+| `/model [model]`                                                                     | Change the agent's model for this session only. Also `/models`.                                               |
+| `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                       |
+| `/resume`                                                                            | Browse and resume a past conversation.                                                                        |
+| `/retry`                                                                             | Re-send your last message.                                                                                    |
+| `/new`                                                                               | Start a new conversation (clear context).                                                                     |
+| `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
+| `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
+| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
+| `/theme light\|dark`                                                                 | Switch between light and dark theme.                                                                          |
+| `/tools`                                                                             | List all agent tools by category.                                                                             |
+| `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
+| `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |
+
+<!-- chat-commands:end -->
+
+Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
+message. A message that starts with a file path, which is what dragging a file into the terminal
+inserts (`/Users/me/shot.png what is this?`), is sent to the agent rather than read as a command.
+An unknown command stays in the composer so you can fix it, and Jazz suggests the closest command.
+
+`/model` changes the model for the rest of this session on the agent's own provider: `/model`
+opens a picker, `/model <model-id>` sets it directly. The agent file keeps its model; use
+`jazz agent edit` to change that for good. `/reasoning` works the same way for the reasoning level.
+
+### Mentioning files with `@`
+
+Type `@` to pick a file or folder under the current directory. A picked path with spaces is
+quoted for you (`@"my notes.md"`). When you send the message:
+
+- An image, PDF, audio, or video file is attached, if the model accepts that kind of input.
+- A text file of up to 256 KiB is read and sent along with your message, so the agent sees its
+  contents.
+- Anything else (a folder, a binary file, a larger file) is sent as its path only. Jazz says so for
+  a binary or oversized file; the agent can still open it with its file tools.
+
+### Keyboard shortcuts
+
+The fullscreen interface is the default on a capable terminal. The classic inline interface runs
+with `JAZZ_FULLSCREEN=0`, and on terminals the fullscreen one cannot use. The two bind different
+keys. In both, interrupting work takes a double Esc or one Ctrl+C.
+
+**Fullscreen:**
+
+<!-- keys-fullscreen:start -->
+
+| Keys                                   | Action                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Enter                                  | Send the message                                                                                  |
+| Shift+Enter                            | Insert a newline for a multi-line message                                                         |
+| Tab                                    | Complete the highlighted slash command or @ path                                                  |
+| Up/Down (empty input)                  | Recall previously sent messages                                                                   |
+| Ctrl+A / Ctrl+E                        | Move to the start or end of the line                                                              |
+| Ctrl+U                                 | Delete from the caret to the start of the line                                                    |
+| Option+Enter                           | Insert a newline for a multi-line message                                                         |
+| Ctrl+V                                 | Paste from the clipboard                                                                          |
+| Ctrl+Z / Ctrl+Shift+Z                  | Undo or redo an edit in the composer                                                              |
+| Cmd+A                                  | Select the whole draft                                                                            |
+| Esc                                    | Close the open dialog, search, or menu; otherwise clear the draft; otherwise focus the transcript |
+| Esc Esc (agent busy)                   | Interrupt the current generation or tool                                                          |
+| Esc Esc (agent busy, messages queued)  | Interrupt and send the queued messages now                                                        |
+| Ctrl+C (agent busy)                    | Interrupt the current generation or tool                                                          |
+| Ctrl+C Ctrl+C                          | Leave the conversation                                                                            |
+| Shift+Tab                              | Toggle safe/yolo approval mode                                                                    |
+| Ctrl+R                                 | Expand collapsed reasoning (repeat for earlier blocks)                                            |
+| Ctrl+O                                 | Expand the last truncated diff or tool output                                                     |
+| Up (agent busy)                        | Recall queued messages for editing                                                                |
+| Ctrl+X (agent busy, empty input)       | Clear the message queue                                                                           |
+| Ctrl+B (tool running)                  | Move the running tool call to the background                                                      |
+| Down (sub-agents listed)               | Pick a sub-agent under the input; Enter opens its log                                             |
+| Enter (sub-agent open)                 | Send the draft to that sub-agent instead of the main chat                                         |
+| Esc (sub-agent open)                   | Return to the main conversation                                                                   |
+| Ctrl+F                                 | Search the conversation                                                                           |
+| PgUp/PgDn                              | Scroll the conversation                                                                           |
+| Up/Down, Home/End (transcript focused) | Scroll line by line or to either end; type to return to the input                                 |
+
+<!-- keys-fullscreen:end -->
+
+**Classic:**
+
+<!-- keys-classic:start -->
+
+| Keys                             | Action                                                             |
+| -------------------------------- | ------------------------------------------------------------------ |
+| Enter                            | Send the message                                                   |
+| Shift+Enter                      | Insert a newline for a multi-line message                          |
+| Tab                              | Complete the highlighted slash command or @ path                   |
+| Up/Down (empty input)            | Recall previously sent messages                                    |
+| Ctrl+A / Ctrl+E                  | Move to the start or end of the line                               |
+| Ctrl+U                           | Delete from the caret to the start of the line                     |
+| Ctrl+K                           | Delete from the caret to the end of the line                       |
+| Ctrl+W                           | Delete the word before the caret                                   |
+| Esc                              | Clear the current draft                                            |
+| Esc Esc (agent busy)             | Interrupt the current generation or tool, and drop queued messages |
+| Ctrl+C (agent busy)              | Interrupt the current generation or tool                           |
+| Ctrl+C Ctrl+C                    | Leave the conversation                                             |
+| Shift+Tab                        | Toggle safe/yolo approval mode                                     |
+| Ctrl+R                           | Expand collapsed reasoning (repeat for earlier blocks)             |
+| Ctrl+O                           | Expand the last truncated diff or tool output                      |
+| Up (agent busy)                  | Recall queued messages for editing                                 |
+| Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
+
+<!-- keys-classic:end -->
 
 ### Watching and steering sub-agents
 
@@ -705,6 +814,10 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 | `hybrid`   | Default: rendered with plain fallbacks     |
 | `raw`      | No formatting, no ANSI. **Use this in CI** |
 | `quiet`    | Suppress output                            |
+
+Set `NO_COLOR` to any non-empty value (see [no-color.org](https://no-color.org)) to turn colour off
+everywhere: the classic interface and plain output print no colour codes at all, and the
+fullscreen interface paints in its neutral greys, keeping bold and dim for emphasis.
 
 ---
 

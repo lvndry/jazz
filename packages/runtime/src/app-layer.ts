@@ -186,7 +186,7 @@ export function createAppLayer(
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
-  const jazzStateLayer = createJazzStateServiceLayer().pipe(Layer.provide(fileSystemLayer));
+  const jazzStateLayer = createJazzStateServiceLayer();
   const loggerLayer = createLoggerLayer();
 
   const logFormatLayer = Layer.effectDiscard(

@@ -19,10 +19,20 @@ import type {
   WakeTriggerRecord,
   WakeTriggerService,
 } from "@jazz/core/interfaces/wake-trigger-service";
-import { WakeTriggerServiceTag } from "@jazz/core/interfaces/wake-trigger-service";
+import {
+  WakeTriggerRecordSchema,
+  WakeTriggerServiceTag,
+} from "@jazz/core/interfaces/wake-trigger-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { requireValidAgentId, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
+import {
+  CorruptStateFileError,
+  readStateFile,
+  recordListKind,
+  writeStateFile,
+} from "@jazz/core/utils/state-file";
+import { requireValidAgentId, withLock } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
 import {
   createWakeTriggerOsScheduler,
@@ -45,25 +55,20 @@ function wakeTriggerLockPath(baseDirectory: string, agentId: string): string {
   return path.join(baseDirectory, `${agentId}.lock`);
 }
 
-function readWakeTriggerFile(
-  fs: FileSystem.FileSystem,
+const WAKE_TRIGGER_FILE_KIND = recordListKind("wake triggers", "triggers", WakeTriggerRecordSchema);
+
+/** Read an agent's triggers under its lock: a corrupt file is quarantined and reads as empty. */
+function readWakeTriggerFile(filePath: string): Effect.Effect<WakeTriggerRecord[], Error> {
+  return readStateFile(filePath, WAKE_TRIGGER_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
+    Effect.map((triggers) => triggers ?? []),
+  );
+}
+
+function writeWakeTriggerFile(
   filePath: string,
-): Effect.Effect<WakeTriggerRecord[], Error> {
-  return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!exists) return [];
-
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
-
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      return Array.isArray(parsed) ? (parsed as WakeTriggerRecord[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  triggers: readonly WakeTriggerRecord[],
+): Effect.Effect<void, Error> {
+  return writeStateFile(filePath, WAKE_TRIGGER_FILE_KIND, [...triggers]);
 }
 
 export interface WakeTriggerServiceImplOptions {
@@ -99,7 +104,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       yield* requireValidAgentId(agentId, WakeTriggerGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(baseWakeTriggerDirectory, { recursive: true })
+        .makeDirectory(baseWakeTriggerDirectory, { recursive: true, mode: stateDirectoryMode() })
         .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });
@@ -117,9 +122,8 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       agentId,
       Effect.gen(
         function* (this: WakeTriggerServiceImpl) {
-          const fs = yield* FileSystem.FileSystem;
           const filePath = wakeTriggerFilePath(this.baseWakeTriggerDirectory, agentId);
-          const existing = yield* readWakeTriggerFile(fs, filePath);
+          const existing = yield* readWakeTriggerFile(filePath);
 
           if (prompt.length > WAKE_TRIGGER_PROMPT_MAX_LENGTH) {
             return yield* Effect.fail(
@@ -179,12 +183,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
               ? { osSchedulerJobId: scheduleResult.osSchedulerJobId }
               : {}),
           };
-          yield* writeFileStringAtomic(
-            fs,
-            filePath,
-            `${JSON.stringify([...existing, trigger], null, 2)}\n`,
-            { tempPrefix: "wake-triggers" },
-          );
+          yield* writeWakeTriggerFile(filePath, [...existing, trigger]);
 
           return { success: true, trigger } satisfies AddWakeTriggerOutcome;
         }.bind(this),
@@ -192,13 +191,9 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
     );
 
   readonly list: WakeTriggerService["list"] = (agentId) =>
-    Effect.gen(
-      function* (this: WakeTriggerServiceImpl) {
-        yield* requireValidAgentId(agentId, WakeTriggerGuardrailViolation);
-        const fs = yield* FileSystem.FileSystem;
-        const filePath = wakeTriggerFilePath(this.baseWakeTriggerDirectory, agentId);
-        return yield* readWakeTriggerFile(fs, filePath);
-      }.bind(this),
+    this.withValidatedAgentLock(
+      agentId,
+      readWakeTriggerFile(wakeTriggerFilePath(this.baseWakeTriggerDirectory, agentId)),
     );
 
   readonly cancel: WakeTriggerService["cancel"] = (agentId, id) =>
@@ -206,9 +201,8 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       agentId,
       Effect.gen(
         function* (this: WakeTriggerServiceImpl) {
-          const fs = yield* FileSystem.FileSystem;
           const filePath = wakeTriggerFilePath(this.baseWakeTriggerDirectory, agentId);
-          const existing = yield* readWakeTriggerFile(fs, filePath);
+          const existing = yield* readWakeTriggerFile(filePath);
           const removedTrigger = existing.find((trigger) => trigger.id === id);
 
           if (removedTrigger === undefined) {
@@ -219,9 +213,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
           }
 
           const remaining = existing.filter((trigger) => trigger.id !== id);
-          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
-            tempPrefix: "wake-triggers",
-          });
+          yield* writeWakeTriggerFile(filePath, remaining);
 
           // Never let a failed OS unschedule block removing the JSON record — the record is
           // the source of truth, and a stray leftover `at`/launchd job is harmless (the CLI
@@ -244,6 +236,17 @@ export function createWakeTriggerServiceLayer(
   options?: WakeTriggerServiceImplOptions,
 ): Layer.Layer<WakeTriggerService> {
   return Layer.succeed(WakeTriggerServiceTag, new WakeTriggerServiceImpl(options));
+}
+
+/**
+ * The unlocked look a sweep takes before locking an agent's file. A corrupt file counts as due,
+ * so the locked pass quarantines it; a file from a newer Jazz is left alone.
+ */
+function hasDueTrigger(filePath: string, now: number): Effect.Effect<boolean> {
+  return readStateFile(filePath, WAKE_TRIGGER_FILE_KIND, { onCorrupt: "fail" }).pipe(
+    Effect.map((triggers) => (triggers ?? []).some((trigger) => trigger.fireAt <= now)),
+    Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
+  );
 }
 
 /**
@@ -286,22 +289,17 @@ export function sweepDueWakeTriggers(
       // agent trying to register a trigger of its own. Nothing is lost by reading unlocked: the
       // decision is re-made under the lock below, so a trigger that arrives between the two
       // reads is seen by the lock-held pass, and one that leaves is skipped there.
-      const unlockedPeek = yield* readWakeTriggerFile(fs, filePath).pipe(
-        Effect.catchAll(() => Effect.succeed([] as WakeTriggerRecord[])),
-      );
-      if (!unlockedPeek.some((trigger) => trigger.fireAt <= now)) continue;
+      if (!(yield* hasDueTrigger(filePath, now))) continue;
 
       const dueForAgent = yield* withLock(
         lockPath,
         Effect.gen(function* () {
-          const triggers = yield* readWakeTriggerFile(fs, filePath);
+          const triggers = yield* readWakeTriggerFile(filePath);
           const due = triggers.filter((trigger) => trigger.fireAt <= now);
           if (due.length === 0) return [] as WakeTriggerRecord[];
 
           const remaining = triggers.filter((trigger) => trigger.fireAt > now);
-          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
-            tempPrefix: "wake-triggers",
-          });
+          yield* writeWakeTriggerFile(filePath, remaining);
           return due;
         }),
         // A file whose lock can't be acquired this sweep is retried next tick — one stuck

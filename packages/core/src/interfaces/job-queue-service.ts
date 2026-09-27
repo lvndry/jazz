@@ -1,5 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import { z } from "zod";
 
 export type JobStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -46,6 +47,37 @@ export interface JobBatchRecord {
   readonly completedAt: number | null;
   readonly jobs: readonly JobRecord[];
 }
+
+const JobRecordSchema: z.ZodType<JobRecord> = z.object({
+  id: z.string().min(1),
+  command: z.string(),
+  status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]),
+  attempt: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().positive(),
+  nextAttemptAt: z.number().finite(),
+  leaseOwner: z.string().nullable(),
+  leaseExpiresAt: z.number().finite().nullable(),
+  result: z
+    .object({ stdout: z.string(), stderr: z.string(), exitCode: z.number().int() })
+    .nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.number().finite(),
+  updatedAt: z.number().finite(),
+});
+
+/** On-disk shape of one {@link JobBatchRecord}, checked on every read. */
+export const JobBatchRecordSchema: z.ZodType<JobBatchRecord> = z.object({
+  id: z.string().min(1),
+  agentId: z.string().min(1),
+  conversationId: z.string().min(1),
+  workingDir: z.string(),
+  concurrencyCap: z.number().int().positive(),
+  backoff: z.object({ initialMs: z.number().nonnegative(), maxMs: z.number().nonnegative() }),
+  reason: z.string(),
+  createdAt: z.number().finite(),
+  completedAt: z.number().finite().nullable(),
+  jobs: z.array(JobRecordSchema),
+});
 
 export interface EnqueueBatchJobInput {
   readonly command: string;

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { stateFileMode } from "@/core/utils/private-mode";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
@@ -72,7 +73,11 @@ function readTodos(conversationId: string): Effect.Effect<TodoItem[], Error> {
 function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
   const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
-    try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
+    try: () =>
+      nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      }),
     catch: (error) => new Error(`Failed to write todo file ${filePath}: ${toError(error).message}`),
   });
 }

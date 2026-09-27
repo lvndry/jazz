@@ -6,6 +6,7 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
@@ -21,7 +22,9 @@ export function withMemoryWriteLock<A, E, R>(
 ): Effect.Effect<A, E | Error, R | FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* fs.makeDirectory(memoryDirectory, { recursive: true }).pipe(Effect.mapError(toError));
+    yield* fs
+      .makeDirectory(memoryDirectory, { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.mapError(toError));
     return yield* withLock(memoryWriteLockPath(memoryDirectory), operation);
   });
 }

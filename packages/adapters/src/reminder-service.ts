@@ -12,10 +12,17 @@ import type {
   ReminderRecord,
   ReminderService,
 } from "@jazz/core/interfaces/reminder-service";
-import { ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
+import { ReminderRecordSchema, ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { requireValidAgentId, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
+import {
+  CorruptStateFileError,
+  readStateFile,
+  recordListKind,
+  writeStateFile,
+} from "@jazz/core/utils/state-file";
+import { requireValidAgentId, withLock } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
 import {
   createReminderOsScheduler,
@@ -66,25 +73,32 @@ function reminderLockPath(baseReminderDirectory: string, agentId: string): strin
   return path.join(baseReminderDirectory, reminderLockName(agentId));
 }
 
-function readReminderFile(
-  fs: FileSystem.FileSystem,
+/** The on-disk format of an agent's reminder file, shared with the chat bridges. */
+export const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema);
+
+/** Read an agent's reminders under its lock: a corrupt file is quarantined and reads as empty. */
+function readReminderFile(filePath: string): Effect.Effect<ReminderRecord[], Error> {
+  return readStateFile(filePath, REMINDER_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
+    Effect.map((reminders) => reminders ?? []),
+  );
+}
+
+function writeReminderFile(
   filePath: string,
-): Effect.Effect<ReminderRecord[], Error> {
-  return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!exists) return [];
+  reminders: readonly ReminderRecord[],
+): Effect.Effect<void, Error> {
+  return writeStateFile(filePath, REMINDER_FILE_KIND, [...reminders]);
+}
 
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
-
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-    } catch {
-      return [];
-    }
-  });
+/**
+ * The unlocked look a sweep takes before locking an agent's file. A corrupt file counts as due,
+ * so the locked pass quarantines it; a file from a newer Jazz is left alone.
+ */
+function hasDueReminder(filePath: string, now: number): Effect.Effect<boolean> {
+  return readStateFile(filePath, REMINDER_FILE_KIND, { onCorrupt: "fail" }).pipe(
+    Effect.map((reminders) => (reminders ?? []).some((reminder) => reminder.fireAt <= now)),
+    Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
+  );
 }
 
 export interface ReminderServiceImplOptions {
@@ -120,7 +134,7 @@ export class ReminderServiceImpl implements ReminderService {
       yield* requireValidAgentId(agentId, ReminderGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(baseReminderDirectory, { recursive: true })
+        .makeDirectory(baseReminderDirectory, { recursive: true, mode: stateDirectoryMode() })
         .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });
@@ -131,9 +145,8 @@ export class ReminderServiceImpl implements ReminderService {
       agentId,
       Effect.gen(
         function* (this: ReminderServiceImpl) {
-          const fs = yield* FileSystem.FileSystem;
           const filePath = reminderFilePath(this.baseReminderDirectory, agentId);
-          const existing = yield* readReminderFile(fs, filePath);
+          const existing = yield* readReminderFile(filePath);
 
           if (text.length > REMINDER_TEXT_MAX_LENGTH) {
             return yield* Effect.fail(
@@ -186,12 +199,7 @@ export class ReminderServiceImpl implements ReminderService {
               ? { osSchedulerJobId: scheduleResult.osSchedulerJobId }
               : {}),
           };
-          yield* writeFileStringAtomic(
-            fs,
-            filePath,
-            `${JSON.stringify([...existing, reminder], null, 2)}\n`,
-            { tempPrefix: "reminders" },
-          );
+          yield* writeReminderFile(filePath, [...existing, reminder]);
 
           return { success: true, reminder } satisfies AddReminderOutcome;
         }.bind(this),
@@ -199,13 +207,9 @@ export class ReminderServiceImpl implements ReminderService {
     );
 
   readonly list: ReminderService["list"] = (agentId) =>
-    Effect.gen(
-      function* (this: ReminderServiceImpl) {
-        yield* requireValidAgentId(agentId, ReminderGuardrailViolation);
-        const fs = yield* FileSystem.FileSystem;
-        const filePath = reminderFilePath(this.baseReminderDirectory, agentId);
-        return yield* readReminderFile(fs, filePath);
-      }.bind(this),
+    this.withValidatedAgentLock(
+      agentId,
+      readReminderFile(reminderFilePath(this.baseReminderDirectory, agentId)),
     );
 
   readonly cancel: ReminderService["cancel"] = (agentId, id) =>
@@ -213,9 +217,8 @@ export class ReminderServiceImpl implements ReminderService {
       agentId,
       Effect.gen(
         function* (this: ReminderServiceImpl) {
-          const fs = yield* FileSystem.FileSystem;
           const filePath = reminderFilePath(this.baseReminderDirectory, agentId);
-          const existing = yield* readReminderFile(fs, filePath);
+          const existing = yield* readReminderFile(filePath);
           const removedReminder = existing.find((reminder) => reminder.id === id);
 
           if (removedReminder === undefined) {
@@ -226,9 +229,7 @@ export class ReminderServiceImpl implements ReminderService {
           }
 
           const remaining = existing.filter((reminder) => reminder.id !== id);
-          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
-            tempPrefix: "reminders",
-          });
+          yield* writeReminderFile(filePath, remaining);
 
           // Never let a failed OS unschedule block removing the JSON record — the record is
           // the source of truth, and a stray leftover `at`/launchd job is harmless (the CLI
@@ -295,22 +296,17 @@ export function sweepDueReminders(
       // Acquiring the write lock first made every agent's file a lock cycle on every tick, which
       // scales with tick frequency and contends with an agent writing a reminder of its own.
       // Reading unlocked is safe because the decision is re-made under the lock below.
-      const unlockedPeek = yield* readReminderFile(fs, filePath).pipe(
-        Effect.catchAll(() => Effect.succeed([] as ReminderRecord[])),
-      );
-      if (!unlockedPeek.some((reminder) => reminder.fireAt <= now)) continue;
+      if (!(yield* hasDueReminder(filePath, now))) continue;
 
       const dueForAgent = yield* withLock(
         lockPath,
         Effect.gen(function* () {
-          const reminders = yield* readReminderFile(fs, filePath);
+          const reminders = yield* readReminderFile(filePath);
           const due = reminders.filter((reminder) => reminder.fireAt <= now);
           if (due.length === 0) return [] as ReminderRecord[];
 
           const remaining = reminders.filter((reminder) => reminder.fireAt > now);
-          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
-            tempPrefix: "reminders",
-          });
+          yield* writeReminderFile(filePath, remaining);
           return due;
         }),
         // A file whose lock can't be acquired this sweep will simply be
