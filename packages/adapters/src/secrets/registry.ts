@@ -185,7 +185,7 @@ export function peerTokenEnvVar(peerName: string): string {
 export type McpServerSecretField = "env" | "headers";
 
 /** An MCP server's env var or HTTP header value, e.g. `mcpServers.signoz.env.SIGNOZ_API_KEY`. */
-const MCP_SERVER_SECRET_PATH = /^mcpServers\..+\.(env|headers)\.[^.]+$/;
+const MCP_SERVER_SECRET_PATH = /^mcpServers\..+\.(env|headers)\..+$/;
 
 /**
  * The keyring account holding one env var or header value of an MCP server defined in the

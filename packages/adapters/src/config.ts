@@ -35,6 +35,7 @@ import {
   type ConfigFile,
   validateEffectiveConfig,
 } from "@jazz/core/utils/config-schema";
+import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
@@ -63,6 +64,7 @@ import {
   type McpServerSecretField,
   secretValueFromEnv,
 } from "./secrets/registry";
+import { acquireFileLock } from "./storage/file-lock";
 
 /**
  * ~/.jazz/config.json can hold API keys, so it is created private to the user
@@ -1322,6 +1324,7 @@ function forgetMcpServerSecrets(
   backend: KeyringBackend,
   name: string,
   definition: unknown,
+  retainedAccounts: ReadonlySet<string> = new Set(),
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
     if (backend === "none" || !isRecord(definition)) {
@@ -1333,7 +1336,8 @@ function forgetMcpServerSecrets(
         continue;
       }
       for (const key of Object.keys(values)) {
-        yield* keyringDelete(backend, mcpServerSecretPath(name, field, key));
+        const account = mcpServerSecretPath(name, field, key);
+        if (!retainedAccounts.has(account)) yield* keyringDelete(backend, account);
       }
     }
   });
@@ -1364,12 +1368,28 @@ function writeUserMcpDefinitions(
 }
 
 /**
+ * Serialize credential/file transactions without expiring a live owner's lock. Keyring calls
+ * can take seconds per value, so elapsed time alone cannot safely identify an abandoned save.
+ */
+function withMcpDefinitionsLock<A>(operation: Effect.Effect<A, Error>): Effect.Effect<A, Error> {
+  return Effect.acquireUseRelease(
+    Effect.tryPromise({
+      try: () => acquireFileLock(`${userAgentsMcpPath()}.lock`, { maxHoldMs: Infinity }),
+      catch: toError,
+    }),
+    () => operation,
+    (release) => Effect.promise(release),
+  );
+}
+
+/**
  * Add or replace one server in the user's `~/.agents/mcp.json`.
  *
  * Env var and header values go to the keyring, and the file keeps each key with an empty value
  * for Jazz to resolve on load. Without a usable keyring a value is written to the file, which is
- * kept at mode 0600 either way. Keyring entries of the definition being replaced are deleted
- * first, so a dropped key leaves nothing behind.
+ * kept at mode 0600 either way. Mutations are serialized and cannot be interrupted between
+ * credential staging and file commit. Failed commits restore touched credentials; obsolete
+ * credentials are deleted only after the replacement definition is committed.
  */
 export function writeAgentsMcpServer(
   fs: FileSystem.FileSystem,
@@ -1377,41 +1397,80 @@ export function writeAgentsMcpServer(
   config: Record<string, unknown>,
   keyringBackend?: KeyringBackend,
 ): Effect.Effect<McpServerSecretPlacement, Error> {
-  return Effect.gen(function* () {
+  const operation = Effect.gen(function* () {
     const existing = yield* readMcpDefinitions(fs, userAgentsMcpPath());
     const backend = keyringBackend ?? (yield* detectKeyringBackend());
-    yield* forgetMcpServerSecrets(backend, name, existing[name]);
+    const previousValues = new Map<string, string | undefined>();
+    const retainedAccounts = new Set<string>();
 
     const definition: Record<string, unknown> = { ...config };
     const inKeyring: string[] = [];
     const inFile: string[] = [];
-    for (const field of MCP_SECRET_FIELDS) {
-      const values = config[field];
-      if (!isRecord(values)) {
-        continue;
-      }
-      const kept: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(values)) {
-        if (typeof value !== "string" || value === "") {
-          kept[key] = value;
+    const commit = Effect.gen(function* () {
+      for (const field of MCP_SECRET_FIELDS) {
+        const values = config[field];
+        if (!isRecord(values)) {
           continue;
         }
-        const stored =
-          backend !== "none" &&
-          (yield* keyringSet(backend, mcpServerSecretPath(name, field, key), value));
-        kept[key] = stored ? "" : value;
-        (stored ? inKeyring : inFile).push(`${field}.${key}`);
+        const kept: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(values)) {
+          if (typeof value !== "string" || value === "") {
+            kept[key] = value;
+            continue;
+          }
+          const account = mcpServerSecretPath(name, field, key);
+          if (backend !== "none") {
+            const previous = yield* keyringGet(backend, account);
+            const oldValues = existing[name]?.[field];
+            if (previous === undefined && isRecord(oldValues) && oldValues[key] === "") {
+              return yield* Effect.fail(
+                new Error(
+                  `Cannot safely replace ${account}: its existing keyring value could not be read. Unlock the keyring and retry, or remove the server before adding fresh credentials.`,
+                ),
+              );
+            }
+            previousValues.set(account, previous);
+          }
+          const stored = backend !== "none" && (yield* keyringSet(backend, account, value));
+          if (stored) retainedAccounts.add(account);
+          kept[key] = stored ? "" : value;
+          (stored ? inKeyring : inFile).push(`${field}.${key}`);
+        }
+        definition[field] = kept;
       }
-      definition[field] = kept;
-    }
 
-    yield* writeUserMcpDefinitions(fs, { ...existing, [name]: definition });
+      yield* writeUserMcpDefinitions(fs, { ...existing, [name]: definition });
+    });
+    yield* commit.pipe(
+      Effect.catchAllCause((cause) =>
+        Effect.gen(function* () {
+          const unrestored: string[] = [];
+          for (const [account, previous] of previousValues) {
+            if (previous === undefined) {
+              yield* keyringDelete(backend, account);
+            } else if (!(yield* keyringSet(backend, account, previous))) {
+              unrestored.push(account);
+            }
+          }
+          if (unrestored.length > 0) {
+            return yield* Effect.fail(
+              new Error(
+                `MCP save failed and the keyring refused to restore ${unrestored.join(", ")}. Re-enter these credentials before using the server.`,
+              ),
+            );
+          }
+          return yield* Effect.failCause(cause);
+        }),
+      ),
+    );
+    yield* forgetMcpServerSecrets(backend, name, existing[name], retainedAccounts);
     return {
       keyring: inKeyring,
       keyringDescription: describeKeyringBackend(backend),
       file: inFile,
     };
-  });
+  }).pipe(Effect.uninterruptible);
+  return withMcpDefinitionsLock(operation);
 }
 
 /** Remove a server from `~/.agents/mcp.json`, and its env and header values from the keyring. */
@@ -1420,16 +1479,17 @@ export function removeAgentsMcpServer(
   name: string,
   keyringBackend?: KeyringBackend,
 ): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
+  const operation = Effect.gen(function* () {
     const existing = yield* readMcpDefinitions(fs, userAgentsMcpPath());
     if (!(name in existing)) {
       return;
     }
     const backend = keyringBackend ?? (yield* detectKeyringBackend());
-    yield* forgetMcpServerSecrets(backend, name, existing[name]);
     const { [name]: _removed, ...rest } = existing;
     yield* writeUserMcpDefinitions(fs, rest);
-  });
+    yield* forgetMcpServerSecrets(backend, name, existing[name]);
+  }).pipe(Effect.uninterruptible);
+  return withMcpDefinitionsLock(operation);
 }
 
 /**
