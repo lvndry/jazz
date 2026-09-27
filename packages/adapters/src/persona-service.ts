@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { MEMORY_EXTRACTOR_AGENT_ID } from "@jazz/core/constants/memory";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
@@ -57,10 +58,11 @@ function escapeYaml(s: string): string {
 export const BUILTIN_PERSONA_NAMES = ["default", "coder", "researcher"] as const;
 
 /**
- * The summarizer persona is internal-only (used by the context summarization system).
- * It is never listed or selectable by users but can be resolved by name.
+ * Personas Jazz uses for its own background work: the summarizer compacts
+ * history, and the memory extractor saves facts before compaction. They are
+ * never listed or selectable by users but can be resolved by name.
  */
-const INTERNAL_PERSONA_NAMES = ["summarizer"] as const;
+const INTERNAL_PERSONA_NAMES = ["summarizer", MEMORY_EXTRACTOR_AGENT_ID] as const;
 
 /**
  * Check if a persona name is a built-in or internal persona.
@@ -391,7 +393,7 @@ updatedAt: "${now.toISOString()}"
   private listPersonasFromDir(
     dir: string,
     source: PersonaMetadata["source"],
-    excludeSummarizer: boolean,
+    excludeInternal: boolean,
   ): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
@@ -415,7 +417,9 @@ updatedAt: "${now.toISOString()}"
         const personas: Persona[] = [];
         const seenDirs = new Set<string>();
         for (const m of meta) {
-          if (excludeSummarizer && m.name === "summarizer") continue;
+          if (excludeInternal && (INTERNAL_PERSONA_NAMES as readonly string[]).includes(m.name)) {
+            continue;
+          }
           if (seenDirs.has(m.path)) continue;
           seenDirs.add(m.path);
           const persona = yield* this.loadPersonaFromFile(
@@ -482,7 +486,7 @@ updatedAt: "${now.toISOString()}"
         const seenNames = new Set<string>();
         const result: Persona[] = [];
 
-        // 1. Built-in personas (excluding summarizer)
+        // 1. Built-in personas (excluding the internal ones)
         const builtinDir = this.getBuiltinPersonasDir();
         if (builtinDir) {
           const builtinPersonas = yield* this.listPersonasFromDir(builtinDir, "builtin", true);

@@ -2,7 +2,8 @@
  * `jazz agent` — list, inspect, and delete agents.
  */
 
-import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
+import { agentConfigProblems } from "@jazz/core/agent/agent-config-problems";
+import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
@@ -24,6 +25,7 @@ import {
   formatIsoShort,
   getTerminalWidth,
   padRight,
+  truncate,
   truncateMiddle,
   wrapCommaList,
 } from "@/cli/utils/string-utils";
@@ -31,7 +33,10 @@ import { findAgentsThatGenerate, suggestModelsForModality } from "./media-agents
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 
-function formatAgentsListBlock(
+/** Narrower than this, a description column shows too little to be worth a column. */
+const MIN_DESCRIPTION_WIDTH = 10;
+
+export function formatAgentsListBlock(
   agents: readonly {
     readonly id: string;
     readonly name: string;
@@ -69,13 +74,20 @@ function formatAgentsListBlock(
   // Columns (keep conservative so we don't rely on perfect ANSI width measurement)
   const idxW = 3; // "12 "
   const nameW = Math.max(16, Math.min(28, Math.floor(innerWidth * 0.28)));
-  const modelW = Math.max(18, Math.min(30, Math.floor(innerWidth * 0.25)));
+  const baseModelW = Math.max(18, Math.min(30, Math.floor(innerWidth * 0.25)));
   const typeW = Math.max(10, Math.min(14, Math.floor(innerWidth * 0.12)));
   const reasoningW = 12; // "high/low"
   const gap = 2;
 
-  const fixed = idxW + gap + nameW + gap + modelW + gap + typeW + gap + reasoningW + gap; // last gap for padding
-  const descW = Math.max(10, innerWidth - fixed);
+  // One column of the inner width holds the leading space before each row.
+  const rowWidth = innerWidth - 1;
+  const fixed = idxW + gap + nameW + gap + baseModelW + gap + typeW + gap + reasoningW;
+  const showDescription = rowWidth - fixed - gap >= MIN_DESCRIPTION_WIDTH;
+  const descW = showDescription ? rowWidth - fixed - gap : 0;
+  // With no room for a description, its columns go to the model.
+  const modelW = showDescription ? baseModelW : baseModelW + Math.max(0, rowWidth - fixed);
+  const descriptionCell = (text: string): string =>
+    showDescription ? " ".repeat(gap) + padRight(truncateMiddle(text, descW), descW) : "";
 
   const colHeader =
     padRight("#", idxW) +
@@ -87,8 +99,7 @@ function formatAgentsListBlock(
     padRight("Persona", typeW) +
     " ".repeat(gap) +
     padRight("Reasoning", reasoningW) +
-    " ".repeat(gap) +
-    padRight("Description", descW);
+    descriptionCell("Description");
   lines.push(
     chalk.dim(g.boxV) +
       " " +
@@ -108,18 +119,17 @@ function formatAgentsListBlock(
       " ".repeat(gap) +
       padRight(truncateMiddle(agent.name, nameW), nameW) +
       " ".repeat(gap) +
-      padRight(truncateMiddle(model, modelW), modelW) +
+      padRight(truncate(model, modelW), modelW) +
       " ".repeat(gap) +
       padRight(truncateMiddle(persona, typeW), typeW) +
       " ".repeat(gap) +
       padRight(truncateMiddle(reasoning, reasoningW), reasoningW) +
-      " ".repeat(gap) +
-      padRight(truncateMiddle(agent.description ?? "", descW), descW);
+      descriptionCell(agent.description ?? "");
 
     lines.push(
       chalk.dim(g.boxV) +
         " " +
-        CHALK_THEME.white(truncateMiddle(row, innerWidth - 1)) +
+        CHALK_THEME.white(padRight(truncate(row, rowWidth), rowWidth)) +
         chalk.dim(g.boxV),
     );
 
@@ -232,17 +242,69 @@ function listAgentsThatGenerate(
  * @throws {StorageError} When there's an error accessing storage
  *
  */
+/**
+ * List agents: a table for people, or one JSON document with `--json`.
+ *
+ * Agent files that cannot be read and agents whose provider or reasoning level
+ * Jazz does not know are reported on stderr (and under `problems` in JSON), so a
+ * broken file is never silently missing from the list.
+ */
 export function listAgentsCommand(
-  options: { readonly can?: MediaModality } = {},
+  options: { readonly can?: MediaModality; readonly json?: boolean } = {},
 ): Effect.Effect<
   void,
   StorageError,
   AgentService | TerminalService | CLIOptions | JazzStateService
 > {
   return Effect.gen(function* () {
-    const agentsUnsorted = yield* listAllAgents();
+    const agentService = yield* AgentServiceTag;
+    const inspection = yield* agentService.inspectAgents();
+    const agentsUnsorted = inspection.agents;
     const terminal = yield* TerminalServiceTag;
     const cliOptions = yield* CLIOptionsTag;
+    const problems = [
+      ...inspection.unreadable.map((file) => ({
+        agent: file.path,
+        message: `could not be read, so it is not listed: ${file.reason}`,
+      })),
+      ...agentsUnsorted.flatMap((agent) =>
+        agentConfigProblems(agent).map((problem) => ({
+          agent: agent.name,
+          message: `${problem.field}: ${problem.message}`,
+        })),
+      ),
+    ];
+
+    const jazzState = yield* JazzStateServiceTag;
+    const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
+      Effect.map((value) => (typeof value === "string" ? value : null)),
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    const agents = sortAgents(agentsUnsorted, lastUsedAgentId);
+
+    if (options.json === true) {
+      const document = {
+        agents: agents.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          ...(agent.description !== undefined ? { description: agent.description } : {}),
+          provider: agent.config.llmProvider,
+          model: agent.config.llmModel,
+          persona: agent.config.persona ?? "default",
+          ...(agent.config.reasoning !== undefined ? { reasoning: agent.config.reasoning } : {}),
+          tools: agent.config.tools ?? [],
+          createdAt: agent.createdAt.toISOString(),
+          updatedAt: agent.updatedAt.toISOString(),
+        })),
+        problems,
+      };
+      process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      return;
+    }
+
+    for (const problem of problems) {
+      process.stderr.write(`warning: agent ${problem.agent} ${problem.message}\n`);
+    }
 
     if (agentsUnsorted.length === 0) {
       yield* terminal.info("No agents found. Create your first agent with: jazz agent create");
@@ -253,14 +315,6 @@ export function listAgentsCommand(
       yield* listAgentsThatGenerate(agentsUnsorted, options.can, terminal);
       return;
     }
-
-    // Sort with last-used agent first, then alphabetically
-    const jazzState = yield* JazzStateServiceTag;
-    const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
-      Effect.map((value) => (typeof value === "string" ? value : null)),
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
-    const agents = sortAgents(agentsUnsorted, lastUsedAgentId);
 
     // Ink component sized to the terminal width at print time (Static
     // scrollback cannot reflow after printing). Plain string block when

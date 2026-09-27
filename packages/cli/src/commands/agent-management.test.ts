@@ -17,6 +17,7 @@ const testAgent = {
 // Mock dependencies
 const mockAgentService = {
   listAgents: mock(() => Effect.succeed([])),
+  inspectAgents: mock(() => Effect.succeed({ agents: [], unreadable: [] })),
   getAgent: mock(() => Effect.succeed({ id: "a1", name: "agent1" } as Agent)),
   deleteAgent: mock(() => Effect.void),
 } as unknown as AgentService;
@@ -58,7 +59,9 @@ describe("Agent Management Commands", () => {
 
   it("should list agents and show info if empty", async () => {
     // @ts-expect-error - mocking
-    mockAgentService.listAgents.mockReturnValueOnce(Effect.succeed([]));
+    mockAgentService.inspectAgents.mockReturnValueOnce(
+      Effect.succeed({ agents: [], unreadable: [] }),
+    );
 
     const program = listAgentsCommand();
     const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;

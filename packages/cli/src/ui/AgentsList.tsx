@@ -42,6 +42,9 @@ function formatDate(date: Date): string {
  * Column priority under narrow widths: name and model stay readable, the
  * description column is dropped entirely rather than truncated into noise.
  */
+/** Narrower than this, a description column shows too little to be worth a column. */
+const MIN_DESCRIPTION_WIDTH = 12;
+
 export function AgentsList(props: {
   readonly agents: readonly AgentListItem[];
   readonly verbose: boolean;
@@ -55,10 +58,13 @@ export function AgentsList(props: {
   const reasoningW = 9;
   const personaW = Math.max(8, Math.min(12, Math.floor(inner * 0.1)));
   const nameW = Math.max(12, Math.min(22, Math.floor(inner * 0.22)));
-  const modelW = Math.max(16, Math.min(38, Math.floor(inner * 0.32)));
-  const fixed = idxW + gap + nameW + gap + modelW + gap + personaW + gap + reasoningW;
+  const baseModelW = Math.max(16, Math.min(38, Math.floor(inner * 0.32)));
+  const fixed = idxW + gap + nameW + gap + baseModelW + gap + personaW + gap + reasoningW;
   const descW = inner - fixed - gap;
-  const showDescription = descW >= 12;
+  const showDescription = descW >= MIN_DESCRIPTION_WIDTH;
+  // With no room for a description, its columns go to the model, the one
+  // value people scan the list for and the first to be cut short.
+  const modelW = showDescription ? baseModelW : baseModelW + Math.max(0, inner - fixed);
 
   const sp = " ".repeat(gap);
 

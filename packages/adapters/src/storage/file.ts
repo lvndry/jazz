@@ -5,7 +5,12 @@
 
 import { FileSystem } from "@effect/platform";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
-import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/storage";
+import {
+  StorageServiceTag,
+  type AgentFileInspection,
+  type StorageService,
+  type UnreadableAgentFile,
+} from "@jazz/core/interfaces/storage";
 import {
   AgentConfigurationError,
   StorageError,
@@ -256,23 +261,32 @@ export class FileStorageService implements StorageService {
   }
 
   listAgents(): Effect.Effect<readonly Agent[], StorageError> {
+    return this.inspectAgentFiles().pipe(Effect.map((inspection) => inspection.agents));
+  }
+
+  inspectAgentFiles(): Effect.Effect<AgentFileInspection, StorageError> {
     return Effect.gen(
       function* (this: FileStorageService) {
         const dir = this.getAgentsDir();
         const files = yield* this.listJsonFiles(dir);
 
         const agents: Agent[] = [];
+        const unreadable: UnreadableAgentFile[] = [];
         for (const file of files) {
           const path = `${dir}/${file}`;
-          const agent = yield* this.readAgentFile(path).pipe(
-            Effect.catchAll(() => Effect.void), // Skip corrupted files
-          );
-          if (agent) {
-            agents.push(agent);
+          const result = yield* Effect.either(this.readAgentFile(path));
+          if (result._tag === "Right") {
+            agents.push(result.right);
+          } else {
+            const error = result.left;
+            unreadable.push({
+              path,
+              reason: error._tag === "StorageError" ? error.reason : "the file disappeared",
+            });
           }
         }
 
-        return agents;
+        return { agents, unreadable };
       }.bind(this),
     );
   }

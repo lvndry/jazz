@@ -50,20 +50,22 @@ import { formatOneShotError, formatOneShotResult } from "./run/envelope";
  */
 
 /**
- * List all available workflows.
+ * List all available workflows, or print them as one JSON document with `--json`.
  */
-export function listWorkflowsCommand() {
+export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading("📋 Available Workflows");
-    yield* terminal.log("");
-
     const workflows = yield* workflowService.listWorkflows();
 
-    if (workflows.length === 0) {
+    if (options.json !== true) {
+      yield* terminal.heading("📋 Available Workflows");
+      yield* terminal.log("");
+    }
+
+    if (workflows.length === 0 && options.json !== true) {
       yield* terminal.info("No workflows found.");
       yield* terminal.log("");
       yield* terminal.info("Install one from the library: jazz workflow browse");
@@ -100,6 +102,26 @@ export function listWorkflowsCommand() {
         Effect.succeed({ runningNames: new Set<string>(), staleNames: new Set<string>() }),
       ),
     );
+
+    if (options.json === true) {
+      const { local: localNames } = groupWorkflows(workflows);
+      const localSet = new Set(localNames.map((workflow) => workflow.name));
+      const document = {
+        workflows: workflows.map((workflow) => ({
+          name: workflow.name,
+          description: workflow.description,
+          scope: localSet.has(workflow.name) ? "local" : "global",
+          path: workflow.path,
+          ...(workflow.agent !== undefined ? { agent: workflow.agent } : {}),
+          ...(workflow.schedule !== undefined ? { schedule: workflow.schedule } : {}),
+          scheduled: scheduledNames.has(workflow.name),
+          running: runningNames.has(workflow.name),
+          stale: staleNames.has(workflow.name),
+        })),
+      };
+      process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      return;
+    }
 
     const { local, global } = groupWorkflows(workflows);
 

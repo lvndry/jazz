@@ -45,7 +45,7 @@ import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
 } from "@jazz/core/utils/provider-migration";
-import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { resolveStorageDirectory, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 import {
   detectKeyringBackend,
@@ -593,6 +593,8 @@ export function createConfigLayer(
 
 export interface ConfigValidationResult {
   readonly paths: readonly string[];
+  /** Where agent files live under the validated configuration. */
+  readonly storageDirectory: string;
 }
 
 /**
@@ -621,10 +623,11 @@ export function validateConfigFiles(
         : yield* requireValidConfigFile(files.local.path, files.local.document);
     const { mcpServers: _globalMcp, ...globalSettings } = global;
     const { mcpServers: _localMcp, ...localSettings } = local;
-    yield* requireValidEffectiveConfig(
+    const merged = yield* requireValidEffectiveConfig(
       mergeConfigLayers(defaultConfig(), [globalSettings, localSettings]),
     );
     return {
+      storageDirectory: resolveStorageDirectory(merged.storage),
       paths: [files.global?.path, files.local?.path].filter(
         (path): path is string => path !== undefined,
       ),

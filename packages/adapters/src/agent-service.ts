@@ -7,7 +7,11 @@ import { validateCustomToolDefinitionShape } from "@jazz/core/agent/tools/custom
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
-import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/storage";
+import {
+  StorageServiceTag,
+  type AgentFileInspection,
+  type StorageService,
+} from "@jazz/core/interfaces/storage";
 import { CommonSuggestions } from "@jazz/core/presentation/error-handler";
 import { isWebSearchProviderName, WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
@@ -103,6 +107,10 @@ export class AgentServiceImpl implements AgentService {
 
   listAgents(): Effect.Effect<readonly Agent[], StorageError> {
     return this.storage.listAgents();
+  }
+
+  inspectAgents(): Effect.Effect<AgentFileInspection, StorageError> {
+    return this.storage.inspectAgentFiles();
   }
 
   updateAgent(

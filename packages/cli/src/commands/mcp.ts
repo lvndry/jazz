@@ -297,11 +297,12 @@ function describeTransport(config: MCPServerConfig): string {
  * List all configured MCP servers.
  *
  * With `--tools`, connects to each enabled server to report what it actually
- * advertises — the question "what did adding this server get me?" previously
- * had no answer short of starting a chat.
+ * advertises: the question "what did adding this server get me?" otherwise has
+ * no answer short of starting a chat. `--json` prints the same as one document,
+ * without the server's environment or headers, which can hold secrets.
  */
 export function listMcpServersCommand(
-  options: { readonly tools?: boolean } = {},
+  options: { readonly tools?: boolean; readonly json?: boolean } = {},
 ): Effect.Effect<void, never, McpLiveDeps> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -309,6 +310,31 @@ export function listMcpServersCommand(
 
     const mcpServers = yield* configService.getOrElse<McpServersRecord>("mcpServers", {});
     const entries = Object.entries(mcpServers);
+
+    if (options.json === true) {
+      const servers = [];
+      for (const [name, config] of entries) {
+        const enabled = config.enabled !== false;
+        let tools: readonly string[] | { readonly error: string } | undefined;
+        if (options.tools === true && enabled) {
+          const manager = yield* MCPServerManagerTag;
+          const discovered = yield* manager.discoverTools({ ...config, name }).pipe(Effect.either);
+          tools =
+            discovered._tag === "Right"
+              ? discovered.right.map((tool) => tool.name)
+              : { error: discovered.left.reason };
+        }
+        servers.push({
+          name,
+          transport: describeTransport(config),
+          enabled,
+          trusted: config.trusted === true,
+          ...(tools !== undefined ? { tools } : {}),
+        });
+      }
+      process.stdout.write(`${JSON.stringify({ servers }, null, 2)}\n`);
+      return;
+    }
 
     if (entries.length === 0) {
       yield* terminal.info("No MCP servers configured.");

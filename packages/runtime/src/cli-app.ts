@@ -394,7 +394,11 @@ function registerAgentCommands(program: Command): void {
       "--can <media>",
       "Only agents whose model can generate this: image, audio, or video. Shows how to get one when none can.",
     )
-    .action((commandOptions: { can?: string }) => {
+    .option(
+      "--json",
+      "Print one JSON document, with unreadable or invalid agent files under problems",
+    )
+    .action((commandOptions: { can?: string; json?: boolean }) => {
       const requested = commandOptions.can;
       if (requested !== undefined && !isMediaModality(requested)) {
         console.error(
@@ -406,9 +410,13 @@ function registerAgentCommands(program: Command): void {
       return runCliAction(
         () =>
           import("@jazz/cli/commands/agent-management").then((mod) =>
-            mod.listAgentsCommand(requested ? { can: requested } : {}),
+            mod.listAgentsCommand({
+              ...(requested ? { can: requested } : {}),
+              json: commandOptions.json === true,
+            }),
           ),
         cliRuntimeOptions(program),
+        commandOptions.json === true ? { skipUpdateCheck: true } : {},
       );
     });
 
@@ -993,8 +1001,13 @@ Remote servers that need a login: run \`jazz mcp auth <name>\` after adding.
     .alias("ls")
     .description("List all configured MCP servers")
     .option("--tools", "Connect to each server and show the tools it advertises")
-    .action((options: { tools?: boolean }) =>
-      run(() => import("@jazz/cli/commands/mcp").then((mod) => mod.listMcpServersCommand(options))),
+    .option("--json", "Print one JSON document (no env values or headers)")
+    .action((options: { tools?: boolean; json?: boolean }) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/mcp").then((mod) => mod.listMcpServersCommand(options)),
+        cliRuntimeOptions(program),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
     );
 
   mcpCommand
@@ -1088,8 +1101,15 @@ function registerPersonaCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all personas (built-in + custom)")
-    .action(() =>
-      run(() => import("@jazz/cli/commands/persona").then((mod) => mod.listPersonasCommand())),
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/persona").then((mod) =>
+            mod.listPersonasCommand({ json: options.json === true }),
+          ),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
     );
 
   personaCommand
@@ -1183,6 +1203,21 @@ function registerSkillCommands(program: Command): void {
   ): Promise<void> {
     return runCliAction(loadEffect, cliRuntimeOptions(program), options);
   }
+
+  skillCommand
+    .command("list")
+    .alias("ls")
+    .description("List the skills agents can load")
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/skill-list").then((mod) =>
+            mod.listSkillsCommand({ json: options.json === true }),
+          ),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
+    );
 
   skillCommand
     .command("browse")
@@ -2493,10 +2528,15 @@ function registerWorkflowCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all available workflows")
-    .action(() =>
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/workflow").then((mod) => mod.listWorkflowsCommand()),
+        () =>
+          import("@jazz/cli/commands/workflow").then((mod) =>
+            mod.listWorkflowsCommand({ json: options.json === true }),
+          ),
         cliRuntimeOptions(program),
+        options.json === true ? { skipUpdateCheck: true } : {},
       ),
     );
 
