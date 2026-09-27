@@ -76,6 +76,28 @@ describe("parsePluginManifest", () => {
     ).toThrow("env has an invalid format");
   });
 
+  test("keeps line breaks in skill and persona bodies but rejects other control characters", () => {
+    const body = "# Heading\n\n\tIndented line\r\nLast line";
+    const parsed = parsePluginManifest(
+      manifest({
+        skills: [{ name: "writing", description: "How to write.", content: body }],
+        personas: [{ name: "poet", description: "A poet.", systemPrompt: body }],
+      }),
+    );
+    expect(parsed.skills[0]?.content).toBe(body);
+    expect(parsed.personas[0]?.systemPrompt).toBe(body);
+    expect(() =>
+      parsePluginManifest(
+        manifest({
+          skills: [{ name: "writing", description: "How to write.", content: "bell\u0007" }],
+        }),
+      ),
+    ).toThrow("skills[0].content contains control characters");
+    expect(() => parsePluginManifest(manifest({ name: "Two\nlines" }))).toThrow(
+      "name contains control characters",
+    );
+  });
+
   test("rejects unknown fields and malformed digests", () => {
     expect(() => parsePluginManifest(manifest({ surprise: true }))).toThrow("unknown field");
     expect(() => parsePluginManifest(manifest({ sha256: "ABC" }))).toThrow("64 lowercase hex");

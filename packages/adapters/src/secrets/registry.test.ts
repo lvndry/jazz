@@ -7,6 +7,8 @@ import {
   SECRET_PATHS,
   envVarForSecretPath,
   isSecretPath,
+  REDACTED_SECRET,
+  redactSecretValues,
   webhookTokenEnvVar,
   webhookTokenPath,
 } from "./registry";
@@ -131,5 +133,53 @@ describe("provider key aliases", () => {
       "GOOGLE_GENERATIVE_AI_API_KEY",
       "GEMINI_API_KEY",
     ]);
+  });
+});
+
+describe("redactSecretValues", () => {
+  it("redacts provider keys, tokens, OTLP headers and MCP env and header values", () => {
+    const config = {
+      llm: { openai: { api_key: "sk-live", base_url: "https://api.openai.com" } },
+      daemon: { token: "daemon-token" },
+      peers: { sam: { token: "peer-token", url: "https://sam.example" } },
+      telemetry: { otlp: { headers: { "x-api-key": "otlp-key" } } },
+      mcpServers: {
+        "com.example.mcp": {
+          command: "server",
+          env: { SIGNOZ_API_KEY: "sk-signoz", LOG_LEVEL: "info" },
+        },
+        remote: { url: "https://mcp.example", headers: { Authorization: "Bearer t" } },
+      },
+      logging: { level: "info" },
+    };
+
+    expect(redactSecretValues(config)).toEqual({
+      llm: { openai: { api_key: REDACTED_SECRET, base_url: "https://api.openai.com" } },
+      daemon: { token: REDACTED_SECRET },
+      peers: { sam: { token: REDACTED_SECRET, url: "https://sam.example" } },
+      telemetry: { otlp: { headers: { "x-api-key": REDACTED_SECRET } } },
+      mcpServers: {
+        "com.example.mcp": {
+          command: "server",
+          env: { SIGNOZ_API_KEY: REDACTED_SECRET, LOG_LEVEL: REDACTED_SECRET },
+        },
+        remote: { url: "https://mcp.example", headers: { Authorization: REDACTED_SECRET } },
+      },
+      logging: { level: "info" },
+    });
+  });
+
+  it("redacts a single secret value looked up by its own path", () => {
+    expect(redactSecretValues("sk-live", "llm.openai.api_key")).toBe(REDACTED_SECRET);
+    expect(redactSecretValues({ api_key: "sk-live" }, "llm.openai")).toEqual({
+      api_key: REDACTED_SECRET,
+    });
+    expect(redactSecretValues("info", "logging.level")).toBe("info");
+  });
+
+  it("leaves empty values alone so a missing secret stays visible", () => {
+    expect(redactSecretValues({ llm: { openai: { api_key: "" } } })).toEqual({
+      llm: { openai: { api_key: "" } },
+    });
   });
 });

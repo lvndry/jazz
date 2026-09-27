@@ -14,6 +14,7 @@ import {
   redo,
   selectAll,
   selectedText,
+  typeCharacter,
   undo,
   UP,
 } from "./composer-edit";
@@ -120,5 +121,25 @@ describe("composer-edit", () => {
       expect(moveCaretVertical(spread(text), 6, DOWN)).toBe(6 + 1);
       expect(moveCaretVertical(spread(text), 6, UP)).toBe(0 + 0);
     });
+  });
+});
+
+describe("typeCharacter", () => {
+  const typeAll = (characters: string) =>
+    [...characters].reduce((buffer, character) => typeCharacter(buffer, character), EMPTY_COMPOSER);
+
+  it("turns a bang on an empty composer into the shell escape prefix", () => {
+    expect(typeAll("!").text).toBe("! ");
+    expect(typeAll("!ls").text).toBe("! ls");
+  });
+
+  it("spells a run of bangs as prose", () => {
+    expect(typeAll("!!! urgent").text).toBe("!!! urgent");
+    expect(typeAll("!!").caret).toBe(2);
+  });
+
+  it("types a bang anywhere else as itself", () => {
+    expect(typeAll("hi!").text).toBe("hi!");
+    expect(typeCharacter(composerFromText("! x"), "!").text).toBe("! x!");
   });
 });

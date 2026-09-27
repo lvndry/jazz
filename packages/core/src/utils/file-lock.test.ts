@@ -3,7 +3,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { currentProcessOwner } from "@/core/utils/process";
-import { acquireFileLock, withFileLock } from "./file-lock";
+import { acquireFileLock, withFileLock } from "@jazz/core/utils/file-lock";
 
 function lockPath(): string {
   return join(mkdtempSync(join(tmpdir(), "file-lock-")), "state.lock.d");

@@ -190,6 +190,22 @@ describe("runDueGoals", () => {
    * The regression: a cycle ran in whatever directory the daemon started from, so a goal
    * accepted in one project read and changed another.
    */
+  it("starts no cycle while the daemon is paused, and claims none", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const runner = scriptRunner(test, COMPLETE);
+    try {
+      const started = await run(test, runDueGoals({ startNew: false }));
+      await Effect.runPromise(Fiber.joinAll(started));
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts).toHaveLength(0);
+    const goal = await current(test);
+    expect(goal.cycle).toBeUndefined();
+    expect(goal.usage.cycles).toBe(0);
+  });
+
   it("runs every cycle in the directory the goal works in", async () => {
     placedIn.length = 0;
     const test = harness();
