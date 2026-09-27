@@ -68,7 +68,6 @@ import { createIMessageSurface, type IMessageSurface } from "./surface";
 
 const STORE_FILES = {
   timezone: "im-tz.json",
-  usage: "im-usage.json",
   sessions: "im-sessions.json",
   mode: "im-mode.json",
 } as const;
@@ -522,9 +521,9 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "imessage",
     agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
-    isOperator: (senderId) =>
-      senderId === ACCOUNT_OWNER_SENDER || config.operatorHandles.has(senderId),
+    operators: new Set([ACCOUNT_OWNER_SENDER, ...config.operatorHandles]),
     operatorSettingName: "IMESSAGE_OPERATOR_HANDLES",
   });
 

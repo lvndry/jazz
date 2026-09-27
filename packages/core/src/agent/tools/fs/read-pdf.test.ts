@@ -17,14 +17,15 @@ function stubFetch(fake: {
   body: Uint8Array;
 }): void {
   globalThis.fetch = (async () =>
-    ({
-      ok: fake.ok,
+    new Response(fake.body.byteLength > 0 ? (fake.body as unknown as BodyInit) : null, {
       status: fake.status,
       statusText: fake.statusText,
       headers: fake.headers,
-      arrayBuffer: async () => fake.body.buffer as ArrayBuffer,
-    }) as unknown as Response) as unknown as typeof fetch;
+    })) as unknown as typeof fetch;
 }
+
+/** A public address literal: the destination check passes without touching DNS. */
+const PUBLIC_HOST = "93.184.215.14";
 
 const MEGABYTE = 1024 * 1024;
 
@@ -88,7 +89,7 @@ describe("read_pdf remote mode", () => {
       headers: new Headers(),
       body: new Uint8Array(0),
     });
-    const result = await runTool(tool, { url: "https://example.com/doc.pdf" }, testDir);
+    const result = await runTool(tool, { url: `https://${PUBLIC_HOST}/doc.pdf` }, testDir);
     expect(result.success).toBe(false);
     expect(result.error).toContain("HTTP 500");
   });
@@ -101,7 +102,7 @@ describe("read_pdf remote mode", () => {
       headers: new Headers({ "content-length": String(60 * MEGABYTE) }),
       body: new Uint8Array(0),
     });
-    const result = await runTool(tool, { url: "https://example.com/big.pdf" }, testDir);
+    const result = await runTool(tool, { url: `https://${PUBLIC_HOST}/big.pdf` }, testDir);
     expect(result.success).toBe(false);
     expect(result.error).toContain("too large");
   });
@@ -114,7 +115,7 @@ describe("read_pdf remote mode", () => {
       headers: new Headers({ "content-type": "text/html" }),
       body: new TextEncoder().encode("<html><body>not a pdf</body></html>"),
     });
-    const result = await runTool(tool, { url: "https://example.com/page.html" }, testDir);
+    const result = await runTool(tool, { url: `https://${PUBLIC_HOST}/page.html` }, testDir);
     expect(result.success).toBe(false);
     expect(result.error).toContain("%PDF header");
   });
@@ -127,7 +128,7 @@ describe("read_pdf remote mode", () => {
       headers: new Headers({ "content-type": "application/pdf" }),
       body: new TextEncoder().encode("%PDF-1.4 fake body"),
     });
-    const result = await runTool(tool, { url: "https://example.com/doc.pdf" }, testDir);
+    const result = await runTool(tool, { url: `https://${PUBLIC_HOST}/doc.pdf` }, testDir);
     // The bytes clear the %PDF guard and reach pdf-parse; a fake PDF then fails in parsing,
     // which still proves the download path handed off correctly.
     expect(result.error ?? "").not.toContain("%PDF header");

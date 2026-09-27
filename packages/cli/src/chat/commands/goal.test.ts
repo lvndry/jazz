@@ -3,9 +3,8 @@ import { CHAT_COMMANDS } from "./constants";
 
 describe("/goal command", () => {
   it("advertises goal controls in slash-command help and autocomplete", () => {
-    expect(CHAT_COMMANDS.find((command) => command.name === "goal")).toMatchObject({
-      usage:
-        "<objective>|list|accept <id> [tier]|decline <id>|pause <id>|resume <id> [note]|cancel <id>",
-    });
+    const goal = CHAT_COMMANDS.find((command) => command.name === "goal");
+    expect(goal?.usage).toBe("[objective|pause|resume|clear|list|accept|decline]");
+    expect(goal?.forms?.map((entry) => entry.form)).toContain("/goal clear");
   });
 });

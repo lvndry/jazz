@@ -14,6 +14,7 @@ import {
 import {
   type ChatId,
   type MessageRef,
+  type OutgoingFile,
   type OutgoingMessage,
   splitForSurface,
   type Surface,
@@ -50,13 +51,13 @@ export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
       return undefined;
     },
 
-    async sendFile(chatId: ChatId, filePath: string, caption?: string): Promise<void> {
+    async sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
       const space = options.resolveSpace(chatId);
       if (space === undefined) return;
 
       // A path rather than bytes: `attachment` reads it, and everything that
       // reaches here is already a file the agent wrote or was handed.
-      await space.send(attachment(filePath));
+      await space.send(attachment(file.path));
       if (caption !== undefined && caption.trim().length > 0) await space.send(caption);
     },
   };

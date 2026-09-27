@@ -10,6 +10,7 @@ import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record
 import type { RunState } from "@jazz/core/agent/run/run-state";
 import { silentLogger } from "@jazz/core/agent/test-logger";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   FileSystemContextServiceTag,
@@ -57,6 +58,9 @@ function harness(): Harness {
     Layer.succeed(RunStoreTag, runs),
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LoggerServiceTag, silentLogger),
+    Layer.succeed(AgentConfigServiceTag, {
+      appConfig: Effect.succeed({}),
+    } as unknown as AgentConfigService),
     Layer.succeed(FileSystemContextServiceTag, {
       setCwd: (_key: unknown, directory: string) =>
         Effect.sync(() => {

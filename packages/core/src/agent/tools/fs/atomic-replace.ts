@@ -50,10 +50,11 @@ export function writeFileAtomically(
 
     yield* Effect.uninterruptible(
       Effect.gen(function* () {
-        yield* writeFileStringAtomic(fs, realTarget, content, {
-          tempPrefix: "jazz-write",
-          ...(mode !== undefined ? { mode } : {}),
-        });
+        yield* writeFileStringAtomic(
+          realTarget,
+          content,
+          mode !== undefined ? { mode } : undefined,
+        );
         // The temp file's mode went through the umask; set the original bits exactly.
         if (mode !== undefined) {
           yield* fs.chmod(realTarget, mode).pipe(Effect.mapError(toError));

@@ -14,13 +14,14 @@
  * point: these are promises about someone's money and someone's data.
  */
 
-import { compositionImagePath } from "./compositions";
+import { compositionImagePath, readCompositionImage } from "./compositions";
 import type { JazzComposition, JazzSuccessEnvelope } from "./jazz-run";
 import {
   bold,
   type Choice,
   code,
   line,
+  type OutgoingFile,
   plainLine,
   type RichText,
   subtle,
@@ -84,6 +85,29 @@ export function doneSummary(envelope: JazzSuccessEnvelope, toolsUsed: readonly s
   return [line(...spans), ...usageLines(envelope.tokenUsage)];
 }
 
+/**
+ * Warnings that must reach the person under an answer, in plain text so every
+ * surface can show them. Tools being off is the loud one: the agent could not
+ * act, only talk, and nothing in the answer itself says so.
+ */
+export function answerNotices(
+  envelope: Pick<JazzSuccessEnvelope, "toolsDisabled" | "truncated" | "iterationLimited">,
+): readonly string[] {
+  const notices: string[] = [];
+  if (envelope.toolsDisabled === true) {
+    notices.push(
+      "⚠️ Tools were OFF for this answer: Jazz does not know whether this agent's model supports tool calling, so it could only reply in text. The operator can turn them on with llm.capabilityOverrides in the Jazz config.",
+    );
+  }
+  if (envelope.truncated === true) {
+    notices.push("⚠️ The answer was cut off at the model's output limit.");
+  }
+  if (envelope.iterationLimited === true) {
+    notices.push("⚠️ The agent hit its iteration limit before finishing.");
+  }
+  return notices;
+}
+
 export function cancelledSummary(): RichText {
   return [line(bold("⏹ Cancelled"))];
 }
@@ -141,7 +165,7 @@ export function followupPrompt(choiceId: string): string | undefined {
  * only whether the surface can offer that as a tap.
  */
 export type CompositionDelivery =
-  | { readonly kind: "image"; readonly path: string; readonly caption: string }
+  | { readonly kind: "image"; readonly file: OutgoingFile; readonly caption: string }
   | { readonly kind: "link"; readonly url: string; readonly title: string }
   | { readonly kind: "unavailable"; readonly body: RichText }
   | { readonly kind: "nothing"; readonly logMessage: string };
@@ -163,13 +187,20 @@ export function planCompositionDelivery(
   options: CompositionDeliveryOptions,
 ): CompositionDelivery {
   if (composition.mode === "static") {
-    const imagePath = compositionImagePath(options.home, composition);
-    return imagePath === undefined
+    // Read here, from the conversation's own compositions, so a surface that uploads the
+    // bytes never opens whatever path the envelope claimed.
+    const path = compositionImagePath(options.home, composition);
+    const image = readCompositionImage(options.home, composition);
+    return path === undefined || image === undefined
       ? {
           kind: "nothing",
           logMessage: `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
         }
-      : { kind: "image", path: imagePath, caption: composition.title };
+      : {
+          kind: "image",
+          file: { path, bytes: image.bytes, filename: image.filename },
+          caption: composition.title,
+        };
   }
 
   const url = options.publish?.(composition);
@@ -201,7 +232,7 @@ export async function deliverComposition(
       return;
     case "image":
       if (surface.sendFile === undefined) return;
-      await surface.sendFile(chatId, delivery.path, delivery.caption);
+      await surface.sendFile(chatId, delivery.file, delivery.caption);
       return;
     case "unavailable":
       await surface.send(chatId, { body: delivery.body });

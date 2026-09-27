@@ -12,7 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
-import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -42,6 +42,12 @@ import type { ActivePreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import {
+  guardRunStart,
+  type RunAccountingInput,
+  settleRunAccounting,
+} from "@/core/spend/run-accounting";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
@@ -71,9 +77,11 @@ import {
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
+  computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
   recordSideSpend,
@@ -803,6 +811,7 @@ function initializeAgentRun(
       memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
+      egressTaint: options.egressTaint ?? createEgressTaint(history),
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {
@@ -922,6 +931,8 @@ function initializeAgentRun(
   });
 }
 
+/** A run whose caller named no entry point is treated as an unattended `jazz run`. */
+const DEFAULT_RUN_ORIGIN: RunOrigin = { source: "run" };
 /** The limits a parked record must restore on resume, from the options the run started with. */
 export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundary {
   const budget = runBudgetOptions(options);
@@ -1011,6 +1022,18 @@ export class AgentRunner {
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
 
+        const accounting: RunAccountingInput = {
+          agentId: options.agent.id,
+          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          internal: options.internal === true,
+          appConfig,
+          freeLocalModel: isZeroCostLocalModel(
+            options.agent.config.llmProvider,
+            options.agent.config.llmModel,
+          ),
+        };
+        yield* guardRunStart(accounting);
+
         // Initialize run context
         const runContext = yield* initializeAgentRun(options);
 
@@ -1099,6 +1122,19 @@ export class AgentRunner {
           // Every way out, including failure and interruption: a run that died still spent.
           Effect.onExit(() =>
             Effect.sync(() => options.onRunSpend?.(runSpendReport(runContext.runMetrics, pricing))),
+          ),
+          Effect.onExit((exit) =>
+            settleRunAccounting(
+              accounting,
+              {
+                ...computeRunCost(runContext.runMetrics, pricing),
+                totalTokens:
+                  runContext.runMetrics.totalPromptTokens +
+                  runContext.runMetrics.totalCompletionTokens,
+              },
+              exit,
+              options.runId ?? runContext.runMetrics.runId,
+            ),
           ),
         );
       }),

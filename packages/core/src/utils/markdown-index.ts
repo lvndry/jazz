@@ -10,6 +10,7 @@ import { Effect } from "effect";
 import glob from "fast-glob";
 import matter from "gray-matter";
 import { toError } from "@/core/utils/errors";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 
 export interface NamedIndexItem {
   readonly name: string;
@@ -105,12 +106,19 @@ export function loadCachedIndex<T>(
         const items = yield* options.scan;
 
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(path.dirname(options.cachePath), { recursive: true }),
+          try: () =>
+            fs.mkdir(path.dirname(options.cachePath), {
+              recursive: true,
+              mode: stateDirectoryMode(),
+            }),
           catch: toError,
         }).pipe(
           Effect.flatMap(() =>
             Effect.tryPromise({
-              try: () => fs.writeFile(options.cachePath, JSON.stringify(items, null, 2)),
+              try: () =>
+                fs.writeFile(options.cachePath, JSON.stringify(items, null, 2), {
+                  mode: stateFileMode(),
+                }),
               catch: toError,
             }),
           ),

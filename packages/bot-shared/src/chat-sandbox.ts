@@ -39,6 +39,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { SPEND_LEDGER_ENV, SPEND_RECORDED_BY_PARENT } from "@jazz/core/spend/ceilings";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { bridgeConfigContent } from "./bridge-config-file";
 import { type ChildEnvOptions, childEnvironment } from "./child-env";
@@ -485,6 +486,19 @@ export function sandboxCommand(sandbox: ChatSandbox, command: string[]): string[
     "--",
     ...command,
   ];
+}
+
+/**
+ * {@link sandboxEnv} for a conversation's `jazz run`, whose cost the bridge records itself from
+ * the run's envelope: the child is told not to record it again, so a bridge whose conversations
+ * share its home (no per-conversation uid) counts each run once.
+ */
+export function bridgeRunEnv(
+  sandbox: ChatSandbox,
+  base: NodeJS.ProcessEnv,
+  surface?: string,
+): Record<string, string> {
+  return { ...sandboxEnv(sandbox, base, surface), [SPEND_LEDGER_ENV]: SPEND_RECORDED_BY_PARENT };
 }
 
 /**

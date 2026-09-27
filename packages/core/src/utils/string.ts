@@ -213,3 +213,38 @@ export function formatCompactCount(value: number): string {
   const body = Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
   return `${body}${suffix}`;
 }
+
+/** Levenshtein distance: the fewest single-character edits that turn `left` into `right`. */
+export function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row++) {
+    let diagonal = previous[0] as number;
+    previous[0] = row;
+    for (let column = 1; column <= right.length; column++) {
+      const above = previous[column] as number;
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      previous[column] = Math.min(above + 1, (previous[column - 1] as number) + 1, diagonal + cost);
+      diagonal = above;
+    }
+  }
+  return previous[right.length] as number;
+}
+
+/**
+ * The known name a typo most plausibly meant, compared case-insensitively.
+ * A candidate counts only within about one edit per three typed characters,
+ * so a short unrelated word never gets a far-fetched suggestion.
+ */
+export function closestMatch(typed: string, known: readonly string[]): string | undefined {
+  const lowered = typed.toLowerCase();
+  let best: string | undefined;
+  let bestDistance = Math.max(1, Math.floor(typed.length / 3)) + 1;
+  for (const candidate of known) {
+    const distance = editDistance(lowered, candidate.toLowerCase());
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

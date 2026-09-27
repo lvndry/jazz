@@ -1,3 +1,4 @@
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentConfigServiceImpl, createConfigLayer, validateConfigFiles } from "./config";
 
@@ -44,6 +45,18 @@ const mockFS = {
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
 } as unknown as FileSystem.FileSystem;
+
+/** A config path in a fresh private directory, so a test's real write lands nowhere shared. */
+function tempConfigPath(name: string): string {
+  return path.join(mkdtempSync(path.join(os.tmpdir(), "jazz-config-test-")), name);
+}
+
+/** What the last write left in `filePath`, parsed. */
+function readWritten<Document = Record<string, unknown>>(filePath: string): Document {
+  return JSON.parse(readFileSync(filePath, "utf8")) as Document;
+}
+
+type WrittenMcpServers = { mcpServers: Record<string, Record<string, unknown>> };
 
 async function captureStderr<T>(run: () => Promise<T>): Promise<{ result: T; stderr: string }> {
   const original = process.stderr.write.bind(process.stderr);
@@ -93,29 +106,25 @@ describe("AgentConfigService", () => {
   });
 
   it("should set properties and persist to file", async () => {
-    const configPath = "/tmp/config.json";
+    const configPath = tempConfigPath("config.json");
     const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
 
     await Effect.runPromise(service.set("llm.openai.api_key", "sk-test"));
 
     const key = await Effect.runPromise(service.get("llm.openai.api_key"));
     expect(key).toBe("sk-test");
-    const writeCalls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    expect(writeCalls[writeCalls.length - 1]?.[0]).toMatch(/^\/tmp\/\.jazz-config-.*\.tmp$/);
-    expect(writeCalls[writeCalls.length - 1]?.[1]).toContain("sk-test");
-    expect(writeCalls[writeCalls.length - 1]?.[2]).toEqual({ mode: 0o600 });
-    expect(mockFS.rename).toHaveBeenCalledWith(expect.any(String), configPath);
+    expect(readFileSync(configPath, "utf8")).toContain("sk-test");
   });
 
   it("writes and reads a quoted path segment as one key, dots included", async () => {
-    const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/config.json", mockFS);
+    const configPath = tempConfigPath("config.json");
+    const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
     const path = 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools';
 
     await Effect.runPromise(service.set(path, true));
 
     expect(await Effect.runPromise(service.get<boolean>(path))).toBe(true);
-    const writeCalls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    const written = JSON.parse(String(writeCalls[writeCalls.length - 1]?.[1])) as {
+    const written = readWritten(configPath) as unknown as {
       llm: { capabilityOverrides: Record<string, Record<string, unknown>> };
     };
     expect(written.llm.capabilityOverrides["nvidia"]).toEqual({
@@ -123,15 +132,14 @@ describe("AgentConfigService", () => {
     });
   });
 
-  it("writes the config file owner-only and repairs an existing mode", async () => {
-    const configPath = "/tmp/config-mode.json";
+  it("replaces a world-readable config file with an owner-only one", async () => {
+    const configPath = tempConfigPath("config.json");
+    writeFileSync(configPath, "{}", { mode: 0o644 });
     const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
 
     await Effect.runPromise(service.set("logging.level", "debug"));
 
-    const writeCalls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    expect(writeCalls[writeCalls.length - 1]?.[2]).toEqual({ mode: 0o600 });
-    expect(mockFS.chmod).toHaveBeenCalledWith(configPath, 0o600);
+    expect(statSync(configPath).mode & 0o777).toBe(0o600);
   });
 
   it("creates the config directory owner-only", async () => {
@@ -150,7 +158,7 @@ describe("AgentConfigService", () => {
   });
 
   it("should persist only mcpOverrides (enabled) to jazz config, not full definitions", async () => {
-    const configPath = "/tmp/jazz-mcp-overrides-test.json";
+    const configPath = tempConfigPath("jazz-mcp-overrides-test.json");
     const configWithMcp: AppConfig = {
       ...initialConfig,
       mcpServers: {
@@ -167,20 +175,19 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("mcpServers.testServer.enabled", false));
 
-    expect(mockFS.writeFileString).toHaveBeenCalled();
-    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    const written = calls[calls.length - 1]?.[1] as string;
-    const parsed = JSON.parse(written);
+    const parsed = readWritten(configPath) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
     expect(parsed.mcpServers).toBeDefined();
-    expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
-    expect(parsed.mcpServers.testServer.command).toBeUndefined();
+    expect(parsed.mcpServers["testServer"]).toEqual({ enabled: false });
+    expect(parsed.mcpServers["testServer"]?.["command"]).toBeUndefined();
   });
 
   it("should persist the trusted override alongside enabled", async () => {
     // Trust decides whether a server's own tool annotations may skip approval
     // prompts, so dropping it here would silently make every `mcp trust` a
     // no-op.
-    const configPath = "/tmp/jazz-mcp-trust-test.json";
+    const configPath = tempConfigPath("jazz-mcp-trust-test.json");
     const configWithMcp: AppConfig = {
       ...initialConfig,
       mcpServers: {
@@ -201,13 +208,12 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
 
-    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    const parsed = JSON.parse(calls[calls.length - 1]?.[1] as string);
-    expect(parsed.mcpServers.testServer).toEqual({ enabled: true, trusted: true });
+    const parsed = readWritten<WrittenMcpServers>(configPath);
+    expect(parsed.mcpServers["testServer"]).toEqual({ enabled: true, trusted: true });
   });
 
   it("should persist a trusted override for a server whose enabled state was never set", async () => {
-    const configPath = "/tmp/jazz-mcp-trust-only-test.json";
+    const configPath = tempConfigPath("jazz-mcp-trust-only-test.json");
     const configWithMcp: AppConfig = {
       ...initialConfig,
       mcpServers: {
@@ -218,13 +224,26 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
 
-    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
-    const parsed = JSON.parse(calls[calls.length - 1]?.[1] as string);
-    expect(parsed.mcpServers.testServer).toEqual({ trusted: true });
+    const parsed = readWritten<WrittenMcpServers>(configPath);
+    expect(parsed.mcpServers["testServer"]).toEqual({ trusted: true });
   });
 });
 
 describe("createConfigLayer", () => {
+  const suiteJazzHome = process.env["JAZZ_HOME"];
+  beforeEach(() => {
+    process.env["JAZZ_HOME"] = mkdtempSync(path.join(os.tmpdir(), "jazz-config-home-"));
+  });
+  afterEach(() => {
+    process.env["JAZZ_HOME"] = suiteJazzHome;
+  });
+
+  /** Every write a test made to its global config, as `[path, content]` like a mock's calls. */
+  function globalWrites(): Array<[string, string]> {
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
+    return existsSync(globalPath) ? [[globalPath, readFileSync(globalPath, "utf8")]] : [];
+  }
+
   function createTestFileSystem(fileContents: Map<string, string>): FileSystem.FileSystem {
     const writeFileString = mock((filePath: string, content: string) =>
       Effect.sync(() => fileContents.set(filePath, content)),
@@ -264,7 +283,7 @@ describe("createConfigLayer", () => {
     );
     await Effect.runPromise(Effect.provide(AgentConfigServiceTag, layer));
 
-    const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const calls = globalWrites();
     expect(calls.length).toBeGreaterThan(0);
     const written = calls[calls.length - 1]?.[1] as string;
     expect(written).not.toContain("dead-secret");
@@ -287,7 +306,7 @@ describe("createConfigLayer", () => {
     );
 
     expect(stderr).toContain("google: not a setting");
-    const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const calls = globalWrites();
     expect(calls.length).toBe(0);
   });
 
@@ -337,7 +356,7 @@ describe("createConfigLayer", () => {
 
       await Effect.runPromise(program);
 
-      const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+      const calls = globalWrites();
       const written = calls[calls.length - 1]?.[1] as string;
       expect(written).not.toContain("sk-from-env");
       expect(JSON.parse(written).llm?.openai).toBeUndefined();
@@ -365,7 +384,7 @@ describe("createConfigLayer", () => {
 
       await Effect.runPromise(program);
 
-      const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+      const calls = globalWrites();
       const written = JSON.parse(calls[calls.length - 1]?.[1] as string);
       expect(written.llm.openai.api_key).toBe("sk-from-file");
       expect(written.llm.openai.api_key).not.toBe("sk-from-env");
@@ -584,9 +603,8 @@ describe("createConfigLayer", () => {
     expect(result.retentionDays).toBe(7);
   });
 
-  function lastWrite(fs: FileSystem.FileSystem): Record<string, unknown> {
-    const calls = (fs.writeFileString as ReturnType<typeof mock>).mock.calls;
-    return JSON.parse(calls[calls.length - 1]?.[1] as string) as Record<string, unknown>;
+  function lastWrite(): Record<string, unknown> {
+    return readWritten(path.join(getJazzHomeDirectory(), "config.json"));
   }
 
   it("loads every budget and scheduling setting a file sets", async () => {
@@ -635,7 +653,7 @@ describe("createConfigLayer", () => {
       ),
     );
 
-    expect(lastWrite(testFS)).toEqual({
+    expect(lastWrite()).toEqual({
       maxCostUSD: 0.2,
       scheduler: { mode: "in-process" },
       maxRetries: 5,
@@ -658,7 +676,7 @@ describe("createConfigLayer", () => {
       ),
     );
 
-    expect(lastWrite(testFS)).toEqual({
+    expect(lastWrite()).toEqual({
       maxRetrys: 5,
       maxRetries: "7",
       notifications: { enabled: false },
@@ -694,7 +712,7 @@ describe("createConfigLayer", () => {
 
     expect(runtime.logging.level).toBe("debug");
     expect(runtime.maxRetries).toBe(9);
-    expect(lastWrite(testFS)).toEqual({
+    expect(lastWrite()).toEqual({
       logging: { level: "warn" },
       notifications: { enabled: false },
     });
@@ -783,7 +801,7 @@ describe("createConfigLayer", () => {
       ).pipe(Effect.provide(layer)),
     );
 
-    expect(lastWrite(testFS)).toEqual({ maxRetries: 2 });
+    expect(lastWrite()).toEqual({ maxRetries: 2 });
   });
 });
 
@@ -813,60 +831,55 @@ describe("AgentConfigService.set checks what callers hand it", () => {
   };
 
   it("dies rather than writing a value its setting cannot hold", async () => {
-    const writeFileString = mock(() => Effect.void);
-    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
-    const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/jazz-typed.json", fs);
+    const configPath = tempConfigPath("jazz-typed.json");
+    const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
 
     const exit = await Effect.runPromiseExit(service.set("maxRetries", "5"));
 
     expect(Exit.isFailure(exit) && Cause.isDie(exit.cause)).toBe(true);
-    expect(writeFileString).not.toHaveBeenCalled();
+    expect(existsSync(configPath)).toBe(false);
     expect(await Effect.runPromise(service.get("maxRetries"))).toBeUndefined();
   });
 
   it("merges an MCP server patch into that server's existing overrides", async () => {
-    const writeFileString = mock(() => Effect.void);
-    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
+    const configPath = tempConfigPath("config.json");
     const service = new AgentConfigServiceImpl(
       initialConfig,
       { mcpServers: { github: { enabled: false } } },
-      "/tmp/jazz-mcp-patch.json",
-      fs,
+      configPath,
+      mockFS,
     );
 
     await Effect.runPromise(service.set("mcpServers.github", { trusted: true }));
 
-    const calls = (writeFileString as ReturnType<typeof mock>).mock.calls;
-    const written = JSON.parse(calls[0]?.[1] as string);
-    expect(written.mcpServers.github).toEqual({ enabled: false, trusted: true });
+    const written = readWritten<WrittenMcpServers>(configPath);
+    expect(written.mcpServers["github"]).toEqual({ enabled: false, trusted: true });
   });
 
   it("patches a server whose name contains dots at the literal key, not a nested path", async () => {
-    const writeFileString = mock(() => Effect.void);
-    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
+    const configPath = tempConfigPath("config.json");
     const service = new AgentConfigServiceImpl(
       initialConfig,
       { mcpServers: { "com.example.mcp": { enabled: true } } },
-      "/tmp/jazz-mcp-dotted.json",
-      fs,
+      configPath,
+      mockFS,
     );
 
     // `jazz mcp trust com.example.mcp` runs exactly this write; it used to die.
     await Effect.runPromise(service.set("mcpServers.com.example.mcp", { trusted: true }));
 
-    const calls = (writeFileString as ReturnType<typeof mock>).mock.calls;
-    const written = JSON.parse(calls[0]?.[1] as string);
+    const written = readWritten<WrittenMcpServers>(configPath);
     expect(written.mcpServers).toEqual({ "com.example.mcp": { enabled: true, trusted: true } });
   });
 
   it("does not commit the in-memory value when the atomic replace fails", async () => {
-    const rename = mock(() => Effect.fail(new Error("disk full")));
-    const fs = { ...mockFS, rename } as unknown as FileSystem.FileSystem;
+    const blockingFile = tempConfigPath("not-a-directory");
+    writeFileSync(blockingFile, "");
     const service = new AgentConfigServiceImpl(
       { ...initialConfig, maxRetries: 2 },
       { maxRetries: 2 },
-      "/tmp/jazz-failed-write.json",
-      fs,
+      path.join(blockingFile, "config.json"),
+      mockFS,
     );
 
     const exit = await Effect.runPromiseExit(service.set("maxRetries", 5));

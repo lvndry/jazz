@@ -20,6 +20,7 @@ import {
   type LocalTransferRecord,
 } from "@/cli/detach/orchestrator";
 import { getGlyphs, type GlyphSet } from "@/cli/ui/glyphs";
+import { CHALK_THEME } from "@/cli/ui/theme";
 
 type DetachStatus = Awaited<ReturnType<typeof getDetachStatus>>;
 type DetachPull = Awaited<ReturnType<typeof pullDetachedTransfer>>;
@@ -192,13 +193,15 @@ export function formatDetachEvent(
         event.arguments !== undefined ? chalk.dim(` ${event.arguments}`) : ""
       }\n`;
     case "tool_end": {
-      const marker = event.success ? chalk.green(glyphs.success) : chalk.red(glyphs.error);
+      const marker = event.success
+        ? CHALK_THEME.success(glyphs.success)
+        : CHALK_THEME.error(glyphs.error);
       const seconds = `${(event.durationMs / 1000).toFixed(1)}s`;
       const summary = event.summary !== undefined ? ` ${event.summary}` : "";
       return `${lead}    ${marker}${chalk.dim(`${summary} ${seconds}`)}\n`;
     }
     case "error":
-      return `${lead}${chalk.red(`${glyphs.error} ${event.message}`)}\n`;
+      return `${lead}${CHALK_THEME.error(`${glyphs.error} ${event.message}`)}\n`;
     case "status": {
       const label = STATUS_LABELS[event.state] ?? event.state;
       const detail = event.detail !== undefined ? `: ${event.detail}` : "";
@@ -268,7 +271,7 @@ async function attach(handoffId: string): Promise<void> {
         }
       }
     } catch (error) {
-      process.stdout.write(`${chalk.red(`${glyphs.error} ${describeError(error)}`)}\n`);
+      process.stdout.write(`${CHALK_THEME.error(`${glyphs.error} ${describeError(error)}`)}\n`);
     } finally {
       prompting = false;
     }

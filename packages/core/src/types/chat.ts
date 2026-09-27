@@ -8,16 +8,37 @@ import type { ReasoningSelection } from "@/core/types/model-capabilities";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
-/** Why the model stopped generating, as the AI SDK reports it. */
-export type CompletionFinishReason =
+/**
+ * Why the model stopped generating. `unknown` means the stream ended without
+ * telling us, which a caller must treat like any other non-`stop` reason.
+ */
+export type FinishReason =
   "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown";
+
+const FINISH_REASONS: ReadonlySet<string> = new Set<FinishReason>([
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+  "unknown",
+]);
+
+/** Narrow a provider's finish reason to {@link FinishReason}; anything else is `unknown`. */
+export function toFinishReason(raw: unknown): FinishReason {
+  const value = raw !== null && typeof raw === "object" && "unified" in raw ? raw.unified : raw;
+  return typeof value === "string" && FINISH_REASONS.has(value)
+    ? (value as FinishReason)
+    : "unknown";
+}
 
 export interface ChatCompletionResponse {
   id: string;
   model: string;
   content: string;
   /** Why generation stopped. `"length"` means the answer was cut off at the token limit. */
-  finishReason?: CompletionFinishReason;
+  finishReason?: FinishReason;
   /**
    * Reasoning / chain-of-thought text emitted by the model, when the provider
    * exposes it as a separate channel (e.g. OpenAI-compatible servers returning

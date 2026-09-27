@@ -18,6 +18,7 @@ import { Effect } from "effect";
 import React from "react";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { CHALK_THEME } from "@/cli/ui/theme";
 import {
   formatIsoShort,
   getTerminalWidth,
@@ -117,7 +118,7 @@ function formatAgentsListBlock(
     lines.push(
       chalk.dim(g.boxV) +
         " " +
-        chalk.white(truncateMiddle(row, innerWidth - 1)) +
+        CHALK_THEME.white(truncateMiddle(row, innerWidth - 1)) +
         chalk.dim(g.boxV),
     );
 

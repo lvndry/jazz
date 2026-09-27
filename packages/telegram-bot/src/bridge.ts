@@ -1,95 +1,52 @@
 /**
  * Telegram → Jazz bridge.
  *
- * For each incoming text message it runs a per-chat Jazz agent once
- * (`jazz run --json`) and replies with the answer. Per-chat memory comes from
- * Jazz's `--conversation <chat_id>` flag; per-chat model/persona come from a
- * dedicated agent file per chat (`tg_<chat_id>.json`), cloned from the seeded
- * template agent and switched live via the /model and /persona commands.
+ * Every inbound message goes to the shared turn runner (`@jazz/bot-shared/turn`), which
+ * owns the conversation from there: one run at a time per chat, the live progress bubble
+ * with its ⏹ Cancel button, approvals with Approve all and Always allow, questions, the
+ * command set and its pickers, reminders, incognito, and the answer. What is here is what
+ * only Telegram has: the Bot API transport (long-poll or webhook), who is allowed in,
+ * turning a tapped button back into a choice, media downloads, shared locations, and the
+ * contextual suggestion buttons swapped in under an answer.
  *
  * Two transports, chosen by TELEGRAM_MODE:
  *   - "polling"  (default) — getUpdates long-poll; no public endpoint needed.
  *   - "webhook"            — Telegram POSTs to /telegram/webhook (needs a public URL).
  *
- * A minimal /health server always runs for container health checks.
+ * A small HTTP server always runs for container health checks and for serving the web
+ * apps `create_composition` makes.
  *
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync } from "node:fs";
-import { removeAgentFile } from "@jazz/bot-shared/agent-file";
-import { formatTokenCount } from "@jazz/bot-shared/answer";
-import {
-  APPROVAL_MODE_LABELS,
-  type ApprovalMode,
-  approvalModeFor,
-  approvalPolicyFor,
-  describeApprovalMode,
-  setApprovalMode,
-} from "@jazz/bot-shared/approval-mode-store";
-import {
-  addAutoApprovedCommand,
-  type ChatSandbox,
-  ensureChatSandbox,
-  listChatSandboxes,
-  SANDBOX_UMASK,
-  sandboxCommand,
-  sandboxEnv,
-  sandboxOwnership,
-} from "@jazz/bot-shared/chat-sandbox";
+import { ensureChatSandbox, SANDBOX_UMASK, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 import {
   compositionIdFromPath,
-  compositionLinkPath,
   type CompositionLinks,
   createCompositionLinks,
-  readCompositionImage,
 } from "@jazz/bot-shared/compositions";
-import { JAZZ_RUN_EVENT_CATEGORIES, writeStdinFrame } from "@jazz/bot-shared/jazz-run";
-import { listPersonaNames } from "@jazz/bot-shared/personas";
-import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
-import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
-import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+import {
+  createSuggestionStore,
+  generateSuggestions,
+  removeSuggestAgents,
+  SUGGESTION_PROMPT_PREFIX,
+} from "@jazz/bot-shared/dynamic-suggestions";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
-import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answer";
 import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { code, line, plainLine, text } from "@jazz/bot-shared/surface";
+import { setTzForChat, isValidTimeZone } from "@jazz/bot-shared/timezone-store";
 import {
-  conversationKey,
-  isIncognito,
-  setIncognito,
-  startNewConversation,
-} from "@jazz/bot-shared/session-store";
-import {
-  formatWhen,
-  hasChatTz,
-  isValidTimeZone,
-  setTzForChat,
-  tzForChat,
-} from "@jazz/bot-shared/timezone-store";
-import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
-import {
-  dailyCostCapBlockReason,
-  recordRunUsage,
-  runSpend,
-  runSpendFromEvent,
-  spendFields,
-  todayUsage,
-  type RunSpend,
-} from "@jazz/bot-shared/usage-store";
-import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+  type ChoiceOutcome,
+  createTurnRunner,
+  type InboundMessage,
+  type TurnConfig,
+  type TurnRunner,
+} from "@jazz/bot-shared/turn";
+import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import tzlookup from "tz-lookup";
-import {
-  agentIdForChat,
-  agentPath,
-  chatIdFromAgentId,
-  ensureChatAgent,
-  readAgentFile,
-  syncAgentDisplayName,
-  writeChatAgentFile,
-} from "./agents";
+import { agentIdForChat, chatIdFromAgentId, syncAgentDisplayName } from "./agents";
 import {
   buildMediaPrompt,
   downloadTelegramFile,
@@ -98,95 +55,38 @@ import {
   type TelegramMediaFields,
 } from "./media";
 import { withReplyContext } from "./quotes";
-import { renderRichText } from "./surface";
-import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
-import {
-  escapeHtml,
-  expandableBlockquote,
-  markdownToTelegramHtml,
-  splitForTelegram,
-} from "./telegram-html";
+import { createTelegramSurface, DEFAULT_TELEGRAM_API_BASE, type TelegramSurface } from "./surface";
 
-const TZ_FILE = "tg-tz.json";
-const COMPOSITIONS_FILE = "tg-compositions.json";
-const USAGE_FILE = "tg-usage.json";
-const EPOCHS_FILE = "tg-sessions.json";
+const STORE_FILES = {
+  timezone: "tg-tz.json",
+  sessions: "tg-sessions.json",
+  mode: "tg-mode.json",
+} as const;
 const INCOGNITO_FILE = "tg-incognito.json";
-const MODE_FILE = "tg-mode.json";
-const TELEGRAM_API_BASE = "https://api.telegram.org";
+const COMPOSITIONS_FILE = "tg-compositions.json";
+const SUGGEST_AGENT_ID = "tg_suggest";
+
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
-// Telegram rate-limits message edits; don't refresh the progress bubble faster.
-// The text the progress bubble is created with. The reporter starts from it so
-// its first render is not sent as an edit to identical content, which Telegram
-// rejects with a 400 on essentially every run.
-const PROGRESS_INITIAL_TEXT = "🤔 <b>Working…</b>";
-const PROGRESS_MIN_INTERVAL_MS = 2_000;
-const PROGRESS_MAX_TOOLS_SHOWN = 8;
-// The reasoning log is HTML-escaped into an expandable quote before it is
-// sent. Reasoning is model prose, so escaping adds a few percent at most, but
-// budget under the 3500 the answer splitter uses to keep the escaped message
-// clear of Telegram's 4096 hard limit without needing to split mid-tag.
+
+/**
+ * The reasoning log goes out as collapsed, tap-to-expand quotes, so Telegram can carry more
+ * of it than a surface where each part is a notification. Escaping adds a few percent to
+ * model prose, so this stays under the 3500 the message splitter uses.
+ */
 const REASONING_PART_CHARS = 2_800;
-// A long agentic run would otherwise post a wall of collapsed quotes; past
-// this the tail is dropped and the final part says how much.
 const REASONING_MAX_PARTS = 4;
 
-const BRIDGE_STARTED_AT = Date.now();
-// In-flight runs keyed by a per-run token, so the ⏹ Cancel button can kill the
-// right jazz process.
-const activeRuns = new Map<
-  string,
-  {
-    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
-    cancelled: boolean;
-    chatId: number;
-    /** Whose message started the run: the one person who answers its prompts. */
-    requesterId: number;
-  }
->();
-// Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
-// find the run to write the decision back to and the message to clear.
-// `commandKey` (set only for execute_command approvals) is the approval key
-// (binary plus subcommand) an "Always allow" tap persists to
-// autoApprovedCommands. It is present only for a plain command that
-// `extractCommandApprovalKey` can key.
-/**
- * Questions the agent is blocked on, keyed by the id it minted. The run is
- * parked on stdin until one of these buttons is tapped, so an entry left behind
- * would be a run that never finishes — they are swept when the run ends.
- */
-const pendingUserInputs = new Map<
-  string,
-  { chatId: number; messageId: number; runToken: string; options: readonly string[] }
->();
-
-interface PendingApproval {
-  chatId: number;
-  messageId: number;
-  runToken: string;
-  commandKey?: string;
-  /**
-   * The outstanding-approval count this message's keyboard currently shows.
-   * Approval events arrive concurrently, so a message can be sent with a count
-   * that is already stale by the time it registers; comparing against this is
-   * what tells a refresh which keyboards genuinely need rewriting.
-   */
-  shownCount: number;
-}
-
-const pendingApprovals = new Map<string, PendingApproval>();
-// Transcript for chats currently in /incognito mode. Lives only in this
-// process's memory — never written to disk — so a bridge restart drops the
-// context rather than ever falling back to a persisted history file. Cleared
-// on /new (which also turns incognito off, see handleCommand).
-const incognitoHistory = new Map<number, unknown[]>();
+/** How long a shared location's reverse geocode may take before the prompt goes without it. */
+const GEOCODE_TIMEOUT_MS = 8_000;
 
 type TransportMode = "polling" | "webhook";
 
-interface BridgeConfig {
+export interface BridgeConfig {
   readonly botToken: string;
+  /** The Bot API origin: Telegram's, or a self-hosted Bot API server. */
+  readonly apiBase: string;
   readonly mode: TransportMode;
   readonly webhookSecret: string;
   readonly webhookUrl: string | undefined;
@@ -195,7 +95,7 @@ interface BridgeConfig {
    * Telegram user ids allowed to widen a chat's authority: `/mode yolo` and "Always allow".
    * Being in an allowed chat is not enough, since in a group that is everyone in it.
    */
-  readonly operatorIds: ReadonlySet<number>;
+  readonly operatorIds: ReadonlySet<string>;
   readonly baseAgentId: string;
   readonly provider: string;
   readonly model: string;
@@ -212,65 +112,18 @@ interface BridgeConfig {
   readonly dailyCostCapUsd: number;
   /** Reverse-geocoder base URL for shared locations; empty string disables it. */
   readonly geocodeUrl: string;
-  /** Generate contextual follow-up CTAs per answer (a second short LLM call). */
+  /** Generate contextual follow-up buttons per answer (a second short LLM call). */
   readonly dynamicCta: boolean;
-  /**
-   * Attach the run's full reasoning under the answer as collapsed,
-   * tap-to-expand quotes. The live progress line only ever shows a rolling
-   * tail, and that bubble is overwritten when the answer lands.
-   */
+  /** Attach the run's full reasoning under the answer as collapsed quotes. */
   readonly showReasoning: boolean;
   /**
-   * Public HTTPS origin this bridge's own HTTP server is reachable at, used to
-   * build Web App button URLs for `create_composition`'s interactive mode (e.g.
-   * a Tailscale Funnel origin). Falls back to TELEGRAM_WEBHOOK_URL's origin in
-   * webhook mode. Undefined disables interactive web apps (static/image mode
-   * still works — it needs no public URL).
+   * Public HTTPS origin this bridge's own HTTP server is reachable at, used to build Web
+   * App button URLs for `create_composition`'s interactive mode (e.g. a Tailscale Funnel
+   * origin). Falls back to TELEGRAM_WEBHOOK_URL's origin in webhook mode. Undefined
+   * disables interactive web apps (static/image mode still works).
    */
   readonly webAppBaseUrl: string | undefined;
 }
-
-interface JazzComposition {
-  readonly id: string;
-  readonly mode: "static" | "interactive";
-  readonly title: string;
-  readonly sessionId: string;
-  readonly filename: string;
-  readonly htmlPath: string;
-  readonly imagePath?: string;
-}
-
-interface JazzSuccessEnvelope {
-  readonly ok: true;
-  readonly answer: string;
-  readonly costUSD: number;
-  readonly costKnown?: boolean;
-  readonly tokenUsage?: {
-    readonly totalTokens?: number;
-    readonly promptTokens?: number;
-    readonly completionTokens?: number;
-    readonly cacheReadTokens?: number;
-  };
-  readonly composition?: JazzComposition;
-  /**
-   * Only present for `--ephemeral` runs (incognito chats): the full
-   * transcript, opaque to the bridge, round-tripped back in as the stdin
-   * frame's `history` on that chat's next turn instead of loading it from
-   * disk. See `incognitoHistory` below.
-   */
-  readonly messages?: unknown[];
-}
-
-interface JazzErrorEnvelope {
-  readonly ok: false;
-  readonly error: string;
-  /** Present once the run reached the model: a failed run still spent money. */
-  readonly costUSD?: number;
-  readonly costKnown?: boolean;
-  readonly tokenUsage?: { readonly totalTokens?: number };
-}
-
-type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -291,9 +144,14 @@ function parseIdList(raw: string): Set<number> {
   );
 }
 
+function envFlag(name: string, defaultOn: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw.length === 0) return defaultOn;
+  return !["0", "false", "off", "no"].includes(raw);
+}
+
 function loadConfig(): BridgeConfig {
   const allowedChatIds = parseIdList(process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "");
-
   if (allowedChatIds.size === 0) {
     throw new Error(
       "TELEGRAM_ALLOWED_CHAT_IDS is empty. Set it to a comma-separated allow-list of chat ids so the bot only answers you.",
@@ -309,11 +167,15 @@ function loadConfig(): BridgeConfig {
 
   return {
     botToken: requireEnv("TELEGRAM_BOT_TOKEN"),
+    apiBase:
+      process.env["TELEGRAM_API_BASE_URL"]?.trim().replace(/\/$/, "") || DEFAULT_TELEGRAM_API_BASE,
     mode,
     webhookSecret: process.env["TELEGRAM_WEBHOOK_SECRET"]?.trim() || "",
     webhookUrl,
     allowedChatIds,
-    operatorIds: parseIdList(process.env["TELEGRAM_OPERATOR_IDS"]?.trim() ?? ""),
+    operatorIds: new Set(
+      [...parseIdList(process.env["TELEGRAM_OPERATOR_IDS"]?.trim() ?? "")].map(String),
+    ),
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     provider: process.env["JAZZ_TELEGRAM_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_TELEGRAM_MODEL"]?.trim() || "gpt-5.4",
@@ -330,99 +192,18 @@ function loadConfig(): BridgeConfig {
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     geocodeUrl: process.env["NOMINATIM_BASE_URL"]?.trim() ?? "https://nominatim.openstreetmap.org",
-    dynamicCta: !["0", "false", "off"].includes(
-      process.env["JAZZ_TELEGRAM_DYNAMIC_CTA"]?.trim().toLowerCase() ?? "",
-    ),
-    showReasoning: !["0", "false", "off"].includes(
-      process.env["JAZZ_TELEGRAM_SHOW_REASONING"]?.trim().toLowerCase() ?? "",
-    ),
+    dynamicCta: envFlag("JAZZ_TELEGRAM_DYNAMIC_CTA", true),
+    showReasoning: envFlag("JAZZ_TELEGRAM_SHOW_REASONING", true),
     webAppBaseUrl,
   };
 }
 
-/**
- * The chat's own sandbox, created on first contact.
- *
- * Cheap to call per message: after the first one everything it does is an
- * existence check.
- */
-function sandboxForChat(config: BridgeConfig, chatId: number): ChatSandbox {
-  return ensureChatSandbox(config.jazzHome, agentIdForChat(chatId));
-}
-
-async function callTelegram(
-  config: BridgeConfig,
-  method: string,
-  payload: Record<string, unknown>,
-  options: { bestEffort?: boolean } = {},
-): Promise<unknown> {
-  const chatId = typeof payload["chat_id"] === "number" ? payload["chat_id"] : undefined;
-  return dispatchTelegramRequest({
-    method,
-    chatId,
-    bestEffort: options.bestEffort ?? false,
-    send: () =>
-      fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/${method}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      }),
-  });
-}
-
-/** Upload image bytes as a Telegram photo message (multipart, not JSON). */
-async function sendPhotoBytes(
-  config: BridgeConfig,
-  chatId: number,
-  image: { readonly bytes: Uint8Array<ArrayBuffer>; readonly filename: string },
-  caption?: string,
-): Promise<unknown> {
-  const form = new FormData();
-  form.append("chat_id", String(chatId));
-  form.append("photo", new Blob([image.bytes], { type: "image/png" }), image.filename);
-  if (caption) form.append("caption", caption);
-
-  return dispatchTelegramRequest({
-    method: "sendPhoto",
-    chatId,
-    send: () =>
-      fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/sendPhoto`, {
-        method: "POST",
-        body: form,
-      }),
-  });
-}
-
-let publishedCompositions: CompositionLinks | undefined;
-
-/** The web apps this bridge has handed out links to, served by opaque id. */
-function compositionLinks(config: BridgeConfig): CompositionLinks {
-  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
-  return publishedCompositions;
-}
-
-function isOkResponse(response: unknown): boolean {
-  return (
-    typeof response === "object" && response !== null && (response as { ok?: boolean }).ok === true
-  );
-}
-
-// --- Misc utilities -------------------------------------------------------
-
-function formatUptime(ms: number): string {
-  const totalMinutes = Math.floor(ms / 60_000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  parts.push(`${minutes}m`);
-  return parts.join(" ");
-}
-
-function newRunToken(): string {
-  return Math.random().toString(36).slice(2, 10);
+/** Everything the transport handlers need, built once at start. */
+export interface Bridge {
+  readonly config: BridgeConfig;
+  readonly surface: TelegramSurface;
+  readonly runner: TurnRunner;
+  readonly compositions: CompositionLinks;
 }
 
 // --- Location -------------------------------------------------------------
@@ -439,7 +220,7 @@ async function reverseGeocode(
     const url = `${base}/reverse?format=jsonv2&zoom=18&addressdetails=0&lat=${latitude}&lon=${longitude}`;
     const response = await fetch(url, {
       headers: { "user-agent": "jazz-telegram-bot/1.0 (+https://github.com/lvndry/jazz)" },
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
     });
     if (!response.ok) return null;
     const data = (await response.json()) as { display_name?: string };
@@ -450,10 +231,9 @@ async function reverseGeocode(
   }
 }
 
-/** Turn a shared location into a prompt and run it through the normal pipeline. */
 /** Best-effort: set the chat's timezone from shared coordinates, and tell them. */
 async function maybeSetTzFromLocation(
-  config: BridgeConfig,
+  bridge: Bridge,
   chatId: number,
   latitude: number,
   longitude: number,
@@ -465,26 +245,29 @@ async function maybeSetTzFromLocation(
     return; // outside the lookup's coverage — leave the zone as-is
   }
   if (!isValidTimeZone(detected)) return;
-  const previous = setTzForChat(config.jazzHome, TZ_FILE, chatId, detected);
-  if (previous === detected) return; // already on this zone — nothing to announce
+  const previous = setTzForChat(bridge.config.jazzHome, STORE_FILES.timezone, chatId, detected);
+  if (previous === detected) return;
   const hadZone = typeof previous === "string" && isValidTimeZone(previous);
-  await sendReply(
-    config,
-    chatId,
-    `🌍 ${hadZone ? "Updated" : "Set"} your timezone to <code>${escapeHtml(detected)}</code> ` +
-      "from this location — reminders will use it. Change it anytime with <code>/tz</code>.",
-  );
+  await bridge.runner.send(String(chatId), [
+    line(
+      text(`🌍 ${hadZone ? "Updated" : "Set"} your timezone to `),
+      code(detected),
+      text(" from this location — reminders will use it. Change it anytime with "),
+      code("/tz"),
+      text("."),
+    ),
+  ]);
 }
 
 async function handleLocation(
-  config: BridgeConfig,
+  bridge: Bridge,
   chatId: number,
-  requesterId: number,
+  senderId: string,
   latitude: number,
   longitude: number,
 ): Promise<void> {
-  await maybeSetTzFromLocation(config, chatId, latitude, longitude);
-  const address = await reverseGeocode(config, latitude, longitude);
+  await maybeSetTzFromLocation(bridge, chatId, latitude, longitude);
+  const address = await reverseGeocode(bridge.config, latitude, longitude);
   const mapLink = `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`;
   const prompt =
     "[The user shared their current location.]\n" +
@@ -493,1088 +276,19 @@ async function handleLocation(
     `Map: ${mapLink}\n\n` +
     "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
     "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
-  await handleMessage(config, chatId, requesterId, prompt);
+  await bridge.runner.handle({ chatId: String(chatId), senderId, text: prompt });
 }
 
-// --- Persona discovery ----------------------------------------------------
-
-function listPersonas(config: BridgeConfig): Promise<string[]> {
-  return listPersonaNames(config.jazzHome, config.builtinPersonasDir);
-}
-
-function messageIdOf(response: unknown): number | undefined {
-  const id = (response as { result?: { message_id?: number } } | undefined)?.result?.message_id;
-  return typeof id === "number" ? id : undefined;
-}
+// --- Commands menu --------------------------------------------------------
 
 /**
- * Send a reply, splitting to fit Telegram's message limit and attaching
- * `markup` to the final chunk. Text is treated as ready-to-send Telegram HTML
- * (command replies, confirmations); set `markdown: true` for content authored
- * in Markdown (the agent's answer), which is converted per chunk. Any
- * dynamic/untrusted text interpolated into HTML must be escaped by the caller.
- *
- * Falls back to plain text only when Telegram rejects the rendered HTML itself
- * (malformed entities, too long, …) — never for a rate limit or a network failure,
- * where a second send could duplicate a message Telegram already received.
- */
-async function sendReply(
-  config: BridgeConfig,
-  chatId: number,
-  text: string,
-  options: {
-    markup?: Record<string, unknown>;
-    markdown?: boolean;
-    replyTo?: number | undefined;
-  } = {},
-): Promise<number | undefined> {
-  const chunks = splitForTelegram(text);
-  let lastMessageId: number | undefined;
-  const replyParameters =
-    options.replyTo !== undefined ? { message_id: options.replyTo } : undefined;
-  for (const [index, chunk] of chunks.entries()) {
-    const markup =
-      options.markup !== undefined && index === chunks.length - 1 ? options.markup : undefined;
-    const rendered = await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: options.markdown ? markdownToTelegramHtml(chunk) : chunk,
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      ...(markup ? { reply_markup: markup } : {}),
-      ...(replyParameters ? { reply_parameters: replyParameters } : {}),
-    });
-    if (isOkResponse(rendered)) {
-      lastMessageId = messageIdOf(rendered) ?? lastMessageId;
-    } else if (isRenderingRejection(rendered)) {
-      const plain = await callTelegram(config, "sendMessage", {
-        chat_id: chatId,
-        text: chunk,
-        ...(markup ? { reply_markup: markup } : {}),
-        ...(replyParameters ? { reply_parameters: replyParameters } : {}),
-      });
-      lastMessageId = messageIdOf(plain) ?? lastMessageId;
-    }
-  }
-  return lastMessageId;
-}
-
-function cancelKeyboard(runToken: string): Record<string, unknown> {
-  return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
-}
-
-function approvalKeyboard(
-  toolCallId: string,
-  runToken: string,
-  pendingCount: number,
-  commandKey?: string,
-): Record<string, unknown> {
-  const rows = [
-    [
-      { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
-      { text: "❌ Reject", callback_data: `a:${toolCallId}:0` },
-    ],
-  ];
-  if (commandKey) {
-    rows.push([{ text: `♾️ Always allow "${commandKey}"`, callback_data: `a:${toolCallId}:2` }]);
-  }
-  // A parallel batch of tool calls asks for approval one message each; tapping
-  // through five of them is the common case, so offer a single tap that clears
-  // the whole batch once there is more than one outstanding.
-  if (pendingCount > 1) {
-    rows.push([
-      { text: `⚡ Approve all ${pendingCount}`, callback_data: `aa:${runToken}:1` },
-      { text: `🚫 Reject all ${pendingCount}`, callback_data: `aa:${runToken}:0` },
-    ]);
-  }
-  return { inline_keyboard: rows };
-}
-
-/**
- * Answer the run's blocked approval prompts over its stdin pipe. Bun's FileSink
- * buffers writes, so flush() pushes them through now rather than waiting for the
- * buffer to fill — a batch decision must reach a parked run immediately.
- */
-async function writeApprovalDecisions(
-  run: { child: Bun.Subprocess<"pipe", "pipe", "pipe"> },
-  decisions: readonly { toolCallId: string; approved: boolean }[],
-): Promise<void> {
-  try {
-    for (const { toolCallId, approved } of decisions) {
-      await run.child.stdin.write(
-        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
-      );
-    }
-    await run.child.stdin.flush();
-  } catch (error) {
-    console.error(`Failed to write approval decision: ${String(error)}`);
-  }
-}
-
-function pendingApprovalsForRun(runToken: string): [string, PendingApproval][] {
-  return [...pendingApprovals].filter(([, pending]) => pending.runToken === runToken);
-}
-
-/**
- * Rewrite the keyboards of a run's outstanding approval messages so their
- * "Approve all N" count matches reality. Called whenever the outstanding set
- * changes: a new request arriving makes the count climb, and resolving one
- * makes it fall — down to a single request, where the batch buttons disappear
- * again.
- */
-async function refreshApprovalKeyboards(config: BridgeConfig, runToken: string): Promise<void> {
-  const outstanding = pendingApprovalsForRun(runToken);
-  for (const [toolCallId, pending] of outstanding) {
-    if (pending.shownCount === outstanding.length) continue;
-    pending.shownCount = outstanding.length;
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: pending.chatId,
-      message_id: pending.messageId,
-      reply_markup: approvalKeyboard(toolCallId, runToken, outstanding.length, pending.commandKey),
-    }).catch(() => undefined);
-  }
-}
-
-const APPROVAL_COMMAND_PATTERN = /^Command: ([\s\S]*?)\nDescription: /m;
-
-/**
- * The "always allow" key for an execute_command approval, read from the full
- * command in its message (everything between `Command: ` and the
- * `Description:` line, so a multi-line command is read whole). `undefined`
- * when the command cannot be allowlisted, which hides the button.
- */
-function commandKeyFromApprovalMessage(
-  toolName: string | undefined,
-  message: string,
-): string | undefined {
-  if (toolName !== "execute_command") {
-    return undefined;
-  }
-  const command = APPROVAL_COMMAND_PATTERN.exec(message)?.[1];
-  if (command === undefined) {
-    return undefined;
-  }
-  return extractCommandApprovalKey(command);
-}
-
-function modeKeyboard(current: ApprovalMode): Record<string, unknown> {
-  const modes: ApprovalMode[] = ["safe", "yolo"];
-  return {
-    inline_keyboard: [
-      modes.map((mode) => ({
-        text: `${mode === current ? "✅ " : ""}${APPROVAL_MODE_LABELS[mode]}`,
-        callback_data: `md:${mode}`,
-      })),
-    ],
-  };
-}
-
-function modeExplanation(mode: ApprovalMode, configuredPolicy: string): string {
-  return describeApprovalMode(mode, configuredPolicy, {
-    bold: (text) => `<b>${escapeHtml(text)}</b>`,
-    code: (text) => `<code>${escapeHtml(text)}</code>`,
-  });
-}
-
-function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string {
-  return (
-    `✅ Mode → <b>${APPROVAL_MODE_LABELS[mode]}</b>\n${modeExplanation(mode, configuredPolicy)}` +
-    (mode === "yolo" ? "\nSend <code>/mode safe</code> to turn approvals back on." : "")
-  );
-}
-
-/** Why a tap on someone else's prompt did nothing. */
-const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
-
-/** The toast a non-operator gets for an operator-only button. */
-function operatorOnlyToast(userId: number): string {
-  return `Only this bot's operator can do that. Your id is ${userId}; the operator adds it to TELEGRAM_OPERATOR_IDS.`;
-}
-
-/** The same refusal as a chat message, for a typed command. */
-function operatorOnlyHtml(userId: number, what: string): string {
-  return renderRichText(operatorOnlyMessage(String(userId), what, "TELEGRAM_OPERATOR_IDS"));
-}
-
-function webAppKeyboard(url: string, title: string): Record<string, unknown> {
-  return { inline_keyboard: [[{ text: `📱 ${title}`, web_app: { url } }]] };
-}
-
-function followupKeyboard(): Record<string, unknown> {
-  const buttons = Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) => ({
-    text: option.label,
-    callback_data: `f:${key}`,
-  }));
-  // Two per row so the labels stay readable on a mobile-width keyboard.
-  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
-  for (let index = 0; index < buttons.length; index += 2) {
-    rows.push(buttons.slice(index, index + 2));
-  }
-  return { inline_keyboard: rows };
-}
-
-// --- Live progress --------------------------------------------------------
-
-// A subset of Jazz's NDJSON stream events (jazz run --events); other fields ignored.
-interface JazzEvent {
-  readonly type: string;
-  /** `run_spend`: what the run has spent so far. */
-  readonly costUSD?: number;
-  readonly costIncomplete?: boolean;
-  readonly totalTokens?: number;
-  readonly toolName?: string;
-  readonly content?: string;
-  readonly approved?: boolean;
-  readonly task?: string;
-  readonly toolCallId?: string;
-  readonly message?: string;
-  readonly previewDiff?: string;
-  // `user_input_required`: the agent is blocked on a question for the human.
-  readonly requestId?: string;
-  readonly question?: string;
-  readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
-}
-
-/** Read a byte stream and invoke onLine for each newline-delimited line. */
-async function streamLines(
-  stream: ReadableStream<Uint8Array>,
-  onLine: (line: string) => void,
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex >= 0) {
-        onLine(buffer.slice(0, newlineIndex));
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
-      }
-    }
-    if (buffer.length > 0) onLine(buffer);
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-/**
- * Input and output split out, since a single total hides that the input is
- * the whole conversation plus tool schemas re-sent on every loop iteration.
- */
-function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | undefined {
-  const promptTokens = usage?.promptTokens ?? 0;
-  const completionTokens = usage?.completionTokens ?? 0;
-  if (promptTokens === 0 && completionTokens === 0) return undefined;
-  const cacheReadTokens = usage?.cacheReadTokens ?? 0;
-  const cached = cacheReadTokens > 0 ? ` (${formatTokenCount(cacheReadTokens)} cached)` : "";
-  return [
-    `Input: ${formatTokenCount(promptTokens)}${cached}`,
-    `Output: ${formatTokenCount(completionTokens)}`,
-  ].join("\n");
-}
-
-/**
- * Live-updates one Telegram message ("🤔 Working…") from Jazz stream events:
- * current thinking, tools being called, and the writing phase. Edits are
- * throttled and serialized so we never spam or race Telegram's edit API.
- */
-function createProgressReporter(
-  config: BridgeConfig,
-  chatId: number,
-  messageId: number,
-  runToken: string,
-  runLog: RunLog,
-) {
-  const tools: string[] = [];
-  const subagents: string[] = [];
-  const declined: string[] = [];
-  let reasoning = "";
-  let writing = false;
-  let rounds = 0;
-  let lastText = PROGRESS_INITIAL_TEXT;
-  let lastEditAt = 0;
-  let editing = false;
-
-  const render = (): string => {
-    const lines = ["🤔 <b>Working…</b>"];
-    const thought = reasoningSnippet(reasoning);
-    if (thought) lines.push(`💭 ${escapeHtml(thought)}`);
-    for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
-      lines.push(`🔧 <code>${escapeHtml(tool)}</code>`);
-    }
-    for (const task of subagents.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
-      lines.push(`🤖 ${escapeHtml(task)}`);
-    }
-    for (const tool of declined) {
-      lines.push(`⛔ <code>${escapeHtml(tool)}</code> declined (needs approval)`);
-    }
-    // A run that goes round and round looks identical to a slow one from the
-    // outside; the count is what makes a loop visible without reading logs.
-    if (rounds > 1) lines.push(`↻ round ${rounds}`);
-    if (writing) lines.push("✍️ writing the answer…");
-    return lines.join("\n");
-  };
-
-  const edit = async (text: string, markup: Record<string, unknown>): Promise<void> => {
-    if (text === lastText || editing) return;
-    editing = true;
-    lastText = text;
-    lastEditAt = Date.now();
-    try {
-      await callTelegram(
-        config,
-        "editMessageText",
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          text,
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-          reply_markup: markup,
-        },
-        { bestEffort: true },
-      );
-    } finally {
-      editing = false;
-    }
-  };
-
-  return {
-    onEvent(event: JazzEvent): void {
-      runLog.event(event);
-      switch (event.type) {
-        case "tools_detected":
-          // One per model response that asked for tools, so one per loop round.
-          rounds += 1;
-          break;
-        case "thinking_chunk":
-          // Accumulate raw so a lone-space chunk isn't trimmed away (which would
-          // glue the surrounding words); normalization happens at render time.
-          if (typeof event.content === "string") reasoning += event.content;
-          break;
-        case "tool_execution_start":
-          if (typeof event.toolName === "string") tools.push(event.toolName);
-          break;
-        case "subagent_start":
-          subagents.push(event.task?.trim() || "sub-agent");
-          break;
-        case "approval_resolved":
-          if (event.approved === false && typeof event.toolName === "string") {
-            declined.push(event.toolName);
-          }
-          break;
-        case "text_start":
-        case "text_chunk":
-          writing = true;
-          break;
-      }
-      if (Date.now() - lastEditAt >= PROGRESS_MIN_INTERVAL_MS) {
-        void edit(render(), cancelKeyboard(runToken));
-      }
-    },
-    // Final edit drops the Cancel button (empty keyboard).
-    finish: (summary: string): Promise<void> => edit(summary, { inline_keyboard: [] }),
-    toolsUsed: (): string[] => [...new Set(tools)],
-    rounds: (): number => rounds,
-    // The progress bubble only ever showed a rolling tail; this is everything
-    // the model thought, for the expandable log attached to the answer.
-    reasoningLog: (): string => reasoning,
-  };
-}
-
-/**
- * Attach a run's full reasoning under the answer as collapsed, tap-to-expand
- * quotes. Sent as its own messages rather than appended to the answer so the
- * answer keeps its follow-up buttons and its own splitting, and sent through
- * callTelegram rather than sendReply so the answer splitter can never cut one
- * of these in the middle of a blockquote tag.
- *
- * Falls back to plain text only when Telegram rejects `expandable` itself (older Bot
- * API versions) — never for a rate limit, where retrying already covers it.
- */
-async function sendReasoningLog(
-  config: BridgeConfig,
-  chatId: number,
-  reasoning: string,
-): Promise<void> {
-  const parts = splitReasoning(reasoning, {
-    budget: REASONING_PART_CHARS,
-    maxParts: REASONING_MAX_PARTS,
-  });
-  for (const [index, part] of parts.entries()) {
-    const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
-    const rendered = await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: `💭 <b>Reasoning</b>${counter}\n${expandableBlockquote(part)}`,
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
-    if (isRenderingRejection(rendered)) {
-      await callTelegram(config, "sendMessage", {
-        chat_id: chatId,
-        text: `💭 Reasoning${counter}\n${part}`,
-      });
-    }
-  }
-}
-
-// --- Human approval --------------------------------------------------------
-
-/**
- * Send a new Telegram message with Accept/Reject buttons for a tool awaiting
- * human approval. A new message (not an edit of the progress bubble) so
- * concurrent approvals within the same run don't collide.
- */
-async function sendApprovalRequest(
-  config: BridgeConfig,
-  chatId: number,
-  runToken: string,
-  event: JazzEvent,
-): Promise<void> {
-  const toolCallId = event.toolCallId;
-  if (!toolCallId) return;
-
-  const toolName = event.toolName ?? "tool";
-  const message = event.message ?? "";
-  // Offered only where somebody can use it: an "Always allow" is operator-only.
-  const commandKey =
-    config.operatorIds.size > 0
-      ? commandKeyFromApprovalMessage(event.toolName, message)
-      : undefined;
-  const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
-  if (message.length > 0) lines.push(escapeHtml(message));
-  if (event.previewDiff) {
-    lines.push(`<pre>${escapeHtml(event.previewDiff)}</pre>`);
-  }
-
-  // One more than what is already outstanding: this request is about to join
-  // them, and the keyboard has to be built before the message is sent.
-  const shownCount = pendingApprovalsForRun(runToken).length + 1;
-  const messageId = await sendReply(config, chatId, lines.join("\n"), {
-    markup: approvalKeyboard(toolCallId, runToken, shownCount, commandKey),
-  });
-  if (typeof messageId !== "number") return;
-
-  pendingApprovals.set(toolCallId, {
-    chatId,
-    messageId,
-    runToken,
-    shownCount,
-    ...(commandKey && { commandKey }),
-  });
-  await refreshApprovalKeyboards(config, runToken);
-}
-
-/**
- * Put the agent's question in front of the human with one button per option.
- *
- * A new message rather than an edit of the progress bubble: the bubble is
- * overwritten every couple of seconds and replaced by the answer, so a question
- * living there would vanish before it could be read.
- */
-async function sendUserInputRequest(
-  config: BridgeConfig,
-  chatId: number,
-  runToken: string,
-  event: JazzEvent,
-): Promise<void> {
-  const requestId = event.requestId;
-  const question = event.question?.trim();
-  if (requestId === undefined || !question) return;
-
-  const suggestions = event.suggestions ?? [];
-  const lines = ["❓ <b>The agent needs an answer</b>", escapeHtml(question)];
-  for (const suggestion of suggestions) {
-    if (suggestion.description) {
-      lines.push(
-        `• <b>${escapeHtml(suggestion.label ?? suggestion.value)}</b> — ${escapeHtml(suggestion.description)}`,
-      );
-    }
-  }
-
-  // The value is what the agent gets back; the label is only ever shown. Sending
-  // an index keeps the callback payload inside Telegram's 64-byte limit however
-  // long the option text is.
-  const buttons = suggestions.map((suggestion, index) => ({
-    text: (suggestion.label ?? suggestion.value).slice(0, 60),
-    callback_data: `q:${requestId}:${index}`,
-  }));
-  const rows: Record<string, unknown>[][] = buttons.map((button) => [button]);
-
-  const messageId = await sendReply(config, chatId, lines.join("\n"), {
-    markup: { inline_keyboard: rows },
-  });
-  if (typeof messageId === "number") {
-    pendingUserInputs.set(requestId, {
-      chatId,
-      messageId,
-      runToken,
-      options: suggestions.map((suggestion) => suggestion.value),
-    });
-  }
-}
-
-// --- Jazz invocation ------------------------------------------------------
-
-async function runJazz(
-  config: BridgeConfig,
-  chatId: number,
-  requesterId: number,
-  prompt: string,
-  onEvent: (event: JazzEvent) => void,
-  runToken: string,
-): Promise<JazzEnvelope> {
-  const incognito = isIncognito(config.jazzHome, INCOGNITO_FILE, chatId);
-  const priorIncognitoMessages = incognito ? incognitoHistory.get(chatId) : undefined;
-  const sandbox = sandboxForChat(config, chatId);
-  const child = Bun.spawn(
-    sandboxCommand(sandbox, [
-      config.jazzBinary,
-      "run",
-      "--no-tui",
-      "--json",
-      "--events",
-      JAZZ_RUN_EVENT_CATEGORIES,
-      "--interactive-stdin",
-      "--input-stdin",
-      "--agent",
-      agentIdForChat(chatId),
-      "--approval-policy",
-      approvalPolicyFor(config.jazzHome, MODE_FILE, chatId, config.approvalPolicy),
-      ...(config.autoApproveTools.length > 0
-        ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
-        : []),
-      "--timezone",
-      tzForChat(config.jazzHome, TZ_FILE, chatId),
-      ...(incognito
-        ? ["--ephemeral"]
-        : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, chatId)]),
-      "--timeout",
-      String(config.runTimeoutMs),
-    ]),
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env, "telegram"),
-    },
-  );
-  // Register so the ⏹ Cancel button can find and kill this process.
-  activeRuns.set(runToken, { child, cancelled: false, chatId, requesterId });
-  // The message and an incognito transcript go in the stdin frame, never on
-  // argv, where `ps` shows them to every account on the host.
-  await writeStdinFrame(child, {
-    prompt,
-    ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
-      ? { history: priorIncognitoMessages }
-      : {}),
-  });
-
-  const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
-  const stderrTail: string[] = [];
-  let lastSpend: RunSpend | undefined;
-  const stderrDone = streamLines(child.stderr, (line) => {
-    if (stderrTail.length < 50) stderrTail.push(line);
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) return;
-    try {
-      const event = JSON.parse(trimmed) as JazzEvent;
-      if (typeof event.type === "string") {
-        lastSpend = runSpendFromEvent(event) ?? lastSpend;
-        onEvent(event);
-      }
-      if (event.type === "approval_required" && event.toolCallId) {
-        void sendApprovalRequest(config, chatId, runToken, event).catch((error) =>
-          console.error(`Failed to send approval request for chat ${chatId}: ${String(error)}`),
-        );
-      }
-      if (event.type === "user_input_required" && event.requestId) {
-        void sendUserInputRequest(config, chatId, runToken, event).catch((error) =>
-          console.error(`Failed to send question for chat ${chatId}: ${String(error)}`),
-        );
-      }
-    } catch {
-      // Non-event stderr line (plain log chatter) — ignore.
-    }
-  });
-
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    stderrDone,
-    child.exited,
-  ]);
-  clearTimeout(timeout);
-
-  const lastJsonLine = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("{"))
-    .at(-1);
-
-  if (lastJsonLine === undefined) {
-    console.error(
-      `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
-    );
-    return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
-  }
-
-  try {
-    const envelope = JSON.parse(lastJsonLine) as JazzEnvelope;
-    // Carry the transcript forward in memory for this incognito chat's next
-    // turn — it never touches disk, so a dropped/missing `messages` field
-    // (e.g. the run errored) just means the next turn starts context-free.
-    if (incognito && envelope.ok) {
-      incognitoHistory.set(chatId, envelope.messages ?? []);
-    }
-    return envelope;
-  } catch (error) {
-    console.error(`Failed to parse Jazz envelope: ${String(error)}\nLine: ${lastJsonLine}`);
-    return { ok: false, error: "Could not parse the agent response.", ...spendFields(lastSpend) };
-  }
-}
-
-/**
- * Deliver a `create_composition` result: a static chart/diagram is uploaded
- * directly as a photo (no tap needed); an interactive page needs a public URL
- * to open in — falls back to a warning if TELEGRAM_WEBAPP_BASE_URL isn't set.
- */
-async function deliverComposition(
-  config: BridgeConfig,
-  chatId: number,
-  composition: JazzComposition,
-): Promise<void> {
-  const home = sandboxForChat(config, chatId).home;
-  if (composition.mode === "static") {
-    // Read from this chat's own compositions, whatever path the envelope claims.
-    const image = readCompositionImage(home, composition);
-    if (image === undefined) {
-      console.error(
-        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
-      );
-      return;
-    }
-    await sendPhotoBytes(config, chatId, image, composition.title);
-    return;
-  }
-
-  if (config.webAppBaseUrl === undefined) {
-    await sendReply(
-      config,
-      chatId,
-      "⚠️ Generated an interactive UI, but no public URL is configured for this bot " +
-        "(set <code>TELEGRAM_WEBAPP_BASE_URL</code>) — can't open it.",
-    );
-    return;
-  }
-
-  const linkId = compositionLinks(config).publish(agentIdForChat(chatId), composition);
-  if (linkId === undefined) {
-    console.error(`create_composition returned unusable names (id=${composition.id})`);
-    return;
-  }
-  const url = `${config.webAppBaseUrl}${compositionLinkPath(linkId)}`;
-  await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(composition.title)}</b>`, {
-    markup: webAppKeyboard(url, composition.title),
-  });
-}
-
-async function handleMessage(
-  config: BridgeConfig,
-  chatId: number,
-  requesterId: number,
-  text: string,
-  replyToMessageId?: number,
-): Promise<void> {
-  ensureChatAgent(config.jazzHome, sandboxForChat(config, chatId), chatId, config.baseAgentId);
-
-  const usage = todayUsage(config.jazzHome, USAGE_FILE);
-  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
-  if (capBlockReason === "unpriced") {
-    await sendReply(
-      config,
-      chatId,
-      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
-      { replyTo: replyToMessageId },
-    );
-    return;
-  }
-
-  if (capBlockReason === "reached") {
-    await sendReply(
-      config,
-      chatId,
-      `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
-      { replyTo: replyToMessageId },
-    );
-    return;
-  }
-
-  await callTelegram(
-    config,
-    "sendChatAction",
-    { chat_id: chatId, action: "typing" },
-    { bestEffort: true },
-  );
-
-  const runToken = newRunToken();
-  // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
-  // sent as a *new* message so it pushes a notification (edits don't). When
-  // this run was kicked off by a follow-up/suggestion tap, the bubble (and,
-  // below, the final answer) reply to the message that carried the button so
-  // the thread stays visibly anchored to what it's a follow-up to.
-  const sent = (await callTelegram(config, "sendMessage", {
-    chat_id: chatId,
-    text: PROGRESS_INITIAL_TEXT,
-    parse_mode: "HTML",
-    reply_markup: cancelKeyboard(runToken),
-    ...(replyToMessageId !== undefined
-      ? { reply_parameters: { message_id: replyToMessageId } }
-      : {}),
-  })) as { result?: { message_id?: number } } | undefined;
-  const messageId = sent?.result?.message_id;
-  // Opened before the run so a crash or timeout still leaves a record: the
-  // conversation transcript is only written once a run completes.
-  const runLog = createRunLog(
-    config.jazzHome,
-    conversationKey(config.jazzHome, EPOCHS_FILE, chatId),
-  );
-  let runLogged = false;
-  const reporter =
-    typeof messageId === "number"
-      ? createProgressReporter(config, chatId, messageId, runToken, runLog)
-      : undefined;
-
-  try {
-    const envelope = await runJazz(
-      config,
-      chatId,
-      requesterId,
-      text,
-      (event) => reporter?.onEvent(event),
-      runToken,
-    );
-    const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
-    runLog.finish({
-      ok: envelope.ok,
-      cancelled,
-      rounds: reporter?.rounds() ?? 0,
-      toolsUsed: reporter?.toolsUsed() ?? [],
-      ...(envelope.ok ? {} : { error: envelope.error }),
-    });
-    runLogged = true;
-    recordRunUsage(config.jazzHome, USAGE_FILE, runSpend(envelope, undefined));
-
-    if (cancelled) {
-      await reporter?.finish("⏹ <b>Cancelled</b>");
-      return;
-    }
-
-    if (envelope.ok) {
-      if (envelope.costKnown === undefined) {
-        console.error(
-          "Envelope has no costKnown field (jazz binary predates it); treating cost as known — upgrade jazz so unpriced runs pause the daily cap.",
-        );
-      }
-      const costKnown = envelope.costKnown !== false;
-      const used = reporter?.toolsUsed() ?? [];
-      const parts = ["✅ <b>Done</b>"];
-      if (used.length > 0) {
-        parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
-      }
-      if (envelope.costUSD > 0) {
-        parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
-      } else if (!costKnown) {
-        parts.push("price unavailable");
-      }
-      const usageLines = formatUsageLines(envelope.tokenUsage);
-      await reporter?.finish(
-        usageLines === undefined ? parts.join(" · ") : `${parts.join(" · ")}\n\n${usageLines}`,
-      );
-      // Send with static CTAs immediately, then (optionally) upgrade to
-      // contextual ones once a quick follow-up generation returns.
-      const answerMessageId = await sendReply(config, chatId, envelope.answer, {
-        markdown: true,
-        markup: followupKeyboard(),
-        replyTo: replyToMessageId,
-      });
-      if (config.dynamicCta && answerMessageId !== undefined) {
-        void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
-      }
-      if (config.showReasoning) {
-        await sendReasoningLog(config, chatId, reporter?.reasoningLog() ?? "");
-      }
-      if (envelope.composition) {
-        await deliverComposition(config, chatId, envelope.composition);
-      }
-    } else {
-      await reporter?.finish("⚠️ <b>Failed</b>");
-      await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`, {
-        replyTo: replyToMessageId,
-      });
-    }
-  } finally {
-    // A throw anywhere above would otherwise leave the log with no outcome line,
-    // which is exactly the run someone will come looking for.
-    if (!runLogged) {
-      runLog.finish({
-        ok: false,
-        error: "handler threw before the run reported an outcome",
-        rounds: reporter?.rounds() ?? 0,
-        toolsUsed: reporter?.toolsUsed() ?? [],
-      });
-    }
-    // Always release the run slot, even if runJazz or a reply throws.
-    activeRuns.delete(runToken);
-    // Sweep any approvals left pending for this run (e.g. the run finished or
-    // errored before a human tapped Accept/Reject).
-    for (const [toolCallId, pending] of pendingApprovals) {
-      if (pending.runToken === runToken) pendingApprovals.delete(toolCallId);
-    }
-    for (const [requestId, pending] of pendingUserInputs) {
-      if (pending.runToken === runToken) pendingUserInputs.delete(requestId);
-    }
-  }
-}
-
-const GO_DEEPER_OPTION: Suggestion = {
-  label: "🔍 Go deeper",
-  prompt:
-    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
-};
-const SHORTER_OPTION: Suggestion = {
-  label: "✂️ Shorter",
-  prompt:
-    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
-};
-const SIMPLER_OPTION: Suggestion = {
-  label: "🧑‍🏫 Explain simpler",
-  prompt:
-    "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
-};
-const EXAMPLE_OPTION: Suggestion = {
-  label: "💡 Example",
-  prompt: "Give a concrete, real-world example that illustrates your previous answer.",
-};
-
-const FOLLOWUP_OPTIONS: Record<string, Suggestion> = {
-  deeper: GO_DEEPER_OPTION,
-  shorter: SHORTER_OPTION,
-  simpler: SIMPLER_OPTION,
-  example: EXAMPLE_OPTION,
-};
-
-// --- Dynamic contextual CTAs ----------------------------------------------
-
-interface Suggestion {
-  label: string;
-  prompt: string;
-}
-
-const SUGGESTION_STORE_MAX = 500;
-// callback_data can't hold a full prompt (64-byte cap), so suggestions live
-// here keyed by a token; the button carries just the token + index.
-const suggestionStore = new Map<string, Suggestion[]>();
-
-function storeSuggestions(items: Suggestion[]): string {
-  const token = newRunToken();
-  suggestionStore.set(token, items);
-  while (suggestionStore.size > SUGGESTION_STORE_MAX) {
-    const oldest = suggestionStore.keys().next().value;
-    if (oldest === undefined) break;
-    suggestionStore.delete(oldest);
-  }
-  return token;
-}
-
-function suggestionKeyboard(token: string, items: Suggestion[]): Record<string, unknown> {
-  return {
-    inline_keyboard: items.map((item, index) => [
-      { text: item.label, callback_data: `s:${token}:${index}` },
-    ]),
-  };
-}
-
-/** One-shot, stateless `jazz run --json` (no progress/events/history). */
-async function jazzJson(
-  config: BridgeConfig,
-  sandbox: ChatSandbox,
-  agentId: string,
-  prompt: string,
-  extraArgs: string[],
-): Promise<JazzEnvelope> {
-  const child = Bun.spawn(
-    sandboxCommand(sandbox, [
-      config.jazzBinary,
-      "run",
-      "--no-tui",
-      "--json",
-      "--input-stdin",
-      "--agent",
-      agentId,
-      ...extraArgs,
-    ]),
-    {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: sandboxEnv(sandbox, process.env, "telegram"),
-    },
-  );
-  await writeStdinFrame(child, { prompt });
-  await child.stdin.end();
-  const timeout = setTimeout(() => child.kill(), 90_000);
-  const [stdout] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  clearTimeout(timeout);
-  const line = stdout
-    .split("\n")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.startsWith("{"))
-    .at(-1);
-  if (line === undefined) return { ok: false, error: "no output" };
-  try {
-    return JSON.parse(line) as JazzEnvelope;
-  } catch {
-    return { ok: false, error: "unparseable output" };
-  }
-}
-
-const SUGGEST_AGENT_ID = "tg_suggest";
-
-/**
- * A tool-less clone of the template agent used only to generate CTAs. Dropping
- * the tool schemas cuts the prompt from ~11k tokens to a few hundred, so the
- * button upgrade lands in a couple of seconds instead of ~20.
- */
-function ensureSuggestAgent(config: BridgeConfig, sandbox: ChatSandbox): void {
-  if (existsSync(agentPath(sandbox.home, SUGGEST_AGENT_ID))) return;
-  const template = readAgentFile(config.jazzHome, config.baseAgentId);
-  template.id = SUGGEST_AGENT_ID;
-  template.name = SUGGEST_AGENT_ID;
-  template.config["tools"] = [];
-  template.config.reasoning = "disable";
-  writeChatAgentFile(sandbox, template);
-}
-
-/**
- * If the model's suggestions dropped the mandatory "Go deeper" option, or came
- * back short (parse failures, a sparse reply), pad with the static fallbacks
- * so callers always get exactly 3 with "Go deeper" first — the fallback is
- * only ever a safety net for a misbehaving model, not the normal path.
- */
-function ensureThreeWithGoDeeper(items: Suggestion[]): Suggestion[] {
-  const hasGoDeeper = items.some((item) => /deeper/i.test(item.label));
-  let result = hasGoDeeper ? items : [GO_DEEPER_OPTION, ...items];
-  const fallbackPool = [SHORTER_OPTION, SIMPLER_OPTION, EXAMPLE_OPTION];
-  for (const fallback of fallbackPool) {
-    if (result.length >= 3) break;
-    result = [...result, fallback];
-  }
-  return result.slice(0, 3);
-}
-
-/** Ask the model for exactly 3 contextual next-step CTAs based on the exchange. */
-async function generateSuggestions(
-  config: BridgeConfig,
-  chatId: number,
-  question: string,
-  answer: string,
-): Promise<Suggestion[]> {
-  const sandbox = sandboxForChat(config, chatId);
-  ensureSuggestAgent(config, sandbox);
-  const metaPrompt =
-    `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
-    "Propose EXACTLY 3 useful next actions the user might tap. Reply with ONLY a JSON array — no " +
-    "prose, no code fences:\n" +
-    '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
-    'send if tapped, written first-person as the user"}]\n' +
-    'Make them specific to THIS exchange. The first entry must always be a "🔍 Go deeper" style ' +
-    "option that asks for more detail, specifics, and nuance on the same answer.";
-  const envelope = await jazzJson(config, sandbox, SUGGEST_AGENT_ID, metaPrompt, [
-    "--reasoning",
-    "disable",
-    "--max-iterations",
-    "1",
-    "--approval-policy",
-    "read-only",
-    "--timeout",
-    "60000",
-  ]);
-  if (!envelope.ok) return [];
-
-  const match = /\[[\s\S]*\]/.exec(envelope.answer);
-  if (!match) return [];
-  try {
-    const parsed = JSON.parse(match[0]) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const items: Suggestion[] = [];
-    for (const entry of parsed) {
-      if (entry && typeof entry === "object") {
-        const record = entry as { label?: unknown; prompt?: unknown };
-        if (
-          typeof record.label === "string" &&
-          typeof record.prompt === "string" &&
-          record.label.trim().length > 0 &&
-          record.prompt.trim().length > 0
-        ) {
-          items.push({
-            label: record.label.trim().slice(0, 40),
-            prompt: record.prompt.trim().slice(0, 500),
-          });
-        }
-      }
-      if (items.length >= 3) break;
-    }
-    return ensureThreeWithGoDeeper(items);
-  } catch {
-    return [];
-  }
-}
-
-/** Replace the static follow-up buttons on an answer with contextual ones. */
-async function upgradeToDynamicCtas(
-  config: BridgeConfig,
-  chatId: number,
-  messageId: number,
-  question: string,
-  answer: string,
-): Promise<void> {
-  try {
-    const items = await generateSuggestions(config, chatId, question, answer);
-    console.log(`[cta] chat ${chatId}: ${items.length} contextual suggestion(s)`);
-    if (items.length === 0) return; // keep the static fallback already attached
-    const token = storeSuggestions(items);
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: suggestionKeyboard(token, items),
-    });
-  } catch (error) {
-    console.error(`Dynamic CTA generation failed: ${String(error)}`);
-  }
-}
-
-// --- Commands & inline keyboards ------------------------------------------
-
-/**
- * Registered with Telegram via `setMyCommands` so these show up in the
- * client's "/" autocomplete menu — separate from, and kept in sync by hand
- * with, the prose list in HELP_TEXT below. `command` must be lowercase
- * letters/digits/underscores only (no slash, no arguments).
+ * Registered with Telegram via `setMyCommands` so these show up in the client's "/"
+ * autocomplete menu. `command` must be lowercase letters/digits/underscores only.
  */
 const BOT_COMMANDS: { command: string; description: string }[] = [
-  {
-    command: "model",
-    description: "Pick an Ollama model, or set provider/model, e.g. anthropic/claude-sonnet-5",
-  },
+  { command: "model", description: "Pick a model, or /model provider/model for any provider" },
   { command: "persona", description: "Pick my persona / style" },
-  { command: "mode", description: "Safe (ask before risky tools) or yolo (never ask)" },
+  { command: "mode", description: "Safe (ask before risky tools) or yolo (never ask; operators)" },
   { command: "new", description: "Start a fresh conversation (clears earlier context)" },
   { command: "incognito", description: "Start a private conversation (nothing saved) until /new" },
   { command: "remind", description: "Set a reminder, e.g. /remind 30m take pizza out" },
@@ -1584,632 +298,104 @@ const BOT_COMMANDS: { command: string; description: string }[] = [
   { command: "help", description: "Show available commands" },
 ];
 
-const HELP_TEXT = [
-  "I'm your Jazz assistant. Just send a message and I'll answer.",
-  "",
-  "Commands:",
-  "/model — pick an Ollama model, or /model provider/model for any other provider Jazz supports " +
-    "(e.g. /model anthropic/claude-sonnet-5)",
-  "/persona — pick my persona / style",
-  "/mode — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. /mode yolo",
-  "/new — start a fresh conversation (clears earlier context)",
-  "/incognito — start a private conversation (nothing saved to history or memory) until /new",
-  "/remind <when> <text> — e.g. /remind 30m take pizza out",
-  "  …or just say it: “remind me to call the dentist in 2 hours”, “send reminder next friday 2pm for review”",
-  "/reminders — list and cancel your reminders",
-  "/tz — set your timezone so reminder times are local (e.g. /tz Europe/Paris)",
-  "/status — model, today's usage, uptime",
-  "/help — show this",
-  "",
-  "📍 Share your location (📎 → Location) and I'll tell you where you are, find nearby places, and set your timezone.",
-].join("\n");
+// --- Buttons --------------------------------------------------------------
 
-interface InlineButton {
-  text: string;
-  callback_data: string;
-}
-
-function keyboardFrom(options: string[], current: string, prefix: string): InlineButton[][] {
-  return options.map((option, index) => [
-    { text: `${option === current ? "✅ " : ""}${option}`, callback_data: `${prefix}:${index}` },
-  ]);
-}
-
-/** Cancel one of this chat's reminders, written back to the chat's own uid. */
-function cancelReminderForChat(config: BridgeConfig, chatId: number, id: string): Promise<boolean> {
-  const sandbox = sandboxForChat(config, chatId);
-  return cancelReminder(sandbox.home, agentIdForChat(chatId), id, sandboxOwnership(sandbox));
-}
-
-async function handleRemind(
-  config: BridgeConfig,
-  chatId: number,
-  requesterId: number,
-  args: string,
-): Promise<void> {
-  const usage =
-    "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
-    "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
-    "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>, " +
-    "<code>/remind 2026-08-25 20:00 pack shoes</code>";
-  const trimmed = args.trim();
-  if (trimmed.length === 0) {
-    await sendReply(config, chatId, usage);
-    return;
-  }
-
-  // Route through a normal full agent turn — the add_reminder tool (not this
-  // handler) does the actual time parsing and scheduling, so there is exactly
-  // one code path that creates reminders regardless of how the request arrived.
-  await handleMessage(config, chatId, requesterId, `Add a reminder: ${trimmed}`);
-}
-
-async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
-  const requested = args.trim();
-  if (requested.length === 0) {
-    const current = tzForChat(config.jazzHome, TZ_FILE, chatId);
-    const suffix = hasChatTz(config.jazzHome, TZ_FILE, chatId)
-      ? ""
-      : " (default — not set by you yet)";
-    await sendReply(
-      config,
-      chatId,
-      `🌍 Your timezone: <code>${escapeHtml(current)}</code>${suffix}\n` +
-        `Local time now: ${formatWhen(Date.now(), current)}\n\n` +
-        "Change it with <code>/tz Europe/Paris</code> (an IANA name like " +
-        "<code>America/New_York</code>, <code>Asia/Tokyo</code>), or just share your location " +
-        "(📎 → Location) and I'll set it for you.",
-    );
-    return;
-  }
-  if (!isValidTimeZone(requested)) {
-    await sendReply(
-      config,
-      chatId,
-      `I don't recognise “${escapeHtml(requested)}”. Use an IANA name such as ` +
-        "<code>Europe/Paris</code>, <code>America/New_York</code>, or <code>Asia/Tokyo</code>.",
-    );
-    return;
-  }
-  setTzForChat(config.jazzHome, TZ_FILE, chatId, requested);
-  await sendReply(
-    config,
-    chatId,
-    `✅ Timezone set to <code>${escapeHtml(requested)}</code>. Local time now: ` +
-      `${formatWhen(Date.now(), requested)}.\nReminders will use this from now on.`,
-  );
-}
-
-async function handleCommand(
-  config: BridgeConfig,
-  chatId: number,
-  requesterId: number,
-  command: string,
-  args: string,
-): Promise<void> {
-  const sandbox = sandboxForChat(config, chatId);
-  const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
-
-  if (command === "remind") {
-    await handleRemind(config, chatId, requesterId, args);
-    return;
-  }
-
-  if (command === "tz" || command === "timezone") {
-    await handleTz(config, chatId, args);
-    return;
-  }
-
-  if (command === "reminders") {
-    const mine = readReminders(sandboxForChat(config, chatId).home, agentIdForChat(chatId)).sort(
-      (left, right) => left.fireAt - right.fireAt,
-    );
-    if (mine.length === 0) {
-      await sendReply(
-        config,
-        chatId,
-        "No reminders set. Use <code>/remind &lt;when&gt; &lt;text&gt;</code>.",
-      );
-      return;
-    }
-    const tz = tzForChat(config.jazzHome, TZ_FILE, chatId);
-    const rows = mine.map((reminder) => [
-      {
-        text: `❌ ${formatWhen(reminder.fireAt, tz)} — ${reminder.text.slice(0, 24)}`,
-        callback_data: `r:${reminder.id}`,
-      },
-    ]);
-    await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: `Pending reminders (tap to cancel · times in ${tz}):`,
-      reply_markup: { inline_keyboard: rows },
-    });
-    return;
-  }
-
-  if (command === "new" || command === "reset") {
-    const wasIncognito = isIncognito(config.jazzHome, INCOGNITO_FILE, chatId);
-    if (wasIncognito) {
-      setIncognito(config.jazzHome, INCOGNITO_FILE, chatId, false);
-      incognitoHistory.delete(chatId);
-    }
-    startNewConversation(config.jazzHome, EPOCHS_FILE, chatId);
-    await sendReply(
-      config,
-      chatId,
-      wasIncognito
-        ? "🆕 Incognito conversation ended and discarded. Back to normal — your model and persona stay the same."
-        : "🆕 Fresh conversation — I've cleared the earlier context. Your model and persona stay the same.",
-    );
-    return;
-  }
-
-  if (command === "incognito") {
-    setIncognito(config.jazzHome, INCOGNITO_FILE, chatId, true);
-    incognitoHistory.delete(chatId);
-    await sendReply(
-      config,
-      chatId,
-      "🕶️ Incognito mode on — nothing from this conversation is saved to history or memory. Send /new to end it.",
-    );
-    return;
-  }
-
-  if (command === "status") {
-    const day = todayUsage(config.jazzHome, USAGE_FILE);
-    const cap = config.dailyCostCapUsd;
-    const lines = [
-      "📊 <b>Status</b>",
-      ...(isIncognito(config.jazzHome, INCOGNITO_FILE, chatId)
-        ? ["🕶️ Incognito — nothing being saved right now"]
-        : []),
-      `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoning)})`,
-      `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, TZ_FILE, chatId))}</code>${hasChatTz(config.jazzHome, TZ_FILE, chatId) ? "" : " (default)"}`,
-      `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, chatId)]}`,
-      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
-      `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
-      `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
-    ];
-    await sendReply(config, chatId, lines.join("\n"));
-    return;
-  }
-
-  if (command === "model") {
-    const requested = args.trim();
-    if (requested.length > 0) {
-      const parsed = parseProviderModel(requested);
-      if (parsed === null) {
-        await sendReply(
-          config,
-          chatId,
-          `⚠️ Usage: <code>/model provider/model</code>, e.g. <code>/model openai/gpt-5.2</code>.\n` +
-            `Providers: ${AVAILABLE_PROVIDERS.join(", ")}`,
-        );
-        return;
-      }
-      const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
-      agent.config.llmProvider = parsed.provider;
-      agent.config.llmModel = parsed.model;
-      if (metadata !== undefined) {
-        agent.config.reasoning = metadata.isReasoningModel ? "medium" : "disable";
-      }
-      writeChatAgentFile(sandbox, agent);
-      await sendReply(
-        config,
-        chatId,
-        `✅ Model → ${parsed.provider}/${parsed.model}` +
-          (metadata !== undefined
-            ? `\nReasoning: ${agent.config.reasoning}`
-            : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
-      );
-      return;
-    }
-
-    const provider = agent.config.llmProvider;
-    if (!(AVAILABLE_PROVIDERS as readonly string[]).includes(provider)) {
-      await sendReply(
-        config,
-        chatId,
-        `⚠️ Unknown provider <code>${escapeHtml(provider)}</code> on this chat's agent. ` +
-          "Set one with <code>/model provider/model</code>.",
-      );
-      return;
-    }
-    const models = await listModelsForProvider(provider as ProviderName);
-    if (models.length === 0) {
-      await sendReply(
-        config,
-        chatId,
-        `⚠️ No models available for <code>${escapeHtml(provider)}</code> right now — check its ` +
-          "API key is set. Switch provider directly with <code>/model provider/model</code>, " +
-          "e.g. <code>/model openai/gpt-5.2</code>.",
-      );
-      return;
-    }
-    await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: `Pick a ${provider} model, or send /model provider/model to switch provider:`,
-      reply_markup: {
-        inline_keyboard: keyboardFrom(
-          models.map((model) => model.id),
-          agent.config.llmModel,
-          "m",
-        ),
-      },
-    });
-    return;
-  }
-
-  if (command === "mode") {
-    const current = approvalModeFor(config.jazzHome, MODE_FILE, chatId);
-    const requested = args.trim().toLowerCase();
-    if (requested.length > 0) {
-      if (requested !== "safe" && requested !== "yolo") {
-        await sendReply(
-          config,
-          chatId,
-          "⚠️ Usage: <code>/mode safe</code> or <code>/mode yolo</code>, or send " +
-            "<code>/mode</code> on its own to pick from buttons.",
-        );
-        return;
-      }
-      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
-        await sendReply(config, chatId, operatorOnlyHtml(requesterId, "Turning approvals off"));
-        return;
-      }
-      setApprovalMode(config.jazzHome, MODE_FILE, chatId, requested);
-      await sendReply(config, chatId, modeConfirmation(requested, config.approvalPolicy));
-      return;
-    }
-    await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: [
-        `Current mode: <b>${APPROVAL_MODE_LABELS[current]}</b>`,
-        "",
-        modeExplanation("safe", config.approvalPolicy),
-        modeExplanation("yolo", config.approvalPolicy),
-      ].join("\n"),
-      parse_mode: "HTML",
-      reply_markup: modeKeyboard(current),
-    });
-    return;
-  }
-
-  if (command === "persona") {
-    const personas = await listPersonas(config);
-    await callTelegram(config, "sendMessage", {
-      chat_id: chatId,
-      text: "Pick a persona:",
-      reply_markup: { inline_keyboard: keyboardFrom(personas, agent.config.persona, "p") },
-    });
-    return;
-  }
-
-  await sendReply(config, chatId, HELP_TEXT);
-}
-
-interface CallbackQuery {
+export interface CallbackQuery {
   readonly id?: string;
   readonly data?: string;
   readonly message?: { readonly message_id?: number; readonly chat?: { readonly id?: number } };
   readonly from?: { readonly id?: number };
 }
 
-async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Promise<void> {
+const suggestions = createSuggestionStore();
+
+/** The toast a tap gets, when it did not simply work. */
+function toastFor(outcome: ChoiceOutcome, senderId: string): string | undefined {
+  switch (outcome) {
+    case "answered":
+      return undefined;
+    case "expired":
+      return "This already expired or the run finished.";
+    case "not-requester":
+      return "Only the person who asked can answer this.";
+    case "not-operator":
+      return `Only this bot's operator can do that. Your id is ${senderId}; the operator adds it to TELEGRAM_OPERATOR_IDS.`;
+  }
+}
+
+/** A tap on a contextual suggestion: a new turn, threaded under the answer it came from. */
+async function handleSuggestionTap(
+  bridge: Bridge,
+  chatId: string,
+  senderId: string,
+  messageRef: string,
+  token: string,
+  choiceId: string,
+): Promise<ChoiceOutcome> {
+  const item = suggestions.get(token)?.[Number.parseInt(choiceId, 10)];
+  if (item === undefined) return "expired";
+  await bridge.surface.setChoices(chatId, messageRef, []);
+  await bridge.surface.send(chatId, { body: [plainLine(item.label)], replyTo: messageRef });
+  void bridge.runner
+    .handle({ chatId, senderId, text: item.prompt, replyTo: messageRef })
+    .catch((error: unknown) => console.error(`Suggestion follow-up failed: ${String(error)}`));
+  return "answered";
+}
+
+export async function handleCallback(bridge: Bridge, callback: CallbackQuery): Promise<void> {
   const chatId = callback.message?.chat?.id;
   const messageId = callback.message?.message_id;
+  const tapperId = callback.from?.id;
   const data = callback.data;
-  if (typeof chatId !== "number" || typeof messageId !== "number" || typeof data !== "string") {
+  if (
+    typeof chatId !== "number" ||
+    typeof messageId !== "number" ||
+    typeof tapperId !== "number" ||
+    typeof data !== "string"
+  ) {
     return;
   }
-  if (!config.allowedChatIds.has(chatId)) {
+  if (!bridge.config.allowedChatIds.has(chatId)) {
     console.warn(`Ignoring callback from non-allowed chat ${chatId}`);
     return;
   }
-  const tapperId = callback.from?.id;
-  if (typeof tapperId !== "number") {
-    return;
-  }
-  /** Tell the tapper why nothing happened, as a toast only they see. */
-  const refuse = (text: string): Promise<unknown> =>
-    callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text,
-      show_alert: true,
-    });
 
-  const parts = data.split(":");
-  const kind = parts[0];
-  const indexRaw = parts[1];
-
-  if (kind === "s") {
-    const items = suggestionStore.get(parts[1] ?? "");
-    const index = Number.parseInt(parts[2] ?? "", 10);
-    const item = items !== undefined && Number.isInteger(index) ? items[index] : undefined;
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      ...(item ? {} : { text: "That suggestion expired — just ask me directly." }),
-    });
-    if (!item) return;
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
-    });
-    await sendReply(config, chatId, escapeHtml(item.label), { replyTo: messageId });
-    void handleMessage(config, chatId, tapperId, item.prompt, messageId).catch((error) =>
-      console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
+  const senderId = String(tapperId);
+  const messageRef = String(messageId);
+  const choice = bridge.surface.readChoice(data);
+  let outcome: ChoiceOutcome;
+  if (choice === undefined) {
+    // A keyboard drawn before a restart, or by an earlier version of the bridge.
+    outcome = "expired";
+  } else if (choice.promptId.startsWith(SUGGESTION_PROMPT_PREFIX)) {
+    outcome = await handleSuggestionTap(
+      bridge,
+      String(chatId),
+      senderId,
+      messageRef,
+      choice.promptId.slice(SUGGESTION_PROMPT_PREFIX.length),
+      choice.choiceId,
     );
-    return;
-  }
-
-  if (kind === "x") {
-    const runToken = indexRaw ?? "";
-    const found = activeRuns.get(runToken);
-    const run = found?.chatId === chatId ? found : undefined;
-    if (run && run.requesterId !== tapperId && !config.operatorIds.has(tapperId)) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (run) {
-      run.cancelled = true;
-      run.child.kill();
-    }
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: run ? "Cancelling…" : "Already finished.",
-    });
-    // A cancelled run can no longer answer pending approvals — sweep them so a
-    // stale Accept/Reject tap gets "already expired" instead of writing to a
-    // dead pipe, and best-effort clear their keyboards.
-    for (const [toolCallId, pending] of pendingApprovals) {
-      if (pending.runToken !== runToken) continue;
-      pendingApprovals.delete(toolCallId);
-      await callTelegram(config, "editMessageReplyMarkup", {
-        chat_id: pending.chatId,
-        message_id: pending.messageId,
-        reply_markup: { inline_keyboard: [] },
-      }).catch(() => undefined);
-    }
-    return;
-  }
-
-  if (kind === "q") {
-    const requestId = parts[1] ?? "";
-    const optionIndex = Number.parseInt(parts[2] ?? "", 10);
-    const found = pendingUserInputs.get(requestId);
-    const pending = found?.chatId === chatId ? found : undefined;
-    const run = pending ? activeRuns.get(pending.runToken) : undefined;
-    const answer = pending?.options[optionIndex];
-    if (run && run.requesterId !== tapperId) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (!pending || !run || answer === undefined) {
-      await callTelegram(config, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "This question already expired or the run finished.",
-      });
-      return;
-    }
-    pendingUserInputs.delete(requestId);
-    try {
-      // The run is parked on stdin waiting for exactly this line; flush rather
-      // than let Bun's FileSink hold it until the buffer fills.
-      await run.child.stdin.write(
-        `${JSON.stringify({ type: "user_input_response", requestId, response: answer })}\n`,
-      );
-      await run.child.stdin.flush();
-    } catch (error) {
-      console.error(`Failed to write user input response: ${String(error)}`);
-    }
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: `Answered: ${answer}`.slice(0, 200),
-    });
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
-    });
-    return;
-  }
-
-  if (kind === "a") {
-    const toolCallId = parts[1] ?? "";
-    const decision = parts[2];
-    const approved = decision === "1" || decision === "2";
-    const always = decision === "2";
-    const found = pendingApprovals.get(toolCallId);
-    const pending = found?.chatId === chatId ? found : undefined;
-    const run = pending ? activeRuns.get(pending.runToken) : undefined;
-    if (!pending || !run) {
-      await callTelegram(config, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "This approval already expired or the run finished.",
-      });
-      return;
-    }
-    if (run.requesterId !== tapperId) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (always && !config.operatorIds.has(tapperId)) {
-      await refuse(operatorOnlyToast(tapperId));
-      return;
-    }
-    pendingApprovals.delete(toolCallId);
-    await writeApprovalDecisions(run, [{ toolCallId, approved }]);
-    if (always && pending.commandKey) {
-      try {
-        addAutoApprovedCommand(sandboxForChat(config, pending.chatId), pending.commandKey);
-      } catch (error) {
-        console.error(`Failed to persist auto-approved command: ${String(error)}`);
-      }
-    }
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: always
-        ? `Approved — "${pending.commandKey}" always allowed from now on`
-        : approved
-          ? "Approved"
-          : "Rejected",
-    });
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
-    });
-    // One fewer outstanding: the survivors' "Approve all N" counts are now
-    // stale, and the last one left should lose the batch buttons entirely.
-    await refreshApprovalKeyboards(config, pending.runToken);
-    return;
-  }
-
-  if (kind === "aa") {
-    const runToken = parts[1] ?? "";
-    const approved = parts[2] === "1";
-    const outstanding = pendingApprovalsForRun(runToken);
-    const found = activeRuns.get(runToken);
-    const run = found?.chatId === chatId ? found : undefined;
-    if (run && run.requesterId !== tapperId) {
-      await refuse(NOT_REQUESTER_TEXT);
-      return;
-    }
-    if (outstanding.length === 0 || !run) {
-      await callTelegram(config, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "Those approvals already expired or the run finished.",
-      });
-      return;
-    }
-    for (const [toolCallId] of outstanding) pendingApprovals.delete(toolCallId);
-    await writeApprovalDecisions(
-      run,
-      outstanding.map(([toolCallId]) => ({ toolCallId, approved })),
-    );
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: `${approved ? "Approved" : "Rejected"} ${outstanding.length} tool calls`,
-    });
-    for (const [, pending] of outstanding) {
-      await callTelegram(config, "editMessageReplyMarkup", {
-        chat_id: pending.chatId,
-        message_id: pending.messageId,
-        reply_markup: { inline_keyboard: [] },
-      }).catch(() => undefined);
-    }
-    return;
-  }
-
-  if (kind === "f") {
-    const option = FOLLOWUP_OPTIONS[indexRaw ?? ""];
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      ...(option ? {} : { text: "Unknown action" }),
-    });
-    if (!option) return;
-    // Drop the follow-up buttons so they can't be tapped twice.
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
-    });
-    await sendReply(config, chatId, option.label, { replyTo: messageId });
-    void handleMessage(config, chatId, tapperId, option.prompt, messageId).catch((error) =>
-      console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
-    );
-    return;
-  }
-
-  if (kind === "r") {
-    const cancelled = await cancelReminderForChat(config, chatId, indexRaw ?? "");
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: cancelled ? "Reminder cancelled" : "Not found",
-    });
-    await callTelegram(config, "editMessageReplyMarkup", {
-      chat_id: chatId,
-      message_id: messageId,
-      reply_markup: { inline_keyboard: [] },
-    });
-    return;
-  }
-
-  if (kind === "md") {
-    const mode = indexRaw === "yolo" ? "yolo" : "safe";
-    if (mode === "yolo" && !config.operatorIds.has(tapperId)) {
-      await refuse(operatorOnlyToast(tapperId));
-      return;
-    }
-    setApprovalMode(config.jazzHome, MODE_FILE, chatId, mode);
-    await callTelegram(config, "answerCallbackQuery", {
-      callback_query_id: callback.id,
-      text: `Mode → ${mode}`,
-    });
-    await callTelegram(config, "editMessageText", {
-      chat_id: chatId,
-      message_id: messageId,
-      text: modeConfirmation(mode, config.approvalPolicy),
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: [] },
-    });
-    return;
-  }
-
-  const index = Number.parseInt(indexRaw ?? "", 10);
-  const sandbox = sandboxForChat(config, chatId);
-  const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
-  let confirmation: string;
-
-  if (kind === "m") {
-    const models = await listModelsForProvider(agent.config.llmProvider as ProviderName);
-    const choice = Number.isInteger(index) ? models[index] : undefined;
-    if (choice === undefined) {
-      await callTelegram(config, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "That list changed — run /model again.",
-      });
-      return;
-    }
-    const reasoning = choice.isReasoningModel ? "medium" : "disable";
-    agent.config.llmModel = choice.id;
-    agent.config.reasoning = reasoning;
-    writeChatAgentFile(sandbox, agent);
-    confirmation = `✅ Model → ${choice.id}\nReasoning: ${reasoning}`;
-  } else if (kind === "p") {
-    const personas = await listPersonas(config);
-    const persona = Number.isInteger(index) ? personas[index] : undefined;
-    if (persona === undefined) {
-      await callTelegram(config, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "That list changed — run /persona again.",
-      });
-      return;
-    }
-    agent.config.persona = persona;
-    writeChatAgentFile(sandbox, agent);
-    confirmation = `✅ Persona → ${persona}`;
   } else {
-    await callTelegram(config, "answerCallbackQuery", { callback_query_id: callback.id });
-    return;
+    outcome = await bridge.runner.deliverChoice({
+      chatId: String(chatId),
+      promptId: choice.promptId,
+      choiceId: choice.choiceId,
+      senderId,
+      messageRef,
+    });
   }
 
-  await callTelegram(config, "answerCallbackQuery", {
+  const toast = toastFor(outcome, senderId);
+  await bridge.surface.call("answerCallbackQuery", {
     callback_query_id: callback.id,
-    text: "Saved",
-  });
-  await callTelegram(config, "editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
-    text: confirmation,
-    reply_markup: { inline_keyboard: [] },
+    ...(toast === undefined ? {} : { text: toast, show_alert: outcome !== "expired" }),
   });
 }
 
 // --- Dispatch -------------------------------------------------------------
 
-interface TelegramMessage extends TelegramMediaFields {
+export interface TelegramMessage extends TelegramMediaFields {
   readonly chat?: { readonly id?: number };
   readonly from?: {
     readonly id?: number;
@@ -2230,19 +416,20 @@ interface TelegramMessage extends TelegramMediaFields {
 /**
  * Download a media message and hand it to jazz as a path in the prompt.
  *
- * A download failure is reported to the chat rather than swallowed: the user watched their voice
- * note upload and will otherwise be left waiting on a reply that never comes.
+ * A download failure is reported to the chat rather than swallowed: the user watched their
+ * voice note upload and will otherwise be left waiting on a reply that never comes.
  */
 async function handleMedia(
-  config: BridgeConfig,
+  bridge: Bridge,
   chatId: number,
-  requesterId: number,
+  senderId: string,
   message: TelegramMessage,
   media: ExtractedMedia,
 ): Promise<void> {
-  const sandbox = sandboxForChat(config, chatId);
+  const sandbox = ensureChatSandbox(bridge.config.jazzHome, agentIdForChat(chatId));
   const outcome = await downloadTelegramFile(
-    config.botToken,
+    bridge.config.apiBase,
+    bridge.config.botToken,
     sandbox.home,
     media.file,
     chatId,
@@ -2250,18 +437,95 @@ async function handleMedia(
     sandboxOwnership(sandbox),
   );
   if (!outcome.ok) {
-    await sendReply(config, chatId, `⚠️ I couldn't fetch that file — ${outcome.reason}.`);
+    await bridge.runner.send(String(chatId), [
+      plainLine(`⚠️ I couldn't fetch that file — ${outcome.reason}.`),
+    ]);
     return;
   }
-  await handleMessage(
-    config,
-    chatId,
-    requesterId,
-    withReplyContext(
+  await bridge.runner.handle({
+    chatId: String(chatId),
+    senderId,
+    text: withReplyContext(
       message,
       buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
     ),
-  );
+  });
+}
+
+/**
+ * What one Telegram message asks the runner to do, or undefined for a message type this
+ * bridge does not handle (contacts, polls, animated stickers). Pure, so the routing can be
+ * tested without the Bot API.
+ */
+export function inboundFrom(message: TelegramMessage): InboundMessage | undefined {
+  const chatId = message.chat?.id;
+  const text = message.text?.trim();
+  if (typeof chatId !== "number" || text === undefined || text.length === 0) return undefined;
+  // In a private chat the sender is the chat; elsewhere Telegram always names them.
+  const senderId = String(message.from?.id ?? chatId);
+  return {
+    chatId: String(chatId),
+    senderId,
+    // A command is read as typed; a quote only gives prose its context.
+    text: text.startsWith("/") ? text : withReplyContext(message, text),
+  };
+}
+
+export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undefined): void {
+  const chatId = message?.chat?.id;
+  if (typeof chatId !== "number") return;
+  if (!bridge.config.allowedChatIds.has(chatId)) {
+    console.warn(`Ignoring message from non-allowed chat ${chatId}`);
+    return;
+  }
+  const senderId = String(message?.from?.id ?? chatId);
+  const latitude = message?.location?.latitude;
+  const longitude = message?.location?.longitude;
+
+  let work: Promise<void> | undefined;
+  const inbound = message === undefined ? undefined : inboundFrom(message);
+  if (inbound !== undefined) {
+    const parsed = parseCommand(inbound.text);
+    work =
+      parsed !== undefined && isRunAnswerCommand(parsed.command)
+        ? answerRunFromChat({
+            command: parsed.command,
+            args: parsed.args,
+            senderId:
+              message?.from?.is_bot === true || message?.from?.id === undefined
+                ? undefined
+                : String(message.from.id),
+            operatorIds: bridge.config.operatorIds,
+            operatorSettingName: "TELEGRAM_OPERATOR_IDS",
+            jazzBinary: bridge.config.jazzBinary,
+            onAccepted: (runId) =>
+              bridge.runner.send(String(chatId), [plainLine(`⏳ Answering run ${runId}…`)]),
+          }).then((reply) => bridge.runner.send(String(chatId), [plainLine(reply)]))
+        : bridge.runner.handle(inbound);
+  } else if (
+    typeof latitude === "number" &&
+    Number.isFinite(latitude) &&
+    typeof longitude === "number" &&
+    Number.isFinite(longitude)
+  ) {
+    work = handleLocation(bridge, chatId, senderId, latitude, longitude);
+  } else {
+    const media = extractMedia(message ?? {});
+    if (media !== undefined) {
+      work = handleMedia(bridge, chatId, senderId, message ?? {}, media);
+    }
+  }
+  if (work === undefined) return;
+
+  work.catch((error) => {
+    console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
+    // Guard the notification itself so a failed reply can't become an unhandled rejection.
+    void bridge.runner
+      .send(String(chatId), [plainLine("⚠️ Something went wrong handling your message.")])
+      .catch((replyError) =>
+        console.error(`Failed to notify chat ${chatId}: ${String(replyError)}`),
+      );
+  });
 }
 
 interface TelegramUpdate {
@@ -2270,67 +534,12 @@ interface TelegramUpdate {
   readonly callback_query?: CallbackQuery;
 }
 
-function parseCommand(text: string): { command: string; args: string } | undefined {
-  const match = /^\/([A-Za-z0-9_]+)(?:@\S+)?\s*([\s\S]*)$/.exec(text.trim());
-  const command = match?.[1];
-  if (command === undefined) return undefined;
-  return { command: command.toLowerCase(), args: (match?.[2] ?? "").trim() };
-}
-
-function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefined): void {
-  const chatId = message?.chat?.id;
-  if (typeof chatId !== "number") return;
-  if (!config.allowedChatIds.has(chatId)) {
-    console.warn(`Ignoring message from non-allowed chat ${chatId}`);
-    return;
-  }
-
-  // In a private chat the sender is the chat; elsewhere Telegram always names them.
-  const senderId = message?.from?.id ?? chatId;
-  const text = message?.text?.trim();
-  const latitude = message?.location?.latitude;
-  const longitude = message?.location?.longitude;
-
-  let work: Promise<void> | undefined;
-  if (typeof text === "string" && text.length > 0) {
-    const parsed = parseCommand(text);
-    work =
-      parsed !== undefined
-        ? handleCommand(config, chatId, senderId, parsed.command, parsed.args)
-        : handleMessage(config, chatId, senderId, withReplyContext(message ?? {}, text));
-  } else if (
-    typeof latitude === "number" &&
-    Number.isFinite(latitude) &&
-    typeof longitude === "number" &&
-    Number.isFinite(longitude)
-  ) {
-    work = handleLocation(config, chatId, senderId, latitude, longitude);
-  } else {
-    const media = extractMedia(message ?? {});
-    if (media !== undefined) {
-      work = handleMedia(config, chatId, senderId, message ?? {}, media);
-    }
-  }
-
-  // Other message types (contacts, polls, animated .tgs stickers, …) aren't handled yet.
-  if (work === undefined) return;
-
-  work.catch((error) => {
-    console.error(`Handling failed for chat ${chatId}: ${String(error)}`);
-    // Guard the notification itself so a failed reply can't become an
-    // unhandled rejection.
-    void sendReply(config, chatId, "⚠️ Something went wrong handling your message.").catch(
-      (replyError) => console.error(`Failed to notify chat ${chatId}: ${String(replyError)}`),
-    );
-  });
-}
-
-function dispatchUpdate(config: BridgeConfig, update: TelegramUpdate): void {
+function dispatchUpdate(bridge: Bridge, update: TelegramUpdate): void {
   if (update.message !== undefined) {
-    dispatchMessage(config, update.message);
+    dispatchMessage(bridge, update.message);
   }
   if (update.callback_query !== undefined) {
-    handleCallback(config, update.callback_query).catch((error) => {
+    handleCallback(bridge, update.callback_query).catch((error) => {
       console.error(`Callback handling failed: ${String(error)}`);
     });
   }
@@ -2338,7 +547,8 @@ function dispatchUpdate(config: BridgeConfig, update: TelegramUpdate): void {
 
 // --- Transports -----------------------------------------------------------
 
-function startHealthServer(config: BridgeConfig): void {
+function startHealthServer(bridge: Bridge): void {
+  const { config } = bridge;
   Bun.serve({
     port: config.port,
     async fetch(request) {
@@ -2351,7 +561,7 @@ function startHealthServer(config: BridgeConfig): void {
       const compositionId =
         request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
       if (compositionId !== undefined) {
-        const page = compositionLinks(config).page(compositionId);
+        const page = bridge.compositions.page(compositionId);
         return page === undefined
           ? new Response("not found", { status: 404 })
           : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -2372,7 +582,7 @@ function startHealthServer(config: BridgeConfig): void {
         } catch {
           return new Response("bad request", { status: 400 });
         }
-        dispatchUpdate(config, update);
+        dispatchUpdate(bridge, update);
         return new Response("ok", { status: 200 });
       }
 
@@ -2382,11 +592,12 @@ function startHealthServer(config: BridgeConfig): void {
   console.log(`Health server listening on :${config.port}`);
 }
 
-async function registerWebhook(config: BridgeConfig): Promise<void> {
+async function registerWebhook(bridge: Bridge): Promise<void> {
+  const { config } = bridge;
   if (config.webhookUrl === undefined || config.webhookSecret.length === 0) {
     throw new Error("webhook mode requires TELEGRAM_WEBHOOK_URL and TELEGRAM_WEBHOOK_SECRET");
   }
-  await callTelegram(config, "setWebhook", {
+  await bridge.surface.call("setWebhook", {
     url: config.webhookUrl,
     secret_token: config.webhookSecret,
     allowed_updates: ALLOWED_UPDATES,
@@ -2395,15 +606,15 @@ async function registerWebhook(config: BridgeConfig): Promise<void> {
   console.log(`Registered Telegram webhook → ${config.webhookUrl}`);
 }
 
-async function pollLoop(config: BridgeConfig): Promise<void> {
+async function pollLoop(bridge: Bridge): Promise<void> {
   // Polling and webhooks are mutually exclusive on Telegram's side.
-  await callTelegram(config, "deleteWebhook", { drop_pending_updates: true });
+  await bridge.surface.call("deleteWebhook", { drop_pending_updates: true });
   console.log("Polling Telegram for updates…");
 
   let offset = 0;
   for (;;) {
     try {
-      const response = (await callTelegram(config, "getUpdates", {
+      const response = (await bridge.surface.call("getUpdates", {
         offset,
         timeout: GETUPDATES_TIMEOUT_SECONDS,
         allowed_updates: ALLOWED_UPDATES,
@@ -2419,7 +630,7 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
         if (typeof update.update_id === "number") {
           offset = update.update_id + 1;
         }
-        dispatchUpdate(config, update);
+        dispatchUpdate(bridge, update);
       }
     } catch (error) {
       console.error(`Poll error: ${String(error)}`);
@@ -2429,22 +640,93 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
 }
 
 /** The bot's own display name, used as the agent name the persona speaks as. */
-async function fetchBotName(config: BridgeConfig): Promise<string | undefined> {
-  const body = (await callTelegram(config, "getMe", {})) as
+async function fetchBotName(surface: TelegramSurface): Promise<string | undefined> {
+  const body = (await surface.call("getMe", {})) as
     { result?: { first_name?: string; username?: string } } | undefined;
   return body?.result?.first_name ?? body?.result?.username;
 }
 
-async function start(): Promise<void> {
+/**
+ * Wire the surface, the runner and the web-app store together for one configuration.
+ *
+ * `startRun` is the runner's test seam: a substitute for spawning `jazz run`.
+ */
+export function createBridge(
+  config: BridgeConfig,
+  surface: TelegramSurface,
+  startRun?: TurnConfig["startRun"],
+): Bridge {
+  const compositions = createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  const runner = createTurnRunner({
+    surface,
+    ...(startRun === undefined ? {} : { startRun }),
+    jazzBinary: config.jazzBinary,
+    jazzHome: config.jazzHome,
+    baseAgentId: config.baseAgentId,
+    builtinPersonasDir: config.builtinPersonasDir,
+    approvalPolicy: config.approvalPolicy,
+    autoApproveTools: config.autoApproveTools,
+    runTimeoutMs: config.runTimeoutMs,
+    dailyCostCapUsd: config.dailyCostCapUsd,
+    showReasoning: config.showReasoning,
+    reasoningPartChars: REASONING_PART_CHARS,
+    reasoningMaxParts: REASONING_MAX_PARTS,
+    files: STORE_FILES,
+    spendOrigin: "telegram",
+    incognitoFile: INCOGNITO_FILE,
+    agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
+    operators: config.operatorIds,
+    operatorSettingName: "TELEGRAM_OPERATOR_IDS",
+    ...(config.webAppBaseUrl === undefined
+      ? {}
+      : { compositionServer: { publicBaseUrl: config.webAppBaseUrl, links: compositions } }),
+    publicUrlSettingName: "TELEGRAM_WEBAPP_BASE_URL",
+    extraHelp: [
+      "/approve <runId>, /deny <runId> [why]: answer a parked run a notification told you about (operator only)",
+      "",
+      "📍 Share your location (📎 → Location) and I'll tell you where you are, find nearby places, and set your timezone.",
+    ],
+    extraTzHelp: "…or share your location (📎 → Location) and I'll set it for you.",
+    ...(config.dynamicCta
+      ? {
+          onAnswered: async (turn) => {
+            if (turn.messageRef === undefined) return;
+            const items = await generateSuggestions({
+              jazzBinary: config.jazzBinary,
+              jazzHome: config.jazzHome,
+              baseAgentId: config.baseAgentId,
+              suggestAgentId: SUGGEST_AGENT_ID,
+              surfaceName: surface.name,
+              sandbox: ensureChatSandbox(
+                config.jazzHome,
+                agentIdForChat(Number.parseInt(turn.chatId, 10)),
+              ),
+              question: turn.question,
+              answer: turn.answer,
+            });
+            console.log(`[cta] chat ${turn.chatId}: ${items.length} contextual suggestion(s)`);
+            // Keep the static follow-ups already attached when the model gave nothing.
+            if (items.length === 0) return;
+            const token = suggestions.put(items);
+            await surface.setChoices(
+              turn.chatId,
+              turn.messageRef,
+              items.map((item, index) => ({ id: String(index), label: item.label })),
+              `${SUGGESTION_PROMPT_PREFIX}${token}`,
+            );
+          },
+        }
+      : {}),
+  });
+  return { config, surface, runner, compositions };
+}
+
+export async function startBridge(): Promise<void> {
   const config = loadConfig();
-  // Everything this process and its agents write stays off-limits to anyone
-  // outside the operator group — the data directory is shared with whoever
-  // else is on the host.
+  // Everything this process and its agents write stays off-limits to anyone outside the
+  // operator group — the data directory is shared with whoever else is on the host.
   process.umask(SANDBOX_UMASK);
 
-  // Seeded here rather than by the entrypoint, which used to sed a JSON
-  // template into place on every restart - overwriting a model or persona the
-  // operator had changed. This writes it once and then leaves it alone.
   if (
     ensureSeedAgent(config.jazzHome, {
       id: config.baseAgentId,
@@ -2460,28 +742,26 @@ async function start(): Promise<void> {
         `reasoning=${config.reasoning}) into ${config.jazzHome}/agents`,
     );
   }
-  // Drop the cached CTA agent so it re-seeds from the current template (picks
-  // up a changed default model on redeploy); ensureSuggestAgent recreates it.
-  for (const home of [
-    config.jazzHome,
-    ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
-  ]) {
-    removeAgentFile(home, SUGGEST_AGENT_ID);
-  }
-  startHealthServer(config);
+  // Drop the cached suggestion agent so it re-seeds from the current template.
+  removeSuggestAgents(config.jazzHome, SUGGEST_AGENT_ID);
+
+  const bridge = createBridge(
+    config,
+    createTelegramSurface({ botToken: config.botToken, apiBase: config.apiBase }),
+  );
+  startHealthServer(bridge);
   startReminderSweep({
     dataDir: config.jazzHome,
     decodeScope: (agentId) => {
       const reminderChatId = chatIdFromAgentId(agentId);
       return reminderChatId === undefined ? undefined : String(reminderChatId);
     },
-    send: (reminderChatId, body) =>
-      sendReply(config, Number.parseInt(reminderChatId, 10), renderRichText(body)),
+    send: (reminderChatId, body) => bridge.runner.send(reminderChatId, body),
   });
-  // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's
-  // just re-sent on every start rather than only when BOT_COMMANDS changes.
-  await callTelegram(config, "setMyCommands", { commands: BOT_COMMANDS });
-  const botName = await fetchBotName(config);
+  // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's re-sent on
+  // every start rather than only when BOT_COMMANDS changes.
+  await bridge.surface.call("setMyCommands", { commands: BOT_COMMANDS });
+  const botName = await fetchBotName(bridge.surface);
   if (botName !== undefined) {
     syncAgentDisplayName(config.jazzHome, config.baseAgentId, botName);
   }
@@ -2490,13 +770,8 @@ async function start(): Promise<void> {
   );
 
   if (config.mode === "webhook") {
-    await registerWebhook(config);
+    await registerWebhook(bridge);
   } else {
-    await pollLoop(config);
+    await pollLoop(bridge);
   }
 }
-
-start().catch((error) => {
-  console.error(`Bridge failed to start: ${String(error)}`);
-  process.exit(1);
-});

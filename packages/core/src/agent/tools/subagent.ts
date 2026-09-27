@@ -26,6 +26,8 @@ import { childRunAuthority } from "./child-run-authority";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
+import { judgeAnswer } from "../run/answer-outcome";
+import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -34,6 +36,31 @@ const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
+
+/**
+ * Which limit stopped a sub-agent before its final answer, read from the
+ * response's flags. `undefined` when it finished on its own.
+ */
+function subagentStopReason(
+  response: Pick<
+    AgentResponse,
+    "iterationLimited" | "costCapped" | "tokenCapped" | "durationCapped"
+  >,
+): string | undefined {
+  if (response.iterationLimited === true) {
+    return "iteration limit";
+  }
+  if (response.costCapped === true) {
+    return "cost cap";
+  }
+  if (response.tokenCapped === true) {
+    return "token cap";
+  }
+  if (response.durationCapped === true) {
+    return "time budget";
+  }
+  return undefined;
+}
 
 /**
  * The child was told it is a one-shot run with nobody to ask, so a bare user turn
@@ -209,6 +236,7 @@ const summarizeContextSchema = z.object({});
  * - Delegate specialised tasks to lightweight sub-agents (codebase exploration, deep research, etc.)
  * - Explicitly compact the current context window on demand
  */
+
 export function createSubagentTools(): Tool<ToolRequirements>[] {
   // We cast to Tool<ToolRequirements>[] because the tools' handlers depend on
   // services (ToolRegistry, etc.) that are provided by the agent execution runtime
@@ -430,9 +458,10 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
 
           let result = response.content;
-          if (!result?.trim() && response.messages?.length) {
+          const stoppedAt = subagentStopReason(response);
+          if (stoppedAt !== undefined) {
             const parts: string[] = [];
-            for (const msg of response.messages) {
+            for (const msg of response.messages ?? []) {
               if (
                 msg.role === "assistant" &&
                 typeof msg.content === "string" &&
@@ -441,8 +470,14 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                 parts.push(msg.content.trim());
               }
             }
-            if (parts.length > 0) {
-              result = `[Sub-agent reached iteration limit. Partial results below]\n\n${parts.join("\n\n")}`;
+            result =
+              parts.length > 0
+                ? `[Sub-agent stopped at its ${stoppedAt} before finishing. Partial results below]\n\n${parts.join("\n\n")}`
+                : `[Sub-agent stopped at its ${stoppedAt} before finishing, with no output]`;
+          } else {
+            const verdict = judgeAnswer(response);
+            if (verdict.kind === "failed") {
+              result = `[Sub-agent produced no answer: ${verdict.message}]`;
             }
           }
 

@@ -56,6 +56,7 @@ import {
   inlineAttachmentMessageIndices,
   type MessageAttachment,
 } from "@jazz/core/types/attachment";
+import { toFinishReason } from "@jazz/core/types/chat";
 import type { WebSearchConfig } from "@jazz/core/types/config";
 import {
   LLMAuthenticationError,
@@ -139,11 +140,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
-import {
-  resolveStreamIdleTimeoutMs,
-  StreamProcessor,
-  toCompletionFinishReason,
-} from "./stream-processor";
+import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
@@ -258,6 +255,19 @@ function toAISDKToolChoice(
     type: "tool",
     toolName: toolChoice.function.name,
   };
+}
+
+/**
+ * Whether a request to this model carries tools. Gateway meta-models (such as
+ * `openrouter/free`) route to various underlying models and always get them.
+ * Otherwise the resolved capability decides; the resolver already assumes tool
+ * support for a cloud model nothing describes, so `undefined` here means a
+ * local server whose model has not reported it.
+ */
+function modelTakesTools(modelId: string, capabilities: ResolvedModelCapabilities): boolean {
+  const isGatewayModel =
+    OPENROUTER_GATEWAY_MODELS.has(modelId) || ORCAROUTER_GATEWAY_MODELS.has(modelId);
+  return isGatewayModel || (capabilities.supportsTools ?? false);
 }
 
 function buildToolConfig(
@@ -1984,15 +1994,7 @@ class AISDKService implements LLMService {
           options.model,
           modelInfo,
         );
-        // STEP 6: Tools selection
-        // Check if the selected model supports tools
-        // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
-        // underlying models, so we assume tool support and pass tools through.
-        const isGatewayModel =
-          OPENROUTER_GATEWAY_MODELS.has(options.model) ||
-          ORCAROUTER_GATEWAY_MODELS.has(options.model);
-        const supportsTools: boolean =
-          isGatewayModel || (resolvedCapabilities.supportsTools ?? false);
+        const supportsTools = modelTakesTools(options.model, resolvedCapabilities);
         const {
           tools: requestedTools,
           toolChoice: requestedToolChoice,
@@ -2137,16 +2139,15 @@ class AISDKService implements LLMService {
 
         const reasoningParts = extractReasoningParts(result.response.messages, providerName);
 
-        const finishReason = toCompletionFinishReason(result.finishReason);
         const resultObj: ChatCompletionResponse = {
           id: shortUUID.generate(),
           model: responseModel,
           content,
-          ...(finishReason !== undefined ? { finishReason } : {}),
           ...(reasoningParts ? { reasoningParts } : {}),
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
           ...(toolsDisabled ? { toolsDisabled } : {}),
+          finishReason: toFinishReason(result.finishReason),
           ...(generatedArtifacts.length > 0 ? { artifacts: generatedArtifacts } : {}),
           ...(prepared
             ? {
@@ -2343,13 +2344,7 @@ class AISDKService implements LLMService {
                     ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
                     ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
                   });
-                  // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
-                  // underlying models, so we assume tool support and pass tools through.
-                  const isGatewayModel =
-                    OPENROUTER_GATEWAY_MODELS.has(options.model) ||
-                    ORCAROUTER_GATEWAY_MODELS.has(options.model);
-                  const supportsTools =
-                    isGatewayModel || (resolvedCapabilities.supportsTools ?? false);
+                  const supportsTools = modelTakesTools(options.model, resolvedCapabilities);
                   const {
                     tools: requestedTools,
                     toolChoice: requestedToolChoice,

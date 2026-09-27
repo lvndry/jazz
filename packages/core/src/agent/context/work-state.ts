@@ -1,6 +1,7 @@
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
+import { writeJsonFileDurably } from "@/core/utils/durable-file";
 import { getWorkStateDirectory } from "@/core/utils/paths";
 
 /**
@@ -99,13 +100,7 @@ export function patchWorkState(
       const merged: WorkState = { ...(existing ?? {}), ...patch, updatedAt };
       return Effect.tryPromise({
         try: async () => {
-          const directory = getWorkStateDirectory(agentId, conversationId);
-          await nodeFs.mkdir(directory, { recursive: true, mode: 0o700 });
-          await nodeFs.writeFile(
-            workStatePath(agentId, conversationId),
-            `${JSON.stringify(merged, null, 2)}\n`,
-            "utf-8",
-          );
+          await writeJsonFileDurably(workStatePath(agentId, conversationId), merged);
           return merged;
         },
         catch: (error) => error,

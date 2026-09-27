@@ -717,7 +717,8 @@ This command will be executed on your system. Only approve commands you trust.`;
         const shell = yield* FileSystemContextServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Resolve and validate working directory (prevents path traversal attacks)
+        // Resolve the working directory against this conversation's cwd. Any existing
+        // directory is accepted, absolute paths included: this is not a confinement boundary.
         const key = buildKeyFromContext(context);
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
@@ -799,6 +800,8 @@ This command will be executed on your system. Only approve commands you trust.`;
               stderr: result.stderr,
               success: result.exitCode === 0,
             },
+            // Jazz cannot tell what a command read, so its output is always outside content.
+            untrusted: { kind: "external", source: "execute_command output" },
           };
         } catch (error) {
           const errorMessage = toError(error).message;

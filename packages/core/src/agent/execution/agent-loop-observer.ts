@@ -30,6 +30,20 @@ export interface AgentLoopObserver {
     elapsedMs: number,
   ): Effect.Effect<void, never, never>;
   onEmptyResponse(agentName: string): Effect.Effect<void, never, never>;
+  /**
+   * The agent has tools, but none were sent because Jazz does not know the model
+   * supports tool calling. Fired once per run, at the first such request.
+   */
+  onToolsDisabled(
+    agentName: string,
+    provider: string,
+    model: string,
+  ): Effect.Effect<void, never, never>;
+  /** The final answer was cut off (`length`) or withheld by a content filter. */
+  onAnswerIncomplete(
+    agentName: string,
+    finishReason: "length" | "content-filter",
+  ): Effect.Effect<void, never, never>;
   /** The agent kept repeating the same tool calls after being told to change approach. */
   onStalled(agentName: string): Effect.Effect<void, never, never>;
   /** Compaction was needed but could not run or failed; older history is trimmed instead. */
@@ -61,6 +75,17 @@ export interface AgentLoopObserver {
   onCompletion(agentName: string): Effect.Effect<void, never, never>;
 }
 
+/**
+ * The warning for a run whose model was sent no tools. Loud on purpose: the
+ * agent cannot act, only talk, and nothing else in the answer says so.
+ */
+export function toolsDisabledWarning(provider: string, model: string): string {
+  return (
+    `TOOLS ARE OFF: ${provider}/${model} was sent no tools because Jazz does not know it supports tool calling, so this agent can only reply in text. ` +
+    `If the model does support tools, run: jazz config set 'llm.capabilityOverrides.${provider}."${model}".supportsTools' true`
+  );
+}
+
 /** Default observer: forwards loop lifecycle events to the PresentationService. */
 export function makeDefaultObserver(presentation: PresentationService): AgentLoopObserver {
   return {
@@ -90,6 +115,15 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       ),
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
+    onToolsDisabled: (agentName, provider, model) =>
+      presentation.presentWarning(agentName, toolsDisabledWarning(provider, model)),
+    onAnswerIncomplete: (agentName, finishReason) =>
+      presentation.presentWarning(
+        agentName,
+        finishReason === "length"
+          ? "the answer was cut off at the model's output limit"
+          : "the provider's content filter withheld the answer",
+      ),
     onCompactionUnavailable: (agentName, reason) =>
       presentation.presentWarning(
         agentName,

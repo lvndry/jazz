@@ -157,6 +157,10 @@ function recordingObserver() {
     onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onToolsDisabled: (name: string, provider: string, model: string) =>
+      Effect.sync(() => void calls.push(`tools-disabled:${name}:${provider}/${model}`)),
+    onAnswerIncomplete: (name: string, finishReason: "length" | "content-filter") =>
+      Effect.sync(() => void calls.push(`incomplete:${name}:${finishReason}`)),
     onStalled: (name: string) => Effect.sync(() => void calls.push(`stalled:${name}`)),
     onCompactionUnavailable: (name: string, reason: string) =>
       Effect.sync(() => void calls.push(`compaction-unavailable:${name}:${reason}`)),
@@ -1130,7 +1134,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
 
-    await Effect.runPromise(
+    const result = await Effect.runPromise(
       executeAgentLoop(
         makeOptions({ maxIterations: 2 }),
         makeRunContext(),
@@ -1142,6 +1146,7 @@ describe("executeAgentLoop", () => {
     );
 
     expect(warningCalls.some((msg) => msg.includes("iteration limit reached"))).toBe(true);
+    expect(result.iterationLimited).toBe(true);
 
     ToolExecutor.executeToolCalls = originalExecute;
   });
@@ -1597,6 +1602,136 @@ describe("executeAgentLoop", () => {
     );
 
     expect(result.toolsDisabled).toBe(true);
+    expect(result.iterationLimited).toBeUndefined();
+  });
+
+  it("warns once per run when tools are dropped, however many requests drop them", async () => {
+    let call = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.sync(() => {
+          call += 1;
+          return {
+            completion:
+              call === 1
+                ? {
+                    id: "c1",
+                    model: "gpt-4",
+                    content: "",
+                    toolsDisabled: true,
+                    toolCalls: [
+                      {
+                        id: "call_1",
+                        type: "function" as const,
+                        function: { name: "test_tool", arguments: "{}" },
+                      },
+                    ],
+                  }
+                : { id: "c2", model: "gpt-4", content: "done", toolsDisabled: true },
+            interrupted: false,
+          };
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
+    );
+    const { observer, calls } = recordingObserver();
+
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+
+    expect(calls.filter((entry) => entry.startsWith("tools-disabled:"))).toHaveLength(1);
+  });
+
+  it("carries the final finish reason and flags an empty zero-token completion", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "",
+            finishReason: "stop" as const,
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.finishReason).toBe("stop");
+    expect(result.emptyCompletion).toBe(true);
+  });
+
+  it("reports a cut-off final answer to the observer", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "half an answ",
+            finishReason: "length" as const,
+            usage: { promptTokens: 5, completionTokens: 4096, totalTokens: 4101 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const { observer, calls } = recordingObserver();
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.finishReason).toBe("length");
+    expect(result.emptyCompletion).toBeUndefined();
+    expect(
+      calls.some((entry) => entry.startsWith("incomplete:") && entry.endsWith(":length")),
+    ).toBe(true);
   });
 
   it("returns usage from runMetrics and omits costUSD when pricing metadata is unavailable", async () => {

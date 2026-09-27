@@ -186,6 +186,53 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig network", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    async function fieldOfFailure(network: unknown): Promise<string | undefined> {
+      const exit = await Effect.runPromiseExit(
+        service.validateAgentConfig({ ...baseConfig, network } as AgentConfig),
+      );
+      if (exit._tag === "Success") {
+        return undefined;
+      }
+      const error: unknown = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+      expect(error).toBeInstanceOf(AgentConfigurationError);
+      return (error as AgentConfigurationError).field;
+    }
+
+    it("accepts hostnames, wildcards, addresses and CIDR blocks", async () => {
+      expect(
+        await fieldOfFailure({
+          allowPrivateHosts: ["homeassistant.local", "*.lan", "192.168.1.10", "10.0.0.0/8", "::1"],
+        }),
+      ).toBeUndefined();
+    });
+
+    it("rejects an entry that is a URL rather than a host", async () => {
+      expect(await fieldOfFailure({ allowPrivateHosts: ["http://nas.lan"] })).toBe(
+        "config.network.allowPrivateHosts",
+      );
+    });
+
+    it("rejects an unknown network key", async () => {
+      expect(await fieldOfFailure({ allowPrivate: ["nas.lan"] })).toBe(
+        "config.network.allowPrivate",
+      );
+    });
+
+    it("rejects more than 64 entries", async () => {
+      const entries = Array.from({ length: 65 }, (_unused, index) => `host-${String(index)}.lan`);
+      expect(await fieldOfFailure({ allowPrivateHosts: entries })).toBe(
+        "config.network.allowPrivateHosts",
+      );
+    });
+  });
+
   describe("validateAgentConfig customTools", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
