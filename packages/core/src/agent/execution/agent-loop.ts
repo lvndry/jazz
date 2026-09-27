@@ -1120,6 +1120,7 @@ function handleToolPhase(
             content: formattedResult,
             tool_call_id: toolCall.id,
             ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
+            ...(provenance?.kind === "external" ? { egressTainted: true as const } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }

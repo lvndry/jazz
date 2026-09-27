@@ -4,6 +4,10 @@ import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import {
+  createEgressTaint,
+  taintedEgressNeedsApproval,
+} from "@jazz/core/agent/execution/egress-taint";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -51,6 +55,49 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
 }
 
 describe("saveConversation", () => {
+  test("retains egress approval when compaction rewrites and reloads a conversation", async () => {
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          messages: [
+            { role: "user", content: "Research the vendor" },
+            { role: "tool", content: "External page", egressTainted: true },
+          ],
+        }),
+        tmpDir,
+      ),
+    );
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          messages: [
+            {
+              role: "assistant",
+              kind: "summary",
+              content: "Vendor report in progress",
+              egressTainted: true,
+            },
+            { role: "user", content: "Continue" },
+          ],
+        }),
+        tmpDir,
+      ),
+    );
+    const restored = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(restored).not.toBeNull();
+    expect(restored!.messages.some((message) => message.role === "tool")).toBe(false);
+    expect(
+      taintedEgressNeedsApproval({
+        toolName: "web_fetch",
+        egress: true,
+        args: { url: "https://collector.example/?private=report" },
+        policy: "read-only",
+        taint: createEgressTaint(restored!.messages),
+        messages: restored!.messages,
+      }),
+    ).toBe(true);
+  });
+
   test("writes a log under the agent's own directory", async () => {
     await runEffect(saveConversation(makeConversation(), tmpDir));
     expect(fs.existsSync(conversationLogPath("agent-1", "conv-1", tmpDir))).toBe(true);

@@ -78,6 +78,17 @@ describe("createEgressTaint", () => {
     expect(createEgressTaint([localFile, quoting]).isTainted()).toBe(false);
   });
 
+  it("restores host-recorded exposure after external text has been cleared", () => {
+    expect(
+      createEgressTaint([{ role: "tool", content: "[cleared]", egressTainted: true }]).isTainted(),
+    ).toBe(true);
+    expect(
+      createEgressTaint([
+        { role: "assistant", kind: "summary", content: "report", egressTainted: true },
+      ]).isTainted(),
+    ).toBe(true);
+  });
+
   it("records each source once", () => {
     const taint = createEgressTaint();
     taint.mark("a");

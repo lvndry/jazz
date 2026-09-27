@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import type { CompactToolsInput, CompactToolsOutcome } from "@/core/types/plugin";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { reduceToolResultsAdvised } from "./advised-tool-clearing";
 import type { ModelHint, TokenCounter } from "./token-counter";
 
@@ -40,6 +41,28 @@ const answeredWith = (
 };
 
 describe("reduceToolResultsAdvised", () => {
+  it.each(["drop", "truncate"] as const)(
+    "records frame-only exposure before %s removes its text",
+    async (action) => {
+      const messages = transcript();
+      messages[2] = {
+        role: "tool",
+        tool_call_id: "t0",
+        content: frameUntrusted("page ".repeat(1000), { kind: "external", source: "web" }),
+      };
+      const outcome = await Effect.runPromise(
+        reduceToolResultsAdvised(messages, {
+          protectedFromIndex: 4,
+          goal: "Continue the vendor report",
+          modelHint,
+          tokenCounter: fatCounter,
+          decide: answeredWith([{ id: "t0", action }]),
+        }),
+      );
+      expect(outcome.messages[2]?.egressTainted).toBe(true);
+    },
+  );
+
   it("drops and truncates by decision, replacing content but never removing messages", async () => {
     const messages = transcript();
     const outcome = await Effect.runPromise(

@@ -127,6 +127,13 @@ outside. The system prompt tells the model to read that content as data and to t
 only from you. After a run reads external content, egress tools need approval below `high-risk`;
 see [unattended runs](./unattended-runs.md#egress-after-untrusted-input).
 
+External-content exposure is also recorded as host-owned transcript metadata. Clearing tool
+output and automatic or manual compaction carry that restriction forward; saving and resuming
+that conversation still requires approval for new destinations under `read-only` and `low-risk`.
+The model's summary cannot remove the restriction. Older transcripts still containing an external
+tool envelope remain restricted, but exposure already lost from an older compacted transcript
+cannot be recovered.
+
 ## MCP servers are external input
 
 A server definition arrives from outside, including its command, its arguments, and the tools it

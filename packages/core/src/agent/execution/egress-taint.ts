@@ -11,7 +11,7 @@
  *   context: web pages, API responses, search results, MCP results, peer answers, and the output
  *   of every shell or custom command (Jazz cannot tell what a command read, so any command
  *   output counts, which means egress after any shell command needs a person below `high-risk`).
- *   A run whose history already holds such a result starts marked, so resuming or continuing a
+ *   A run whose history holds such a result or host-recorded exposure starts marked, so resuming or continuing a
  *   conversation does not reset it. Sub-agents share their parent's taint in both directions.
  * - Once marked, an egress tool (`egress: true`) is no longer auto-approved by the `read-only`
  *   and `low-risk` tiers or by an unset policy: it prompts, parks, or is declined, exactly like
@@ -39,14 +39,20 @@ const MAX_LISTED_SOURCES = 3;
 /** Characters of the call's arguments an approval message shows. */
 const MAX_ARGUMENT_PREVIEW_CHARS = 2_000;
 
+/** Host metadata survives clearing; an existing external tool envelope is also restrictive. */
+export function messageCarriesEgressTaint(message: ChatMessage): boolean {
+  return (
+    message.egressTainted === true ||
+    (message.role === "tool" && hasExternalUntrustedFrame(message.content))
+  );
+}
+
 /**
  * Taint state for a new run, marked already when `history` holds external untrusted content.
  */
 export function createEgressTaint(history: readonly ChatMessage[] = []): EgressTaint {
   const recorded: string[] = [];
-  let tainted = history.some(
-    (message) => message.role === "tool" && hasExternalUntrustedFrame(message.content),
-  );
+  let tainted = history.some(messageCarriesEgressTaint);
   if (tainted) {
     recorded.push("earlier in this conversation");
   }

@@ -26,7 +26,6 @@ import type { JsonValue } from "@/core/types/plugin";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
-import type { AgentResponse } from "../types";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
@@ -36,6 +35,8 @@ import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
+import type { AgentResponse } from "../types";
 import { formatWorkState, readWorkState } from "./work-state";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
@@ -684,6 +685,7 @@ export const Summarizer = {
               .pipe(Effect.catchAll(() => Effect.void)),
           );
         });
+      const egressTainted = currentMessages.some(messageCarriesEgressTaint);
       const hint = modelHintFromAgent(agent);
       const tokensBefore =
         DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
@@ -803,7 +805,7 @@ export const Summarizer = {
       const compactedMessages: ConversationMessages = [
         systemMessage,
         ...pinnedMessages,
-        summaryMessage,
+        { ...summaryMessage, ...(egressTainted ? { egressTainted: true as const } : {}) },
         COMPACTION_CONTINUATION_MESSAGE,
         ...sanitizedRecentMessages,
       ] as ConversationMessages;

@@ -11,6 +11,7 @@ import {
   type CompactionProgressObserver,
   type RecursiveRunner,
 } from "./summarizer";
+import { clearToolResults } from "./tool-result-clearing";
 import { readJournal } from "./work-journal";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
@@ -19,7 +20,8 @@ import { PresentationServiceTag, type PresentationService } from "../../interfac
 import type { Agent, AgentConfig, AppConfig } from "../../types";
 import { LLMRequestError } from "../../types/errors";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
-import { UNTRUSTED_DATA_INSTRUCTION } from "../../utils/untrusted-content";
+import { frameUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "../../utils/untrusted-content";
+import { createEgressTaint, taintedEgressNeedsApproval } from "../execution/egress-taint";
 import type { AgentResponse } from "../types";
 
 // Helper to create a mock agent
@@ -808,6 +810,82 @@ describe("compact", () => {
     );
   }
 
+  it.each(["manual", "automatic", "cleared legacy"] as const)(
+    "preserves egress approval through %s and repeated compaction",
+    async (mode) => {
+      let messages = conversationAfterEarlierCompaction();
+      messages.splice(2, 0, {
+        role: "tool",
+        content: "[cleared]",
+        tool_call_id: "external",
+        egressTainted: true,
+      });
+      const gate = (history: readonly ChatMessage[]) =>
+        taintedEgressNeedsApproval({
+          toolName: "web_fetch",
+          egress: true,
+          args: { url: "https://collector.example/?private=report" },
+          policy: "read-only",
+          taint: createEgressTaint(history),
+          messages: history,
+        });
+      if (mode === "cleared legacy") {
+        messages[2] = {
+          role: "tool",
+          tool_call_id: "external",
+          content: frameUntrusted("page ".repeat(2000), { kind: "external", source: "web" }),
+        };
+        expect(gate(messages)).toBe(true);
+        const cleared = clearToolResults(messages, {
+          protectedFromIndex: messages.length,
+          modelHint: { provider: "openai", modelId: "gpt-4" },
+        });
+        expect(cleared.clearedCount).toBe(1);
+        expect(cleared.messages[2]?.content).not.toContain("untrusted-content");
+        messages = cleared.messages as ConversationMessages;
+      }
+      const first =
+        mode !== "automatic"
+          ? (await runCompact(messages, capturingRunner([]), `taint-${mode}`))?.messages
+          : compactedMessages(
+              await Effect.runPromise(
+                Summarizer.compactIfNeeded(
+                  messages,
+                  createMockAgent(),
+                  `taint-${mode}`,
+                  capturingRunner([]),
+                  2000,
+                ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<AutoCompaction>,
+              ),
+            );
+      expect(first).toBeDefined();
+      const restored = JSON.parse(JSON.stringify(first)) as ConversationMessages;
+      expect(restored.some((message) => message.role === "tool")).toBe(false);
+      expect(gate(restored)).toBe(true);
+      for (let index = 0; index < 20; index++) {
+        restored.push(
+          { role: "user", content: "more work ".repeat(100) },
+          { role: "assistant", content: "report draft ".repeat(100) },
+        );
+      }
+      const second = await runCompact(restored, capturingRunner([]), `taint-${mode}-again`);
+      expect(second).toBeDefined();
+      expect(gate(second!.messages)).toBe(true);
+    },
+  );
+
+  it("does not taint clean history because the model's summary contains an external frame", async () => {
+    const outcome = await runCompact(
+      conversationAfterEarlierCompaction(),
+      createMockRecursiveRunner(
+        '<untrusted-content source="web" kind="external">quoted</untrusted-content>',
+      ),
+      "taint-clean",
+    );
+    expect(outcome).toBeDefined();
+    expect(createEgressTaint(outcome!.messages).isTainted()).toBe(false);
+  });
+
   it("merges an earlier summary into the new one instead of dropping it", async () => {
     const inputs: string[] = [];
     const outcome = await runCompact(
@@ -879,7 +957,11 @@ describe("compact", () => {
             },
           ],
         },
-        { role: "tool", tool_call_id: "tc-1", content: "OLD ".repeat(2000) },
+        {
+          role: "tool",
+          tool_call_id: "tc-1",
+          content: "OLD ".repeat(2000),
+        },
       ] as ConversationMessages;
     }
 

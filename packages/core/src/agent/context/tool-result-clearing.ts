@@ -1,5 +1,6 @@
 import type { ChatMessage } from "@/core/types/message";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
 
 /**
  * Reclaim context by replacing stale tool output with a pointer, the cheapest
@@ -137,6 +138,7 @@ export function clearToolResults(
       ...message,
       content: placeholderFor(toolName, originalTokens, toolCallId, retrievable),
       cleared: true,
+      ...(messageCarriesEgressTaint(message) ? { egressTainted: true as const } : {}),
     };
     tokensReclaimed += originalTokens - counter.countMessage(replacement, options.modelHint);
     return replacement;

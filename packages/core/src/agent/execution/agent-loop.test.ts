@@ -507,71 +507,81 @@ describe("executeAgentLoop", () => {
     }
   });
 
-  it("should handle tool calls and continue", async () => {
-    let iteration = 0;
-    const strategy: CompletionStrategy = {
-      shouldShowReasoning: false,
-      getCompletion: () => {
-        iteration++;
-        if (iteration === 1) {
+  it.each(["external", "local-file"] as const)(
+    "records %s tool provenance in history and continues",
+    async (kind) => {
+      let iteration = 0;
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: () => {
+          iteration++;
+          if (iteration === 1) {
+            return Effect.succeed({
+              completion: {
+                id: "c1",
+                model: "gpt-4",
+                content: "",
+                toolCalls: [
+                  {
+                    id: "call_1",
+                    type: "function" as const,
+                    function: { name: "test_tool", arguments: "{}" },
+                  },
+                ],
+              },
+              interrupted: false,
+            });
+          }
           return Effect.succeed({
-            completion: {
-              id: "c1",
-              model: "gpt-4",
-              content: "",
-              toolCalls: [
-                {
-                  id: "call_1",
-                  type: "function" as const,
-                  function: { name: "test_tool", arguments: "{}" },
-                },
-              ],
-            },
+            completion: { id: "c2", model: "gpt-4", content: "Done with tools" },
             interrupted: false,
           });
-        }
-        return Effect.succeed({
-          completion: { id: "c2", model: "gpt-4", content: "Done with tools" },
-          interrupted: false,
-        });
-      },
-      presentResponse: () => Effect.void,
-      onComplete: () => Effect.void,
-      getRenderer: () => null,
-    };
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
 
-    // Mock ToolExecutor
-    const originalExecute = ToolExecutor.executeToolCalls;
-    ToolExecutor.executeToolCalls = mock(() =>
-      Effect.succeed([
-        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
-      ]),
-    );
+      // Mock ToolExecutor
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          {
+            toolCallId: "call_1",
+            name: "test_tool",
+            result: "output",
+            success: true,
+            untrusted: { kind, source: "test_tool" },
+          },
+        ]),
+      );
 
-    const result = await Effect.runPromise(
-      executeAgentLoop(
-        makeOptions({ maxIterations: 5 }),
-        makeRunContext(),
-        displayConfig,
-        strategy,
-        defaultObserver,
-        runRecursive,
-      ).pipe(Effect.provide(TestLayer)),
-    );
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
 
-    expect(result.content).toBe("Done with tools");
-    expect(ToolExecutor.executeToolCalls).toHaveBeenCalled();
+      expect(result.content).toBe("Done with tools");
+      expect(ToolExecutor.executeToolCalls).toHaveBeenCalled();
 
-    // Confirms the tool-branch ("continue") appended a tool-result message
-    // to the conversation before the loop moved on to the final ("final") response.
-    const toolMessage = result.messages?.find(
-      (message) => message.role === "tool" && message.tool_call_id === "call_1",
-    );
-    expect(toolMessage).toBeDefined();
-    expect(toolMessage?.name).toBe("test_tool");
+      // Confirms the tool-branch ("continue") appended a tool-result message
+      // to the conversation before the loop moved on to the final ("final") response.
+      const toolMessage = result.messages?.find(
+        (message) => message.role === "tool" && message.tool_call_id === "call_1",
+      );
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage?.name).toBe("test_tool");
+      expect(toolMessage?.egressTainted).toBe(kind === "external" ? true : undefined);
 
-    ToolExecutor.executeToolCalls = originalExecute;
-  });
+      ToolExecutor.executeToolCalls = originalExecute;
+    },
+  );
 
   it("only takes queued guidance when another model iteration will run", async () => {
     const originalExecute = ToolExecutor.executeToolCalls;
