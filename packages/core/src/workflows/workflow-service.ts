@@ -4,14 +4,13 @@
  * built-in workflows; shared ones come from the library via `jazz workflow install`.
  */
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
-import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
+import { getGlobalWorkflowsDirectory, getJazzHomeDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 
@@ -179,8 +178,7 @@ export class WorkflowsLive implements WorkflowService {
   public static readonly layer = Layer.effect(
     WorkflowServiceTag,
     Effect.gen(function* () {
-      const homeDir = os.homedir();
-      const globalCachePath = path.join(homeDir, ".jazz", "global-workflows-index.json");
+      const globalCachePath = path.join(getJazzHomeDirectory(), "global-workflows-index.json");
       const loadedWorkflows = yield* Ref.make(new Map<string, WorkflowContent>());
       const workflowCache = yield* Ref.make(new Map<string, WorkflowMetadata>());
 

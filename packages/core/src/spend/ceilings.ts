@@ -247,16 +247,14 @@ export function ceilingStatuses(
   if (config === undefined) {
     return [];
   }
-  const scoped: Array<{ scope: SpendScope; limits: SpendLimits }> = [
-    { scope: { kind: "machine" }, limits: config },
-    ...(config.goals !== undefined
-      ? [{ scope: { kind: "goals" } as SpendScope, limits: config.goals }]
-      : []),
-    ...Object.entries(config.agents ?? {}).map(([agentId, limits]) => ({
-      scope: { kind: "agent", agentId },
-      limits,
-    })),
-  ];
+  type ScopedLimits = { readonly scope: SpendScope; readonly limits: SpendLimits };
+  const scoped: ScopedLimits[] = [{ scope: { kind: "machine" }, limits: config }];
+  if (config.goals !== undefined) {
+    scoped.push({ scope: { kind: "goals" }, limits: config.goals });
+  }
+  for (const [agentId, limits] of Object.entries(config.agents ?? {})) {
+    scoped.push({ scope: { kind: "agent", agentId }, limits });
+  }
   const statuses: CeilingStatus[] = [];
   for (const { scope, limits } of scoped) {
     for (const [period, limitUSD, window] of [
