@@ -56,9 +56,9 @@ agent turn, prints a clean payload. **stdout is the answer; all chatter goes to 
 jazz run --agent <id> [prompt]
 ```
 
-The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
-treated as untrusted text.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or from piped
+stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
+memory write; plain piped stdin is treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -80,7 +80,7 @@ treated as untrusted text.
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                                         |
+| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                  |
 | `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
 | `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
@@ -159,19 +159,19 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 
 ### `jazz workflow run` flags
 
-| Flag                     | Purpose                                                                       |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `--auto-approve`         | Apply the workflow's own `autoApprove:` policy instead of prompting           |
-| `--agent <agentId>`      | Override the agent for this run                                               |
-| `--max-iterations <n>`   | Override the workflow's iteration cap                                         |
-| `--max-cost-usd <$>`     | Override the workflow's spend cap                                             |
-| `--max-tokens <n>`       | Override the workflow's token cap                                             |
-| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)   |
-| `--json`                 | One JSON envelope on stdout; all chatter suppressed                           |
-| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)           |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors         |
-| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)      |
-| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron) |
+| Flag                     | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `--auto-approve`         | Run without the agent picker at the workflow's own `autoApprove:` policy (unset is `false`) |
+| `--agent <agentId>`      | Override the agent for this run                                                             |
+| `--max-iterations <n>`   | Override the workflow's iteration cap                                                       |
+| `--max-cost-usd <$>`     | Override the workflow's spend cap                                                           |
+| `--max-tokens <n>`       | Override the workflow's token cap                                                           |
+| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)                 |
+| `--json`                 | One JSON envelope on stdout; all chatter suppressed                                         |
+| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                         |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
+| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
+| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
 
 A workflow run that finishes without a usable answer (an empty zero-token completion, a
 non-`stop` finish with no text, or a content-filtered answer) is recorded as failed in
@@ -304,16 +304,24 @@ fallback, and prints it once. A non-loopback daemon refuses to start if no token
 stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
 one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-peers).
 
-| Command                    | Purpose                                                                                                                                                                                                                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
-| `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                     |
-| `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
-| `jazz daemon status`       | Whether the daemon is running or paused, what unattended runs spent today against the daily caps, and everything waiting for you with the command that answers it. `--json`                                                                                                                 |
-| `jazz daemon pause`        | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                      |
-| `jazz daemon resume`       | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day                                                                                                                                                                                           |
-| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
-| `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
+A request that grants authority (accepting or resuming a goal, starting or resuming a loop,
+approving or answering a parked run, and any write to an agent or persona) also needs the operator token in `X-Jazz-Operator-Token`. It lives only in
+the OS keyring, so an agent that read the daemon token from disk cannot use it to grant itself
+more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
+See [Daemon](./concepts/daemon.md#granting-authority-over-http).
+
+| Command                             | Purpose                                                                                                                                                                                                                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
+| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                     |
+| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                       |
+| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                           |
+| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
+| `jazz daemon status`                | Whether the daemon is running or paused, what unattended runs spent today against the daily caps, and everything waiting for you with the command that answers it. `--json`                                                                                                                 |
+| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                      |
+| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                 |
+| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time: a client config written before the daemon has ever run, or an
@@ -353,8 +361,7 @@ jazz goal cancel <goal>
 
 `--approval-policy` on `accept` and `start` is what the goal may run while you are away without
 asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
-approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
-wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
+approval. Without the flag nothing runs unasked, so every gated call waits for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
 daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
@@ -606,10 +613,12 @@ Conversation history and current working state are separate. See [Conversations,
 
 ## `jazz webhook`
 
-| Command                            | Purpose                                          |
-| ---------------------------------- | ------------------------------------------------ |
-| `jazz webhook token <name>`        | Generate and store a bearer token; print it once |
-| `jazz webhook forget-token <name>` | Remove a webhook's stored token                  |
+| Command                             | Purpose                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------ |
+| `jazz webhook token <name>`         | Generate and store a bearer token; print it once                                     |
+| `jazz webhook forget-token <name>`  | Remove a webhook's stored token                                                      |
+| `jazz webhook secret <name>`        | Generate and store the secret its sender signs bodies with (GitHub's webhook secret) |
+| `jazz webhook forget-secret <name>` | Remove a webhook's stored signing secret                                             |
 
 Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhooks.md).
 

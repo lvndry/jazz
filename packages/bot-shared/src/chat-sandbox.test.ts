@@ -138,3 +138,71 @@ describe("a sandboxed run", () => {
     expect(sandboxEnv(isolated, { OPENAI_API_KEY: "sk-test" })["OPENAI_API_KEY"]).toBe("sk-test");
   });
 });
+
+describe("what a bridge hands its children", () => {
+  const bridgeEnvironment = {
+    PATH: "/usr/bin",
+    LANG: "en_US.UTF-8",
+    LC_TIME: "fr_FR.UTF-8",
+    TZ: "Europe/Paris",
+    OPENAI_API_KEY: "sk-openai",
+    GEMINI_API_KEY: "gemini-alias",
+    BRAVE_API_KEY: "brave",
+    OLLAMA_BASE_URL: "http://host.docker.internal:11434",
+    JAZZ_NO_TUI: "1",
+    TELEGRAM_BOT_TOKEN: "123:bot",
+    TELEGRAM_WEBHOOK_SECRET: "hook",
+    DISCORD_BOT_TOKEN: "discord",
+    PHOTON_PROJECT_SECRET: "photon",
+    WHATSAPP_AUTH_DIR: "/data/wa-auth",
+    JAZZ_DAEMON_TOKEN: "daemon",
+    JAZZ_PEER_TOKEN_SAM: "peer",
+    JAZZ_WEBHOOK_TOKEN_DEPLOY: "webhook",
+    JAZZ_CONFIG_PATH: "/root/.jazz/config.json",
+    AWS_SECRET_ACCESS_KEY: "unrelated",
+    TERM: "xterm-256color",
+  };
+
+  test("keeps the process basics, locale, provider keys and Jazz switches", () => {
+    const environment = sandboxEnv(isolated, bridgeEnvironment, "telegram");
+    expect(environment).toMatchObject({
+      PATH: "/usr/bin",
+      LANG: "en_US.UTF-8",
+      LC_TIME: "fr_FR.UTF-8",
+      TZ: "Europe/Paris",
+      OPENAI_API_KEY: "sk-openai",
+      GEMINI_API_KEY: "gemini-alias",
+      BRAVE_API_KEY: "brave",
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434",
+      JAZZ_NO_TUI: "1",
+      JAZZ_SURFACE: "telegram",
+    });
+  });
+
+  test("drops bot tokens, bridge secrets, Jazz tokens and anything unrelated", () => {
+    const environment = sandboxEnv(isolated, bridgeEnvironment, "telegram");
+    for (const name of [
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_WEBHOOK_SECRET",
+      "DISCORD_BOT_TOKEN",
+      "PHOTON_PROJECT_SECRET",
+      "WHATSAPP_AUTH_DIR",
+      "JAZZ_DAEMON_TOKEN",
+      "JAZZ_PEER_TOKEN_SAM",
+      "JAZZ_WEBHOOK_TOKEN_DEPLOY",
+      "JAZZ_CONFIG_PATH",
+      "AWS_SECRET_ACCESS_KEY",
+      "TERM",
+    ]) {
+      expect(environment[name]).toBeUndefined();
+    }
+  });
+
+  test("keeps the terminal description only for an interactive shell", () => {
+    const environment = sandboxEnv(isolated, bridgeEnvironment, "telegram", {
+      interactiveTerminal: true,
+    });
+    expect(environment["TERM"]).toBe("xterm-256color");
+    expect(environment["TELEGRAM_BOT_TOKEN"]).toBeUndefined();
+  });
+});

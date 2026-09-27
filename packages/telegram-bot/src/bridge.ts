@@ -16,11 +16,8 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { createConfigLayer } from "@jazz/adapters/config";
-import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { existsSync } from "node:fs";
+import { removeAgentFile } from "@jazz/bot-shared/agent-file";
 import { answerNotices, formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
@@ -31,20 +28,35 @@ import {
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
 import {
-  adoptIntoSandbox,
+  addAutoApprovedCommand,
   type ChatSandbox,
-  chatIsolationEnabled,
   ensureChatSandbox,
   listChatSandboxes,
   SANDBOX_UMASK,
   sandboxCommand,
   sandboxEnv,
+  sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
-import type { JazzComposition, JazzEnvelope, JazzSuccessEnvelope } from "@jazz/bot-shared/jazz-run";
+import {
+  compositionIdFromPath,
+  compositionLinkPath,
+  type CompositionLinks,
+  createCompositionLinks,
+  readCompositionImage,
+} from "@jazz/bot-shared/compositions";
+import {
+  type JazzComposition,
+  type JazzEnvelope,
+  type JazzSuccessEnvelope,
+  writeStdinFrame,
+} from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
   conversationKey,
@@ -59,18 +71,17 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
+import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
-import { Effect } from "effect";
 import tzlookup from "tz-lookup";
 import {
   agentIdForChat,
   agentPath,
+  chatIdFromAgentId,
   ensureChatAgent,
   readAgentFile,
   syncAgentDisplayName,
@@ -84,7 +95,7 @@ import {
   type TelegramMediaFields,
 } from "./media";
 import { withReplyContext } from "./quotes";
-import { startReminderSweep } from "./reminders";
+import { renderRichText } from "./surface";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
 import {
   escapeHtml,
@@ -94,6 +105,7 @@ import {
 } from "./telegram-html";
 
 const TZ_FILE = "tg-tz.json";
+const COMPOSITIONS_FILE = "tg-compositions.json";
 const USAGE_FILE = "tg-usage.json";
 const EPOCHS_FILE = "tg-sessions.json";
 const INCOGNITO_FILE = "tg-incognito.json";
@@ -123,7 +135,13 @@ const BRIDGE_STARTED_AT = Date.now();
 // right jazz process.
 const activeRuns = new Map<
   string,
-  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+  {
+    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
+    cancelled: boolean;
+    chatId: number;
+    /** Whose message started the run: the one person who answers its prompts. */
+    requesterId: number;
+  }
 >();
 // Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
 // find the run to write the decision back to and the message to clear.
@@ -170,6 +188,11 @@ interface BridgeConfig {
   readonly webhookSecret: string;
   readonly webhookUrl: string | undefined;
   readonly allowedChatIds: ReadonlySet<number>;
+  /**
+   * Telegram user ids allowed to widen a chat's authority: `/mode yolo` and "Always allow".
+   * Being in an allowed chat is not enough, since in a group that is everyone in it.
+   */
+  readonly operatorIds: ReadonlySet<number>;
   readonly baseAgentId: string;
   readonly provider: string;
   readonly model: string;
@@ -212,16 +235,19 @@ function requireEnv(name: string): string {
   return value.trim();
 }
 
-function loadConfig(): BridgeConfig {
-  const allowedChatIdsRaw = process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "";
-  const allowedChatIds = new Set(
-    allowedChatIdsRaw
+function parseIdList(raw: string): Set<number> {
+  return new Set(
+    raw
       .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)
       .map((entry) => Number.parseInt(entry, 10))
       .filter((entry) => Number.isFinite(entry)),
   );
+}
+
+function loadConfig(): BridgeConfig {
+  const allowedChatIds = parseIdList(process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "");
 
   if (allowedChatIds.size === 0) {
     throw new Error(
@@ -242,6 +268,7 @@ function loadConfig(): BridgeConfig {
     webhookSecret: process.env["TELEGRAM_WEBHOOK_SECRET"]?.trim() || "",
     webhookUrl,
     allowedChatIds,
+    operatorIds: parseIdList(process.env["TELEGRAM_OPERATOR_IDS"]?.trim() ?? ""),
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     provider: process.env["JAZZ_TELEGRAM_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_TELEGRAM_MODEL"]?.trim() || "gpt-5.4",
@@ -278,25 +305,6 @@ function sandboxForChat(config: BridgeConfig, chatId: number): ChatSandbox {
   return ensureChatSandbox(config.jazzHome, agentIdForChat(chatId));
 }
 
-/**
- * Every file a `/compositions/<session>/<name>.html` request could be asking for.
- *
- * The URL carries only the app's id, and with one Jazz home per chat there is
- * no chat to key that on, so each home is a candidate. The health server runs
- * in the bridge process, which is the one identity allowed to read across
- * sandboxes.
- */
-function compositionCandidatePaths(
-  config: BridgeConfig,
-  sessionId: string,
-  filename: string,
-): string[] {
-  const homes = chatIsolationEnabled()
-    ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
-    : [config.jazzHome];
-  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
-}
-
 async function callTelegram(
   config: BridgeConfig,
   method: string,
@@ -317,16 +325,16 @@ async function callTelegram(
   });
 }
 
-/** Upload a local image file as a Telegram photo message (multipart, not JSON). */
-async function sendPhotoFile(
+/** Upload image bytes as a Telegram photo message (multipart, not JSON). */
+async function sendPhotoBytes(
   config: BridgeConfig,
   chatId: number,
-  filePath: string,
+  image: { readonly bytes: Uint8Array<ArrayBuffer>; readonly filename: string },
   caption?: string,
 ): Promise<unknown> {
   const form = new FormData();
   form.append("chat_id", String(chatId));
-  form.append("photo", Bun.file(filePath), "chart.png");
+  form.append("photo", new Blob([image.bytes], { type: "image/png" }), image.filename);
   if (caption) form.append("caption", caption);
 
   return dispatchTelegramRequest({
@@ -338,6 +346,14 @@ async function sendPhotoFile(
         body: form,
       }),
   });
+}
+
+let publishedCompositions: CompositionLinks | undefined;
+
+/** The web apps this bridge has handed out links to, served by opaque id. */
+function compositionLinks(config: BridgeConfig): CompositionLinks {
+  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  return publishedCompositions;
 }
 
 function isOkResponse(response: unknown): boolean {
@@ -418,6 +434,7 @@ async function maybeSetTzFromLocation(
 async function handleLocation(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   latitude: number,
   longitude: number,
 ): Promise<void> {
@@ -431,7 +448,7 @@ async function handleLocation(
     `Map: ${mapLink}\n\n` +
     "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
     "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
-  await handleMessage(config, chatId, prompt);
+  await handleMessage(config, chatId, requesterId, prompt);
 }
 
 // --- Persona discovery ----------------------------------------------------
@@ -594,30 +611,6 @@ function commandKeyFromApprovalMessage(
   return extractCommandApprovalKey(command);
 }
 
-/**
- * Persist a command key to autoApprovedCommands in config.json so future
- * `jazz run` invocations (each a fresh process — nothing in-memory here
- * would survive to the next message) auto-approve it without prompting.
- * Goes through the same `AgentConfigService` the CLI itself uses to mutate
- * config.json, rather than a hand-rolled read/modify/write, so this stays
- * consistent with whatever else (secrets, mcpOverrides) that file holds.
- */
-async function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string): Promise<void> {
-  const configPath = join(sandbox.home, "config.json");
-  const configLayer = createConfigLayer(undefined, configPath);
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const configService = yield* AgentConfigServiceTag;
-      const current = yield* configService.getOrElse<readonly string[]>("autoApprovedCommands", []);
-      if (current.includes(commandKey)) return;
-      yield* configService.set("autoApprovedCommands", [...current, commandKey]);
-    }).pipe(Effect.provide(configLayer), Effect.provide(NodeFileSystem.layer)),
-  );
-  // The bridge writes as root; without this the rewritten config comes back
-  // owned by root and the chat's own agent can no longer read its settings.
-  adoptIntoSandbox(sandbox, configPath);
-}
-
 function modeKeyboard(current: ApprovalMode): Record<string, unknown> {
   const modes: ApprovalMode[] = ["safe", "yolo"];
   return {
@@ -642,6 +635,19 @@ function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string 
     `✅ Mode → <b>${APPROVAL_MODE_LABELS[mode]}</b>\n${modeExplanation(mode, configuredPolicy)}` +
     (mode === "yolo" ? "\nSend <code>/mode safe</code> to turn approvals back on." : "")
   );
+}
+
+/** Why a tap on someone else's prompt did nothing. */
+const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
+
+/** The toast a non-operator gets for an operator-only button. */
+function operatorOnlyToast(userId: number): string {
+  return `Only this bot's operator can do that. Your id is ${userId}; the operator adds it to TELEGRAM_OPERATOR_IDS.`;
+}
+
+/** The same refusal as a chat message, for a typed command. */
+function operatorOnlyHtml(userId: number, what: string): string {
+  return renderRichText(operatorOnlyMessage(String(userId), what, "TELEGRAM_OPERATOR_IDS"));
 }
 
 function webAppKeyboard(url: string, title: string): Record<string, unknown> {
@@ -884,7 +890,11 @@ async function sendApprovalRequest(
 
   const toolName = event.toolName ?? "tool";
   const message = event.message ?? "";
-  const commandKey = commandKeyFromApprovalMessage(event.toolName, message);
+  // Offered only where somebody can use it: an "Always allow" is operator-only.
+  const commandKey =
+    config.operatorIds.size > 0
+      ? commandKeyFromApprovalMessage(event.toolName, message)
+      : undefined;
   const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
   if (message.length > 0) lines.push(escapeHtml(message));
   if (event.previewDiff) {
@@ -963,6 +973,7 @@ async function sendUserInputRequest(
 async function runJazz(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   prompt: string,
   onEvent: (event: JazzEvent) => void,
   runToken: string,
@@ -979,6 +990,7 @@ async function runJazz(
       "--events",
       "tools,reasoning,text,approval,subagent",
       "--interactive-stdin",
+      "--input-stdin",
       "--agent",
       agentIdForChat(chatId),
       "--approval-policy",
@@ -989,17 +1001,10 @@ async function runJazz(
       "--timezone",
       tzForChat(config.jazzHome, TZ_FILE, chatId),
       ...(incognito
-        ? [
-            "--ephemeral",
-            ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
-              ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
-              : []),
-          ]
+        ? ["--ephemeral"]
         : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, chatId)]),
       "--timeout",
       String(config.runTimeoutMs),
-      "--",
-      prompt,
     ]),
     {
       stdout: "pipe",
@@ -1009,7 +1014,15 @@ async function runJazz(
     },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
-  activeRuns.set(runToken, { child, cancelled: false });
+  activeRuns.set(runToken, { child, cancelled: false, chatId, requesterId });
+  // The message and an incognito transcript go in the stdin frame, never on
+  // argv, where `ps` shows them to every account on the host.
+  await writeStdinFrame(child, {
+    prompt,
+    ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
+      ? { history: priorIncognitoMessages }
+      : {}),
+  });
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
   const stderrTail: string[] = [];
@@ -1080,14 +1093,17 @@ async function deliverComposition(
   chatId: number,
   composition: JazzComposition,
 ): Promise<void> {
+  const home = sandboxForChat(config, chatId).home;
   if (composition.mode === "static") {
-    if (composition.imagePath === undefined) {
+    // Read from this chat's own compositions, whatever path the envelope claims.
+    const image = readCompositionImage(home, composition);
+    if (image === undefined) {
       console.error(
-        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
       );
       return;
     }
-    await sendPhotoFile(config, chatId, composition.imagePath, composition.title);
+    await sendPhotoBytes(config, chatId, image, composition.title);
     return;
   }
 
@@ -1101,7 +1117,12 @@ async function deliverComposition(
     return;
   }
 
-  const url = `${config.webAppBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  const linkId = compositionLinks(config).publish(agentIdForChat(chatId), composition);
+  if (linkId === undefined) {
+    console.error(`create_composition returned unusable names (id=${composition.id})`);
+    return;
+  }
+  const url = `${config.webAppBaseUrl}${compositionLinkPath(linkId)}`;
   await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(composition.title)}</b>`, {
     markup: webAppKeyboard(url, composition.title),
   });
@@ -1110,6 +1131,7 @@ async function deliverComposition(
 async function handleMessage(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   text: string,
   replyToMessageId?: number,
 ): Promise<void> {
@@ -1176,6 +1198,7 @@ async function handleMessage(
     const envelope = await runJazz(
       config,
       chatId,
+      requesterId,
       text,
       (event) => reporter?.onEvent(event),
       runToken,
@@ -1347,14 +1370,20 @@ async function jazzJson(
       "run",
       "--no-tui",
       "--json",
+      "--input-stdin",
       "--agent",
       agentId,
       ...extraArgs,
-      "--",
-      prompt,
     ]),
-    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "telegram") },
+    {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: sandboxEnv(sandbox, process.env, "telegram"),
+    },
   );
+  await writeStdinFrame(child, { prompt });
+  await child.stdin.end();
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([
     new Response(child.stdout).text(),
@@ -1521,7 +1550,7 @@ const HELP_TEXT = [
   "/model — pick an Ollama model, or /model provider/model for any other provider Jazz supports " +
     "(e.g. /model anthropic/claude-sonnet-5)",
   "/persona — pick my persona / style",
-  "/mode — safe (I ask before risky tools) or yolo (I never ask), e.g. /mode yolo",
+  "/mode — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. /mode yolo",
   "/new — start a fresh conversation (clears earlier context)",
   "/incognito — start a private conversation (nothing saved to history or memory) until /new",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
@@ -1545,48 +1574,18 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function remindersFilePath(home: string, chatId: number): string {
-  return join(home, "reminders", `${agentIdForChat(chatId)}.json`);
+/** Cancel one of this chat's reminders, written back to the chat's own uid. */
+function cancelReminderForChat(config: BridgeConfig, chatId: number, id: string): Promise<boolean> {
+  const sandbox = sandboxForChat(config, chatId);
+  return cancelReminder(sandbox.home, agentIdForChat(chatId), id, sandboxOwnership(sandbox));
 }
 
-/**
- * Synchronous read of this chat's per-agent reminder file, for display only
- * (the /reminders list and /status). Reminders are only ever created or
- * cancelled through the add_reminder/cancel_reminder tools (or, for the
- * inline "cancel" buttons below, the same ReminderServiceImpl those tools use)
- * — never written here.
- */
-function readRemindersForDisplay(home: string, chatId: number): ReminderRecord[] {
-  try {
-    const path = remindersFilePath(home, chatId);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Cancel via the same ReminderServiceImpl the cancel_reminder tool uses — the only reminder-cancelling code path. */
-async function cancelReminderForChat(
+async function handleRemind(
   config: BridgeConfig,
   chatId: number,
-  id: string,
-): Promise<boolean> {
-  const sandbox = sandboxForChat(config, chatId);
-  const service = new ReminderServiceImpl({
-    baseReminderDirectory: join(sandbox.home, "reminders"),
-  });
-  const outcome = await Effect.runPromise(
-    service.cancel(agentIdForChat(chatId), id).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
-  // Cancelling rewrites the file as root; hand it back or the chat's own agent
-  // can no longer add or cancel reminders itself.
-  adoptIntoSandbox(sandbox, remindersFilePath(sandbox.home, chatId));
-  return outcome.success;
-}
-
-async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
+  requesterId: number,
+  args: string,
+): Promise<void> {
   const usage =
     "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
     "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
@@ -1601,7 +1600,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   // Route through a normal full agent turn — the add_reminder tool (not this
   // handler) does the actual time parsing and scheduling, so there is exactly
   // one code path that creates reminders regardless of how the request arrived.
-  await handleMessage(config, chatId, `Add a reminder: ${trimmed}`);
+  await handleMessage(config, chatId, requesterId, `Add a reminder: ${trimmed}`);
 }
 
 async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1643,6 +1642,7 @@ async function handleTz(config: BridgeConfig, chatId: number, args: string): Pro
 async function handleCommand(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   command: string,
   args: string,
 ): Promise<void> {
@@ -1650,7 +1650,7 @@ async function handleCommand(
   const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
 
   if (command === "remind") {
-    await handleRemind(config, chatId, args);
+    await handleRemind(config, chatId, requesterId, args);
     return;
   }
 
@@ -1660,7 +1660,7 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readRemindersForDisplay(sandboxForChat(config, chatId).home, chatId).sort(
+    const mine = readReminders(sandboxForChat(config, chatId).home, agentIdForChat(chatId)).sort(
       (left, right) => left.fireAt - right.fireAt,
     );
     if (mine.length === 0) {
@@ -1812,6 +1812,10 @@ async function handleCommand(
         );
         return;
       }
+      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
+        await sendReply(config, chatId, operatorOnlyHtml(requesterId, "Turning approvals off"));
+        return;
+      }
       setApprovalMode(config.jazzHome, MODE_FILE, chatId, requested);
       await sendReply(config, chatId, modeConfirmation(requested, config.approvalPolicy));
       return;
@@ -1861,6 +1865,17 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     console.warn(`Ignoring callback from non-allowed chat ${chatId}`);
     return;
   }
+  const tapperId = callback.from?.id;
+  if (typeof tapperId !== "number") {
+    return;
+  }
+  /** Tell the tapper why nothing happened, as a toast only they see. */
+  const refuse = (text: string): Promise<unknown> =>
+    callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text,
+      show_alert: true,
+    });
 
   const parts = data.split(":");
   const kind = parts[0];
@@ -1881,7 +1896,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       reply_markup: { inline_keyboard: [] },
     });
     await sendReply(config, chatId, escapeHtml(item.label), { replyTo: messageId });
-    void handleMessage(config, chatId, item.prompt, messageId).catch((error) =>
+    void handleMessage(config, chatId, tapperId, item.prompt, messageId).catch((error) =>
       console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
@@ -1889,7 +1904,12 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "x") {
     const runToken = indexRaw ?? "";
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.chatId === chatId ? found : undefined;
+    if (run && run.requesterId !== tapperId && !config.operatorIds.has(tapperId)) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1916,9 +1936,14 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   if (kind === "q") {
     const requestId = parts[1] ?? "";
     const optionIndex = Number.parseInt(parts[2] ?? "", 10);
-    const pending = pendingUserInputs.get(requestId);
+    const found = pendingUserInputs.get(requestId);
+    const pending = found?.chatId === chatId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
     const answer = pending?.options[optionIndex];
+    if (run && run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (!pending || !run || answer === undefined) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
@@ -1954,7 +1979,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     const decision = parts[2];
     const approved = decision === "1" || decision === "2";
     const always = decision === "2";
-    const pending = pendingApprovals.get(toolCallId);
+    const found = pendingApprovals.get(toolCallId);
+    const pending = found?.chatId === chatId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
     if (!pending || !run) {
       await callTelegram(config, "answerCallbackQuery", {
@@ -1963,15 +1989,22 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       });
       return;
     }
+    if (run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
+    if (always && !config.operatorIds.has(tapperId)) {
+      await refuse(operatorOnlyToast(tapperId));
+      return;
+    }
     pendingApprovals.delete(toolCallId);
     await writeApprovalDecisions(run, [{ toolCallId, approved }]);
     if (always && pending.commandKey) {
-      await addAutoApprovedCommand(
-        sandboxForChat(config, pending.chatId),
-        pending.commandKey,
-      ).catch((error: unknown) =>
-        console.error(`Failed to persist auto-approved command: ${String(error)}`),
-      );
+      try {
+        addAutoApprovedCommand(sandboxForChat(config, pending.chatId), pending.commandKey);
+      } catch (error) {
+        console.error(`Failed to persist auto-approved command: ${String(error)}`);
+      }
     }
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
@@ -1996,7 +2029,12 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     const runToken = parts[1] ?? "";
     const approved = parts[2] === "1";
     const outstanding = pendingApprovalsForRun(runToken);
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.chatId === chatId ? found : undefined;
+    if (run && run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (outstanding.length === 0 || !run) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
@@ -2037,7 +2075,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       reply_markup: { inline_keyboard: [] },
     });
     await sendReply(config, chatId, option.label, { replyTo: messageId });
-    void handleMessage(config, chatId, option.prompt, messageId).catch((error) =>
+    void handleMessage(config, chatId, tapperId, option.prompt, messageId).catch((error) =>
       console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
@@ -2059,6 +2097,10 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "md") {
     const mode = indexRaw === "yolo" ? "yolo" : "safe";
+    if (mode === "yolo" && !config.operatorIds.has(tapperId)) {
+      await refuse(operatorOnlyToast(tapperId));
+      return;
+    }
     setApprovalMode(config.jazzHome, MODE_FILE, chatId, mode);
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
@@ -2129,6 +2171,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 interface TelegramMessage extends TelegramMediaFields {
   readonly chat?: { readonly id?: number };
   readonly from?: {
+    readonly id?: number;
     readonly first_name?: string;
     readonly username?: string;
     readonly is_bot?: boolean;
@@ -2152,6 +2195,7 @@ interface TelegramMessage extends TelegramMediaFields {
 async function handleMedia(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   message: TelegramMessage,
   media: ExtractedMedia,
 ): Promise<void> {
@@ -2162,8 +2206,8 @@ async function handleMedia(
     media.file,
     chatId,
     Date.now(),
+    sandboxOwnership(sandbox),
   );
-  if (outcome.ok) adoptIntoSandbox(sandbox, outcome.path);
   if (!outcome.ok) {
     await sendReply(config, chatId, `⚠️ I couldn't fetch that file — ${outcome.reason}.`);
     return;
@@ -2171,6 +2215,7 @@ async function handleMedia(
   await handleMessage(
     config,
     chatId,
+    requesterId,
     withReplyContext(
       message,
       buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
@@ -2199,6 +2244,8 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     return;
   }
 
+  // In a private chat the sender is the chat; elsewhere Telegram always names them.
+  const senderId = message?.from?.id ?? chatId;
   const text = message?.text?.trim();
   const latitude = message?.location?.latitude;
   const longitude = message?.location?.longitude;
@@ -2208,19 +2255,19 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     const parsed = parseCommand(text);
     work =
       parsed !== undefined
-        ? handleCommand(config, chatId, parsed.command, parsed.args)
-        : handleMessage(config, chatId, withReplyContext(message ?? {}, text));
+        ? handleCommand(config, chatId, senderId, parsed.command, parsed.args)
+        : handleMessage(config, chatId, senderId, withReplyContext(message ?? {}, text));
   } else if (
     typeof latitude === "number" &&
     Number.isFinite(latitude) &&
     typeof longitude === "number" &&
     Number.isFinite(longitude)
   ) {
-    work = handleLocation(config, chatId, latitude, longitude);
+    work = handleLocation(config, chatId, senderId, latitude, longitude);
   } else {
     const media = extractMedia(message ?? {});
     if (media !== undefined) {
-      work = handleMedia(config, chatId, message ?? {}, media);
+      work = handleMedia(config, chatId, senderId, message ?? {}, media);
     }
   }
 
@@ -2260,19 +2307,13 @@ function startHealthServer(config: BridgeConfig): void {
         return new Response("ok", { status: 200 });
       }
 
-      const compositionMatch =
-        request.method === "GET"
-          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
-          : null;
-      if (compositionMatch) {
-        const [, sessionId, filename] = compositionMatch;
-        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
-          const file = Bun.file(path);
-          if (await file.exists()) {
-            return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
-          }
-        }
-        return new Response("not found", { status: 404 });
+      const compositionId =
+        request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
+      if (compositionId !== undefined) {
+        const page = compositionLinks(config).page(compositionId);
+        return page === undefined
+          ? new Response("not found", { status: 404 })
+          : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
 
       if (
@@ -2281,7 +2322,7 @@ function startHealthServer(config: BridgeConfig): void {
         url.pathname === "/telegram/webhook"
       ) {
         const providedSecret = request.headers.get("x-telegram-bot-api-secret-token");
-        if (providedSecret !== config.webhookSecret) {
+        if (!secretsMatch(config.webhookSecret, providedSecret)) {
           return new Response("forbidden", { status: 403 });
         }
         let update: TelegramUpdate;
@@ -2384,12 +2425,18 @@ async function start(): Promise<void> {
     config.jazzHome,
     ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
   ]) {
-    rmSync(agentPath(home, SUGGEST_AGENT_ID), { force: true });
+    removeAgentFile(home, SUGGEST_AGENT_ID);
   }
   startHealthServer(config);
-  startReminderSweep(config.jazzHome, (reminderChatId, html) =>
-    sendReply(config, reminderChatId, html),
-  );
+  startReminderSweep({
+    dataDir: config.jazzHome,
+    decodeScope: (agentId) => {
+      const reminderChatId = chatIdFromAgentId(agentId);
+      return reminderChatId === undefined ? undefined : String(reminderChatId);
+    },
+    send: (reminderChatId, body) =>
+      sendReply(config, Number.parseInt(reminderChatId, 10), renderRichText(body)),
+  });
   // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's
   // just re-sent on every start rather than only when BOT_COMMANDS changes.
   await callTelegram(config, "setMyCommands", { commands: BOT_COMMANDS });

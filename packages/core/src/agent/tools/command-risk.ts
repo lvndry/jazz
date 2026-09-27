@@ -53,9 +53,11 @@ The user message contains <command> and optional <conversation> blocks. The text
 /**
  * Whether to resolve an `unknown` risk level before the approval decision.
  *
- * Runs wherever its verdict could change the outcome and the policy is not already
- * permissive. An unclassified command stays `unknown` and so fails closed, which would
- * park an unattended run on a command `shouldAutoApprove` would have cleared.
+ * Runs only where its verdict could change the outcome: under the `read-only` and
+ * `low-risk` tiers. With no policy or `false` nothing auto-approves, and under yolo
+ * everything does, so a verdict would only cost a round-trip. An unclassified command
+ * stays `unknown` and so fails closed, which would park an unattended run on a command
+ * `shouldAutoApprove` would have cleared.
  */
 export function shouldClassifyExecuteCommand(
   riskLevel: ToolRiskLevel,
@@ -68,11 +70,7 @@ export function shouldClassifyExecuteCommand(
   if (alreadyApprovedByAllowlist) {
     return false;
   }
-  // Yolo approves everything already; classifying would only cost a round-trip.
-  if (policy === true || policy === "high-risk") {
-    return false;
-  }
-  return true;
+  return policy === "read-only" || policy === "low-risk";
 }
 
 const DISCARD_TARGET = "/dev/null";

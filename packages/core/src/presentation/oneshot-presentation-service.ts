@@ -226,6 +226,9 @@ export class OneShotPresentationService implements PresentationService {
         }
       }
     });
+    // `jazz run --input-stdin` reads its frame first and leaves the stream paused, and a
+    // paused stream stays paused when a listener is added.
+    this.stdinStream.resume();
   }
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {

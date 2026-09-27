@@ -14,6 +14,7 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
@@ -318,8 +319,11 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
         "buffer",
         {},
       );
-      const extension = message.media.mimeType.split("/").at(-1)?.split(";").at(0) ?? "bin";
-      const path = `${directory}/${message.id}.${message.media.fileName?.split(".").at(-1) ?? extension}`;
+      const path = `${directory}/${inboundMediaFileName(
+        message.id,
+        message.media.fileName,
+        message.media.mimeType,
+      )}`;
       await Bun.write(path, bytes as Uint8Array);
       return path;
     },

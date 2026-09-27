@@ -7,6 +7,7 @@ import type { FinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
+import type { RemoteCaller } from "@/core/types/remote-door";
 import type { ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
@@ -72,6 +73,20 @@ export interface AgentRunnerOptions {
    * same as scanned ones.
    */
   readonly initialAttachments?: readonly MessageAttachment[];
+  /**
+   * Scan `userInput` for local media paths and attach the files they name. On unless set to
+   * `false`. A remote door sets `false`, because its caller's text naming a path on this machine
+   * must never upload that file to a provider.
+   */
+  readonly ingestUserInputPaths?: boolean;
+  /**
+   * Who started this run through a remote door, when it was not the operator.
+   *
+   * A run with a remote caller gets no operator context (standing preferences, AGENTS.md) and
+   * never attaches files from paths in its input. The run record keeps the caller, so a resumed
+   * run keeps that boundary.
+   */
+  readonly remoteCaller?: RemoteCaller;
   /**
    * Which conversation this turn belongs to.
    *

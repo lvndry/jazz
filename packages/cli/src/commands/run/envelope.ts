@@ -86,8 +86,8 @@ export interface OneShotSuccess {
    * calls. Since ephemeral runs never load/save `--conversation` history on
    * disk, any caller that wants multi-turn context (a webhook bridge, a
    * script — this is generic to `jazz run`, not tied to any one integration)
-   * round-trips this array back in as `--history-json` on the next call
-   * instead. The conversation lives in the caller's own memory, never on
+   * round-trips this array back in as the `--input-stdin` frame's `history`
+   * on the next call instead. The conversation lives in the caller's own memory, never on
    * disk.
    */
   readonly messages?: readonly ChatMessage[];
