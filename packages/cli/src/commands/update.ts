@@ -423,26 +423,18 @@ export function updateCommand(options?: {
     yield* terminal.info("Checking for updates...");
     yield* terminal.log("");
 
-    // Check for updates
-    const versionInfo = yield* checkForUpdate().pipe(
-      Effect.catchAll((checkError: UpdateCheckError) => {
-        return Effect.gen(function* () {
-          yield* logger.error("Failed to check for updates", { errorType: "update_check_failed" });
-          yield* terminal.error("Failed to check for updates:");
-          yield* terminal.log(`   ${checkError.message}`);
-          yield* terminal.log("\n💡 You can manually check for updates at:");
-          yield* terminal.log(`   https://www.npmjs.com/package/${packageJson.name}`);
-          return yield* Effect.fail(checkError);
-        });
-      }),
-      Effect.catchAll(() =>
-        Effect.succeed({
-          hasUpdate: false,
-          currentVersion: packageJson.version,
-          latestVersion: packageJson.version,
-        }),
-      ),
-    );
+    const checkOutcome = yield* checkForUpdate().pipe(Effect.either);
+    if (checkOutcome._tag === "Left") {
+      const checkError: UpdateCheckError = checkOutcome.left;
+      yield* logger.error("Failed to check for updates", { errorType: "update_check_failed" });
+      yield* terminal.error("Failed to check for updates:");
+      yield* terminal.log(`   ${checkError.message}`);
+      yield* terminal.log("\n💡 You can manually check for updates at:");
+      yield* terminal.log(`   https://www.npmjs.com/package/${packageJson.name}`);
+      process.exitCode = 1;
+      return;
+    }
+    const versionInfo = checkOutcome.right;
 
     yield* terminal.log(`📦 Current version: ${versionInfo.currentVersion}`);
     yield* terminal.log(`📦 Latest version:  ${versionInfo.latestVersion}`);
@@ -466,22 +458,25 @@ export function updateCommand(options?: {
     yield* terminal.log("⚡ Starting update process...");
     yield* terminal.log("");
 
-    // Install the update
-    yield* installUpdate(packageJson.name, versionInfo.latestVersion, terminal).pipe(
-      Effect.catchAll((installError: UpdateInstallError) => {
-        return Effect.gen(function* () {
-          yield* logger.error("Failed to install update", { errorType: "update_install_failed" });
-          yield* terminal.error("Failed to install update:");
-          yield* terminal.log(`   ${installError.message}`);
-          if (!isStandaloneBinary()) {
-            yield* terminal.log("\n💡 You can manually update by running:");
-            yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
-            yield* terminal.log(`   bun add -g --trust ${packageJson.name}@latest`);
-            yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
-          }
-        });
-      }),
-    );
+    const installOutcome = yield* installUpdate(
+      packageJson.name,
+      versionInfo.latestVersion,
+      terminal,
+    ).pipe(Effect.either);
+    if (installOutcome._tag === "Left") {
+      const installError: UpdateInstallError = installOutcome.left;
+      yield* logger.error("Failed to install update", { errorType: "update_install_failed" });
+      yield* terminal.error("Failed to install update:");
+      yield* terminal.log(`   ${installError.message}`);
+      if (!isStandaloneBinary()) {
+        yield* terminal.log("\n💡 You can manually update by running:");
+        yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
+        yield* terminal.log(`   bun add -g --trust ${packageJson.name}@latest`);
+        yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
+      }
+      process.exitCode = 1;
+      return;
+    }
 
     yield* logger.info("Update completed successfully");
     yield* terminal.success("Update completed successfully!");
