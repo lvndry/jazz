@@ -10,6 +10,7 @@
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { SpendSource } from "@jazz/core/spend/sources";
@@ -166,6 +167,12 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
       origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     }).pipe(
+      Effect.flatMap((response) => {
+        const verdict = judgeAnswer(response);
+        return verdict.kind === "failed"
+          ? Effect.fail(new NoUsableAnswerError(verdict))
+          : Effect.succeed(response);
+      }),
       Effect.map((response) =>
         classifyTurnOutcome({
           ok: true,

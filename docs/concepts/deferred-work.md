@@ -79,6 +79,11 @@ delivered at least once, never silently dropped:
    retrying cannot help (the agent no longer exists), it stays on disk as failed, and
    `list_reminders` and `list_triggers` show the error.
 
+A wake-up or batch fan-in that receives an empty, zero-token answer or a provider-filtered
+answer is also failed and retried; a successful model request alone does not count as delivery.
+Intentional partial results stopped by a run budget retain their normal completion behavior,
+and a turn parked for approval remains delivered rather than starting again.
+
 A desktop reminder on a host with no desktop session (a headless server, a system service) goes
 to every [notify channel](../configure/notifications.md) that takes reminders instead; with none
 configured it is kept as failed with that reason rather than consumed unseen. A chat bridge only marks a reminder
