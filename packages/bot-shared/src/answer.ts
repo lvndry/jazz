@@ -14,13 +14,14 @@
  * point: these are promises about someone's money and someone's data.
  */
 
-import { compositionImagePath } from "./compositions";
+import { compositionImagePath, readCompositionImage } from "./compositions";
 import type { JazzComposition, JazzSuccessEnvelope } from "./jazz-run";
 import {
   bold,
   type Choice,
   code,
   line,
+  type OutgoingFile,
   plainLine,
   type RichText,
   subtle,
@@ -141,7 +142,7 @@ export function followupPrompt(choiceId: string): string | undefined {
  * only whether the surface can offer that as a tap.
  */
 export type CompositionDelivery =
-  | { readonly kind: "image"; readonly path: string; readonly caption: string }
+  | { readonly kind: "image"; readonly file: OutgoingFile; readonly caption: string }
   | { readonly kind: "link"; readonly url: string; readonly title: string }
   | { readonly kind: "unavailable"; readonly body: RichText }
   | { readonly kind: "nothing"; readonly logMessage: string };
@@ -163,13 +164,20 @@ export function planCompositionDelivery(
   options: CompositionDeliveryOptions,
 ): CompositionDelivery {
   if (composition.mode === "static") {
-    const imagePath = compositionImagePath(options.home, composition);
-    return imagePath === undefined
+    // Read here, from the conversation's own compositions, so a surface that uploads the
+    // bytes never opens whatever path the envelope claimed.
+    const path = compositionImagePath(options.home, composition);
+    const image = readCompositionImage(options.home, composition);
+    return path === undefined || image === undefined
       ? {
           kind: "nothing",
           logMessage: `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
         }
-      : { kind: "image", path: imagePath, caption: composition.title };
+      : {
+          kind: "image",
+          file: { path, bytes: image.bytes, filename: image.filename },
+          caption: composition.title,
+        };
   }
 
   const url = options.publish?.(composition);
@@ -201,7 +209,7 @@ export async function deliverComposition(
       return;
     case "image":
       if (surface.sendFile === undefined) return;
-      await surface.sendFile(chatId, delivery.path, delivery.caption);
+      await surface.sendFile(chatId, delivery.file, delivery.caption);
       return;
     case "unavailable":
       await surface.send(chatId, { body: delivery.body });

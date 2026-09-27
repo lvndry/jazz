@@ -20,8 +20,12 @@ from your phone.
 | **Google Chat**  | 🔧 Bring your own bridge        | pattern below                                                                                                     |
 | **Your own app** | 🔧 Bring your own bridge        | pattern below                                                                                                     |
 
-**Be clear on what ships.** Telegram and Discord are containerized services with
-per-conversation model switching, reminders, and live progress. WhatsApp ships as a linked-device
+**Be clear on what ships.** Every bridge runs on one shared turn core
+(`packages/bot-shared/src/turn.ts`): one run at a time per conversation, the same commands
+(`/new`, `/model`, `/persona`, `/mode`, `/remind`, `/reminders`, `/tz`, `/status`), the same
+approval rules, and whatever the platform can show on top (buttons, an edited progress bubble).
+Telegram and Discord are containerized services with per-conversation model switching,
+reminders, and live progress. WhatsApp ships as a linked-device
 command. iMessage has two implementations: Photon provides a hosted line with no Mac required;
 `--local` uses your own Apple account on a Mac. Slack and Google Chat do not ship an adapter.
 

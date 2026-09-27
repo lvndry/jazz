@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -11,6 +11,8 @@ import {
   type Surface,
 } from "./surface";
 import {
+  ALWAYS_ALLOW_CHOICE_ID,
+  APPROVE_ALL_CHOICE_ID,
   APPROVE_CHOICE_ID,
   createTurnRunner,
   type PendingSummary,
@@ -37,9 +39,19 @@ function message(text: string, senderId: string = REQUESTER, chatId = "c1") {
   return { chatId, senderId, text };
 }
 
+function tap(promptId: string, choiceId: string, senderId: string = REQUESTER) {
+  return { chatId: "c1", promptId, choiceId, senderId };
+}
+
 describe("turn runner", () => {
   let dataDir: string;
-  let sent: { text: string; choiceCount: number }[];
+  let sent: {
+    text: string;
+    choiceCount: number;
+    promptId?: string | undefined;
+    choiceIds: string[];
+  }[];
+  let runsStarted: string[];
   let pendingSeen: PendingSummary[][];
   let current: FakeRun | undefined;
   let runner: TurnRunner;
@@ -101,7 +113,12 @@ describe("turn runner", () => {
       maxMessageChars: 4000,
     },
     send: (_chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> => {
-      sent.push({ text: renderPlain(message.body), choiceCount: message.choices?.length ?? 0 });
+      sent.push({
+        text: renderPlain(message.body),
+        choiceCount: message.choices?.length ?? 0,
+        promptId: message.promptId,
+        choiceIds: (message.choices ?? []).map((choice) => choice.id),
+      });
       return Promise.resolve("m1");
     },
   };
@@ -123,6 +140,7 @@ describe("turn runner", () => {
       }),
     );
     sent = [];
+    runsStarted = [];
     pendingSeen = [];
     current = undefined;
 
@@ -144,10 +162,11 @@ describe("turn runner", () => {
         mode: "t-mode.json",
       },
       agentIdFor: (chatId) => `t_${chatId}`,
-      isOperator: (senderId) => senderId === OPERATOR,
+      operators: new Set([OPERATOR]),
       operatorSettingName: "TEST_OPERATOR_IDS",
       onPendingChange: (_chatId, outstanding) => pendingSeen.push([...outstanding]),
-      startRun: (_options, handlers) => {
+      startRun: (options, handlers) => {
+        runsStarted.push(options.prompt);
         const fake = makeFakeRun();
         (fake as unknown as { setHandlers: (h: unknown) => void }).setHandlers(handlers);
         current = fake;
@@ -199,7 +218,7 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
     await Bun.sleep(5);
 
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("answered");
+    expect(await runner.deliverChoice(tap("tc1", APPROVE_CHOICE_ID, REQUESTER))).toBe("answered");
     expect(current?.decisions).toEqual([{ toolCallId: "tc1", approved: true }]);
 
     current?.finish();
@@ -211,8 +230,8 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "read_file" });
     await Bun.sleep(5);
 
-    await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER);
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("expired");
+    await runner.deliverChoice(tap("tc1", APPROVE_CHOICE_ID, REQUESTER));
+    expect(await runner.deliverChoice(tap("tc1", APPROVE_CHOICE_ID, REQUESTER))).toBe("expired");
     expect(current?.decisions).toHaveLength(1);
 
     current?.finish();
@@ -329,7 +348,7 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
     await Bun.sleep(5);
 
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, OTHER_MEMBER)).toBe(
+    expect(await runner.deliverChoice(tap("tc1", APPROVE_CHOICE_ID, OTHER_MEMBER))).toBe(
       "not-requester",
     );
     expect(await runner.deliverAllApprovals("c1", true, OTHER_MEMBER)).toEqual({
@@ -338,7 +357,7 @@ describe("turn runner", () => {
     });
     expect(current?.decisions).toEqual([]);
 
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("answered");
+    expect(await runner.deliverChoice(tap("tc1", APPROVE_CHOICE_ID, REQUESTER))).toBe("answered");
     current?.finish();
     await turn;
   });
@@ -362,6 +381,135 @@ describe("turn runner", () => {
     expect(runner.cancel("c1", OTHER_MEMBER)).toBe("not-requester");
     expect(current?.cancelled()).toBe(false);
     expect(runner.cancel("c1", OPERATOR)).toBe("cancelled");
+    await turn;
+  });
+
+  test("two quick messages run one after the other", async () => {
+    const first = runner.handle(message("first"));
+    const second = runner.handle(message("second"));
+    for (let attempt = 0; runsStarted.length === 0 && attempt < 200; attempt += 1)
+      await Bun.sleep(1);
+    await Bun.sleep(10);
+    expect(runsStarted).toEqual(["first"]);
+
+    // The second message was queued behind the first, so the first handle call is the one
+    // that answers it: finishing both is what lets it return.
+    await second;
+    const firstRun = current;
+    current = undefined;
+    firstRun?.finish();
+    const running = (): FakeRun | undefined => current;
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+      await Bun.sleep(1);
+    expect(runsStarted).toEqual(["first", "second"]);
+    running()?.finish();
+    await first;
+  });
+
+  test("approve all is offered past one approval and clears every one", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "web_search" });
+    current?.emit({ type: "approval_required", toolCallId: "tc2", toolName: "web_search" });
+    await Bun.sleep(5);
+
+    expect(sent.find((entry) => entry.promptId === "tc2")?.choiceIds).toContain(
+      APPROVE_ALL_CHOICE_ID,
+    );
+    expect(sent.find((entry) => entry.promptId === "tc1")?.choiceIds).not.toContain(
+      APPROVE_ALL_CHOICE_ID,
+    );
+    expect(await runner.deliverChoice(tap("tc2", APPROVE_ALL_CHOICE_ID))).toBe("answered");
+    expect(current?.decisions).toEqual([
+      { toolCallId: "tc1", approved: true },
+      { toolCallId: "tc2", approved: true },
+    ]);
+    current?.finish();
+    await turn;
+  });
+
+  test("always allow persists the command for an operator and is refused otherwise", async () => {
+    // Wrapped, like `startTurn`: returning the turn itself would await the whole run.
+    const turnAs = async (senderId: string): Promise<{ turn: Promise<void> }> => {
+      const turn = runner.handle(message("list files", senderId));
+      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1)
+        await Bun.sleep(1);
+      return { turn };
+    };
+    const event = {
+      type: "approval_required",
+      toolCallId: "tc1",
+      toolName: "execute_command",
+      message: "Command: ls -la\nDescription: list",
+    };
+
+    const { turn: memberTurn } = await turnAs(OTHER_MEMBER);
+    current?.emit(event);
+    await Bun.sleep(5);
+    expect(sent.find((entry) => entry.promptId === "tc1")?.choiceIds).toContain(
+      ALWAYS_ALLOW_CHOICE_ID,
+    );
+    expect(await runner.deliverChoice(tap("tc1", ALWAYS_ALLOW_CHOICE_ID, OTHER_MEMBER))).toBe(
+      "not-operator",
+    );
+    expect(current?.decisions).toEqual([]);
+    current?.finish();
+    await memberTurn;
+
+    current = undefined;
+    // Read through a function: after the reset above the compiler narrows `current` to
+    // undefined, though the next run assigns it.
+    const running = (): FakeRun | undefined => current;
+    const { turn: operatorTurn } = await turnAs(OPERATOR);
+    running()?.emit(event);
+    await Bun.sleep(5);
+    expect(await runner.deliverChoice(tap("tc1", ALWAYS_ALLOW_CHOICE_ID, OPERATOR))).toBe(
+      "answered",
+    );
+    expect(running()?.decisions).toEqual([{ toolCallId: "tc1", approved: true }]);
+    const saved = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")) as {
+      autoApprovedCommands?: string[];
+    };
+    expect(saved.autoApprovedCommands).toEqual(["ls"]);
+    running()?.finish();
+    await operatorTurn;
+  });
+
+  test("a follow-up tap starts a new turn with that prompt", async () => {
+    expect(await runner.deliverChoice(tap("followup", "shorter"))).toBe("answered");
+    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
+    expect(runsStarted[0]).toContain("shorter version");
+    current?.finish();
+  });
+
+  test("the cancel button is the requester's or an operator's", async () => {
+    const { turn } = await startTurn();
+    expect(await runner.deliverChoice(tap("run:cancel", "cancel", OTHER_MEMBER))).toBe(
+      "not-requester",
+    );
+    expect(await runner.deliverChoice(tap("run:cancel", "cancel"))).toBe("answered");
+    await turn;
+    expect(current?.cancelled()).toBe(true);
+  });
+
+  test("the mode picker refuses yolo to anyone but an operator", async () => {
+    expect(await runner.deliverChoice(tap("command:mode", "yolo", OTHER_MEMBER))).toBe(
+      "not-operator",
+    );
+    expect(await runner.deliverChoice(tap("command:mode", "yolo", OPERATOR))).toBe("answered");
+    expect(sent.at(-1)?.text).toContain("Mode →");
+  });
+
+  test("a bare /mode on a button surface draws the picker", async () => {
+    await runner.handle(message("/mode@jazz_bot"));
+    expect(sent.at(-1)?.promptId).toBe("command:mode");
+    expect(sent.at(-1)?.choiceIds).toEqual(["safe", "yolo"]);
+  });
+
+  test("/remind runs a turn that asks the agent to add the reminder", async () => {
+    const turn = runner.handle(message("/remind 30m take pizza out"));
+    for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
+    expect(runsStarted).toEqual(["Add a reminder: 30m take pizza out"]);
+    current?.finish();
     await turn;
   });
 

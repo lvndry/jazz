@@ -61,6 +61,10 @@ export interface ProgressReporterOptions {
    * "reply 1 to cancel" would swallow the person's next real message.
    */
   readonly cancelChoice?: Choice;
+  /** What a tap on `cancelChoice` answers, so the bridge can route it back. */
+  readonly cancelPromptId?: string;
+  /** The message this run answers, so the progress display is threaded under it. */
+  readonly replyTo?: MessageRef | undefined;
   /**
    * How often the bubble may be rewritten. Surfaces rate-limit edits at
    * different rates, and a test needs a cadence it can reach without sleeping.
@@ -172,6 +176,7 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
       await surface.edit?.(chatId, messageRef, {
         body,
         ...(withChoices ? { choices: withChoices } : {}),
+        ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
       });
     } catch (error) {
       console.error(`Failed to update progress on ${surface.name}: ${String(error)}`);
@@ -199,6 +204,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
       messageRef = await surface.send(chatId, {
         body: [line(bold(WORKING_HEADER))],
         ...(editable && choices ? { choices } : {}),
+        ...(options.cancelPromptId === undefined ? {} : { promptId: options.cancelPromptId }),
+        ...(options.replyTo === undefined ? {} : { replyTo: options.replyTo }),
       });
       lastRendered = JSON.stringify([line(bold(WORKING_HEADER))]);
       lastSentAt = Date.now();

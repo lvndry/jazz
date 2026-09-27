@@ -89,4 +89,4 @@ else
   echo "Per-chat sandboxes on: each chat runs as its own uid under ${JAZZ_HOME}/chats, readable by group ${OPERATOR_GID} and nobody else." >&2
 fi
 
-exec bun /app/packages/telegram-bot/src/bridge.ts
+exec bun /app/packages/telegram-bot/src/main.ts
