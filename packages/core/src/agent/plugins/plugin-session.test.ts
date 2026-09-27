@@ -491,6 +491,49 @@ it("rejects a non-serializable prepared approval before showing it", async () =>
   expect("isError" in result && result.isError).toBe(true);
 });
 
+it("opens a notification plugin and delivers completion, input, and approval events", async () => {
+  const events = ["run-complete", "awaiting-input", "permission-request"] as const;
+  const written: string[] = [];
+  const session = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [
+        {
+          manifest: { ...manifest, lifecycleHooks: [...events] },
+          module: {
+            apiVersion: 1,
+            register(api) {
+              for (const event of events)
+                api.lifecycle.register({
+                  event,
+                  handler: async (received, context) => {
+                    context.writeTerminalSequence(`\u001b]777;notify;Jazz;${received.event}\u0007`);
+                  },
+                });
+            },
+          },
+        },
+      ],
+      resolveSecret: async () => undefined,
+      writeTerminalSequence: (sequence) => written.push(sequence),
+    }),
+  );
+  try {
+    for (const event of events)
+      await Effect.runPromise(
+        session.emitLifecycle({
+          event,
+          agentId: "a",
+          conversationId: "c",
+          cwd: "/tmp",
+        }),
+      );
+    expect(written).toEqual(events.map((event) => `\u001b]777;notify;Jazz;${event}\u0007`));
+  } finally {
+    await Effect.runPromise(session.close());
+  }
+});
+
 const lifecycleManifest = {
   ...manifest,
   lifecycleHooks: ["run-complete" as const],

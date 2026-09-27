@@ -31,6 +31,11 @@ error. Reading does not rewrite the file or change trust, consent, or enablement
 grants must still match the current disclosure digest; normalization never grants consent.
 
 The module is imported only after the current lock has valid trust, consent, and agent enablement.
+Installation and runtime validation share the lifecycle-event vocabulary in
+`core/types/plugin.ts`, including approval events such as `permission-request`. A plugin declaring
+those events can load alongside its completion and input handlers; unknown or duplicate events
+are rejected at both boundaries.
+
 Registration is synchronous and sealed on return. Hook/provider registrations are session-local so
 concurrent agents cannot overwrite one another. Session disposal is best effort only: in-process ESM
 cannot be unloaded.
