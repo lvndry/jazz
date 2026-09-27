@@ -19,7 +19,11 @@ import type {
 import { type Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { emitTelemetry } from "@/core/utils/telemetry-emit";
-import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
+import {
+  computeUsageCostUSD,
+  isUsageCostIncomplete,
+  type UsageCostPricing,
+} from "@/core/utils/usage-cost";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
@@ -72,6 +76,14 @@ export interface AgentRunMetrics {
   childCostUSD: number;
   /** True once any nested run spent tokens whose pricing was unavailable. */
   childCostUnknown: boolean;
+  /**
+   * USD the run spent on model calls it makes for itself rather than for the user: compaction
+   * summaries, memory extraction and command-risk classification. Folded into `costUSD` and
+   * the cost cap like sub-agent spend.
+   */
+  sideCostUSD: number;
+  /** True once any of those calls spent tokens that could not be priced. */
+  sideCostUnknown: boolean;
   /**
    * True once a model call in this run returned without reporting its token usage, so the
    * token totals, and any cost computed from them, undercount real spend.
@@ -145,6 +157,8 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalCacheWriteTokens: 0,
     childCostUSD: 0,
     childCostUnknown: false,
+    sideCostUSD: 0,
+    sideCostUnknown: false,
     usageMissing: false,
     llmRetryCount: 0,
     toolCalls: 0,
@@ -218,8 +232,11 @@ export function computeRunCost(
     | "totalPromptTokens"
     | "totalCompletionTokens"
     | "totalCacheReadTokens"
+    | "totalCacheWriteTokens"
     | "childCostUSD"
     | "childCostUnknown"
+    | "sideCostUSD"
+    | "sideCostUnknown"
     | "usageMissing"
     | "decisionCostUSD"
     | "decisionCostUnknown"
@@ -228,27 +245,27 @@ export function computeRunCost(
   >,
   pricing: UsageCostPricing | undefined,
 ): RunCost {
-  const ownCostUSD =
-    computeUsageCostUSD(
-      {
-        promptTokens: metrics.totalPromptTokens,
-        completionTokens: metrics.totalCompletionTokens,
-        cacheReadTokens: metrics.totalCacheReadTokens,
-      },
-      pricing,
-    ) ?? undefined;
+  const ownTokens = {
+    promptTokens: metrics.totalPromptTokens,
+    completionTokens: metrics.totalCompletionTokens,
+    cacheReadTokens: metrics.totalCacheReadTokens,
+    cacheWriteTokens: metrics.totalCacheWriteTokens,
+  };
+  const isFreeLocalModel = isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
+  // A self-hosted model costs nothing, even when models.dev lists a hosted price for the same
+  // model name under another provider.
+  const pricedOwnCostUSD = computeUsageCostUSD(ownTokens, pricing) ?? undefined;
+  const ownCostUSD = isFreeLocalModel && pricedOwnCostUSD !== undefined ? 0 : pricedOwnCostUSD;
+  const otherCostUSD = metrics.childCostUSD + metrics.sideCostUSD + (metrics.decisionCostUSD ?? 0);
 
-  // Report the run's own cost plus any sub-agent cost. Emit a figure whenever either
-  // side is known — a run with unpriced parent tokens but priced sub-agents should
-  // still surface the sub-agent spend.
+  // Report the run's own cost plus sub-agent, side-call and decision spend. Emit a figure
+  // whenever any of it is known: a run with unpriced own tokens but priced sub-agents still
+  // surfaces the sub-agent spend.
   const costUSD =
-    ownCostUSD !== undefined || metrics.childCostUSD > 0 || (metrics.decisionCostUSD ?? 0) > 0
-      ? parseFloat(
-          ((ownCostUSD ?? 0) + metrics.childCostUSD + (metrics.decisionCostUSD ?? 0)).toFixed(8),
-        )
+    ownCostUSD !== undefined || otherCostUSD > 0
+      ? parseFloat(((ownCostUSD ?? 0) + otherCostUSD).toFixed(8))
       : undefined;
 
-  const isFreeLocalModel = isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
   const ownCostUnknown =
     !isFreeLocalModel &&
     ((ownCostUSD === undefined && metrics.totalPromptTokens + metrics.totalCompletionTokens > 0) ||
@@ -257,8 +274,45 @@ export function computeRunCost(
   return {
     costUSD,
     costIncomplete:
-      ownCostUnknown || metrics.childCostUnknown || metrics.decisionCostUnknown === true,
+      ownCostUnknown ||
+      (!isFreeLocalModel && isUsageCostIncomplete(ownTokens, pricing)) ||
+      metrics.childCostUnknown ||
+      metrics.sideCostUnknown ||
+      metrics.decisionCostUnknown === true,
   };
+}
+
+/** What a run spent, reported on every exit path. `costUSD` is undefined until something is priced. */
+export interface RunSpendReport extends RunCost {
+  /** Prompt plus completion tokens of the run's own model calls. */
+  readonly totalTokens: number;
+}
+
+/** A run's spend so far, priced the same way its final `costUSD` is. */
+export function runSpendReport(
+  metrics: AgentRunMetrics,
+  pricing: UsageCostPricing | undefined,
+): RunSpendReport {
+  return {
+    ...computeRunCost(metrics, pricing),
+    totalTokens: metrics.totalPromptTokens + metrics.totalCompletionTokens,
+  };
+}
+
+/** Fold a sub-agent's spend into its parent run, whatever way the sub-agent ended. */
+export function recordChildSpend(metrics: AgentRunMetrics, spend: RunCost): void {
+  metrics.childCostUSD += spend.costUSD ?? 0;
+  if (spend.costIncomplete) {
+    metrics.childCostUnknown = true;
+  }
+}
+
+/** Fold the spend of a call the run made for itself (summary, memory, classifier) into it. */
+export function recordSideSpend(metrics: AgentRunMetrics, spend: RunCost): void {
+  metrics.sideCostUSD += spend.costUSD ?? 0;
+  if (spend.costIncomplete) {
+    metrics.sideCostUnknown = true;
+  }
 }
 
 /** Record a completed host-mediated decision-provider call. */

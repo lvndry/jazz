@@ -2,7 +2,11 @@ import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
-import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import {
+  isRunCostKnown,
+  runSpendAsCallSpend,
+  type CallSpend,
+} from "@jazz/core/agent/run/run-spend";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -249,6 +253,8 @@ export function runWorkflowCommand(
   const say = <E, R>(make: () => Effect.Effect<void, E, R>): Effect.Effect<void, E, R> =>
     jsonMode ? Effect.void : Effect.suspend(make);
 
+  // Set when the run ends however it ends, so a failed run's record and envelope carry its spend.
+  let runSpend: CallSpend | undefined;
   const command = Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
@@ -463,6 +469,9 @@ export function runWorkflowCommand(
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+      onRunSpend: (spend) => {
+        runSpend = runSpendAsCallSpend(spend, agent.config.llmProvider, agent.config.llmModel);
+      },
       origin: {
         source: "workflow",
         name: workflowName,
@@ -500,7 +509,8 @@ export function runWorkflowCommand(
           completedAt: new Date().toISOString(),
           status: "failed",
           error: toError(error).message,
-        }),
+          ...(runSpend?.costUSD !== undefined ? { costUSD: runSpend.costUSD } : {}),
+        }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       // The generic top-level error handler renders this failure (e.g. an
       // LLMRateLimitError after retries are exhausted) but never sets the
@@ -585,7 +595,7 @@ export function runWorkflowCommand(
           formatOneShotError(
             getErrorMessage(error),
             { json: true },
-            0,
+            runSpend,
             error instanceof NoUsableAnswerError ? { code: error.code } : {},
           ),
         );

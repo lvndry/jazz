@@ -101,6 +101,19 @@ export type StreamEvent =
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage }
 
+  /**
+   * What the whole run has spent so far (own, sub-agent and side calls), after each model call
+   * and tool batch. A caller that loses the final envelope, because it cancelled the run, can
+   * still account for the money from the last one.
+   */
+  | {
+      type: "run_spend";
+      /** Absent while nothing has been priced. */
+      costUSD?: number;
+      costIncomplete: boolean;
+      totalTokens: number;
+    }
+
   // Tool approval flow (headless consumers can surface gated/declined tools)
   | {
       type: "command_risk_classifying";
