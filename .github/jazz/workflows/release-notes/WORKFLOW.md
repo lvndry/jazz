@@ -17,7 +17,7 @@ maxIterations: 100
 
 # Release Notes Generation
 
-Generate release notes for ****NEW_TAG**** from the commits since ****PREVIOUS_TAG****, and emit them in the exact output format below.
+Generate release notes for **__NEW_TAG__** from the commits since **__PREVIOUS_TAG__**, and emit them in the exact output format below.
 
 ## Context
 
@@ -34,19 +34,17 @@ Generate release notes for ****NEW_TAG**** from the commits since ****PREVIOUS_T
 
 ## Output Format (strict)
 
-The very last thing you output MUST be a single fenced block opened with FOUR backticks and the tag `markdown`, closed with four backticks, with nothing after it. Three backticks would collide with inner `ts / `diff samples and truncate the notes mid-sentence; inner code fences use three backticks and nest cleanly.
+The very last thing you output MUST be a single fenced block opened with FOUR backticks and the tag `markdown`, closed with four backticks, with nothing after it. Three backticks would collide with inner ```ts / ```diff samples and truncate the notes mid-sentence; inner code fences use three backticks and nest cleanly.
 
 The block's content follows this structure:
 
-```markdown
+````markdown
 ## What's Changed
 
 ### [Feature Group Name]
-
 Exciting, funny, product-focused description of what shipped and why users should care. Focus on value and UX.
 
 ### [Another Feature Group]
-
 Same vibe — what changed, what problem it solves, why it's awesome.
 
 ---
@@ -58,8 +56,8 @@ Same vibe — what changed, what problem it solves, why it's awesome.
 
 ## Full diff
 
-[**PREVIOUS_TAG**...**NEW_TAG**](https://github.com/__REPO__/compare/__PREVIOUS_TAG__...__NEW_TAG__)
-```
+[__PREVIOUS_TAG__...__NEW_TAG__](https://github.com/__REPO__/compare/__PREVIOUS_TAG__...__NEW_TAG__)
+````
 
 Each section header is a feature name and its paragraph sells the value. Always close the notes with the full commit list and the diff link (`__REPO__` is substituted with owner/repo, e.g. `lvndry/jazz`).
 
