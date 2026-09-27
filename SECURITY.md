@@ -154,14 +154,15 @@ on the gate.
 
 | Tier            | Auto-approves                                                                                                      |
 | --------------- | ------------------------------------------------------------------------------------------------------------------ |
-| unset / `false` | **Nothing.** Interactive: prompts for every gated call. Unattended: declines them                                  |
+| unset / `false` | **Nothing.** Every gated call asks, or is declined when nobody can answer                                          |
 | `read-only`     | Reads, search, web requests, the agent's own todos/work state/scratchpad, subagents, shell classified inspect-only |
 | `low-risk`      | + memory writes, reminders, triggers, compositions, shell classified low-risk                                      |
 | `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                                               |
 
-Leaving the tier unset is the safe default everywhere because it grants nothing: a workflow
-without `autoApprove`, `jazz run` without `--approval-policy`, and the interactive safe mode all
-ask (or decline) every gated call. An `autoApprove` value Jazz does not recognize is an error,
+Leaving the tier unset is the safe default for unattended work because it grants nothing: a
+workflow without `autoApprove` and `jazz run` without `--approval-policy` decline every gated
+call. Interactive chat, where you are there to answer, starts in safe mode, which is the
+`low-risk` tier: only high-risk calls ask. An `autoApprove` value Jazz does not recognize is an error,
 never a tier. Opting into `high-risk` is always explicit: see
 [Running fully unattended](docs/security/approvals.md#running-fully-unattended-yolo).
 

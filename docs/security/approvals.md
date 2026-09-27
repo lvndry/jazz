@@ -36,8 +36,12 @@ spawning one grants nothing new.
 
 With no policy set, nothing runs unasked. `jazz run` without `--approval-policy`, a workflow
 without `autoApprove`, a woken trigger or goal without a granted tier: each asks for every gated
-call, or declines it when nobody can answer. The interactive terminal's safe mode is the same
-policy, which is why its toast says every tool call requires approval.
+call, or declines it when nobody can answer.
+
+Interactive chat is different because you are at the keyboard. Its **safe mode** is the
+`low-risk` tier: the classifier runs on each shell command, read-only and low-risk tools and
+commands proceed, and anything high-risk asks. Chat starts in safe mode, and `/mode safe`,
+Shift+Tab and the fullscreen toggle all return to it. **Yolo** mode is `high-risk`.
 
 ## Running fully unattended (yolo)
 

@@ -241,7 +241,9 @@ behind another can pick up a policy that changed while it waited.
 asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
 particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
 the verdict as it would to any declared level. So `--approval-policy read-only` runs
-`git log` unattended without also unlocking `rm`.
+`git log` unattended without also unlocking `rm`, and interactive safe mode (the `low-risk`
+tier, `SAFE_MODE_POLICY` in `chat/approval-mode.ts`) skips the prompt for a listing but still
+asks about a push.
 
 The classifier is skipped when it cannot change anything: with no policy or `false` nothing is
 approved, yolo approves either way, the command is already allowlisted, or the level was never
