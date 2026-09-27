@@ -15,13 +15,14 @@
  * Both are injected here, so a new surface gets reminders by supplying those.
  */
 
+import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import {
   chatIsolationEnabled,
   ensureChatSandbox,
   listChatSandboxes,
   sandboxOwnership,
 } from "./chat-sandbox";
-import { acknowledgeReminders, dueReminders, reminderAgentIds } from "./reminder-store";
+import { claimDueReminders, reminderAgentIds, settleReminder } from "./reminder-store";
 import type { Ownership } from "./sandbox-fs";
 import { bold, type ChatId, line, plainLine, type RichText, text } from "./surface";
 
@@ -35,7 +36,7 @@ export const REMINDER_SWEEP_MS = 20_000;
  * restart or a stall, which is worth telling the person about because it
  * changes whether the reminder still makes sense.
  */
-const DELAYED_THRESHOLD_MS = 90_000;
+export const DELAYED_THRESHOLD_MS = 90_000;
 
 export interface ReminderSweepOptions {
   readonly dataDir: string;
@@ -47,6 +48,53 @@ export interface ReminderSweepOptions {
    */
   readonly decodeScope: (agentId: string) => ChatId | undefined;
   readonly send: (chatId: ChatId, body: RichText) => Promise<unknown>;
+}
+
+/**
+ * One surface's side of delivering a reminder: which of the agent ids it owns, and how a
+ * reminder reaches the conversation behind one.
+ */
+export interface ReminderDelivery<Scope> {
+  readonly dataDir: string;
+  /** The conversation an agent id belongs to, or undefined when the id is not this surface's. */
+  readonly decodeScope: (agentId: string) => Scope | undefined;
+  /** Send one reminder; `late` says it is past {@link DELAYED_THRESHOLD_MS}. Throws on failure. */
+  readonly deliver: (scope: Scope, reminderText: string, late: boolean) => Promise<unknown>;
+}
+
+/**
+ * Deliver every due reminder this surface owns, once.
+ *
+ * Each reminder is claimed under its agent's lock before it is sent and removed only after the
+ * send succeeded. A failed send keeps it on disk with the error, to be retried with backoff,
+ * and does not stop the rest of the sweep. A reminder whose agent id this surface cannot map to
+ * a conversation (right now) is never claimed, so it waits instead of being dropped: a surface
+ * that rebuilds its id map after a restart delivers it on a later sweep.
+ */
+export async function deliverDueReminders<Scope>(options: ReminderDelivery<Scope>): Promise<void> {
+  const now = Date.now();
+  for (const target of sweepTargets(options.dataDir)) {
+    for (const agentId of target.agentIds) {
+      // Checked before anything is claimed: another bridge sharing this data directory owns the
+      // reminders this one cannot address, and they are left for it.
+      const scope = options.decodeScope(agentId);
+      if (scope === undefined) continue;
+      const claimed = await claimDueReminders(target.home, agentId, now, target.ownership);
+      for (const reminder of claimed) {
+        let outcome: DeliveryOutcome;
+        try {
+          await options.deliver(scope, reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS);
+          outcome = { delivered: true };
+        } catch (error) {
+          outcome = { delivered: false, error: String(error), retryable: true };
+        }
+        await settleReminder(target.home, agentId, reminder.id, outcome, target.ownership).catch(
+          (error: unknown) =>
+            console.error(`Reminder ${reminder.id} could not be settled: ${String(error)}`),
+        );
+      }
+    }
+  }
 }
 
 let sweepRunning = false;
@@ -89,31 +137,12 @@ export async function sweepRemindersOnce(options: ReminderSweepOptions): Promise
   if (sweepRunning) return;
   sweepRunning = true;
   try {
-    const now = Date.now();
-    for (const target of sweepTargets(options.dataDir)) {
-      for (const agentId of target.agentIds) {
-        // Checked before anything is taken: another bridge sharing this data
-        // directory owns the reminders this one cannot address.
-        const chatId = options.decodeScope(agentId);
-        if (chatId === undefined) continue;
-        // Delivered first and removed after, one at a time: a send that fails leaves that
-        // reminder for the next sweep, and the ones after it still go out.
-        for (const reminder of dueReminders(target.home, agentId, now)) {
-          try {
-            await options.send(
-              chatId,
-              reminderBody(reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS),
-            );
-          } catch (error) {
-            console.error(
-              `Could not deliver reminder ${reminder.id} to ${chatId}: ${String(error)}`,
-            );
-            continue;
-          }
-          await acknowledgeReminders(target.home, agentId, [reminder.id], target.ownership);
-        }
-      }
-    }
+    await deliverDueReminders({
+      dataDir: options.dataDir,
+      decodeScope: options.decodeScope,
+      deliver: (chatId, reminderText, late) =>
+        options.send(chatId, reminderBody(reminderText, late)),
+    });
   } finally {
     sweepRunning = false;
   }

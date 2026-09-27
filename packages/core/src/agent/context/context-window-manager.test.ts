@@ -212,6 +212,32 @@ describe("ContextWindowManager", () => {
       expect(result.messages[0].content).toBe("important system prompt");
       expect(result.messages[0].role).toBe("system");
     });
+
+    it("keeps the compaction summary, its continuation and a pinned task however old", async () => {
+      const manager = new ContextWindowManager({ maxTokens: 120, protectedRecentTurns: 1 });
+      const filler = "x".repeat(200);
+      const messages: ConversationMessages = [
+        makeMessage("system", "system"),
+        makeMessage("user", "the task", { kind: "task" }),
+        makeMessage("assistant", "summary of everything so far", { kind: "summary" }),
+        makeMessage("user", "continue", { kind: "continuation" }),
+        makeMessage("assistant", filler),
+        makeMessage("user", filler),
+        makeMessage("assistant", filler),
+        makeMessage("user", "latest question"),
+      ] as ConversationMessages;
+
+      const result = await Effect.runPromise(
+        manager.trim(messages, mockLogger, "agent-1", "conv-1").pipe(Effect.provide(TestLayer)),
+      );
+
+      const kinds = result.messages.map((message) => message.kind);
+      expect(result.result?.messagesRemoved).toBeGreaterThan(0);
+      expect(kinds).toContain("task");
+      expect(kinds).toContain("summary");
+      expect(kinds).toContain("continuation");
+      expect(result.messages.at(-1)?.content).toBe("latest question");
+    });
   });
 
   describe("getConfig", () => {

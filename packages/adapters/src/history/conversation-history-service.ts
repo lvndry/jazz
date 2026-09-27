@@ -15,12 +15,10 @@
  * saves could each list before the other's append lands, miscounting the retention limit.
  */
 
-import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { toError } from "@jazz/core/utils/errors";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
@@ -39,16 +37,6 @@ export type { Conversation, ConversationSummary, ConversationUiEntry } from "./c
 export interface AgentConversationHistory {
   readonly agentId: string;
   readonly conversations: ConversationSummary[];
-}
-
-/** Creates the lock's parent directory: `withLock`'s mkdir is non-recursive. */
-function ensureLockDirectory(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs
-      .makeDirectory(path.dirname(lockPath), { recursive: true })
-      .pipe(Effect.mapError(toError));
-  });
 }
 
 /**
@@ -75,7 +63,6 @@ export function saveConversation(
     });
   return Effect.gen(function* () {
     yield* assertWritable();
-    yield* ensureLockDirectory(lockPath);
 
     yield* withLock(
       lockPath,

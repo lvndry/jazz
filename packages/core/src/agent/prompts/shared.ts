@@ -4,6 +4,8 @@
  * cross-tool runtime rules and the indexes needed to discover capabilities.
  */
 
+import { UNTRUSTED_TOOL_OUTPUT_RULE } from "@/core/utils/untrusted-content";
+
 /**
  * Canonical machine-grounding block, the single source of truth for the facts
  * the builder injects into persona prompts (Date, OS, Hardware, Shell, Home,
@@ -99,7 +101,7 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
   const sections = [`## Operating rules\n\n${COMPLETION_INSTRUCTIONS.trim()}`];
 
   if (options.hasTools) {
-    const guidance = [TOOL_SELECTION_INSTRUCTIONS];
+    const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
     if (options.hasShell) {
       guidance.push("Use the shell only when no dedicated or deferred tool covers the task.");
     }

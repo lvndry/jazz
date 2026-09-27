@@ -96,7 +96,7 @@ export function describeLoop(
     `Loop ${loop.name} · ${describeLoopSchedule(loop.schedule)} · ${loopStatus(loop, pending)}`,
     `  ${loop.prompt.split("\n").join(" ")}`,
     `  Usage: ${runs} · ${formatCompactCount(loop.usage.totalTokens)} of ${formatCompactCount(loop.budget.maxTokens)} tokens · ${String(Math.round(loop.usage.activeDurationMs / 60_000))} of ${String(Math.round(loop.budget.maxDurationMs / 60_000))} min${loop.budget.expiresAt !== undefined ? ` · ends ${loop.budget.expiresAt}` : ""}`,
-    `  Without asking it may: ${loop.approvalPolicy !== undefined ? UNATTENDED_GRANTS[loop.approvalPolicy] : "use read-only and low-risk tools"}`,
+    `  Without asking it may: ${loop.approvalPolicy !== undefined ? UNATTENDED_GRANTS[loop.approvalPolicy] : "nothing (every gated call waits for you)"}`,
     ...(pending !== undefined ? [`  Waiting on: ${pending.described}`] : []),
     ...(loop.lastRun !== undefined
       ? [

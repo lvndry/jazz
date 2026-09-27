@@ -1,3 +1,4 @@
+/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -5,6 +6,8 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
+import { secretPathReason } from "@/core/utils/secret-paths";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -12,6 +15,7 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -50,6 +54,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
+        });
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
         });
 
         // Check if file exists and read original content for preview diff
@@ -96,6 +111,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
 
         try {
           const parentDir = target.substring(0, target.lastIndexOf("/"));
@@ -125,8 +151,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
             }
           }
 
-          // Write the file content
-          yield* fs.writeFileString(target, args.content);
+          // Old content or new, never a truncated file, however the call is stopped.
+          yield* writeFileAtomically(fs, target, args.content);
 
           // Generate diff for terminal output
           const { diff, wasTruncated } = generateDiffWithMetadata(

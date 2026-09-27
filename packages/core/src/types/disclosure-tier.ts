@@ -70,13 +70,16 @@ export interface TierCandidateTool {
   readonly disclosure: ToolDisclosure;
   /** Whether calling this tool sends model-authored content beyond this machine. */
   readonly egress: boolean;
+  /** See `Tool.peerGrantRequired`: reachable only when `allow` names it. */
+  readonly peerGrantRequired?: boolean;
 }
 
 /**
  * Tools this tier's caller may reach at all.
  *
- * `allow` names tools riskier than read-only or that send data off-machine. Disclosure is
- * silent about both, and an unlisted tool must be absent rather than merely unapproved.
+ * `allow` names tools riskier than read-only, that send data off-machine, or that are marked
+ * `peerGrantRequired`. Disclosure is silent about all three, and an unlisted tool must be
+ * absent rather than merely unapproved.
  */
 export function allowedToolsForTier(
   tier: string,
@@ -93,7 +96,7 @@ export function allowedToolsForTier(
   const allowSet = new Set(allow);
   return tools
     .filter((tool) =>
-      tool.riskLevel === "read-only" && !tool.egress
+      tool.riskLevel === "read-only" && !tool.egress && tool.peerGrantRequired !== true
         ? permitted.includes(tool.disclosure)
         : allowSet.has(tool.name),
     )

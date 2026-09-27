@@ -1,6 +1,6 @@
 /**
- * Which claimed runs (goal cycles, loop runs) this process is executing, and what can be said
- * about a claim's owner from here.
+ * Which claimed runs (goal cycles, loop runs, reminder and wake-trigger deliveries, batch
+ * fan-in) this process is executing, and what can be said about a claim's owner from here.
  *
  * A claim names the process that took it. A claim owned by this process but missing from the
  * in-flight set died here (a defect, an interrupt) and will not settle itself; a claim owned by
@@ -32,6 +32,20 @@ export function claimOwnerStatus(
     return "gone";
   }
   return localOwnerStatus(owner);
+}
+
+/**
+ * Mark a claim as executing in this process from the moment it is taken, before the work is
+ * forked, so a tick that runs in between cannot judge this process's own claim abandoned.
+ * Pair every call with {@link clearInFlight}.
+ */
+export function markInFlight(claimKey: string): void {
+  runsInFlight.add(claimKey);
+}
+
+/** End a claim marked with {@link markInFlight}. */
+export function clearInFlight(claimKey: string): void {
+  runsInFlight.delete(claimKey);
 }
 
 /** Mark a claimed run as executing in this process for the duration of `work`. */

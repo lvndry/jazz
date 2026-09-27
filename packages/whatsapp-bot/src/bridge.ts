@@ -35,7 +35,6 @@ import { connect, type Connection, type WhatsAppMessage } from "./whatsapp";
 
 const STORE_FILES = {
   timezone: "wa-tz.json",
-  usage: "wa-usage.json",
   sessions: "wa-sessions.json",
   mode: "wa-mode.json",
 } as const;
@@ -374,6 +373,7 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "whatsapp",
     agentIdFor: agentIdForChat,
     operators: config.operatorNumbers,
     operatorSettingName: "WHATSAPP_OPERATOR_NUMBERS",

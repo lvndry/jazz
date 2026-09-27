@@ -1,6 +1,6 @@
 import { InteractiveTerminalRequiredError } from "@jazz/core/types/errors";
 import { describe, expect, test } from "bun:test";
-import { exitCodeForFailure, getPresentationConfig } from "./app-layer";
+import { exitCodeForFailure, getPresentationConfig, ShutdownSignalTracker } from "./app-layer";
 
 describe("getPresentationConfig", () => {
   const terminalEnvironment = { TERM: "xterm-256color" };
@@ -178,5 +178,58 @@ describe("exitCodeForFailure", () => {
     const cancellation = new Error("aborted");
     cancellation.name = "ExitPromptError";
     expect(exitCodeForFailure(cancellation)).toBeUndefined();
+  });
+});
+
+describe("ShutdownSignalTracker", () => {
+  function tracker() {
+    const events: string[] = [];
+    const signals = new ShutdownSignalTracker({
+      writeNotice: (message) => events.push(`stderr:${message.trim()}`),
+      requestShutdown: () => events.push("request-shutdown"),
+      reportStopped: (signal) => events.push(`report:${signal}`),
+      exit: (code) => events.push(`exit:${code}`),
+    });
+    return { signals, events };
+  }
+
+  test("the first signal writes to stderr and asks for a graceful stop", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGTERM");
+
+    expect(events).toEqual(["stderr:Received SIGTERM. Shutting down...", "request-shutdown"]);
+    expect(signals.received()).toBe("SIGTERM");
+    expect(signals.stopped()).toBe(false);
+  });
+
+  test("a second signal reports the stop once and exits with the first signal's code", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGTERM");
+    signals.handle("SIGINT");
+    signals.reportStopped();
+
+    expect(events.filter((event) => event.startsWith("report:"))).toEqual(["report:SIGTERM"]);
+    expect(events.at(-1)).toBe("exit:143");
+    expect(events.some((event) => event.includes("Force exiting"))).toBe(true);
+  });
+
+  test("Ctrl+C exits 130", () => {
+    const { signals, events } = tracker();
+
+    signals.handle("SIGINT");
+    signals.handle("SIGINT");
+
+    expect(events).toContain("exit:130");
+  });
+
+  test("reports nothing when no signal arrived", () => {
+    const { signals, events } = tracker();
+
+    signals.reportStopped();
+
+    expect(events).toEqual([]);
+    expect(signals.stopped()).toBe(false);
   });
 });

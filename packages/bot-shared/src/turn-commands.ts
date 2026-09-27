@@ -234,7 +234,7 @@ export function createCommands(context: CommandContext): Commands {
   const handleStatus = async (chatId: ChatId): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
     const agent = context.ensureAgent(chatId, sandbox);
-    const usage = todayUsage(config.jazzHome, config.files.usage);
+    const usage = await todayUsage(config.jazzHome, config.spendOrigin);
     const mode = approvalModeFor(config.jazzHome, config.files.mode, chatId);
     const timezone = tzForChat(config.jazzHome, config.files.timezone, chatId);
     const incognito =

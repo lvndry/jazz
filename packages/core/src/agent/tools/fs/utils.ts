@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { toError } from "@/core/utils/errors";
+import { terminateProcessGroup } from "@/core/utils/process";
 import {
   bindCappedStdio,
   decodeCappedText,
@@ -68,52 +69,51 @@ export function spawnCollect(
     env?: Record<string, string | undefined>;
   } = {},
 ): Effect.Effect<CollectedProcessOutput, never, never> {
-  return Effect.promise<CollectedProcessOutput>(
-    () =>
-      new Promise((resolve) => {
-        const child = spawn(cmd, args, {
-          cwd: options.cwd,
-          stdio: ["ignore", "pipe", "pipe"],
-          env: options.env,
-          timeout: options.timeout ?? 30_000,
-          detached: false,
-        });
+  return Effect.async<CollectedProcessOutput>((resume) => {
+    const child = spawn(cmd, args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: options.env,
+      timeout: options.timeout ?? 30_000,
+      detached: false,
+    });
 
-        const snapshot = bindCappedStdio(
-          child.stdout,
-          child.stderr,
-          DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
-        );
+    const snapshot = bindCappedStdio(child.stdout, child.stderr, DEFAULT_SPAWN_OUTPUT_CAP_BYTES);
 
-        child.on("close", (code: number | null) => {
-          const collected = snapshot();
-          const stdout = decodeCappedText(collected.stdout, {
-            trim: "all",
-            dropIncompleteLastLine: true,
-          });
-          const stderr = decodeCappedText(collected.stderr, {
-            trim: "all",
-            dropIncompleteLastLine: true,
-          });
-          resolve({
-            stdout: stdout.text,
-            stderr: stderr.text,
-            exitCode: code ?? 1,
-            stdoutTruncated: stdout.truncated,
-            stderrTruncated: stderr.truncated,
-          });
-        });
-        child.on("error", (error: Error) => {
-          resolve({
-            stdout: "",
-            stderr: error.message,
-            exitCode: 1,
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          });
-        });
-      }),
-  );
+    child.on("close", (code: number | null) => {
+      const collected = snapshot();
+      const stdout = decodeCappedText(collected.stdout, {
+        trim: "all",
+        dropIncompleteLastLine: true,
+      });
+      const stderr = decodeCappedText(collected.stderr, {
+        trim: "all",
+        dropIncompleteLastLine: true,
+      });
+      resume(
+        Effect.succeed({
+          stdout: stdout.text,
+          stderr: stderr.text,
+          exitCode: code ?? 1,
+          stdoutTruncated: stdout.truncated,
+          stderrTruncated: stderr.truncated,
+        }),
+      );
+    });
+    child.on("error", (error: Error) => {
+      resume(
+        Effect.succeed({
+          stdout: "",
+          stderr: error.message,
+          exitCode: 1,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        }),
+      );
+    });
+
+    return Effect.promise(() => terminateProcessGroup(child));
+  });
 }
 
 /**

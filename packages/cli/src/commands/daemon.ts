@@ -11,9 +11,17 @@
  */
 
 import { randomBytes } from "node:crypto";
+import * as path from "node:path";
 import { announceWaiting, daemonGate } from "@jazz/adapters/daemon/attention";
+import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
+import {
+  forgetOperatorToken,
+  OPERATOR_TOKEN_HEADER,
+  provisionOperatorToken,
+  resolveOperatorToken,
+} from "@jazz/adapters/daemon/operator-token";
 import {
   isLoopback,
   makeA2AHandler,
@@ -50,15 +58,20 @@ import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
+import { resolveWebhookSecret, resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
+import { toError } from "@jazz/core/utils/errors";
+import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
+import { markInterruptedRuns } from "@jazz/core/workflows/run-history";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 import {
@@ -280,11 +293,14 @@ export function daemonCommand(options: DaemonCommandOptions) {
       }
     }
 
+    const operatorToken = yield* resolveOperatorToken();
     const daemonOptions = {
       port: options.port,
       host: options.host,
       ...(token !== undefined ? { token } : {}),
       ...(options.peerAgent !== undefined ? { peerAgent: options.peerAgent } : {}),
+      ...(operatorToken !== undefined ? { operatorToken } : {}),
+      startedByAgent: isAgentStartedProcess(),
     };
 
     const refusal = refuseReason(daemonOptions);
@@ -294,9 +310,20 @@ export function daemonCommand(options: DaemonCommandOptions) {
       return;
     }
 
+    const releaseHomeLock = yield* acquireDaemonHomeLock();
+    if (releaseHomeLock === undefined) {
+      process.exitCode = 1;
+      return;
+    }
+
     const logger = yield* LoggerServiceTag;
     const scheduler = yield* SchedulerServiceTag;
     const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
+    yield* markInterruptedRuns().pipe(
+      Effect.catchAll((error) =>
+        logger.warn("Could not mark interrupted workflow runs", { error: error.message }),
+      ),
+    );
 
     // The whole agent stack, captured once. Each request runs on this rather than on a
     // fresh runtime: `Effect.runPromise` inside the handler would start with an empty
@@ -329,27 +356,27 @@ export function daemonCommand(options: DaemonCommandOptions) {
       const resolvePeers = () => readLive((appConfig) => appConfig.peers ?? []);
       const resolveWebhooks = () => readLive((appConfig) => appConfig.webhooks ?? []);
 
+      // One cache per credential kind, shared by every door that checks it, so the peer door
+      // and `/a2a` never read one peer's token twice within the cache's lifetime.
+      const peerToken = cacheCredentialResolver((peerName) =>
+        Effect.runPromise(resolvePeerToken(peerName)),
+      );
+      const webhookToken = cacheCredentialResolver((webhookName) =>
+        Effect.runPromise(resolveWebhookToken(webhookName)),
+      );
+      const webhookSecret = cacheCredentialResolver((webhookName) =>
+        Effect.runPromise(resolveWebhookSecret(webhookName)),
+      );
+
       const handle = makeHandler(daemonOptions, run);
-      const handlePeer = makePeerHandler(
-        daemonOptions,
-        resolvePeers,
-        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
-        run,
-      );
+      const handlePeer = makePeerHandler(daemonOptions, resolvePeers, peerToken, run);
       const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
-      const handleWebhook = makeWebhookHandler(
-        resolveWebhooks,
-        (webhookName) => Effect.runPromise(resolveWebhookToken(webhookName)),
-        run,
-      );
+      const handleWebhook = makeWebhookHandler(resolveWebhooks, webhookToken, run, {
+        resolveSecret: webhookSecret,
+      });
       // A2A is a second door into the same peer-serving logic `handlePeer` already
       // authenticates and answers through — see `makeA2AHandler`'s own comment.
-      const handleA2A = makeA2AHandler(
-        daemonOptions,
-        resolvePeers,
-        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
-        run,
-      );
+      const handleA2A = makeA2AHandler(daemonOptions, resolvePeers, peerToken, run);
 
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },
@@ -376,9 +403,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
       void writeDaemonPid(daemonOptions.port, process.pid);
 
       // In-process alternative to depending on launchd/crontab existing on the host: every
-      // tick, run whatever workflow catch-up is due and fire any self-registered wake
-      // triggers. A tick that throws is logged and swallowed — one bad tick must never stop
-      // the next one from firing.
+      // tick claims what is due (workflow slots, wake triggers, reminders, jobs, goal cycles,
+      // loop runs) and forks the work itself, so the tick is only reads and short locked
+      // writes and one slow unit never delays another. A tick that throws is logged and
+      // swallowed: one bad tick must never stop the next one from firing.
       const tickIntervalMs = (() => {
         const raw = process.env["JAZZ_DAEMON_TICK_MS"];
         const parsed = raw !== undefined ? Number(raw) : Number.NaN;
@@ -398,8 +426,8 @@ export function daemonCommand(options: DaemonCommandOptions) {
           Effect.sync(() => {
             process.stderr.write(`jazz daemon ${work} tick failed: ${String(error)}\n`);
           });
-        // Triggers and goals share the tick but not its fate: a failing or slow trigger must
-        // not keep goal cycles from being settled and started.
+        // Triggers, goals and loops share the tick but not its fate: a failing claim in one
+        // must not keep the others from being claimed.
         // One gate per tick: paused (by the user or at the daily cap), the workers still settle
         // what is running, but nothing new starts. Announcing runs either way, so a pause or a
         // run waiting on the user is told the moment it happens.
@@ -438,7 +466,11 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-        resume(Effect.void);
+        // The home lock is released before the process ends (a few file operations), so the
+        // next daemon finds nothing of this one's to clean up.
+        void releaseHomeLock()
+          .catch(() => undefined)
+          .finally(() => resume(Effect.void));
       };
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
@@ -447,7 +479,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-      });
+      }).pipe(Effect.zipRight(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
     });
 
     yield* logger.info("Daemon stopped");
@@ -462,6 +494,44 @@ export function daemonCommand(options: DaemonCommandOptions) {
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
+  );
+}
+
+/** The lock one daemon holds per `$JAZZ_HOME` for as long as it runs. */
+function daemonHomeLockPath(): string {
+  return path.join(getJazzHomeDirectory(), "daemon.lock");
+}
+
+/**
+ * How long a starting daemon waits for the home lock: long enough to outlast a daemon that is
+ * shutting down, short enough that a second `jazz daemon` fails promptly.
+ */
+const DAEMON_HOME_LOCK_WAIT_MS = 3_000;
+
+/**
+ * Hold the home-wide daemon lock, so two daemons (on different ports, say) never run the same
+ * schedules against one `$JAZZ_HOME`. Returns its release, or undefined (after saying why) when
+ * another live daemon holds it. A daemon that died leaves a lock the next one reclaims.
+ */
+function acquireDaemonHomeLock() {
+  return Effect.tryPromise({
+    try: () =>
+      acquireFileLock(daemonHomeLockPath(), {
+        maxWaitMs: DAEMON_HOME_LOCK_WAIT_MS,
+        timeoutError: () =>
+          new Error(
+            `Another jazz daemon is already running for ${getJazzHomeDirectory()}. ` +
+              "Stop it with `jazz daemon stop --port <port>` first, or give this one its own --data-dir.",
+          ),
+      }),
+    catch: toError,
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        process.stderr.write(`${error.message}\n`);
+        return undefined;
+      }),
+    ),
   );
 }
 
@@ -599,6 +669,49 @@ export function setDaemonTokenCommand() {
         ? `Generated and stored a daemon token in ${describeKeyringBackend(backend)}: ${token}\n` +
             `Restart the daemon for it to take effect, then send it as a bearer token.\n`
         : `Stored the daemon token in ${describeKeyringBackend(backend)}.\n`,
+    );
+  });
+}
+
+/**
+ * Mint the operator token the daemon asks for on every HTTP grant (see
+ * `@jazz/adapters/daemon/operator-token`), and print it once.
+ *
+ * Refused inside a process a Jazz agent started, since minting it is the operator's decision
+ * about who may grant authority, and refused where there is no OS keyring to keep it out of an
+ * agent's read tools.
+ */
+export function setOperatorTokenCommand() {
+  return Effect.gen(function* () {
+    if (isAgentStartedProcess()) {
+      process.stderr.write(
+        "Minting the operator token is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const provisioned = yield* provisionOperatorToken();
+    if (!provisioned.ok) {
+      process.stderr.write(
+        provisioned.reason === "no-os-keyring"
+          ? "The operator token lives only in the OS keyring (the macOS keychain or the Linux Secret Service), and there is none here. Without it the daemon grants nothing over HTTP; approve runs and accept goals with the CLI on this machine instead.\n"
+          : "Could not write the operator token to the OS keyring.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(
+      `Generated an operator token and stored it in ${describeKeyringBackend(provisioned.backend)}: ${provisioned.token}\n` +
+        `Restart the daemon for it to take effect. Send it as ${OPERATOR_TOKEN_HEADER}, alongside the daemon token, to accept goals, start or resume loops, and approve or answer parked runs over HTTP.\n`,
+    );
+  });
+}
+
+export function forgetOperatorTokenCommand() {
+  return Effect.gen(function* () {
+    yield* forgetOperatorToken();
+    process.stdout.write(
+      "Removed the operator token. After a restart the daemon grants nothing over HTTP.\n",
     );
   });
 }

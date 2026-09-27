@@ -1,5 +1,5 @@
 ---
-description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to disk or delivered to chat while you are away."
+description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to a log, and delivered to your phone or chat through a notify channel."
 ---
 
 # Scheduled runs on a clock
@@ -111,8 +111,8 @@ Either way, catch-up is explicit rather than automatic:
 jazz workflow catchup      # list what missed its slot, pick, run
 ```
 
-It is age-bounded: a missed run older than 24 hours is skipped, and per-workflow
-`maxCatchUpAge` overrides that. A "good morning" briefing at 4 PM is noise, not recovery. The
+It is age-bounded: a missed run older than 24 hours is skipped (and recorded in
+`jazz workflow history` as `skipped`), and per-workflow `maxCatchUpAge` overrides that. A "good morning" briefing at 4 PM is noise, not recovery. The
 separate `catchUpOnRestart` flag covers the in-process daemon, meaning a slot missed because the
 daemon was stopped rather than because the machine was asleep.
 
@@ -132,6 +132,9 @@ In rough order of how much they cost you:
 ---
 
 ## Debugging a scheduled run
+
+History keeps the last 20 runs of each schedule. A run whose process died before it finished
+(a crash, a reboot mid-run) shows as `interrupted` once a daemon or CLI starts again.
 
 ```bash
 jazz workflow scheduled <name>           # is it actually installed, and under which labels?

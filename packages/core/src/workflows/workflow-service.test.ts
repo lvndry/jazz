@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import type { WorkflowMetadata } from "./workflow-service";
+import {
+  parseAutoApprove,
+  parseWorkflowDefinition,
+  resolveWorkflowApprovalPolicy,
+  type WorkflowMetadata,
+} from "./workflow-service";
 
 describe("WorkflowService", () => {
   describe("workflow metadata parsing", () => {
@@ -91,6 +96,77 @@ describe("WorkflowService", () => {
 
       const result = workflowMap.get("test");
       expect(result?.description).toBe("Local");
+    });
+  });
+});
+
+describe("parseAutoApprove", () => {
+  it.each([true, false, "read-only", "low-risk", "high-risk"] as const)("accepts %p", (value) => {
+    expect(parseAutoApprove(value)).toEqual({ ok: true, policy: value });
+  });
+
+  it("reads a missing value as unset", () => {
+    expect(parseAutoApprove(undefined)).toEqual({ ok: true, policy: undefined });
+  });
+
+  it.each(["readonly", "Read-Only", "low_risk", "false", "true", "yolo", null, 1])(
+    "rejects %p with an error naming the valid values",
+    (value) => {
+      const parsed = parseAutoApprove(value);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.error).toContain("false, read-only, low-risk, high-risk, true");
+      }
+    },
+  );
+});
+
+describe("parseWorkflowDefinition autoApprove", () => {
+  it("keeps an invalid workflow in the index with the reason it cannot run", () => {
+    const definition = parseWorkflowDefinition({
+      name: "typo",
+      description: "d",
+      autoApprove: "readonly",
+    });
+    expect(definition?.autoApprove).toBeUndefined();
+    expect(definition?.definitionError).toContain('autoApprove "readonly" is not valid');
+  });
+
+  it("sets no definitionError for a valid or missing value", () => {
+    expect(
+      parseWorkflowDefinition({ name: "a", description: "d" })?.definitionError,
+    ).toBeUndefined();
+    expect(
+      parseWorkflowDefinition({ name: "a", description: "d", autoApprove: "low-risk" })
+        ?.autoApprove,
+    ).toBe("low-risk");
+  });
+});
+
+describe("resolveWorkflowApprovalPolicy", () => {
+  it("runs a workflow without autoApprove at false", () => {
+    expect(resolveWorkflowApprovalPolicy({ name: "a" })).toEqual({ ok: true, policy: false });
+  });
+
+  it("runs a workflow at the policy it declares", () => {
+    expect(resolveWorkflowApprovalPolicy({ name: "a", autoApprove: "high-risk" })).toEqual({
+      ok: true,
+      policy: "high-risk",
+    });
+    expect(resolveWorkflowApprovalPolicy({ name: "a", autoApprove: true })).toEqual({
+      ok: true,
+      policy: true,
+    });
+  });
+
+  it("refuses to run an invalid workflow", () => {
+    const resolved = resolveWorkflowApprovalPolicy({
+      name: "typo",
+      definitionError: 'autoApprove "readonly" is not valid.',
+    });
+    expect(resolved).toEqual({
+      ok: false,
+      error: 'Workflow "typo" cannot run: autoApprove "readonly" is not valid.',
     });
   });
 });

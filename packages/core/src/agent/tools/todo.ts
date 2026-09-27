@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { stateFileMode } from "@/core/utils/private-mode";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
@@ -72,7 +73,11 @@ function readTodos(conversationId: string): Effect.Effect<TodoItem[], Error> {
 function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
   const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
-    try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
+    try: () =>
+      nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      }),
     catch: (error) => new Error(`Failed to write todo file ${filePath}: ${toError(error).message}`),
   });
 }
@@ -112,7 +117,9 @@ export function createManageTodosTool(): Tool<never> {
     description:
       "Replace this conversation's todo list, shown as progress in the UI. Use it for work with three or more distinct steps. Send every item each call. Keep exactly one item in_progress and mark it completed as soon as it is done. Record lasting progress with update_work_state.",
     parameters,
-    riskLevel: "low-risk",
+    // Writes only this agent's own bookkeeping, which nothing outside the run acts on.
+    peerGrantRequired: true,
+    riskLevel: "read-only",
     hidden: false,
     validate: makeZodValidator(parameters),
     createSummary: (result: ToolExecutionResult) => {

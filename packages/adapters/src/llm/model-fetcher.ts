@@ -26,6 +26,25 @@ import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { hasReasoningParser } from "./reasoning";
 
 /**
+ * How long a probe of a local model server (`/props`, `/models`, `/api/show`) may take. These
+ * answer in milliseconds when the server is healthy; a server that accepts the connection and
+ * never replies would otherwise hold run start for Bun's whole fetch timeout.
+ */
+export const LOCAL_SERVER_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * How long listing a provider's models may take. Hosted catalogs can be large and slow, so this
+ * sits well above the local probe budget.
+ */
+const MODEL_LIST_TIMEOUT_MS = 20_000;
+
+/** A request signal that ends at `timeoutMs`, or earlier when the caller's `signal` aborts. */
+function probeSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal === undefined ? timeout : AbortSignal.any([timeout, signal]);
+}
+
+/**
  * Model fetcher: models.dev as single source of metadata
  *
  * Architecture:
@@ -260,6 +279,7 @@ function llamaCppServerRoot(baseUrl: string): string {
 async function fetchLlamaCppProps(
   baseUrl: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<LlamaCppPropsResponse | undefined> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -267,6 +287,7 @@ async function fetchLlamaCppProps(
     const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
       method: "GET",
       headers,
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
     if (!response.ok) return undefined;
     return (await response.json()) as LlamaCppPropsResponse;
@@ -290,6 +311,7 @@ async function fetchLlamaCppProps(
 export async function fetchLlamaCppServerModel(
   baseUrl: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -298,8 +320,9 @@ export async function fetchLlamaCppServerModel(
       fetch(`${baseUrl}/models`, {
         method: "GET",
         headers,
+        signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
       }),
-      fetchLlamaCppProps(baseUrl, apiKey),
+      fetchLlamaCppProps(baseUrl, apiKey, signal),
     ]);
 
     const firstModel = modelsResponse.ok
@@ -322,11 +345,16 @@ async function fetchOpenAICompatibleServerModel(
   baseUrl: string,
   preferredModelId: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
     const headers: Record<string, string> = {};
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-    const response = await fetch(`${baseUrl}/models`, { method: "GET", headers });
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers,
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+    });
     if (!response.ok) return {};
     const models = parseOpenAICompatibleModels(await response.json());
     const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
@@ -349,8 +377,9 @@ export function fetchVllmServerModel(
   baseUrl: string,
   preferredModelId: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
-  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey, signal);
 }
 
 /** Resolve SGLang's currently served model and context window. */
@@ -358,8 +387,9 @@ export function fetchSglangServerModel(
   baseUrl: string,
   preferredModelId: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
-  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey);
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey, signal);
 }
 
 /**
@@ -387,12 +417,14 @@ function extractOllamaContextLength(
 export async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
+  signal?: AbortSignal,
 ): Promise<OllamaShowExtras> {
   try {
     const response = await fetch(`${baseUrl}/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: modelName }),
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
     if (!response.ok) return {};
     const data = (await response.json()) as OllamaShowResponse;
@@ -598,6 +630,7 @@ async function transformOllamaModels(
   data: unknown,
   baseUrl: string,
   modelsDevMap: Map<string, ModelsDevMetadata> | null,
+  signal?: AbortSignal,
 ): Promise<ModelInfo[]> {
   const response = data as { models?: OllamaModel[] };
   const models = response.models ?? [];
@@ -608,7 +641,7 @@ async function transformOllamaModels(
     const batch = models.slice(i, i + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
-        const extras = await fetchOllamaModelDetails(baseUrl, model.name);
+        const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal);
         const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
         const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);
@@ -743,7 +776,7 @@ export function createModelFetcher(): ModelFetcherService {
   return {
     fetchModels: (providerName, baseUrl, endpointPath, apiKey) =>
       Effect.tryPromise({
-        try: async () => {
+        try: async (signal) => {
           const url = `${baseUrl}${endpointPath}`;
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
@@ -782,6 +815,12 @@ export function createModelFetcher(): ModelFetcherService {
           const response = await fetch(url, {
             method: "GET",
             headers,
+            signal: probeSignal(
+              isLocalServerProvider(providerName)
+                ? LOCAL_SERVER_PROBE_TIMEOUT_MS
+                : MODEL_LIST_TIMEOUT_MS,
+              signal,
+            ),
           });
 
           if (!response.ok) {
@@ -807,7 +846,7 @@ export function createModelFetcher(): ModelFetcherService {
           const data: unknown = await response.json();
 
           if (providerName === "ollama") {
-            return transformOllamaModels(data, baseUrl, modelsDevMap);
+            return transformOllamaModels(data, baseUrl, modelsDevMap, signal);
           }
 
           if (providerName === "llamacpp") {

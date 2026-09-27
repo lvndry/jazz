@@ -1,6 +1,7 @@
 /**
- * Interactive `jazz config` wizard — menu-driven editing of LLM providers, web
- * search providers, output display, logging, scheduler mode, and notifications.
+ * Interactive `jazz config` wizard: menu-driven editing of LLM providers, web
+ * search providers, output display, logging, scheduler mode, notifications, and
+ * spend limits.
  */
 
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
@@ -23,6 +24,12 @@ import {
 } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import {
+  applySpendLimit,
+  describeSpendLimit,
+  parseSpendLimitInput,
+  SPEND_LIMIT_SETTINGS,
+} from "./spend-limits";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
 import { store } from "../ui/store";
@@ -38,6 +45,7 @@ type ConfigMenuAction =
   | "scheduler"
   | "logging"
   | "notifications"
+  | "spend-limits"
   | "back";
 
 /**
@@ -55,6 +63,7 @@ export function configWizardCommand() {
         { label: "Scheduler", value: "scheduler" },
         { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
+        { label: "Spend Limits", value: "spend-limits" },
         { label: "Back to Main Menu", value: "back" },
       ];
 
@@ -83,6 +92,10 @@ export function configWizardCommand() {
         }
         case "notifications": {
           yield* configureNotifications();
+          break;
+        }
+        case "spend-limits": {
+          yield* configureSpendLimits();
           break;
         }
         case "back": {
@@ -548,6 +561,61 @@ function configureNotifications() {
         }
       }
 
+      yield* terminal.log("");
+    }
+  });
+}
+
+/**
+ * Day and month spend ceilings for goals and for every run, all unlimited until set. A reached
+ * ceiling stops unattended runs from starting; chat only warns.
+ */
+function configureSpendLimits() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const spend = (yield* configService.appConfig).spend;
+      const selection = yield* terminal.select<string>(
+        "Spend limits (a reached limit stops scheduled and background runs; chat only warns):",
+        {
+          choices: [
+            ...SPEND_LIMIT_SETTINGS.map((setting) => ({
+              name: `${setting.label} (${describeSpendLimit(setting.read(spend))})`,
+              value: setting.key,
+            })),
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      const setting = SPEND_LIMIT_SETTINGS.find((candidate) => candidate.key === selection);
+      if (setting === undefined) {
+        break;
+      }
+
+      const current = setting.read(spend);
+      const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
+        simple: true,
+        cancellable: true,
+        ...(current !== undefined ? { defaultValue: String(current) } : {}),
+        validate: (input) => {
+          const parsed = parseSpendLimitInput(input);
+          return parsed.kind === "invalid" ? parsed.message : true;
+        },
+      });
+      if (raw === undefined) {
+        continue;
+      }
+      const parsed = parseSpendLimitInput(raw);
+      if (parsed.kind === "invalid") {
+        yield* terminal.warn(parsed.message);
+        continue;
+      }
+      yield* applySpendLimit(configService, setting.key, parsed);
+      yield* terminal.success(
+        `${setting.label}: ${parsed.kind === "limit" ? describeSpendLimit(parsed.dollars) : "unlimited"}.`,
+      );
       yield* terminal.log("");
     }
   });

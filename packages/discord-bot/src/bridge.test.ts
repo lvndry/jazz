@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JazzEnvelope, JazzRun } from "@jazz/bot-shared/jazz-run";
-import type { OutgoingMessage } from "@jazz/bot-shared/surface";
+import { renderPlain, type OutgoingMessage } from "@jazz/bot-shared/surface";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type Bridge,
@@ -137,6 +137,29 @@ afterEach(() => {
 const runtime = { botUserId: BOT, applicationId: BOT };
 
 describe("messages", () => {
+  test("parked-run commands retain operator authorization without starting an agent", async () => {
+    bridge = createBridge({ ...config(), operatorIds: new Set() }, fakeSurface(), {
+      startRun: startRun as never,
+      fetchChannel: () =>
+        Promise.resolve({ type: CHANNEL_TYPE_DM, parentId: undefined, guildId: undefined }),
+    });
+    await dispatchMessage(bridge, runtime, dm("/approve run-test"));
+    expect(prompts).toEqual([]);
+    expect(renderPlain(sent.at(-1)?.body ?? [])).toContain("operator can answer a parked run");
+    const previous = sent.length;
+    await dispatchMessage(
+      bridge,
+      runtime,
+      dm("/approve run-test", { author: { id: OWNER, bot: true } }),
+    );
+    expect(sent).toHaveLength(previous);
+  });
+
+  test("status reads this bridge's shared spend origin", async () => {
+    await dispatchMessage(bridge, runtime, dm("/status"));
+    expect(prompts).toEqual([]);
+    expect(renderPlain(sent.at(-1)?.body ?? [])).toContain("Today: 0 runs");
+  });
   test("two quick messages in one conversation run one after the other", async () => {
     const first = dispatchMessage(bridge, runtime, dm("first"));
     const second = dispatchMessage(bridge, runtime, dm("second"));

@@ -3,6 +3,7 @@ import {
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
+import { isEmptyCompletion, judgeAnswer } from "@/core/agent/run/answer-outcome";
 import { DEFAULT_MAX_LLM_RETRIES, LLM_TIMEOUT_SECONDS } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -13,12 +14,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
-import {
-  type LLMError,
-  LLMAuthenticationError,
-  LLMRateLimitError,
-  LLMRequestError,
-} from "@/core/types/errors";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
@@ -33,6 +29,14 @@ import {
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
+
+/**
+ * Transient streaming failures in one step before its remaining attempts switch to a plain
+ * request. More than one, because a single dropped stream is usually just a network blip;
+ * few enough that a provider whose streaming is broken still gets answered well inside the
+ * retry budget.
+ */
+const STREAMING_FAILURES_BEFORE_FALLBACK = 3;
 
 /**
  * Streaming implementation that processes LLM responses in real-time.
@@ -138,7 +142,8 @@ export function executeWithStreaming(
           ) => presentationService.presentStatus(message, level, agent.name);
 
           const retryAttemptRef = yield* Ref.make(0);
-          const streamingRetrySchedule = makeUserVisibleLlmRetrySchedule(
+          const streamingFailuresRef = yield* Ref.make(0);
+          const retrySchedule = makeUserVisibleLlmRetrySchedule(
             maxRetries,
             agent.name,
             showAgentStatus,
@@ -186,44 +191,7 @@ export function executeWithStreaming(
               ),
             );
 
-            const streamExit = yield* Fiber.await(streamFiber).pipe(
-              Effect.raceFirst(Deferred.await(interruptDeferred)),
-            );
-            const isInterrupted = yield* Deferred.isDone(interruptDeferred);
-
-            if (isInterrupted) {
-              yield* streamingResult.cancel.pipe(
-                Effect.catchAll(() =>
-                  logger.debug("Stream cancellation failed", { errorType: "cancel_failed" }),
-                ),
-              );
-              yield* Fiber.interrupt(streamFiber).pipe(
-                Effect.catchAll(() =>
-                  logger.debug("Stream fiber interruption failed", {
-                    errorType: "interrupt_failed",
-                  }),
-                ),
-              );
-
-              const accumulatedText = yield* Ref.get(textAccumulatorRef);
-              yield* renderer
-                .flush()
-                .pipe(
-                  Effect.catchAll(() =>
-                    logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
-                  ),
-                );
-
-              const fromRef = yield* Ref.get(completionRef);
-              const partialCompletion: ChatCompletionResponse = fromRef ?? {
-                id: "interrupted",
-                model,
-                content: accumulatedText,
-              };
-              return { completion: partialCompletion, interrupted: true };
-            }
-
-            const exit = streamExit as Exit.Exit<void, LLMError>;
+            const exit = yield* Fiber.await(streamFiber);
             if (Exit.isFailure(exit)) {
               yield* streamingResult.cancel;
               const errorOption = Cause.failureOption(exit.cause);
@@ -275,9 +243,56 @@ export function executeWithStreaming(
             ),
           );
 
-          return yield* Effect.retry(
-            withLongRunningLlmNotice(agent.name, showAgentStatus, streamingAttempt),
-            streamingRetrySchedule,
+          const nonStreamingAttempt = Effect.suspend(() =>
+            llmService.createChatCompletion(provider, llmOptions),
+          ).pipe(
+            Effect.map((completion) => ({ completion, interrupted: false })),
+            Effect.tapError((error) =>
+              Effect.gen(function* () {
+                recordLLMRetry(runMetrics, error);
+                yield* emitLLMRetry(runMetrics, error);
+              }),
+            ),
+          );
+
+          /**
+           * One attempt of the shared retry loop. After STREAMING_FAILURES_BEFORE_FALLBACK
+           * transient streaming failures the remaining attempts go non-streaming, which
+           * survives the stalls and dropped streams a plain request does not have. A 429
+           * never counts toward that: a rate limit applies to both modes alike.
+           */
+          const attempt = Effect.gen(function* () {
+            const streamingFailures = yield* Ref.get(streamingFailuresRef);
+            if (streamingFailures >= STREAMING_FAILURES_BEFORE_FALLBACK) {
+              return yield* nonStreamingAttempt;
+            }
+            return yield* streamingAttempt.pipe(
+              Effect.tapError((error) =>
+                isRetryableLLMError(error) && !(error instanceof LLMRateLimitError)
+                  ? Ref.updateAndGet(streamingFailuresRef, (count) => count + 1).pipe(
+                      Effect.flatMap((count) =>
+                        count === STREAMING_FAILURES_BEFORE_FALLBACK
+                          ? logger.warn("Streaming failed, falling back to non-streaming mode", {
+                              provider,
+                              model: agent.config.llmModel,
+                              errorType: error._tag,
+                              message: error.message,
+                              agentId: agent.id,
+                              conversationId: actualConversationId,
+                            })
+                          : Effect.void,
+                      ),
+                    )
+                  : Effect.void,
+              ),
+            );
+          });
+
+          // One retry budget and one wall-clock limit for the whole step, whichever mode
+          // each attempt uses.
+          const completionWithRetries = Effect.retry(
+            withLongRunningLlmNotice(agent.name, showAgentStatus, attempt),
+            retrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
             Effect.tapError((error) =>
@@ -288,43 +303,35 @@ export function executeWithStreaming(
                   )
                 : Effect.void,
             ),
-            Effect.catchIf(
-              (error): error is LLMRequestError | LLMRateLimitError => isRetryableLLMError(error),
-              (error) =>
-                Effect.gen(function* () {
-                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                  const fallbackAttemptRef = yield* Ref.make(0);
-                  const fallbackRetrySchedule = makeUserVisibleLlmRetrySchedule(
-                    maxRetries,
-                    agent.name,
-                    showAgentStatus,
-                    fallbackAttemptRef,
-                  );
-                  const completion = yield* Effect.retry(
-                    withLongRunningLlmNotice(
-                      agent.name,
-                      showAgentStatus,
-                      llmService.createChatCompletion(provider, llmOptions).pipe(
-                        Effect.tapError((innerError) =>
-                          Effect.gen(function* () {
-                            recordLLMRetry(runMetrics, innerError);
-                            yield* emitLLMRetry(runMetrics, innerError);
-                          }),
-                        ),
-                      ),
-                    ),
-                    fallbackRetrySchedule,
-                  ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
-                  return { completion, interrupted: false };
-                }),
-            ),
+          );
+
+          /**
+           * What the model had produced when Esc landed. The losing completion is
+           * interrupted by the race, which aborts its provider request through the
+           * stream's finalizer, whether it was streaming, sleeping between retries, or
+           * waiting on the non-streaming fallback.
+           */
+          const interruptedCompletion = Effect.gen(function* () {
+            yield* renderer
+              .flush()
+              .pipe(
+                Effect.catchAll(() =>
+                  logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
+                ),
+              );
+            const accumulatedText = yield* Ref.get(textAccumulatorRef);
+            const fromRef = yield* Ref.get(completionRef);
+            const partialCompletion: ChatCompletionResponse = fromRef ?? {
+              id: "interrupted",
+              model,
+              content: accumulatedText,
+            };
+            return { completion: partialCompletion, interrupted: true };
+          });
+
+          return yield* Effect.raceFirst(
+            completionWithRetries,
+            Deferred.await(interruptDeferred).pipe(Effect.zipRight(interruptedCompletion)),
           );
         });
       },
@@ -334,14 +341,24 @@ export function executeWithStreaming(
         return Effect.void;
       },
 
-      onComplete(agentName, _completion) {
+      onComplete(agentName, completion) {
         return Effect.gen(function* () {
           if (Option.isSome(notificationServiceOption)) {
+            const verdict = judgeAnswer({
+              content: completion.content,
+              ...(completion.artifacts ? { artifacts: completion.artifacts } : {}),
+              ...(completion.finishReason ? { finishReason: completion.finishReason } : {}),
+              emptyCompletion: isEmptyCompletion(completion.content, completion.usage),
+            });
+            const notice =
+              verdict.kind === "failed"
+                ? {
+                    message: `${agentName} finished without an answer. ${verdict.message}`,
+                    title: "Jazz Task Failed",
+                  }
+                : { message: `${agentName} has completed the task.`, title: "Jazz Task Complete" };
             yield* notificationServiceOption.value
-              .notify(`${agentName} has completed the task.`, {
-                title: "Jazz Task Complete",
-                sound: true,
-              })
+              .notify(notice.message, { title: notice.title, sound: true })
               .pipe(Effect.catchAll(() => Effect.void));
           }
         });

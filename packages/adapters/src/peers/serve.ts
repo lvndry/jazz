@@ -34,6 +34,7 @@
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import type { Agent } from "@jazz/core/types";
 import type { PeerConfig } from "@jazz/core/types/peer";
+import { runBudgetOptions } from "@jazz/core/types/remote-door";
 import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
@@ -141,6 +142,7 @@ export function servePeerRequest(request: ServePeerRequest) {
       userInput: `${peerPersonaPreamble(request.peer.name)}\n\nThe question:\n${request.question}`,
       conversationId,
       toolAllowlist,
+      origin: { source: "peer", name: request.peer.name },
       // `toolAllowlist` is the authorization boundary, already vetted above — nothing
       // outside it is ever reachable. `autoApprovedTools` is the wrong lever for this: it is
       // a session-scoped, interactively-originated escape hatch (mutated when a human picks
@@ -151,6 +153,9 @@ export function servePeerRequest(request: ServePeerRequest) {
       autoApprovePolicy: true,
       withholdInteractiveTools: true,
       disablePersistence: true,
+      remoteCaller: { door: "peer", name: request.peer.name },
+      ingestUserInputPaths: false,
+      ...runBudgetOptions(request.peer.budget),
     }).pipe(Effect.either);
 
     if (response._tag === "Right") {

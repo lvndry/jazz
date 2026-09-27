@@ -1,32 +1,45 @@
 /**
- * Daily usage tracking (runs, tokens, cost) per calendar day, shared by the
- * Discord and Telegram bridges — used for the `/status` report and the
- * optional daily spend cap.
+ * Daily usage (runs, tokens, cost) per bridge, for the `/status` report and the optional daily
+ * spend cap (`JAZZ_DAILY_COST_CAP_USD`), shared by every chat bridge.
  *
- * The cost figure itself comes pre-computed from `jazz run --json`'s
- * `costUSD` (see `@jazz/core/utils/usage-cost`); this module only persists
- * and aggregates what each run reports.
- *
- * `fileName` is the per-bridge store file (`dc-usage.json`/`tg-usage.json`);
- * each bridge's own `usage.ts` bakes that in so call sites don't repeat it.
+ * The numbers live in the machine-wide spend ledger under the bridge's `JAZZ_HOME`
+ * (`@jazz/core/spend/ledger`), the same ledger `jazz spend` reads, so a bridge's spend and the
+ * rest of the machine's are one source of truth. Each bridge records under its own origin
+ * ("telegram", "discord", ...), and its cap counts only that origin. The cost itself comes
+ * pre-computed from `jazz run --json`'s `costUSD`; the child run is told not to record itself
+ * (see `bridgeRunEnv`), so nothing is counted twice.
  */
 
-import { readRecordStore, recordStorePath, writeRecordStore } from "./scoped-record-store";
+import { recordSpend, readSpend } from "@jazz/core/spend/ledger";
+import { Effect } from "effect";
 
 export interface DailyUsage {
-  costUSD: number;
-  tokens: number;
-  runs: number;
-  unpricedRuns?: number;
+  readonly costUSD: number;
+  readonly tokens: number;
+  readonly runs: number;
+  readonly unpricedRuns?: number;
 }
 
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+/** What one bridge run spent, as its envelope reports it. */
+export interface BridgeRunUsage {
+  readonly agentId: string;
+  readonly costUSD: number;
+  readonly tokens: number;
+  readonly costKnown: boolean;
 }
 
-export function todayUsage(dataDir: string, fileName: string): DailyUsage {
-  const usage = readRecordStore<DailyUsage>(recordStorePath(dataDir, fileName)) ?? {};
-  return usage[todayKey()] ?? { costUSD: 0, tokens: 0, runs: 0 };
+/** This bridge's spend today, in the machine's local calendar. */
+export async function todayUsage(jazzHome: string, origin: string): Promise<DailyUsage> {
+  const spend = await Effect.runPromise(readSpend(Date.now(), jazzHome));
+  const totals = spend.today.byOrigin[origin];
+  return totals === undefined
+    ? { costUSD: 0, tokens: 0, runs: 0 }
+    : {
+        costUSD: totals.costUSD,
+        tokens: totals.tokens,
+        runs: totals.runs,
+        unpricedRuns: totals.unpricedRuns,
+      };
 }
 
 export function dailyCostCapBlockReason(
@@ -38,36 +51,36 @@ export function dailyCostCapBlockReason(
   return usage.costUSD >= capUSD ? "reached" : undefined;
 }
 
-export function recordUsage(
-  dataDir: string,
-  fileName: string,
-  costUSD: number,
-  tokens: number,
-  costKnown = true,
-): void {
-  const path = recordStorePath(dataDir, fileName);
-  const usage = readRecordStore<DailyUsage>(path) ?? {};
-  const key = todayKey();
-  const day = usage[key] ?? { costUSD: 0, tokens: 0, runs: 0 };
-  usage[key] = {
-    costUSD: day.costUSD + costUSD,
-    tokens: day.tokens + tokens,
-    runs: day.runs + 1,
-    unpricedRuns: (day.unpricedRuns ?? 0) + (costKnown ? 0 : 1),
-  };
-  // Keep the file bounded — drop entries older than 30 days.
-  const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
-  for (const date of Object.keys(usage)) {
-    if (date < cutoff) delete usage[date];
-  }
-  writeRecordStore(path, usage);
+/** Record one bridge run in the ledger. A write failure is logged, never thrown at the chat. */
+export async function recordUsage(
+  jazzHome: string,
+  origin: string,
+  usage: BridgeRunUsage,
+): Promise<void> {
+  await Effect.runPromise(
+    recordSpend(
+      {
+        agentId: usage.agentId,
+        source: "bot",
+        origin,
+        costUSD: usage.costUSD,
+        costKnown: usage.costKnown,
+        tokens: usage.tokens,
+      },
+      jazzHome,
+    ).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => console.error(`Could not record run usage: ${error.message}`)),
+      ),
+    ),
+  );
 }
 
 /**
  * What to tell someone whose message the cap just blocked.
  *
  * The wording is a product promise about money, and it was written out
- * verbatim in each bridge — so it lives with the rule that produces it rather
+ * verbatim in each bridge, so it lives with the rule that produces it rather
  * than being re-typed per surface, where the two would drift.
  */
 export function capBlockMessage(reason: "unpriced" | "reached", capUSD: number): string {

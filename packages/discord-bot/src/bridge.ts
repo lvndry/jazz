@@ -33,6 +33,7 @@ import { createHealthState, type HealthState, healthResponse } from "@jazz/bot-s
 import { saveInboundMedia } from "@jazz/bot-shared/inbound-media";
 import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
+import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answer";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { line, plainLine, subtle, text } from "@jazz/bot-shared/surface";
@@ -42,6 +43,7 @@ import {
   type TurnConfig,
   type TurnRunner,
 } from "@jazz/bot-shared/turn";
+import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import {
   type AccessConfig,
   hasAnyAllowlist,
@@ -86,7 +88,6 @@ import { createDiscordSurface, type DiscordSurface } from "./surface";
 
 const STORE_FILES = {
   timezone: "dc-tz.json",
-  usage: "dc-usage.json",
   sessions: "dc-sessions.json",
   mode: "dc-mode.json",
 } as const;
@@ -449,6 +450,22 @@ export async function dispatchMessage(
     return;
   }
 
+  const parsed = parseCommand(stripped);
+  if (parsed !== undefined && isRunAnswerCommand(parsed.command)) {
+    const reply = await answerRunFromChat({
+      command: parsed.command,
+      args: parsed.args,
+      senderId: message.author.id,
+      operatorIds: bridge.config.operatorIds,
+      operatorSettingName: "DISCORD_OPERATOR_IDS",
+      jazzBinary: bridge.config.jazzBinary,
+      onAccepted: (runId) =>
+        bridge.runner.send(message.channel_id, [plainLine(`⏳ Answering run ${runId}…`)]),
+    });
+    await bridge.runner.send(message.channel_id, [plainLine(reply)]);
+    return;
+  }
+
   try {
     const channelId = await bindThreadIfNeeded(bridge, message, meta, stripped || "attachment");
     const { paths, failures } = await saveAttachments(bridge, channelId, attachments);
@@ -682,6 +699,7 @@ export function createBridge(
     reasoningPartChars: REASONING_PART_CHARS,
     reasoningMaxParts: REASONING_MAX_PARTS,
     files: STORE_FILES,
+    spendOrigin: "discord",
     incognitoFile: INCOGNITO_FILE,
     agentIdFor: agentIdForChannel,
     operators: config.operatorIds,
@@ -691,6 +709,7 @@ export function createBridge(
       : { compositionServer: { publicBaseUrl: config.publicBaseUrl, links: compositions } }),
     publicUrlSettingName: "DISCORD_PUBLIC_BASE_URL",
     extraHelp: [
+      "/approve <runId>, /deny <runId> [why]: answer a parked run (operator only)",
       "",
       "In a server I only reply when mentioned, when you reply to me, or in a thread I already joined.",
     ],

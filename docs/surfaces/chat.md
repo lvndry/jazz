@@ -334,3 +334,6 @@ Full model: [Security](../../SECURITY.md).
 - [`packages/imessage-bot/`](../../packages/imessage-bot/): local iMessage through your Mac
 - [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/): WhatsApp, as a linked device
 - [Local and air-gapped models](../getting-started/local-models.md): keeping inference local and enforcing egress controls
+
+Reminder delivery claims each due item before sending and removes it only after success. Failed
+sends retain their delivery state and retry with backoff, including on Discord’s shared turn core.

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readReminders } from "./reminder-store";
 import { sweepRemindersOnce } from "./reminder-sweep";
 import { renderPlain, type RichText } from "./surface";
 
@@ -26,9 +27,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const remaining = (file: string): string[] =>
-  (JSON.parse(readFileSync(join(dataDir, "reminders", file), "utf8")) as { id: string }[]).map(
-    (reminder) => reminder.id,
-  );
+  readReminders(dataDir, file.slice(0, -5)).map((reminder) => reminder.id);
 
 describe("the reminder sweep", () => {
   test("a failed send keeps that reminder, delivers the rest, and retries next sweep", async () => {
@@ -51,6 +50,12 @@ describe("the reminder sweep", () => {
     expect(remaining("t_1.json")).toEqual(["a"]);
 
     failFirst = false;
+    await sweepRemindersOnce(options);
+    expect(delivered.some((text) => text.includes("first"))).toBe(false);
+    const file = join(dataDir, "reminders", "t_1.json");
+    const state = JSON.parse(readFileSync(file, "utf8"));
+    state.reminders[0].delivery.nextAttemptAt = 0;
+    writeFileSync(file, JSON.stringify(state));
     await sweepRemindersOnce(options);
     expect(delivered.some((text) => text.includes("first"))).toBe(true);
     expect(remaining("t_1.json")).toEqual([]);

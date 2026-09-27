@@ -1,89 +1,78 @@
 /**
  * Implements `JazzStateService`: small persistent key-value state (e.g. "have I shown this
- * prompt before") stored at `~/.jazz/state.json`, distinct from user-facing config.
+ * prompt before") stored at `$JAZZ_HOME/state.json`, distinct from user-facing config.
+ *
+ * Every `set` is a locked read-modify-write of the file, so two Jazz processes setting different
+ * keys both land, and the file is replaced durably. A corrupt file is quarantined rather than
+ * overwritten. Write failures reach the caller.
  */
 
-import { FileSystem } from "@effect/platform";
+import * as path from "node:path";
 import {
   JazzStateServiceTag,
   type JazzState,
   type JazzStateService,
 } from "@jazz/core/interfaces/jazz-state";
-import { safeParseJson } from "@jazz/core/utils/json";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { readStateFile, type StateFileKind, writeStateFile } from "@jazz/core/utils/state-file";
+import { withLock } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
-export function createJazzStateServiceLayer(): Layer.Layer<
-  JazzStateService,
-  never,
-  FileSystem.FileSystem
-> {
+const JAZZ_STATE_FILE_KIND: StateFileKind<Record<string, unknown>> = {
+  noun: "Jazz state",
+  schemaVersion: 1,
+  parse: (document) => {
+    if (!isRecord(document)) {
+      return { ok: false, error: "expected an object" };
+    }
+    const { schemaVersion: _schemaVersion, ...state } = document;
+    return { ok: true, content: state };
+  },
+  serialize: (state) => state,
+};
+
+export interface JazzStateServiceOptions {
+  /** Override for tests; defaults to `$JAZZ_HOME/state.json`. */
+  readonly statePath?: string;
+}
+
+export function createJazzStateServiceLayer(
+  options: JazzStateServiceOptions = {},
+): Layer.Layer<JazzStateService> {
   return Layer.effect(
     JazzStateServiceTag,
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const statePath = `${getJazzHomeDirectory()}/state.json`;
-      let state: JazzState = {};
-
-      function ensureStateDir(): Effect.Effect<void, never> {
-        return Effect.gen(function* () {
-          const dir = statePath.substring(0, statePath.lastIndexOf("/"));
-          yield* fs
-            .makeDirectory(dir, { recursive: true })
-            .pipe(Effect.catchAll(() => Effect.void));
-        });
-      }
-
-      function loadState(): Effect.Effect<void, never> {
-        return Effect.gen(function* () {
-          const exists = yield* fs
-            .exists(statePath)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
-          if (!exists) {
-            state = {};
-            return;
-          }
-          const content = yield* fs
-            .readFileString(statePath)
-            .pipe(Effect.catchAll(() => Effect.succeed("{}")));
-          const parsed = safeParseJson<JazzState>(content);
-          if (
-            parsed._tag === "Some" &&
-            parsed.value &&
-            typeof parsed.value === "object" &&
-            !Array.isArray(parsed.value)
-          ) {
-            state = parsed.value;
-          } else {
-            state = {};
-          }
-        });
-      }
-
-      yield* loadState();
+      const statePath = options.statePath ?? path.join(getJazzHomeDirectory(), "state.json");
+      const lockPath = `${statePath}.lock`;
+      const readState = readStateFile(statePath, JAZZ_STATE_FILE_KIND, {
+        onCorrupt: "quarantine",
+      }).pipe(Effect.map((state) => state ?? {}));
+      let state: Record<string, unknown> = yield* withLock(lockPath, readState).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            console.error(`[jazz] ${statePath} could not be read: ${error.message}`);
+            return {};
+          }),
+        ),
+      );
 
       return {
         get: <A>(key: string): Effect.Effect<A | undefined, never> =>
-          Effect.sync(() => deepGet(state as Record<string, unknown>, key) as A | undefined),
+          Effect.sync(() => deepGet(state, key) as A | undefined),
 
-        set: <A>(key: string, value: A): Effect.Effect<void, never> =>
-          Effect.gen(function* () {
-            deepSet(state as Record<string, unknown>, key, value);
-            yield* ensureStateDir();
-            yield* fs
-              .writeFileString(statePath, JSON.stringify(state, null, 2))
-              .pipe(Effect.catchAll(() => Effect.void));
-          }),
+        set: <A>(key: string, value: A): Effect.Effect<void, Error> =>
+          withLock(
+            lockPath,
+            Effect.gen(function* () {
+              const current = yield* readState;
+              deepSet(current, key, value);
+              yield* writeStateFile(statePath, JAZZ_STATE_FILE_KIND, current);
+              state = current;
+            }),
+          ),
 
-        load: (): Effect.Effect<JazzState, never> => Effect.sync(() => state),
-
-        persist: (): Effect.Effect<void, never> =>
-          Effect.gen(function* () {
-            yield* ensureStateDir();
-            yield* fs
-              .writeFileString(statePath, JSON.stringify(state, null, 2))
-              .pipe(Effect.catchAll(() => Effect.void));
-          }),
+        load: (): Effect.Effect<JazzState, never> => Effect.sync(() => state as JazzState),
       };
     }),
   );

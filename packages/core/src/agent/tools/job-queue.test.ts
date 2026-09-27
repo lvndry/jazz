@@ -36,6 +36,7 @@ const BATCH: JobBatchRecord = {
   reason: "watch the worktree",
   createdAt: 0,
   completedAt: 1,
+  deliveredAt: null,
   jobs: [
     job({
       id: "j1",

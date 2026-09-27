@@ -1,8 +1,13 @@
-import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "bun:test";
+import { Effect, Fiber, Layer } from "effect";
 import { createShellCommandTools, runShellCommand } from "./shell";
 import { SHELL_COMMAND_MAX_TIMEOUT_MS } from "../../constants/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import { terminateProcessGroup } from "../../utils/process";
 
 /**
  * A command killed at its cap has usually already produced the output somebody wanted. The
@@ -74,5 +79,161 @@ describe("the execute_command timeout ceiling", () => {
 
   it("caps the executor deadline at the same value the schema allows", () => {
     expect(tools.execute.timeoutMs).toBe(SHELL_COMMAND_MAX_TIMEOUT_MS);
+  });
+});
+
+/**
+ * A command's children belong to its process group, so stopping the command stops them too, and
+ * a job the command leaves running in the background does not hold the call open.
+ */
+describe("runShellCommand and the processes a command starts", () => {
+  const scratchDirectories: string[] = [];
+  const strayPids: number[] = [];
+
+  afterEach(() => {
+    for (const pid of strayPids.splice(0)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    for (const directory of scratchDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  function pidFile(): string {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-shell-group-"));
+    scratchDirectories.push(directory);
+    return join(directory, "child.pid");
+  }
+
+  async function readPid(path: string): Promise<number> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      try {
+        const pid = Number.parseInt(readFileSync(path, "utf8"), 10);
+        if (Number.isInteger(pid) && pid > 0) {
+          strayPids.push(pid);
+          return pid;
+        }
+      } catch {
+        // Not written yet.
+      }
+      await Bun.sleep(20);
+    }
+    throw new Error(`no pid written to ${path}`);
+  }
+
+  function isAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitUntilGone(pid: number): Promise<boolean> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (!isAlive(pid)) {
+        return true;
+      }
+      await Bun.sleep(20);
+    }
+    return false;
+  }
+
+  it("kills the command's children when the tool call is interrupted", async () => {
+    const path = pidFile();
+    const fiber = Effect.runFork(
+      runShellCommand({
+        command: `sleep 45 & echo $! > '${path}'; wait`,
+        workingDir: process.cwd(),
+        timeoutMs: 30_000,
+        env: process.env,
+      }),
+    );
+    const childPid = await readPid(path);
+
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(await waitUntilGone(childPid)).toBe(true);
+  });
+
+  it("kills the command's children when it runs out of time", async () => {
+    const path = pidFile();
+    const pending = Effect.runPromise(
+      runShellCommand({
+        command: `sleep 45 & echo $! > '${path}'; wait`,
+        workingDir: process.cwd(),
+        timeoutMs: 500,
+        env: process.env,
+      }),
+    );
+    const childPid = await readPid(path);
+    const result = await pending;
+
+    expect(result.exitCode).toBe(124);
+    expect(await waitUntilGone(childPid)).toBe(true);
+  });
+
+  it("lets an interrupted command handle SIGTERM and clean up before it is killed", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-shell-term-"));
+    scratchDirectories.push(directory);
+    const ready = join(directory, "ready");
+    const cleaned = join(directory, "cleaned");
+    const fiber = Effect.runFork(
+      runShellCommand({
+        command: `trap 'echo done > "${cleaned}"; exit 0' TERM; echo up > "${ready}"; while true; do sleep 0.1; done`,
+        workingDir: process.cwd(),
+        timeoutMs: 30_000,
+        env: process.env,
+      }),
+    );
+    for (let attempt = 0; attempt < 100 && !existsSync(ready); attempt++) {
+      await Bun.sleep(20);
+    }
+
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(readFileSync(cleaned, "utf8").trim()).toBe("done");
+  });
+
+  it("kills a command that ignores SIGTERM once the grace period is over", async () => {
+    const path = pidFile();
+    const child = spawn(
+      "sh",
+      ["-c", `trap '' TERM; echo $$ > '${path}'; while true; do sleep 0.1; done`],
+      {
+        detached: true,
+        stdio: "ignore",
+      },
+    );
+    const pid = await readPid(path);
+    const startedAt = Date.now();
+
+    await terminateProcessGroup(child, 300);
+
+    expect(await waitUntilGone(pid)).toBe(true);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(290);
+  });
+
+  it("returns once the shell exits, even while a background job holds its output open", async () => {
+    const path = pidFile();
+    const startedAt = Date.now();
+    const result = await Effect.runPromise(
+      runShellCommand({
+        command: `sleep 45 & echo $! > '${path}'; echo started`,
+        workingDir: process.cwd(),
+        timeoutMs: 30_000,
+        env: process.env,
+      }),
+    );
+    await readPid(path);
+
+    expect(result.stdout.trim()).toBe("started");
+    expect(result.exitCode).toBe(0);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
   });
 });

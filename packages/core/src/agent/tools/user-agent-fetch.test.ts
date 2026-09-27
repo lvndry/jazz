@@ -4,6 +4,9 @@ import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 
 const originalFetch = globalThis.fetch;
 
+/** Resolve every name to a fixed public address, so no test touches real DNS. */
+const policy = { resolveHost: async () => ["93.184.215.14"] };
+
 interface Call {
   readonly url: string;
   readonly userAgent: string | undefined;
@@ -18,7 +21,7 @@ function scriptFetch(statuses: readonly number[]): { calls: Call[] } {
     const headers = (init.headers ?? {}) as Record<string, string>;
     calls.push({ url, userAgent: headers["User-Agent"], accept: headers["Accept"] });
     const status = statuses[index++] ?? 200;
-    return { ok: status < 400, status, body: null } as unknown as Response;
+    return new Response(null, { status });
   }) as unknown as typeof fetch;
   return { calls };
 }
@@ -30,8 +33,8 @@ describe("fetchWithUserAgentFallback", () => {
 
   it("uses the browser User-Agent and does not retry on success", async () => {
     const { calls } = scriptFetch([200]);
-    const response = await fetchWithUserAgentFallback("https://example.com/x");
-    expect(response.status).toBe(200);
+    const response = await fetchWithUserAgentFallback("https://example.com/x", { policy });
+    expect(response.response.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.userAgent).toBe(WEB_FETCH_USER_AGENT);
   });
@@ -40,8 +43,9 @@ describe("fetchWithUserAgentFallback", () => {
     const { calls } = scriptFetch([403, 200]);
     const response = await fetchWithUserAgentFallback("https://example.com/x", {
       accept: "application/pdf,*/*",
+      policy,
     });
-    expect(response.status).toBe(200);
+    expect(response.response.status).toBe(200);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.userAgent).toBe(WEB_FETCH_USER_AGENT);
     expect(calls[1]?.userAgent).toBe(HTTP_USER_AGENT);
@@ -51,8 +55,8 @@ describe("fetchWithUserAgentFallback", () => {
 
   it("does not retry on a non-UA status such as 404", async () => {
     const { calls } = scriptFetch([404]);
-    const response = await fetchWithUserAgentFallback("https://example.com/missing");
-    expect(response.status).toBe(404);
+    const response = await fetchWithUserAgentFallback("https://example.com/missing", { policy });
+    expect(response.response.status).toBe(404);
     expect(calls).toHaveLength(1);
   });
 });

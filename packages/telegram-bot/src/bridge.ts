@@ -35,6 +35,7 @@ import {
 } from "@jazz/bot-shared/dynamic-suggestions";
 import { createHealthState, type HealthState, healthResponse } from "@jazz/bot-shared/health";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
+import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answer";
 import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
@@ -47,6 +48,7 @@ import {
   type TurnConfig,
   type TurnRunner,
 } from "@jazz/bot-shared/turn";
+import { parseCommand } from "@jazz/bot-shared/turn-commands";
 import tzlookup from "tz-lookup";
 import { agentIdForChat, chatIdFromAgentId, syncAgentDisplayName } from "./agents";
 import {
@@ -61,7 +63,6 @@ import { createTelegramSurface, DEFAULT_TELEGRAM_API_BASE, type TelegramSurface 
 
 const STORE_FILES = {
   timezone: "tg-tz.json",
-  usage: "tg-usage.json",
   sessions: "tg-sessions.json",
   mode: "tg-mode.json",
 } as const;
@@ -153,6 +154,12 @@ function parseIdList(raw: string): Set<number> {
       .map((entry) => Number.parseInt(entry, 10))
       .filter((entry) => Number.isFinite(entry)),
   );
+}
+
+function envFlag(name: string, defaultOn: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw.length === 0) return defaultOn;
+  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(): BridgeConfig {
@@ -491,7 +498,23 @@ export function dispatchMessage(bridge: Bridge, message: TelegramMessage | undef
   let work: Promise<void> | undefined;
   const inbound = message === undefined ? undefined : inboundFrom(message);
   if (inbound !== undefined) {
-    work = bridge.runner.handle(inbound);
+    const parsed = parseCommand(inbound.text);
+    work =
+      parsed !== undefined && isRunAnswerCommand(parsed.command)
+        ? answerRunFromChat({
+            command: parsed.command,
+            args: parsed.args,
+            senderId:
+              message?.from?.is_bot === true || message?.from?.id === undefined
+                ? undefined
+                : String(message.from.id),
+            operatorIds: bridge.config.operatorIds,
+            operatorSettingName: "TELEGRAM_OPERATOR_IDS",
+            jazzBinary: bridge.config.jazzBinary,
+            onAccepted: (runId) =>
+              bridge.runner.send(String(chatId), [plainLine(`⏳ Answering run ${runId}…`)]),
+          }).then((reply) => bridge.runner.send(String(chatId), [plainLine(reply)]))
+        : bridge.runner.handle(inbound);
   } else if (
     typeof latitude === "number" &&
     Number.isFinite(latitude) &&
@@ -680,6 +703,7 @@ export function createBridge(
     reasoningPartChars: REASONING_PART_CHARS,
     reasoningMaxParts: REASONING_MAX_PARTS,
     files: STORE_FILES,
+    spendOrigin: "telegram",
     incognitoFile: INCOGNITO_FILE,
     agentIdFor: (chatId) => agentIdForChat(Number.parseInt(chatId, 10)),
     operators: config.operatorIds,
@@ -689,6 +713,7 @@ export function createBridge(
       : { compositionServer: { publicBaseUrl: config.webAppBaseUrl, links: compositions } }),
     publicUrlSettingName: "TELEGRAM_WEBAPP_BASE_URL",
     extraHelp: [
+      "/approve <runId>, /deny <runId> [why]: answer a parked run a notification told you about (operator only)",
       "",
       "📍 Share your location (📎 → Location) and I'll tell you where you are, find nearby places, and set your timezone.",
     ],

@@ -126,6 +126,25 @@ export interface AgentConfig {
   readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>>;
   /** Memory scopes this agent can access. */
   readonly memoryScopes?: readonly string[];
+  /** Where this agent's model-directed requests may connect. */
+  readonly network?: AgentNetworkConfig;
+}
+
+/**
+ * Network reach for the URLs an agent's model chooses (`http_request`, `web_fetch`,
+ * `read_pdf`, headless renders).
+ *
+ * Public internet hosts are always reachable. Loopback, private, link-local and other
+ * non-public addresses are refused unless listed here.
+ */
+export interface AgentNetworkConfig {
+  /**
+   * Private hosts this agent may reach. Each entry is a hostname (`homeassistant.local`), a
+   * `*.suffix` wildcard (`*.lan`), an IP address (`192.168.1.10`, `::1`) or a CIDR block
+   * (`192.168.1.0/24`). A hostname entry allows whatever that name resolves to; an address or
+   * block entry allows those addresses behind any name. At most 64 entries.
+   */
+  readonly allowPrivateHosts?: readonly string[];
 }
 
 /**
