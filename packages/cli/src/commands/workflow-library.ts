@@ -86,6 +86,12 @@ function confirmInstall(
           `Run with --auto-approve or on a schedule, its tools execute without asking up to the "${String(autoApprove)}" tier.`,
         ),
       );
+    } else {
+      yield* terminal.log(
+        chalk.yellow(
+          `autoApprove is ${autoApprove === false ? "false" : "unset"}: on a schedule or with --auto-approve, every gated tool call is declined. Set autoApprove in its frontmatter after installing to let it act unattended.`,
+        ),
+      );
     }
     if (shadows !== undefined) {
       yield* terminal.log(chalk.yellow(`Installing as "${localName}" shadows the ${shadows}.`));

@@ -173,7 +173,9 @@ export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
       "Bulk working files: research dumps, scraped data, long in-progress drafts. " +
       "Never write secrets.",
     parameters: manageWorkspaceParameters,
-    riskLevel: "low-risk",
+    // Writes only this agent's own bookkeeping, which nothing outside the run acts on.
+    peerGrantRequired: true,
+    riskLevel: "read-only",
     hidden: false,
     validate: makeZodValidator(manageWorkspaceParameters),
     handler: (args, context) =>

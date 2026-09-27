@@ -8,6 +8,8 @@ import {
   renderSkillRoutingAdvisory,
   resolveSglangServerModel,
   resolveVllmServerModel,
+  runContextBoundary,
+  runRecordBoundary,
 } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
@@ -98,6 +100,7 @@ const mockPresentationService = {
   presentCompletion: mock(() => Effect.void),
   writeOutput: mock(() => Effect.void),
   writeBlankLine: mock(() => Effect.void),
+  writeError: mock(() => Effect.void),
   formatToolExecutionStart: mock(() => Effect.succeed("Tool starting")),
   formatToolExecutionComplete: mock(() => Effect.succeed("Tool completed")),
   formatToolResult: mock(() => "Tool result"),
@@ -948,5 +951,65 @@ describe("AgentRunner", () => {
 
       expect(lastRequestedToolNames()).toContain("tool2");
     });
+  });
+});
+
+describe("runContextBoundary", () => {
+  it("gives an operator's run its paths, AGENTS.md and preferences", () => {
+    expect(runContextBoundary("default", {})).toEqual({
+      ingestsUserInputPaths: true,
+      injectsProjectInstructions: true,
+      injectsPreferences: true,
+    });
+  });
+
+  it("gives a remote caller's run none of the operator's context", () => {
+    // A `public` caller must learn nothing about the operator, and a path in its text names
+    // a file on this machine it has no right to have uploaded.
+    expect(runContextBoundary("default", { remoteCaller: { door: "peer", name: "sam" } })).toEqual({
+      ingestsUserInputPaths: false,
+      injectsProjectInstructions: false,
+      injectsPreferences: false,
+    });
+  });
+
+  it("stops path ingestion alone when the caller asks for that", () => {
+    expect(runContextBoundary("default", { ingestUserInputPaths: false })).toEqual({
+      ingestsUserInputPaths: false,
+      injectsProjectInstructions: true,
+      injectsPreferences: true,
+    });
+  });
+
+  it("keeps the summarizer off paths and AGENTS.md", () => {
+    const boundary = runContextBoundary("summarizer", {});
+    expect(boundary.ingestsUserInputPaths).toBe(false);
+    expect(boundary.injectsProjectInstructions).toBe(false);
+  });
+});
+
+describe("runRecordBoundary", () => {
+  it("records the limits a resumed run must get back", () => {
+    expect(
+      runRecordBoundary({
+        agent: {} as Agent,
+        userInput: "",
+        toolAllowlist: ["ls"],
+        withholdInteractiveTools: true,
+        disablePersistence: true,
+        remoteCaller: { door: "webhook", name: "deploys" },
+        maxDurationMs: 60_000,
+      }),
+    ).toEqual({
+      toolAllowlist: ["ls"],
+      withholdInteractiveTools: true,
+      disablePersistence: true,
+      remoteCaller: { door: "webhook", name: "deploys" },
+      budget: { maxDurationMs: 60_000 },
+    });
+  });
+
+  it("records nothing for a run with no limits of its own", () => {
+    expect(runRecordBoundary({ agent: {} as Agent, userInput: "" })).toEqual({});
   });
 });

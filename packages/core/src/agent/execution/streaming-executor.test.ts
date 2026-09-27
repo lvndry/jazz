@@ -57,6 +57,7 @@ const mockPresentationService = {
   writeOutput: () => Effect.void,
   presentCompletion: () => Effect.void,
   writeBlankLine: () => Effect.void,
+  writeError: () => Effect.void,
   formatToolExecutionStart: () => Effect.succeed("Starting tool"),
   formatToolExecutionComplete: () => Effect.succeed("Tool completed"),
   formatToolResult: () => "Tool result",

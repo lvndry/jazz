@@ -35,6 +35,7 @@ import {
   StorageError,
   StorageNotFoundError,
   ValidationError,
+  type InteractiveTerminalRequiredError,
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
@@ -48,6 +49,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import {
@@ -91,7 +93,8 @@ export function editAgentCommand(
   | AgentConfigurationError
   | AgentAlreadyExistsError
   | ValidationError
-  | LLMConfigurationError,
+  | LLMConfigurationError
+  | InteractiveTerminalRequiredError,
   | AgentService
   | PersonaService
   | LLMService
@@ -102,6 +105,10 @@ export function editAgentCommand(
   | LoggerService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz agent edit",
+      "Run `jazz agent edit` in a terminal, or edit the agent's JSON file under $JAZZ_HOME/agents/ (normally ~/.jazz/agents/).",
+    );
     const terminal = yield* TerminalServiceTag;
     const agentService = yield* AgentServiceTag;
     let agent = yield* getAgentByIdentifier(agentIdentifier);

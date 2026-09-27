@@ -59,6 +59,35 @@ One asymmetry is worth knowing. A webhook defaults to `internal`, because the op
 its prompt and already settled what it needs. A peer defaults to `none`, because a peer chooses
 its own question and there is nothing to grant until you decide what that stranger may ask.
 
+The answering run is a stranger's run in every other respect too:
+
+- **None of your context.** No standing preferences from your memory and no AGENTS.md reach it,
+  whatever the tier, and a path in the question never attaches a file from your disk.
+- **A budget per peer.** `budget` on the peer's config caps each answer:
+  `{ "maxTokens": 20000, "maxCostUSD": 0.05, "maxDurationMs": 60000 }`, each optional, falling
+  back to your app-wide caps.
+- **A concurrency cap per peer.** `maxConcurrentRuns` (default 4) counts `/peer/ask` and `/a2a`
+  together. Past it the peer gets `429` with `Retry-After`.
+- **A bounded question.** A `/peer/ask` or `/a2a` body over 64 KB is refused while it streams.
+- **Nothing about failures.** A run that fails answers "could not answer" (or a bare JSON-RPC
+  internal error over A2A); the cause goes to the daemon's log.
+
+```json
+{
+  "peers": [
+    {
+      "name": "sam",
+      "disclosure": "internal",
+      "budget": { "maxCostUSD": 0.05 },
+      "maxConcurrentRuns": 2
+    }
+  ]
+}
+```
+
+Two peers whose names differ only in case or punctuation (`sam.b` and `Sam_b`) would read one
+`JAZZ_PEER_TOKEN_SAM_B`, so the config refuses the second one when it loads.
+
 ## The ledger
 
 Every exchange, both directions, verbatim, including what was refused:
