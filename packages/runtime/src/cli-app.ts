@@ -10,7 +10,11 @@ import {
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
-import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
+import {
+  DEFAULT_DAEMON_HOST,
+  DEFAULT_DAEMON_LOG_LINES,
+  DEFAULT_DAEMON_PORT,
+} from "@jazz/core/constants/daemon";
 import {
   companionRole,
   isMediaModality,
@@ -1631,33 +1635,71 @@ function registerDaemonCommand(program: Command): void {
     });
 
   daemonCommand
+    .command("status")
+    .description(
+      "Whether the daemon is running and supervised, its last tick, work in flight, what is waiting, and recent errors. Exits 1 when it is not running.",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) => {
+      const daemonOptions = daemonCommand.opts<{ readonly host: string; readonly port: number }>();
+      return runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon-inspect").then((mod) =>
+            mod.daemonStatusCommand({
+              host: daemonOptions.host,
+              port: daemonOptions.port,
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      );
+    });
+
+  daemonCommand
+    .command("logs")
+    .description(
+      "Print the daemon's recent output ($JAZZ_HOME/logs/daemon.log, or the journal under systemd)",
+    )
+    .option("-f, --follow", "Keep printing new output until interrupted")
+    .option(
+      "-n, --lines <n>",
+      "How many recent lines to print",
+      parsePositiveInt("--lines"),
+      DEFAULT_DAEMON_LOG_LINES,
+    )
+    .action((options: { follow?: boolean; lines: number }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon-inspect").then((mod) =>
+            mod.daemonLogsCommand({ follow: options.follow === true, lines: options.lines }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
     .command("install")
     .description(
-      "Install this as a persistent system service (systemd on Linux, launchd on macOS) so it survives reboots and closed sessions. Needs root.",
+      "Install this as a persistent system service (systemd on Linux, launchd on macOS) so goals, loops, triggers, reminders and jobs survive reboots and closed sessions. Add --serve-peers to also answer peers. Needs root.",
     )
     .option("--yes", "Skip the confirmation prompt")
     .action((options: { yes?: boolean }) => {
       // `daemon` is both a runnable command and the parent of `install`. Commander assigns
-      // duplicate option names to the parent, so defining --serve-peers/--host/--port again
-      // here makes `daemon install --serve-peers …` fail its child's required-option check.
-      // Read the parent's options instead: Commander accepts them after `install`, which keeps
-      // the documented command shape while having one owner for each option.
+      // duplicate option names to the parent, so --serve-peers/--host/--port are read from the
+      // parent: Commander accepts them after `install`, which keeps the documented command
+      // shape while having one owner for each option. Without --serve-peers the service is a
+      // plain supervised daemon that answers no peers.
       const daemonOptions = daemonCommand.opts<{
         readonly servePeers?: string | undefined;
         readonly host: string;
         readonly port: number;
       }>();
-      if (daemonOptions.servePeers === undefined) {
-        process.stderr.write("error: required option '--serve-peers <agentId>' not specified\n");
-        process.exitCode = 1;
-        return;
-      }
-      const agentId = daemonOptions.servePeers;
       return runCliAction(
         () =>
           import("@jazz/cli/commands/daemon").then((mod) =>
             mod.installDaemonServiceCommand({
-              agentId,
+              peerAgent: daemonOptions.servePeers,
               host: daemonOptions.host,
               port: daemonOptions.port,
               yes: options.yes === true,
@@ -2087,6 +2129,69 @@ function registerWakeTriggerCommand(program: Command): void {
         cliRuntimeOptions(program),
       ),
     );
+}
+
+/**
+ * Register `jazz reminders`, `jazz triggers` and `jazz jobs`: list and cancel what agents have
+ * queued. Plural so they never collide with the singular internal commands the host scheduler
+ * and job worker invoke.
+ */
+function registerPendingWorkCommands(program: Command): void {
+  const nouns = [
+    {
+      name: "reminders",
+      description: "See and cancel the reminders agents have set for you",
+      noun: "reminder",
+      list: "listRemindersCommand",
+      cancel: "cancelReminderCommand",
+    },
+    {
+      name: "triggers",
+      description: "See and cancel the wake-ups agents have scheduled to resume a conversation",
+      noun: "wake trigger",
+      list: "listTriggersCommand",
+      cancel: "cancelTriggerCommand",
+    },
+    {
+      name: "jobs",
+      description: "See and cancel background job batches agents have started",
+      noun: "job batch",
+      list: "listJobsCommand",
+      cancel: "cancelJobBatchCommand",
+    },
+  ] as const;
+
+  for (const entry of nouns) {
+    const command = program.command(entry.name).description(entry.description);
+    command
+      .command("list")
+      .description(`List every agent's pending ${entry.noun}s, soonest first`)
+      .option("--agent <id-or-name>", "Only this agent's")
+      .option("--json", "Emit a single JSON envelope")
+      .action((options: { agent?: string; json?: boolean }) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/pending").then((mod) =>
+              mod[entry.list]({ agent: options.agent, json: options.json === true }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+    command
+      .command("cancel <id>")
+      .description(`Cancel a pending ${entry.noun} by the id \`list\` shows`)
+      .option("--agent <id-or-name>", "Only look in this agent's")
+      .action((id: string, options: { agent?: string }) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/pending").then((mod) =>
+              mod[entry.cancel]({ id, agent: options.agent }),
+            ),
+          cliRuntimeOptions(program),
+        ),
+      );
+  }
 }
 
 /** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
@@ -2813,6 +2918,7 @@ export function createCLIApp(): Command {
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);
+  registerPendingWorkCommands(program);
   registerPeersCommands(program);
   registerRunsCommands(program);
   registerWorkflowCommands(program);

@@ -9,6 +9,7 @@
  */
 
 import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import { isDaemonSupervised } from "@jazz/adapters/daemon/service-install";
 import {
   activateGoal,
   answerGoal,
@@ -141,7 +142,13 @@ export function startGoalCommand(options: StartGoalOptions) {
     const daemon = yield* ensureDaemonRunning();
     emitEnvelope(
       options.json,
-      { ok: true, kind: "started", goal: activation.goal, daemon: daemon.kind },
+      {
+        ok: true,
+        kind: "started",
+        goal: activation.goal,
+        daemon: daemon.kind,
+        daemonSupervised: isDaemonSupervised(),
+      },
       `${describePlan(proposal.plan)}\n\n${describeDaemonStart(`Goal ${activation.goal.name ?? activation.goal.goalId}`, daemon)}`,
     );
   }).pipe(
@@ -212,7 +219,7 @@ export function decideProposedGoalCommand(options: {
     const daemon = yield* ensureDaemonRunning();
     emitEnvelope(
       options.json,
-      { ok: true, goal: outcome.goal, daemon: daemon.kind },
+      { ok: true, goal: outcome.goal, daemon: daemon.kind, daemonSupervised: isDaemonSupervised() },
       describeDaemonStart(`Goal ${options.id}`, daemon),
     );
   }).pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
