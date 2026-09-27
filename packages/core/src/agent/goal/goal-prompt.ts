@@ -66,16 +66,16 @@ export function goalCyclePrompt(
     `Progress so far: ${goal.lastProgress ?? "this is the first cycle."}`,
     "",
     "Do the work with tools and verify results with tools; do not change the approval policy, add tools, or widen the scope.",
-    "End this cycle with one JSON object as your entire final message, and nothing else:",
-    '- More work remains: {"status":"continue","summary":"what this cycle did","nextAction":"the next bounded action","completedStepIds":["ids of steps finished and verified in this cycle"]}',
-    '- Every goal criterion is met: {"status":"complete","summary":"...","evidence":[{"criterion":1,"quote":"text copied from a tool result in this cycle that shows criterion 1 is met"}]} with one entry per criterion.',
-    "  Quotes must come from tool output in this cycle. For a criterion that something did not change or did not happen, run a check that prints a confirmation when it holds (for example `cmp -s before after && echo unchanged`) and quote that line.",
+    "End the cycle by calling report_goal_cycle once, as your last tool call, then tell the user in a sentence or two what this cycle did:",
+    '- More work remains: status "continue" with summary, nextAction, and completedStepIds (steps finished and verified in this cycle).',
+    '- Every goal criterion is met: status "complete" with summary and evidence, one {criterion, quote} per criterion.',
+    "  Quotes must be copied from tool output in this cycle. For a criterion that something did not change or did not happen, run a check that prints a confirmation when it holds (for example `cmp -s before after && echo unchanged`) and quote that line.",
     ...(options.attended === true
       ? [
           "The user is in the chat with you. When you need a decision only they can make, ask it with ask_user_question and carry on with their answer in this cycle.",
         ]
-      : ['- You need a decision only the user can make: {"status":"question","question":"..."}']),
-    '- You cannot continue safely: {"status":"blocked","summary":"what is blocked and why"}',
+      : ['- You need a decision only the user can make: status "question" with the question.']),
+    '- You cannot continue safely: status "blocked" with a summary of what stops you and why.',
     "",
     `Original request: ${JSON.stringify(goal.request)}`,
   ].join("\n");

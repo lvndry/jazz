@@ -15,7 +15,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome, AutoApprovePolicy } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
-import type { AgentResponse } from "../types";
+import type { AgentResponse, RunStarter } from "../types";
 import type { RunId } from "./run-state";
 
 export class RunNotResumableError extends Error {
@@ -52,8 +52,8 @@ export interface ResumeRunOptions {
   readonly maxDurationMs?: number;
   readonly maxIterations?: number;
   readonly withholdInteractiveTools?: boolean;
-  /** Set when a loop started the run, so the resumed segment keeps `end_loop`. */
-  readonly inLoop?: boolean;
+  /** What started the run, so the resumed segment keeps the tools that come with it. */
+  readonly startedBy?: RunStarter;
   /**
    * Provider keys for this resumed segment only, layered over the agent's own. A long-lived
    * host process resolves them per segment so a key stored after it started still applies.
@@ -215,7 +215,7 @@ export function resumeRun(options: ResumeRunOptions) {
       ...(options.withholdInteractiveTools !== undefined
         ? { withholdInteractiveTools: options.withholdInteractiveTools }
         : {}),
-      ...(options.inLoop === true ? { inLoop: true } : {}),
+      ...(options.startedBy !== undefined ? { startedBy: options.startedBy } : {}),
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

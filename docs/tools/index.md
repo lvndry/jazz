@@ -19,11 +19,11 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **50** |
+| **Agent-facing tools**                                                  | **51** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
-| Total registered                                                        | 61     |
+| Total registered                                                        | 62     |
 | `read-only`                                                             | 25     |
-| `low-risk`                                                              | 14     |
+| `low-risk`                                                              | 15     |
 | `high-risk`                                                             | 8      |
 | `unknown`                                                               | 3      |
 
@@ -72,7 +72,7 @@ cannot be added without someone deciding.
 
 | Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                      |
+| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                 |
 | `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                          |
 | `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
 
@@ -226,14 +226,16 @@ as chat messages from their own in-process interval, unchanged.
 The agent proposes a goal when a request needs sustained work across several runs. The goal is
 saved as `proposed` and nothing runs until the user accepts the plan: chat asks right after the
 turn, and `jazz goal accept <id>` accepts it elsewhere. Subagents and goal cycles cannot propose
-goals. A loop's own runs get `end_loop`, which stops the loop after the run; nothing else has it,
-and no tool can start a loop. See [Goal lifecycle](../maintainers/goal-lifecycle.md) and
+goals. A goal's own cycles get `report_goal_cycle`, which says where the goal stands (Jazz checks
+the claim against the cycle's tool output), and a loop's own runs get `end_loop`, which stops the
+loop after the run; nothing else has either, and no tool can start a loop. See [Goal lifecycle](../maintainers/goal-lifecycle.md) and
 [`jazz loop`](../commands.md#jazz-loop).
 
-| Tool           | Risk       | Approval pair | What it does                                                                                                                                                |
-| -------------- | ---------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `propose_goal` | `low-risk` | none          | Propose a plan (objective, observable criteria, milestones) for work that must continue over time. Only in interactive chat and `jazz run --propose-goals`. |
-| `end_loop`     | `low-risk` | none          | End the loop the run belongs to, with the reason shown to the user. Only in runs a loop started.                                                            |
+| Tool                | Risk       | Approval pair | What it does                                                                                                                                                |
+| ------------------- | ---------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `propose_goal`      | `low-risk` | none          | Propose a plan (objective, observable criteria, milestones) for work that must continue over time. Only in interactive chat and `jazz run --propose-goals`. |
+| `end_loop`          | `low-risk` | none          | End the loop the run belongs to, with the reason shown to the user. Only in runs a loop started.                                                            |
+| `report_goal_cycle` | `low-risk` | none          | Report the goal's status at the end of a cycle: continue, complete (with evidence quoted from tool output), blocked, or a question. Only in goal cycles.    |
 
 ### Wake Triggers
 

@@ -255,7 +255,7 @@ describe("runDueLoops", () => {
     expect(options?.autoApprovePolicy).toBe("low-risk");
     expect(options?.maxIterations).toBe(12);
     expect(options?.maxTokens).toBe(100_000);
-    expect(options?.inLoop).toBe(true);
+    expect(options?.startedBy).toBe("loop");
     expect(options?.userInput).toContain("Check whether the deploy finished.");
 
     const settled = await current(test, loop.loopId);
@@ -436,7 +436,7 @@ describe("answering a loop's parked run", () => {
     }
 
     expect(runner.seen[0]?.maxTokens).toBe(100_000 - 1_200);
-    expect(runner.seen[0]?.inLoop).toBe(true);
+    expect(runner.seen[0]?.startedBy).toBe("loop");
     const loop = await current(test, parked.loopId);
     expect(loop.state).toEqual({ kind: "completed", reason: "The deploy finished." });
     const conversation = await run(test, loadConversation(AGENT_ID, parked.conversationId));

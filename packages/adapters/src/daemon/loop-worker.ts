@@ -126,7 +126,7 @@ function runLoop(loop: LoopRecord, runId: string) {
         ...caps.caps,
         ...(loop.approvalPolicy !== undefined ? { autoApprovePolicy: loop.approvalPolicy } : {}),
         parkWhenUnattended: true,
-        inLoop: true,
+        startedBy: "loop",
       }),
     );
     yield* finishLoopRun(loop, runId, prior, outcome);
@@ -300,7 +300,9 @@ export function resumeLoopRun(options: ResumeRunOptions) {
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, ...caps.caps, inLoop: true }));
+        const settled = yield* runToOutcome(
+          resumeRun({ ...options, ...caps.caps, startedBy: "loop" }),
+        );
         yield* finishLoopRun(loop, options.runId, prior, settled);
         return settled;
       }),

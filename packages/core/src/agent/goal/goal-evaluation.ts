@@ -28,7 +28,7 @@ const MAX_QUOTE_FRAGMENTS = 3;
  * Tools whose results mostly repeat what the model itself wrote (the content or diff it
  * asked for). Quoting them would let a cycle cite its own words as evidence.
  */
-const SELF_AUTHORED_RESULT_TOOLS = new Set(["write_file", "edit_file"]);
+const SELF_AUTHORED_RESULT_TOOLS = new Set(["write_file", "edit_file", "report_goal_cycle"]);
 
 function makeGoalEvaluationSchema(completedStepId: z.ZodType<string>) {
   return z.discriminatedUnion("status", [

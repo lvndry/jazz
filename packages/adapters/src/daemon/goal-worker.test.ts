@@ -203,6 +203,55 @@ describe("runDueGoals", () => {
     });
   });
 
+  it("completes the goal from a report_goal_cycle call, leaving the answer as plain prose", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const report = {
+      status: "complete",
+      summary: "Header test passes.",
+      evidence: [{ criterion: 1, quote: "1 pass 0 fail" }],
+    };
+    const runner = spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
+      Effect.gen(function* () {
+        test.prompts.push(options);
+        const runId = options.runId ?? "unknown";
+        yield* test.runs.save(record(runId, { kind: "completed", content: "All done." }));
+        const transcript = cycleTranscript(options, "All done.");
+        return {
+          content: "All done.",
+          conversationId: "goal-chat",
+          messages: [
+            ...transcript.slice(0, -1),
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-report",
+                  type: "function",
+                  function: { name: "report_goal_cycle", arguments: JSON.stringify(report) },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              name: "report_goal_cycle",
+              content: JSON.stringify({ success: true, result: { recorded: true } }),
+              tool_call_id: "call-report",
+            },
+            { role: "assistant", content: "All done." },
+          ],
+        } as unknown as AgentResponse;
+      })) as unknown as typeof AgentRunner.run);
+    try {
+      await tick(test);
+    } finally {
+      runner.mockRestore();
+    }
+    expect(test.prompts[0]?.startedBy).toBe("goal");
+    expect((await current(test)).state.kind).toBe("completed");
+  });
+
   it("runs a due cycle, checks its evidence, and completes the goal with the run's spend", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));

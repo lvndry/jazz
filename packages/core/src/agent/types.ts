@@ -44,6 +44,9 @@ export type ChatTurnOptions = Pick<
   | "onDetachedToolComplete"
 >;
 
+/** A durable controller that starts runs on its own: a loop or a goal. */
+export type RunStarter = "loop" | "goal";
+
 export interface AgentRunnerOptions {
   /**
    * The agent to execute.
@@ -166,8 +169,11 @@ export interface AgentRunnerOptions {
    * the rest of the run lost its tools.
    */
   readonly offersGoalProposals?: boolean;
-  /** Set when a loop started this run; only then does it get `end_loop`. */
-  readonly inLoop?: boolean;
+  /**
+   * What started this run when it is not a person: a loop's runs get `end_loop`, a goal's
+   * cycles get `report_goal_cycle`, and no other run gets either.
+   */
+  readonly startedBy?: RunStarter;
   /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.

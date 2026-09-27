@@ -12,6 +12,7 @@ import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool 
 import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
 import { createProposeGoalTool } from "./goal";
+import { createReportGoalCycleTool } from "./goal-report";
 import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
 import { createEndLoopTool } from "./loop";
@@ -261,6 +262,7 @@ export function registerGoalTools(): Effect.Effect<void, Error, ToolRegistry> {
     const registry = yield* ToolRegistryTag;
     yield* registry.registerForCategory(GOALS_CATEGORY)(createProposeGoalTool());
     yield* registry.registerForCategory(GOALS_CATEGORY)(createEndLoopTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createReportGoalCycleTool());
   });
 }
 

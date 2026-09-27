@@ -11,6 +11,8 @@ import {
   spendLimitReached,
   type RunSpend,
 } from "@/core/agent/run/run-spend";
+import { END_LOOP_TOOL_NAME } from "@/core/agent/tools/loop";
+import { lastSucceededToolCall, type ToolCallMessage } from "@/core/agent/tools/tool-call-history";
 import { isValidCronExpression, nextCronRun } from "@/core/utils/cron";
 import type { ProcessOwner } from "@/core/utils/process";
 import { parseDurationMs } from "@/core/utils/time";
@@ -279,51 +281,18 @@ export function loopRunPrompt(loop: LoopRecord): string {
   ].join("\n");
 }
 
-interface ToolCallMessage {
-  readonly role: string;
-  readonly content?: unknown;
-  readonly tool_call_id?: string;
-  readonly tool_calls?: readonly {
-    readonly id: string;
-    readonly function: { readonly name: string; readonly arguments: string };
-  }[];
-}
-
-/**
- * The reason a run asked to end its loop, from its messages: the last `end_loop` call whose
- * result came back without an error.
- */
+/** The reason a run asked to end its loop: the last `end_loop` call that succeeded. */
 export function endLoopRequest(messages: readonly ToolCallMessage[]): string | undefined {
-  const failedCalls = new Set(
-    messages
-      .filter(
-        (message) =>
-          message.role === "tool" &&
-          typeof message.content === "string" &&
-          /"success"\s*:\s*false|"error"\s*:/.test(message.content),
-      )
-      .map((message) => message.tool_call_id),
-  );
-  const answered = new Set(
-    messages.filter((message) => message.role === "tool").map((message) => message.tool_call_id),
-  );
-  const calls = messages.flatMap((message) =>
-    message.role === "assistant" ? (message.tool_calls ?? []) : [],
-  );
-  for (const call of [...calls].reverse()) {
-    if (call.function.name !== "end_loop" || !answered.has(call.id) || failedCalls.has(call.id)) {
-      continue;
-    }
-    try {
-      const reason = (JSON.parse(call.function.arguments) as { reason?: unknown }).reason;
-      if (typeof reason === "string" && reason.trim().length > 0) {
-        return reason.trim();
-      }
-    } catch {
-      continue;
-    }
+  const call = lastSucceededToolCall(messages, END_LOOP_TOOL_NAME);
+  if (call === undefined) {
+    return undefined;
   }
-  return undefined;
+  try {
+    const reason = (JSON.parse(call) as { reason?: unknown }).reason;
+    return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

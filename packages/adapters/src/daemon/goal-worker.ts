@@ -37,6 +37,7 @@ import {
   type SpendBudget,
 } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
+import { goalCycleReport } from "@jazz/core/agent/tools/goal-report";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
@@ -170,14 +171,19 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
     const assistantOutput = [...cycleMessages]
       .reverse()
       .find((message) => message.role === "assistant")?.content;
-    if (assistantOutput === undefined) {
+    const reported = goalCycleReport(cycleMessages);
+    if (reported === undefined && assistantOutput === undefined) {
       const evaluation: GoalEvaluationResult = {
         kind: "invalid",
         reason: "The cycle ended without an answer.",
       };
       return { evaluation, repair: NO_REPAIR };
     }
-    const first = validateGoalEvaluation(assistantOutput, goal.plan, cycleMessages);
+    const first = validateGoalEvaluation(
+      reported ?? assistantOutput ?? "",
+      goal.plan,
+      cycleMessages,
+    );
     if (first.kind === "valid") {
       return { evaluation: first, repair: NO_REPAIR };
     }
@@ -191,7 +197,7 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
         messages: goalEvaluationRepairMessages(
           goal.plan,
           goal.lastProgress,
-          assistantOutput,
+          assistantOutput ?? reported ?? "",
           cycleMessages,
         ),
         temperature: 0,
@@ -408,6 +414,7 @@ function runCycle(
             ? { autoApprovePolicy: goal.approvalPolicy }
             : {}),
         parkWhenUnattended: true,
+        startedBy: "goal",
         conversationHistory: [...(prior?.messages ?? [])],
       }),
     );
@@ -779,7 +786,9 @@ export function resumeGoalRun(options: ResumeRunOptions) {
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, ...caps.caps }));
+        const settled = yield* runToOutcome(
+          resumeRun({ ...options, ...caps.caps, startedBy: "goal" }),
+        );
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),

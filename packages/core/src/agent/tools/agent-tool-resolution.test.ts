@@ -110,17 +110,27 @@ describe("runToolDenials", () => {
     expect([...runToolDenials(agent, undefined, {})].sort()).toEqual([
       "end_loop",
       "propose_goal",
+      "report_goal_cycle",
       "rm",
     ]);
     expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })].sort()).toEqual([
       "end_loop",
+      "report_goal_cycle",
       "rm",
     ]);
   });
 
-  it("gives end_loop only to a run a loop started", () => {
+  it("gives end_loop only to loop runs and report_goal_cycle only to goal cycles", () => {
     const agent = agentWith({});
-    expect(runToolDenials(agent, undefined, { inLoop: true }).has("end_loop")).toBe(false);
-    expect(runToolDenials(agent, undefined, { inLoop: true }).has("propose_goal")).toBe(true);
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("end_loop")).toBe(false);
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("propose_goal")).toBe(true);
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("report_goal_cycle")).toBe(
+      true,
+    );
+    expect(runToolDenials(agent, undefined, { startedBy: "goal" }).has("report_goal_cycle")).toBe(
+      false,
+    );
+    expect(runToolDenials(agent, undefined, { startedBy: "goal" }).has("end_loop")).toBe(true);
+    expect(runToolDenials(agent, undefined, {}).has("report_goal_cycle")).toBe(true);
   });
 });

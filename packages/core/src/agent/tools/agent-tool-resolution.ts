@@ -24,12 +24,14 @@
  */
 
 import { Effect, Option } from "effect";
+import type { RunStarter } from "@/core/agent/types";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { PersonaToolProfile } from "@/core/types/persona";
 import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
+import { REPORT_GOAL_CYCLE_TOOL_NAME } from "./goal-report";
 import { END_LOOP_TOOL_NAME } from "./loop";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
@@ -64,14 +66,17 @@ export function toolDenials(
 export function runToolDenials(
   agent: Agent,
   toolProfile: PersonaToolProfile | undefined,
-  surface: { readonly offersGoalProposals?: boolean; readonly inLoop?: boolean },
+  surface: { readonly offersGoalProposals?: boolean; readonly startedBy?: RunStarter },
 ): ReadonlySet<string> {
   const denied = new Set(toolDenials(agent, toolProfile));
   if (surface.offersGoalProposals !== true) {
     denied.add(PROPOSE_GOAL_TOOL_NAME);
   }
-  if (surface.inLoop !== true) {
+  if (surface.startedBy !== "loop") {
     denied.add(END_LOOP_TOOL_NAME);
+  }
+  if (surface.startedBy !== "goal") {
+    denied.add(REPORT_GOAL_CYCLE_TOOL_NAME);
   }
   return denied;
 }
