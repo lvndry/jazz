@@ -63,6 +63,7 @@ is the same thing.
 | `PHOTON_PROJECT_ID`          | _(asked on first run)_ | Project id from app.photon.codes.                                                            |
 | `PHOTON_PROJECT_SECRET`      | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                       |
 | `PHOTON_ALLOWED_HANDLES`     | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.  |
+| `PHOTON_OPERATOR_HANDLES`    | _(none)_               | Handles allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.          |
 | `JAZZ_HOME`                  | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                     |
 | `JAZZ_PHOTON_AGENT`          | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
 | `JAZZ_APPROVAL_POLICY`       | `low-risk`             | Tier above which tools stop and ask.                                                         |
