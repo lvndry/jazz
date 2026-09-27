@@ -12,7 +12,11 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
-import { killProcessGroup, PIPE_DRAIN_GRACE_MS } from "@/core/utils/process";
+import {
+  PIPE_DRAIN_GRACE_MS,
+  terminateProcessGroup,
+  trackChildProcess,
+} from "@/core/utils/process";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -519,10 +523,13 @@ ${evalCommand}`;
 
 /**
  * Spawn `sh -c command` in a way that Effect can interrupt. The command runs in
- * its own process group, and the interrupt finalizer returned from
- * `Effect.async` SIGKILLs that whole group when the tool fiber is interrupted
- * (Esc, `--timeout`, SIGTERM, a run deadline), so a pipeline or a script's own
- * children die with it. The call resolves when the shell exits: a command that
+ * its own process group. When the tool fiber is interrupted (Esc, `--timeout`,
+ * SIGTERM, a run deadline) or the command runs out of time, the whole group gets
+ * SIGTERM and, after `PROCESS_TERMINATION_GRACE_MS`, SIGKILL
+ * ({@link terminateProcessGroup}), so a pipeline or a script's own children stop
+ * with it and a process that handles SIGTERM can finish writing first. The
+ * interrupt finalizer waits for that, so an interrupted call has stopped
+ * everything it started by the time the interrupt returns. The call resolves when the shell exits: a command that
  * leaves a background job holding stdout (`server &`) returns once the shell
  * is done, after {@link PIPE_DRAIN_GRACE_MS} for the pipes to drain.
  *
@@ -587,7 +594,7 @@ export function runShellCommand(input: {
     // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
       if (child !== undefined) {
-        killProcessGroup(child);
+        void terminateProcessGroup(child);
       }
       const collected = snapshot();
       const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
@@ -626,6 +633,7 @@ export function runShellCommand(input: {
     };
 
     const spawned = child;
+    trackChildProcess(spawned);
     let pipeGraceId: ReturnType<typeof setTimeout> | null = null;
 
     spawned.on("exit", (code, signal) => {
@@ -653,8 +661,7 @@ export function runShellCommand(input: {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-      killProcessGroup(spawned);
-    });
+    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 

@@ -64,6 +64,7 @@ import { SkillsLive } from "@jazz/core/skills/skill-service";
 import type { JazzError } from "@jazz/core/types/errors";
 import { getCurrentCommandName } from "@jazz/core/utils/current-command";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { killTrackedProcesses } from "@jazz/core/utils/process";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { resolveStorageDirectory } from "@jazz/core/utils/storage";
 import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
@@ -414,6 +415,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
         if (notify) notify({ _tag: "request" });
       } else {
         process.stdout.write("\nForce exiting immediately. Some cleanup may be skipped.\n");
+        // Commands run in their own process groups and would outlive this process.
+        killTrackedProcesses();
         process.exit(1);
       }
     }

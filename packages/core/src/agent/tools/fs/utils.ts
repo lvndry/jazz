@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { toError } from "@/core/utils/errors";
+import { terminateProcessGroup } from "@/core/utils/process";
 import {
   bindCappedStdio,
   decodeCappedText,
@@ -111,9 +112,7 @@ export function spawnCollect(
       );
     });
 
-    return Effect.sync(() => {
-      child.kill("SIGKILL");
-    });
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }
 
