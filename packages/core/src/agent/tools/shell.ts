@@ -10,6 +10,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import { killProcessGroup, PIPE_DRAIN_GRACE_MS } from "@/core/utils/process";
@@ -25,19 +26,6 @@ import {
   formatCappedStream,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-
-/**
- * Format a timeout duration for the approval prompt. Unlike `formatDuration`
- * (built for logging elapsed time, where fractional seconds are meaningful),
- * timeouts are always round config values — "15m 0.0s" reads as noise where
- * "15m" reads as an answer.
- */
-function formatTimeoutForApproval(ms: number): string {
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
 
 /**
  * Patterns that block obviously dangerous shell commands before execution.
@@ -710,7 +698,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         return `Command: ${args.command}
 Description: ${description}
 Working Directory: ${workingDir}
-Timeout: ${formatTimeoutForApproval(timeout)}
+Timeout: ${formatDuration(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
       }),

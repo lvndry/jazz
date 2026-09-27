@@ -390,6 +390,11 @@ export interface AgentResponse {
    * that point — a partial result, same as hitting any other cap.
    */
   readonly durationCapped?: boolean;
+  /**
+   * True when the run was stopped because the agent kept repeating the same tool calls after
+   * it had already been told once to change approach. The answer is whatever it had produced.
+   */
+  readonly stalled?: boolean;
 }
 
 /**

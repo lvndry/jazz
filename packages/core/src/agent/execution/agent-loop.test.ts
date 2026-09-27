@@ -155,6 +155,7 @@ function recordingObserver() {
     onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onStalled: (name: string) => Effect.sync(() => void calls.push(`stalled:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onHistoryTrimmed: (name: string, messagesRemoved: number) =>
@@ -934,10 +935,11 @@ describe("executeAgentLoop", () => {
     };
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
-    // Strategy that always returns tool calls (never finishes)
+    // Strategy that always returns tool calls (never finishes), each with fresh arguments so
+    // the run is busy rather than looping.
     const strategy: CompletionStrategy = {
       shouldShowReasoning: false,
-      getCompletion: () =>
+      getCompletion: (_messages, iteration) =>
         Effect.succeed({
           completion: {
             id: "c1",
@@ -947,7 +949,7 @@ describe("executeAgentLoop", () => {
               {
                 id: "call_1",
                 type: "function" as const,
-                function: { name: "test_tool", arguments: "{}" },
+                function: { name: "test_tool", arguments: JSON.stringify({ page: iteration }) },
               },
             ],
           },
@@ -2413,6 +2415,59 @@ describe("executeAgentLoop cost and token caps", () => {
       if (message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0) {
         expect(lastRequest[index + 1]?.role).toBe("tool");
       }
+    }
+  });
+
+  it("stops a run that keeps looping after its meltdown nudge, with stalled", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    let completions = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        completions++;
+        return Effect.succeed({
+          completion: {
+            id: `c${completions}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: `call_${completions}`,
+                type: "function" as const,
+                function: { name: "read_file", arguments: '{"path":"README.md"}' },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const { observer, calls } = recordingObserver();
+
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 100 }),
+          makeRunContext({ maxIterations: 100 }),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(response.stalled).toBe(true);
+      expect(completions).toBe(2 * MELTDOWN_WINDOW_SIZE);
+      expect(calls).toContain("stalled:test-agent");
+      expect(calls.some((entry) => entry.startsWith("limit:"))).toBe(false);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
     }
   });
 });

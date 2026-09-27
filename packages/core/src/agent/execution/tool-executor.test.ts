@@ -217,6 +217,41 @@ describe("ToolExecutor.executeTool", () => {
   });
 });
 
+describe("ToolExecutor.executeTool timeouts", () => {
+  function runWithTool(timeoutMs: number, execution: Effect.Effect<ToolExecutionResult, Error>) {
+    const registry = {
+      getTool: () =>
+        Effect.succeed({ name: "slow_tool", timeoutMs, approvalExecuteToolName: undefined }),
+      executeTool: () => execution,
+    } as unknown as ToolRegistry;
+    return Effect.runPromiseExit(
+      ToolExecutor.executeTool(
+        "slow_tool",
+        {},
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+      ).pipe(Effect.provide(makeTestLayer({ registry }))) as Effect.Effect<
+        ToolExecutionResult,
+        unknown,
+        never
+      >,
+    );
+  }
+
+  it("names the timeout in a unit that fits it", async () => {
+    const exit = await runWithTool(50, Effect.never);
+
+    expect(Exit.isSuccess(exit) && exit.value.error).toBe(
+      "Tool 'slow_tool' timed out after 50ms and was stopped.",
+    );
+  });
+
+  it("leaves a tool's own error alone even when it mentions a timeout", async () => {
+    const exit = await runWithTool(5_000, Effect.fail(new Error("upstream request timed out")));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+});
+
 describe("ToolExecutor.executeToolCall", () => {
   it("should handle invalid JSON arguments", async () => {
     const mockToolRegistry = {

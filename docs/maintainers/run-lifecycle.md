@@ -177,7 +177,9 @@ design:
 Keying on tool _name_ alone would flag the second and third rows as meltdowns, which are
 exactly the behaviors you want. When a meltdown does trip, Jazz injects a message telling
 the agent to stop, summarize what it has, and either output or try a fundamentally
-different approach: then clears the window so it gets a fair chance.
+different approach: then clears the window so it gets a fair chance. A second meltdown after
+that nudge (`MAX_MELTDOWN_NUDGES`) stops the run: the observer warns (`onStalled`) and the
+response carries `stalled: true`.
 
 Unlike budget pressure, this message **is** stored. It's a real event in the run's history
 and the agent should keep remembering that its last approach didn't work.
@@ -268,9 +270,10 @@ Two details worth noting:
 | `Sending LLM request`                          | Top of an iteration: includes iteration number, message count, tool count |
 | `Agent decided to use tools`                   | Tool phase starting, with the chosen tool names                           |
 | `Meltdown detected: injecting recovery signal` | Guard 2 fired; the agent was looping                                      |
+| `Meltdown repeated after a recovery signal`    | Guard 2 fired again after its nudge; the run was stopped                  |
 | `Collapsed duplicate tool calls in batch`      | Guard 3 fired; identical read-only calls in one batch ran once            |
-| `Compacting context`                           | Crossed 80% of the window; a summary is being produced                    |
-| `Tool timeout: <name>`                         | A tool exceeded its timeout; returned as a failed result, not a crash     |
+| `Compacting history to preserve context...`    | Crossed 80% of the window; a summary is being produced                    |
+| `Tool execution timed out`                     | A tool exceeded its timeout; returned as a failed result, not a crash     |
 | `Agent provided final response`                | Loop exiting normally                                                     |
 | `Missing tool results for some tool calls`     | Bug: please open an issue with the log                                    |
 

@@ -20,7 +20,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  type ToolNotFoundError,
+  ToolTimeoutError,
+} from "@/core/types/errors";
 import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
@@ -31,6 +35,7 @@ import {
   type ToolExecutionResult,
   type ToolRiskLevel,
 } from "@/core/types/tools";
+import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
@@ -186,28 +191,21 @@ export class ToolExecutor {
         ? execution.pipe(
             Effect.timeoutFail({
               duration: timeoutMs,
-              onTimeout: () => {
-                const timeoutMinutes = Math.round(timeoutMs / 60000);
-                return new Error(`Operation timed out after '${timeoutMinutes}m'`);
-              },
+              onTimeout: () => new ToolTimeoutError({ toolName: name, timeoutMs }),
             }),
-            Effect.catchAll((error) => {
-              const message = toError(error).message;
-              if (message.includes("timed out")) {
-                Effect.runFork(
-                  logger.warn("Tool execution timed out", {
-                    toolName: toolMeta?.name ?? "unknown",
-                    timeoutMs,
-                  }),
-                );
-                return Effect.succeed({
+            Effect.catchTag("ToolTimeoutError", (timeout) =>
+              Effect.gen(function* () {
+                yield* logger.warn("Tool execution timed out", {
+                  toolName: toolMeta?.name ?? "unknown",
+                  timeoutMs: timeout.timeoutMs,
+                });
+                return {
                   success: false,
                   result: null,
-                  error: message,
-                } satisfies ToolExecutionResult);
-              }
-              return Effect.fail(error);
-            }),
+                  error: `Tool '${timeout.toolName}' timed out after ${formatDuration(timeout.timeoutMs)} and was stopped.`,
+                } satisfies ToolExecutionResult;
+              }),
+            ),
           )
         : execution;
 

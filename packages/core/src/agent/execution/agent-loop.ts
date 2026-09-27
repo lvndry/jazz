@@ -261,6 +261,8 @@ interface LoopState {
   iterationsUsed: number;
   contextPressureWarned: boolean;
   toolCompactionAnnounced: boolean;
+  /** Repetition nudges already sent; a repeat after one stops the run. */
+  meltdownNudges: number;
   /**
    * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
    * the turn may only describe the plan, never start it. Later completions are asked for
@@ -313,6 +315,13 @@ interface LoopDeps {
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
+
+/**
+ * Repetition nudges a run gets before it is stopped. One nudge gives the model a chance to
+ * change approach; a model that fills another window with the same calls after it will not,
+ * and letting it run to the iteration limit only spends money.
+ */
+const MAX_MELTDOWN_NUDGES = 1;
 const MAX_RECENT_WORKSPACE_FILES = 16;
 
 /** Successful built-in file operations are the only source of ambient file activity. */
@@ -498,6 +507,7 @@ interface FinalizeInput {
   costCapped: boolean;
   tokenCapped: boolean;
   durationCapped: boolean;
+  stalled: boolean;
 }
 
 /**
@@ -524,6 +534,7 @@ function finalizeRun(
       costCapped,
       tokenCapped,
       durationCapped,
+      stalled,
     } = input;
     const capped = costCapped || tokenCapped || durationCapped;
     let iterationsUsed = input.iterationsUsed;
@@ -585,6 +596,7 @@ function finalizeRun(
       ...(costCapped ? { costCapped: true } : {}),
       ...(tokenCapped ? { tokenCapped: true } : {}),
       ...(durationCapped ? { durationCapped: true } : {}),
+      ...(stalled ? { stalled: true } : {}),
     };
   });
 }
@@ -682,7 +694,7 @@ function handleToolPhase(
   iterationIndex: number,
   deps: LoopDeps,
 ): Effect.Effect<
-  "continue" | "interrupted",
+  "continue" | "interrupted" | "stalled",
   Error,
   ToolRegistry | LoggerService | AgentConfigService | ToolRequirements | PresentationService
 > {
@@ -725,11 +737,17 @@ function handleToolPhase(
     }
 
     const meltdown = detectMeltdown(state.recentToolCalls);
+    const stalled = meltdown && state.meltdownNudges >= MAX_MELTDOWN_NUDGES;
     if (meltdown) {
-      yield* logger.warn("Meltdown detected — injecting recovery signal", {
-        agentId: agent.id,
-        recentToolCount: Math.min(state.recentToolCalls.length, 10),
-      });
+      yield* logger.warn(
+        stalled
+          ? "Meltdown repeated after a recovery signal: stopping the run"
+          : "Meltdown detected: injecting recovery signal",
+        {
+          agentId: agent.id,
+          recentToolCount: Math.min(state.recentToolCalls.length, 10),
+        },
+      );
       state.recentToolCalls.length = 0;
     }
 
@@ -971,7 +989,8 @@ function handleToolPhase(
 
     // Only after every tool result is in place: a user message between an assistant's
     // tool_calls and their results is an invalid transcript that providers reject.
-    if (meltdown) {
+    if (meltdown && !stalled) {
+      state.meltdownNudges += 1;
       state.currentMessages.push({
         role: "user",
         content:
@@ -1016,8 +1035,13 @@ function handleToolPhase(
         ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
         : {}),
     };
+
+    if (stalled) {
+      yield* observer.onStalled(agent.name);
+      return "stalled" as const;
+    }
+    return "continue" as const;
   }).pipe(
-    Effect.as("continue" as const),
     Effect.catchIf(
       (error): error is GenerationInterruptedError => error instanceof GenerationInterruptedError,
       () =>
@@ -1040,7 +1064,8 @@ function withoutToolCalls(completion: ChatCompletionResponse): ChatCompletionRes
   return rest;
 }
 
-type RunIterationResult = { kind: "continue" } | { kind: "final" } | { kind: "interrupted" };
+type RunIterationResult =
+  { kind: "continue" } | { kind: "final" } | { kind: "interrupted" } | { kind: "stalled" };
 
 /**
  * Runs one full loop iteration: context compaction, LLM request logging,
@@ -1448,6 +1473,9 @@ function runIteration(
       if (toolPhase === "interrupted") {
         return { kind: "interrupted" } as const;
       }
+      if (toolPhase === "stalled") {
+        return { kind: "stalled" } as const;
+      }
       return { kind: "continue" } as const;
     }
 
@@ -1629,6 +1657,7 @@ export function executeAgentLoop(
           iterationsUsed: 0,
           contextPressureWarned: false,
           toolCompactionAnnounced: false,
+          meltdownNudges: 0,
           awaitingGoalDecision: false,
         };
         let finished = false;
@@ -1636,6 +1665,7 @@ export function executeAgentLoop(
         let costCapped = false;
         let tokenCapped = false;
         let durationCapped = false;
+        let stalled = false;
 
         // models.dev reports input modalities; absence means text-only. Unlike tool support —
         // which defaults to available so an unknown model is not needlessly crippled — an
@@ -1694,9 +1724,13 @@ export function executeAgentLoop(
             finished = true;
             interrupted = true;
           }
+          if (pendingPhase === "stalled") {
+            finished = true;
+            stalled = true;
+          }
         }
 
-        for (let i = 0; i < maxIterations && !interrupted; i++) {
+        for (let i = 0; i < maxIterations && !interrupted && !stalled; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             const iteration = runIteration(state, i, deps).pipe(
@@ -1729,6 +1763,12 @@ export function executeAgentLoop(
             }
             if (step.kind === "final") {
               finished = true;
+              break;
+            }
+            if (step.kind === "stalled") {
+              finished = true;
+              stalled = true;
+              state.iterationsUsed = i + 1;
               break;
             }
           } finally {
@@ -1799,6 +1839,7 @@ export function executeAgentLoop(
             costCapped,
             tokenCapped,
             durationCapped,
+            stalled,
           },
           observer,
           logger,

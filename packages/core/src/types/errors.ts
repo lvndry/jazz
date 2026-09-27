@@ -170,6 +170,12 @@ export class TimeoutError extends Data.TaggedError("TimeoutError")<{
   readonly suggestion?: string;
 }> {}
 
+/** A tool call ran past its timeout and was stopped. */
+export class ToolTimeoutError extends Data.TaggedError("ToolTimeoutError")<{
+  readonly toolName: string;
+  readonly timeoutMs: number;
+}> {}
+
 export class ResourceExhaustedError extends Data.TaggedError("ResourceExhaustedError")<{
   readonly resource: string;
   readonly limit: number;
