@@ -20,6 +20,37 @@ jazz plugin enable com.jazz.plugins.lsp --agent default
 Replace `default` with your agent name or ID, or omit `--agent` to enable it for every agent. The
 language-server executable is installed separately; Jazz does not bundle one.
 
+For example, to add TypeScript and JavaScript support, install their language server and configure it:
+
+```sh
+npm install --global typescript-language-server typescript@6
+```
+
+Add this entry to `~/.jazz/lsp.json` (use the absolute path from `command -v typescript-language-server` if Jazz cannot find it on `PATH`):
+
+```json
+{
+  "servers": [
+    {
+      "id": "typescript",
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "extensions": [".ts", ".tsx"],
+      "languageId": "typescript",
+      "rootMarkers": ["tsconfig.json", "package.json"]
+    },
+    {
+      "id": "javascript",
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "extensions": [".js", ".jsx"],
+      "languageId": "javascript",
+      "rootMarkers": ["jsconfig.json", "package.json"]
+    }
+  ]
+}
+```
+
 ## Add a language
 
 Create or edit `~/.jazz/lsp.json`. Add one object per language server to the `servers` array. For
