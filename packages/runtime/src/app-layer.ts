@@ -468,6 +468,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
      * failure envelope.
      */
     readonly onStoppedBySignal?: ((signal: ShutdownSignal) => void) | undefined;
+    /** Report failure before the application layer exists using the command's envelope. */
+    readonly onStartupFailure?: ((message: string) => void) | undefined;
   } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
@@ -621,7 +623,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       ),
     ),
     Effect.scoped,
-    Effect.catchAll(reportStartupFailure),
+    Effect.catchAll((error) => reportStartupFailure(error, options.onStartupFailure)),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect).finally(() => {

@@ -63,6 +63,8 @@ interface CliRunOptions {
   readonly session?: boolean;
   /** Report a run a shutdown signal stopped, for commands with a one-envelope stdout. */
   readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
+  /** Report a failure building the application layer, before the command can print a result. */
+  readonly onStartupFailure?: (message: string) => void;
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -101,6 +103,11 @@ function printInterruptedEnvelope(signal: ShutdownSignal): void {
   process.stdout.write(
     formatOneShotError("interrupted", { json: true }, undefined, { code: "interrupted", signal }),
   );
+}
+
+/** Emit the ordinary failure contract even when configuration prevents startup. */
+function printStartupFailureEnvelope(message: string): void {
+  process.stdout.write(formatOneShotError(message, { json: true }));
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -399,7 +406,12 @@ function registerRunCommand(program: Command): void {
           {
             skipCatchUp: true,
             skipUpdateCheck: true,
-            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+            ...(json
+              ? {
+                  onStoppedBySignal: printInterruptedEnvelope,
+                  onStartupFailure: printStartupFailureEnvelope,
+                }
+              : {}),
           },
         );
       },
@@ -3009,7 +3021,12 @@ function registerWorkflowCommands(program: Command): void {
             skipCatchUp: isWorkflowRunCommand,
             skipUpdateCheck: json,
             session: true,
-            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+            ...(json
+              ? {
+                  onStoppedBySignal: printInterruptedEnvelope,
+                  onStartupFailure: printStartupFailureEnvelope,
+                }
+              : {}),
           },
         );
       },
