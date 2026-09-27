@@ -106,7 +106,7 @@ export function describeGoal(
   const lines = [
     `Goal ${goalHandle(goal)} · ${goalStatus(goal, pending)}`,
     `  ${goal.plan.objective}`,
-    `  Progress: step ${String(done)} of ${String(goal.plan.steps.length)} · cycle ${String(goal.usage.cycles)} of ${String(goal.budget.maxCycles)} · ${formatCompactCount(goal.usage.totalTokens)} of ${formatCompactCount(goal.budget.maxTokens)} tokens · ${String(Math.round(goal.usage.activeDurationMs / 60_000))} of ${String(Math.round(goal.budget.maxDurationMs / 60_000))} min`,
+    `  Progress: step ${String(done)} of ${String(goal.plan.steps.length)} · cycle ${String(goal.usage.cycles)}${goal.budget.maxCycles !== undefined ? ` of ${String(goal.budget.maxCycles)}` : ""} · ${formatCompactCount(goal.usage.totalTokens)} of ${formatCompactCount(goal.budget.maxTokens)} tokens · ${String(Math.round(goal.usage.activeDurationMs / 60_000))} of ${String(Math.round(goal.budget.maxDurationMs / 60_000))} min`,
     ...(goal.approvalPolicy !== undefined
       ? [`  In the background it may, without asking: ${UNATTENDED_GRANTS[goal.approvalPolicy]}`]
       : []),

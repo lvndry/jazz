@@ -20,9 +20,9 @@ import type { GoalBudget, GoalLimit, GoalRecord, GoalUsage } from "./goal-record
  * output: a single call with the default persona and tool set costs tens of thousands of
  * prompt tokens before the task adds anything. The token cap is sized for a dozen cycles of
  * that; the dollar cap is what stops a priced provider, and only binds when pricing is known.
+ * There is no cycle cap by default: these spend caps are what stop a goal.
  */
 export const DEFAULT_GOAL_BUDGET: GoalBudget = {
-  maxCycles: 12,
   maxTokens: 5_000_000,
   maxDurationMs: 2 * 60 * 60 * 1000,
   maxCostUSD: 5,
@@ -34,7 +34,7 @@ export function addSpend(usage: GoalUsage, spend: RunSpend): GoalUsage {
 
 /** The first cap the goal has reached, or undefined while it may start another cycle. */
 export function reachedLimit(goal: Pick<GoalRecord, "budget" | "usage">): GoalLimit | undefined {
-  return goal.usage.cycles >= goal.budget.maxCycles
+  return goal.budget.maxCycles !== undefined && goal.usage.cycles >= goal.budget.maxCycles
     ? "cycles"
     : spendLimitReached(goal.budget, goal.usage);
 }
@@ -59,7 +59,9 @@ export function extendBudget(
 ): GoalBudget {
   const { budget, usage } = goal;
   return {
-    maxCycles: Math.max(budget.maxCycles, usage.cycles + DEFAULT_GOAL_BUDGET.maxCycles),
+    ...(budget.maxCycles !== undefined
+      ? { maxCycles: Math.max(budget.maxCycles, usage.cycles + budget.maxCycles) }
+      : {}),
     ...extendSpendBudget(budget, usage, DEFAULT_GOAL_BUDGET, inFlight),
     ...(budget.maxIterationsPerCycle !== undefined
       ? { maxIterationsPerCycle: budget.maxIterationsPerCycle }

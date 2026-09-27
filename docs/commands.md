@@ -322,8 +322,9 @@ daemon carries on after. A Jazz agent cannot approve or answer a parked run itse
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
 `start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it. Budget flags:
-`--max-cycles`, `--cycle-iterations` (how long a cycle runs before its progress is checked and
-saved), `--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pricing is known).
+`--max-cycles` (no limit by default), `--cycle-iterations` (how long a cycle runs before its
+progress is checked and saved), `--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced
+when pricing is known).
 A read-only pass over the current directory informs the plan, as it would in chat; `--no-inspect`
 drafts from the request alone. With `--json` each command prints one JSON envelope.
 Exit codes: `0` done, `1` refused or failed, `2` the request needs answers before a plan.
@@ -333,10 +334,10 @@ Exit codes: `0` done, `1` refused or failed, `2` the request needs answers befor
 `/goal <objective>` starts working toward the objective right away, in the same conversation.
 Nothing is drafted or confirmed first, and the turns look like any other: the same streaming,
 approvals under the chat's safe or yolo mode, and questions asked inline. When a turn ends, the
-next one starts on its own, with a `↻ Goal <name> · turn n of 20` line, until the agent reports
+next one starts on its own, with a `↻ Goal <name> · turn n` line, until the agent reports
 the goal done. A done report is accepted only when it quotes the tool output that shows the
 objective holds; otherwise the goal goes on with the reason. If it stops for you (a question,
-a blocker, its turn budget), the chat asks right there and carries on with your answer.
+a blocker, its token, time, or cost budget), the chat asks right there and carries on with your answer.
 
 Esc pauses the goal. Anything you type meanwhile goes first and the goal picks up after it.
 `/goal` shows where it stands, `/goal pause`, `/goal resume [note]`, and `/goal clear` control

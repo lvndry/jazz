@@ -33,12 +33,6 @@ import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon"
 import { describeGoalNow, describePlan, goalHandle } from "@/cli/goals/describe-goal";
 import type { CommandContext, CommandResult } from "./types";
 
-/**
- * Turns a goal set with `/goal` may take: enough for a sizable task, few enough that a goal
- * that cannot finish stops within one sitting instead of spending all afternoon.
- */
-export const DIRECT_GOAL_MAX_TURNS = 20;
-
 /** Words of the objective a goal is named after. */
 const NAME_WORDS = 3;
 
@@ -155,16 +149,13 @@ function setGoal(context: CommandContext, objective: string) {
       workingDirectory,
       sourceConversationId: context.conversationId,
       conversationId: context.conversationId,
-      budget: { maxCycles: DIRECT_GOAL_MAX_TURNS },
       attendedBy: currentProcessOwner(),
     });
     if (activation.kind === "refused") {
       yield* terminal.warn(activation.reason);
       return undefined;
     }
-    yield* terminal.info(
-      `Goal ${goalHandle(activation.goal)} set · up to ${String(DIRECT_GOAL_MAX_TURNS)} turns · Esc pauses`,
-    );
+    yield* terminal.info(`Goal ${goalHandle(activation.goal)} set · Esc pauses`);
     return activation.goal.goalId;
   });
 }
@@ -315,7 +306,7 @@ function leavePaused(goal: GoalRecord) {
 export function announceGoalTurn(goal: GoalRecord) {
   return Effect.flatMap(TerminalServiceTag, (terminal) =>
     terminal.info(
-      `↻ Goal ${goalHandle(goal)} · turn ${String(goal.usage.cycles)} of ${String(goal.budget.maxCycles)}`,
+      `↻ Goal ${goalHandle(goal)} · turn ${String(goal.usage.cycles)}${goal.budget.maxCycles !== undefined ? ` of ${String(goal.budget.maxCycles)}` : ""}`,
     ),
   );
 }

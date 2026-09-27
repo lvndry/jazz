@@ -20,7 +20,7 @@ or yolo mode, questions asked inline. A goal changes how the work gets done, not
 When a turn ends, the next one starts on its own:
 
 ```text
-↻ Goal recipes-new-format · turn 3 of 20
+↻ Goal recipes-new-format · turn 3
 ```
 
 It keeps going until the agent reports the goal done. Jazz accepts that report only when it quotes
@@ -28,8 +28,10 @@ tool output showing the objective holds (a passing check, a file's contents, a c
 If the quote is missing or does not match, the goal goes on, and the next turn is told why. A goal
 is finished when it is proven, not when the model says so.
 
-If the goal needs you (a question, a blocker it cannot get past, or the end of its 20 turns), the
-chat asks right there and carries on with your answer.
+There is no turn limit. What stops a goal that goes nowhere is its budget: tokens, active time, and
+dollars (when pricing is known), plus the iteration cap on each turn. If the goal needs you (a
+question, a blocker it cannot get past, or its budget running out), the chat asks right there and
+carries on with your answer.
 
 | You want to                      | Do                    |
 | -------------------------------- | --------------------- |

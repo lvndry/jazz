@@ -55,7 +55,11 @@ export interface GoalPlan {
 }
 
 export interface GoalBudget {
-  readonly maxCycles: number;
+  /**
+   * Cycles the goal may run; unbounded when absent, since the token, time, and dollar caps
+   * already stop a goal that goes nowhere, and a cycle count is a poor proxy for work done.
+   */
+  readonly maxCycles?: number;
   readonly maxTokens: number;
   readonly maxDurationMs: number;
   /** A dollar limit is enforced only when the provider pricing is known. */
@@ -379,7 +383,7 @@ export const goalRecordSchema = z
     approvalPolicy: z.enum(APPROVAL_POLICY_LEVELS).optional(),
     state: goalStateSchema,
     budget: z.object({
-      maxCycles: positiveInteger,
+      maxCycles: positiveInteger.optional(),
       maxTokens: positiveInteger,
       maxDurationMs: positiveInteger,
       maxCostUSD: z.number().finite().positive().optional(),

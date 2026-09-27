@@ -1732,7 +1732,11 @@ function registerGoalCommand(program: Command): void {
       "--approval-policy <policy>",
       "What the goal may run without asking once accepted: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
     )
-    .option("--max-cycles <n>", "Most cycles the goal may run", parsePositiveInt("--max-cycles"))
+    .option(
+      "--max-cycles <n>",
+      "Most cycles the goal may run (default: no limit; the token, time, and cost budgets stop it)",
+      parsePositiveInt("--max-cycles"),
+    )
     .option(
       "--cycle-iterations <n>",
       "Iterations per cycle before progress is checked and saved",

@@ -60,6 +60,9 @@ describe("findByNameOrIdPrefix", () => {
   ];
   const idOf = (record: { id: string }) => record.id;
 
+  it("returns undefined when the list is empty", () => {
+    expect(findByNameOrIdPrefix([], "inbox-sweep", () => "")).toBeUndefined();
+  });
   it("finds a record by its name before any id prefix", () => {
     expect(findByNameOrIdPrefix(records, "inbox-sweep", idOf)?.id).toBe("3f2b0000-bbbb");
   });
