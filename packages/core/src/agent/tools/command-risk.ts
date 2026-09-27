@@ -9,11 +9,11 @@
  *
  * Before any model or policy plugin is asked, `findDeterministicHighRisk`
  * reads the command with the shell lexer and marks it `high-risk` outright
- * when it contains a construct no classifier verdict should be able to lower:
- * command or process substitution, a redirection that writes or reads a file,
- * input piped into a shell or interpreter, inline code for an interpreter,
- * a command name built from an expansion, a network client, or a DNS lookup
- * of an expanded name.
+ * when its syntax alone rules out a lower verdict: an unterminated quote or
+ * expansion, command or process substitution, a redirection that writes or
+ * reads a file, or a command name built from an expansion. It knows no
+ * program names; what a given program does is the classifier's or the policy
+ * plugin's judgment.
  *
  * When a run's metrics are passed in, classifier token usage is recorded
  * separately from the agent-loop totals so telemetry can split approval
@@ -28,13 +28,7 @@ import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 import type { CommandRiskOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolRiskLevel } from "@/core/types/tools";
-import {
-  commandBaseName,
-  parseShellCommandLine,
-  type ShellRedirection,
-  type ShellSimpleCommand,
-  type ShellWord,
-} from "@/core/utils/shell-syntax";
+import { parseShellCommandLine, type ShellRedirection } from "@/core/utils/shell-syntax";
 import {
   emitLLMUsage,
   recordClassifierUsage,
@@ -79,102 +73,6 @@ export function shouldClassifyExecuteCommand(
   return policy === "read-only" || policy === "low-risk";
 }
 
-/** Clients whose whole purpose is talking to another host, so every use can move data off the machine. */
-const NETWORK_CLIENTS: ReadonlySet<string> = new Set([
-  "curl",
-  "wget",
-  "nc",
-  "ncat",
-  "netcat",
-  "socat",
-  "telnet",
-  "ssh",
-  "scp",
-  "sftp",
-  "rsync",
-  "ftp",
-  "tftp",
-  "http",
-  "https",
-  "xh",
-  "aria2c",
-]);
-
-/** Tools that resolve a name, so an expanded name leaks its value through DNS. */
-const NAME_RESOLVERS: ReadonlySet<string> = new Set([
-  "dig",
-  "nslookup",
-  "host",
-  "drill",
-  "ping",
-  "ping6",
-  "traceroute",
-]);
-
-const SHELLS: ReadonlySet<string> = new Set([
-  "sh",
-  "bash",
-  "zsh",
-  "dash",
-  "ksh",
-  "mksh",
-  "fish",
-  "csh",
-  "tcsh",
-]);
-
-/** Flags that make an interpreter run code passed on the command line. */
-const INLINE_CODE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ["python", new Set(["-c"])],
-  ["python3", new Set(["-c"])],
-  ["perl", new Set(["-e", "-E"])],
-  ["ruby", new Set(["-e"])],
-  ["node", new Set(["-e", "--eval", "-p", "--print"])],
-  ["bun", new Set(["-e", "--eval", "-p", "--print"])],
-  ["deno", new Set(["eval"])],
-  ["php", new Set(["-r"])],
-  ["lua", new Set(["-e"])],
-  ["osascript", new Set(["-e"])],
-  ["pwsh", new Set(["-c", "-command"])],
-  ["powershell", new Set(["-c", "-command"])],
-]);
-
-/** Commands that run their standard input as code when something is piped into them. */
-const INPUT_INTERPRETERS: ReadonlySet<string> = new Set([
-  ...SHELLS,
-  ...INLINE_CODE_FLAGS.keys(),
-  "xargs",
-  "parallel",
-  "source",
-  ".",
-  "eval",
-]);
-
-/** Builtins that evaluate their arguments as shell code. */
-const CODE_EVALUATORS: ReadonlySet<string> = new Set(["eval", "source", "."]);
-
-/** Commands that run another command given as their arguments. */
-const COMMAND_WRAPPERS: ReadonlySet<string> = new Set([
-  "sudo",
-  "doas",
-  "su",
-  "env",
-  "nice",
-  "nohup",
-  "time",
-  "timeout",
-  "command",
-  "exec",
-  "xargs",
-  "watch",
-  "stdbuf",
-  "ionice",
-  "caffeinate",
-  "chroot",
-  "flock",
-  "parallel",
-]);
-
 const DISCARD_TARGET = "/dev/null";
 const FILE_DESCRIPTOR_TARGET_PATTERN = /^[0-9]+-?$|^-$/;
 const DUPLICATING_OPERATOR_PATTERN = /^[0-9]*(>&|<&)$/;
@@ -196,40 +94,6 @@ function isHarmlessRedirection(redirection: ShellRedirection): boolean {
 }
 
 /**
- * The words of a simple command that the shell may run as a program: the
- * command word, and, after a wrapper such as `sudo` or `xargs`, every later
- * word (a wrapper's own flags and values cannot be told apart from the command
- * it wraps without knowing each wrapper's syntax, so all of them count).
- */
-function commandPositionWords(simpleCommand: ShellSimpleCommand): readonly ShellWord[] {
-  const [first, ...rest] = simpleCommand.words;
-  if (first === undefined) {
-    return [];
-  }
-  if (COMMAND_WRAPPERS.has(commandBaseName(first.text))) {
-    return [first, ...rest];
-  }
-  return [first];
-}
-
-function runsInlineCode(simpleCommand: ShellSimpleCommand, programWord: ShellWord): boolean {
-  const program = commandBaseName(programWord.text);
-  const programIndex = simpleCommand.words.indexOf(programWord);
-  const argumentsAfter = simpleCommand.words.slice(programIndex + 1).map((word) => word.text);
-  if (SHELLS.has(program)) {
-    return argumentsAfter.some(
-      (argument) =>
-        argument.startsWith("-") && !argument.startsWith("--") && argument.includes("c"),
-    );
-  }
-  const flags = INLINE_CODE_FLAGS.get(program);
-  if (flags === undefined) {
-    return false;
-  }
-  return argumentsAfter.some((argument) => flags.has(argument.toLowerCase()));
-}
-
-/**
  * The reason a command is high-risk regardless of any classifier or plugin
  * verdict, or `undefined` when the classifier may judge it.
  */
@@ -242,42 +106,15 @@ export function findDeterministicHighRisk(command: string): string | undefined {
     return "command or process substitution";
   }
 
-  for (const [index, simpleCommand] of line.commands.entries()) {
+  for (const simpleCommand of line.commands) {
     const unsafeRedirection = simpleCommand.redirections.find(
       (redirection) => !isHarmlessRedirection(redirection),
     );
     if (unsafeRedirection !== undefined) {
       return `redirection ${unsafeRedirection.operator}`;
     }
-
-    const programWords = commandPositionWords(simpleCommand);
-    if (programWords.some((word) => word.expands)) {
+    if (simpleCommand.words[0]?.expands === true) {
       return "command name built from an expansion";
-    }
-
-    const precededBy = index === 0 ? undefined : line.separators[index - 1];
-    const pipedInto = precededBy === "|" || precededBy === "|&";
-    for (const programWord of programWords) {
-      const program = commandBaseName(programWord.text);
-      if (pipedInto && INPUT_INTERPRETERS.has(program)) {
-        return `input piped into ${program}`;
-      }
-      if (CODE_EVALUATORS.has(program)) {
-        return `${program} evaluates its arguments as code`;
-      }
-      if (runsInlineCode(simpleCommand, programWord)) {
-        return `${program} runs inline code`;
-      }
-    }
-
-    for (const word of simpleCommand.words) {
-      const program = commandBaseName(word.text);
-      if (NETWORK_CLIENTS.has(program)) {
-        return `network client ${program}`;
-      }
-      if (NAME_RESOLVERS.has(program) && simpleCommand.words.some((argument) => argument.expands)) {
-        return `${program} resolves an expanded name`;
-      }
     }
   }
   return undefined;

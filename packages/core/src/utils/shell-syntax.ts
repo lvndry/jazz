@@ -401,9 +401,3 @@ function findAnsiCQuoteEnd(command: string, from: number): number {
   }
   return -1;
 }
-
-/** The last path segment of a command word: `/usr/bin/curl` is `curl`. */
-export function commandBaseName(word: string): string {
-  const slash = word.lastIndexOf("/");
-  return slash === -1 ? word : word.slice(slash + 1);
-}

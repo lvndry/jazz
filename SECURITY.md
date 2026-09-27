@@ -126,8 +126,9 @@ secrets before granting either. Disable or remove a plugin and restart long-live
 to evict code that was already imported. See [Plugins](docs/configure/plugins.md).
 
 Before either the plugin or the built-in classifier runs, Jazz marks a command `high-risk` when it
-contains substitution, a file redirection, input piped into a shell or interpreter, inline
-interpreter code, or a network client. No classifier verdict can lower those. See
+is malformed or contains substitution, a file redirection, or a command name built from a
+variable. That check reads syntax only; judging what a given program does is left to the
+classifier or plugin. No classifier verdict can lower those. See
 [Approvals](docs/security/approvals.md#shell-commands-are-classified-individually).
 
 `classify.command-risk` is a policy hook, not a passive advisory. For an `execute_command` call whose
