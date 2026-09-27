@@ -1594,6 +1594,45 @@ function registerDaemonCommand(program: Command): void {
       ),
     );
 
+  const attention = () => import("@jazz/cli/commands/daemon-attention");
+  daemonCommand
+    .command("status")
+    .description("What the daemon is doing, what it spent today, and what is waiting for you")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.daemonStatusCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("pause")
+    .description(
+      "Stop background work from starting (running work finishes; answering still works)",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.pauseDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("resume")
+    .description(
+      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.resumeDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
   daemonCommand
     .command("set-token")
     .description(

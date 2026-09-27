@@ -55,20 +55,27 @@ export function fireWakeTrigger(
 
 /**
  * One tick: run any due workflow catch-up, fire any due wake triggers, then claim and run any
- * due background job batches.
+ * due background job batches. With `startNew` false (the daemon is paused) only reminders, which
+ * run nothing, are delivered; wake triggers, workflows, and jobs stay due until it resumes.
  *
  * Failures in any part are logged and swallowed — a single bad trigger, job, or transient
  * catch-up error must never stop the ticker from running on the next interval.
  */
-export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}) {
+export function runDueTriggers(
+  options: { readonly runWorkflows?: boolean; readonly startNew?: boolean } = {},
+) {
   return Effect.gen(function* () {
-    if (options.runWorkflows === true) {
+    const startNew = options.startNew !== false;
+    if (startNew && options.runWorkflows === true) {
       yield* runInProcessScheduledWorkflows();
     }
 
-    const due = yield* sweepDueWakeTriggers(wakeTriggerDirectory(), Date.now()).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
-    );
+    // Sweeping takes due triggers off disk, so a paused daemon leaves them there to fire later.
+    const due = startNew
+      ? yield* sweepDueWakeTriggers(wakeTriggerDirectory(), Date.now()).pipe(
+          Effect.catchAll(() => Effect.succeed([])),
+        )
+      : [];
     for (const { agentId, trigger } of due) {
       yield* fireWakeTrigger(agentId, trigger);
     }
@@ -84,6 +91,9 @@ export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}
       yield* sendDesktopNotification("Jazz reminder", reminder.text);
     }
 
+    if (!startNew) {
+      return;
+    }
     yield* runDueDetachedJobs().pipe(Effect.catchAll(() => Effect.void));
     yield* runDueJobs().pipe(Effect.catchAll(() => Effect.void));
   });
