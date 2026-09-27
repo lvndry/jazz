@@ -101,9 +101,50 @@ and remote billing, so it does not count as free.
 A cost cap cannot be enforced against a model nobody has priced. That is the case `maxTokens`
 exists for.
 
+## Day and month ceilings
+
+The caps above bound one run. A goal that runs every ten minutes, or a workflow that fails and
+retries, stays under every per-run cap while the bill grows. Ceilings bound the total: every
+run's final cost, failed and cancelled runs included, is recorded in one ledger under
+`$JAZZ_HOME/spend`, and `spend` in config.json caps it per local day and month.
+
+```jsonc
+{
+  "spend": {
+    "dayUSD": 5,
+    "monthUSD": 60,
+    "goals": { "dayUSD": 2, "monthUSD": 20 },
+    "agents": { "inbox": { "dayUSD": 1 } },
+  },
+}
+```
+
+Every ceiling is unset, meaning unlimited, until you set one. `goals` covers goal cycles and loop
+runs together. Set the goal and machine ceilings from `jazz` > Update configuration > Spend
+Limits, or with `jazz config set spend.goals.dayUSD 2`.
+
+When a ceiling is reached:
+
+- **Unattended runs refuse to start**: `jazz run`, workflows, goal cycles, loop runs, wake
+  triggers, job batches, webhooks, peers and daemon API runs. The refusal says which ceiling
+  and how to lift it, and your [notify channels](../configure/notifications.md) hear about it
+  once per ceiling and window.
+- **Goals and loops wait** instead of failing: the check runs before each cycle, and the next
+  one starts on its own when the day or month turns over or you raise the ceiling.
+- **Chat warns and proceeds**: you are there to decide. A run you approve from a parked state
+  also proceeds, since stopping it would waste the approval.
+
+A day ceiling is also treated as reached when a run under it today had no pricing: its cost is
+unknown, so the ceiling cannot be verified. A month ceiling counts priced spend.
+
+`jazz spend` shows today, this month, the breakdown by agent and source, and each ceiling.
+The chat bridges record their runs in the same ledger, and `JAZZ_DAILY_COST_CAP_USD` caps one
+bridge's own runs on top of these ceilings.
+
 ## Related
 
 - [Long-running work](../features/long-running-work.md): what happens as the context fills
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
+- [Notifications](../configure/notifications.md): hearing about a reached ceiling

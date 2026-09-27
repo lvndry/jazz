@@ -28,8 +28,11 @@ tool output showing the objective holds (a passing check, a file's contents, a c
 If the quote is missing or does not match, the goal goes on, and the next turn is told why. A goal
 is finished when it is proven, not when the model says so.
 
-There is no turn limit and no goal budget. Each turn is held to the agent loop's own limits
-(iterations, and the token, cost, and time caps if you set them in config), like any turn. If the
+There is no turn limit. Each turn is held to the agent loop's own limits (iterations, and the
+token, cost, and time caps if you set them in config), like any turn. What goals and loops spend
+together is unlimited by default; set a day or month ceiling in `jazz` > Update configuration >
+Spend Limits (`spend.goals`). A reached ceiling holds the next cycle back until it clears,
+without failing the goal: see [day and month ceilings](../concepts/budgets.md#day-and-month-ceilings). If the
 goal needs you (a question or a blocker it cannot get past), the chat asks right there and carries
 on with your answer.
 

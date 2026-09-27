@@ -83,7 +83,9 @@ When the work genuinely needs a decision, `--park` saves the run instead, exits 
 A resumed run keeps the policy and the `--auto-approve-tools` list it started with. Answering one
 approval never widens the rest of the run to the default, and never drops a tier it was granted.
 
-Park only where somebody will actually look.
+Park only where somebody will actually look. A [notify channel](../configure/notifications.md)
+brings every parked approval to your phone; from a Telegram or Discord bridge the operator can
+answer it with `/approve <runId>` or `/deny <runId> [why]`.
 
 ## Related
 

@@ -27,6 +27,12 @@ Wake triggers, reminders, and a background batch's hand-back are delivered at le
 removed only after it was delivered, and a failed delivery is kept with its error and retried.
 See [delivered at least once](../concepts/deferred-work.md#delivered-at-least-once).
 
+To hear about it while you are away, bind a [notify channel](../configure/notifications.md):
+scheduled results (with a workflow's `deliver:` field), reminders a headless host cannot show,
+parked approvals (answerable from a Telegram or Discord bridge with `/approve <runId>`), failed
+unattended work, and reached [spend ceilings](../concepts/budgets.md#day-and-month-ceilings)
+reach Telegram, Discord, a signed webhook, or the desktop.
+
 Unattended runs cannot answer interactive questions. They must decline gated actions, receive an explicit auto-approval policy, or use `--park` so a person can approve and resume the saved run later.
 
 Start with [Scheduled runs](../surfaces/scheduled.md), [Headless runs](../surfaces/headless.md), or [Webhooks](../concepts/webhooks.md). The last has a [step-by-step build](../guides/webhook-endpoint.md).

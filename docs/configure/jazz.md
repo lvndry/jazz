@@ -100,7 +100,9 @@ Both values are fractions of the effective model context window. Jazz requires `
 
 `output.mode` accepts `rendered`, `hybrid`, `raw`, or `quiet`. `JAZZ_OUTPUT_MODE` and `--output` override it. The other output fields control whether reasoning and tool execution are shown and whether completed reasoning collapses.
 
-`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications.
+`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications. `notifications.channels` binds [notify channels](./notifications.md) (Telegram, Discord, a signed webhook, the desktop) for unattended results, reminders, parked approvals and failures.
+
+`spend` sets machine-wide [day and month spend ceilings](../concepts/budgets.md#day-and-month-ceilings), overall, per agent and for goals. All are unlimited until set.
 
 ## Scheduling
 
