@@ -123,6 +123,19 @@ describe("WorkflowRegistryService", () => {
     expect(String((error as { message?: string })?.message)).toContain("name and description");
   });
 
+  it("refuses a definition with an autoApprove value Jazz does not know", async () => {
+    mockFetch(
+      routes("---\nname: weekly-review\ndescription: x\nautoApprove: readonly\n---\n\nBody.\n"),
+    );
+
+    const error = await runFailure(service().fetchWorkflow("weekly-review"));
+
+    expect(error?._tag).toBe("ValidationError");
+    expect(String((error as { message?: string })?.message)).toContain(
+      'autoApprove "readonly" is not valid',
+    );
+  });
+
   it("refuses an empty prompt", async () => {
     mockFetch(routes("---\nname: weekly-review\ndescription: x\n---\n\n"));
 

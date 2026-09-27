@@ -23,7 +23,11 @@ import {
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "@/core/workflows/scheduler-service";
-import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
+import {
+  resolveWorkflowApprovalPolicy,
+  WorkflowServiceTag,
+  type WorkflowMetadata,
+} from "@/core/workflows/workflow-service";
 import { renderWorkflowPrompt } from "@/core/workflows/workflow-utils";
 
 export interface CatchUpDecision {
@@ -261,6 +265,16 @@ export function runCatchUpForWorkflows(
         continue;
       }
 
+      const approval = resolveWorkflowApprovalPolicy(workflow);
+      if (!approval.ok) {
+        yield* logger.error("Catch-up skipped: workflow definition is invalid", {
+          workflow: entry.workflowName,
+          error: approval.error,
+        });
+        continue;
+      }
+      const autoApprovePolicy = approval.policy;
+
       const workflowContent = yield* workflowService
         .loadWorkflow(entry.workflowName)
         .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
@@ -288,7 +302,6 @@ export function runCatchUpForWorkflows(
         }).pipe(Effect.catchAll(() => Effect.void));
       }
 
-      const autoApprovePolicy = workflow.autoApprove ?? true;
       const runId = formatAgentRunId(entry, now);
       const prompt = renderWorkflowPrompt(workflowContent.prompt, {
         label: entry.label,
@@ -306,7 +319,7 @@ export function runCatchUpForWorkflows(
         ...(workflow.maxCostUSD != null ? { maxCostUSD: workflow.maxCostUSD } : {}),
         ...(workflow.maxTokens != null ? { maxTokens: workflow.maxTokens } : {}),
         ...(workflow.maxDurationMs != null ? { maxDurationMs: workflow.maxDurationMs } : {}),
-        ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+        autoApprovePolicy,
       }).pipe(
         Effect.tap(() =>
           updateLatestRunRecord(entry.workflowName, {
