@@ -404,7 +404,7 @@ export async function startBridge(): Promise<void> {
     showReasoning: config.showReasoning,
     files: STORE_FILES,
     agentIdFor: (chatId) => agentIdForSpace(chatId),
-    isOperator: (senderId) => config.operatorHandles.has(senderId),
+    operators: config.operatorHandles,
     operatorSettingName: "PHOTON_OPERATOR_HANDLES",
   });
 

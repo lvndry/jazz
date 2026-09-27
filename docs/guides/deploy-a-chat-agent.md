@@ -392,7 +392,8 @@ as a normal message in the chat:
 ```
 
 Bare `/model` (no arguments) instead shows a picker of whatever the conversation's current
-provider offers. Reasoning effort is set automatically either way.
+provider offers on Telegram and Discord, which have buttons; iMessage and WhatsApp name the
+current model and how to switch. Reasoning effort is set automatically either way.
 
 ---
 

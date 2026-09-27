@@ -13,8 +13,6 @@
 import { join } from "node:path";
 import { type Ownership, type PinnedDirectory, withDirectory } from "@jazz/bot-shared/sandbox-fs";
 
-const TELEGRAM_API_BASE = "https://api.telegram.org";
-
 /**
  * Telegram's own hard limit on `getFile` downloads. Larger files simply cannot be fetched
  * through the bot API, so there is no point attempting the download.
@@ -251,6 +249,7 @@ export type DownloadOutcome =
  * to `ownership` as it is written.
  */
 export async function downloadTelegramFile(
+  apiBase: string,
   botToken: string,
   dataDir: string,
   fileRef: TelegramFileRef,
@@ -272,7 +271,7 @@ export async function downloadTelegramFile(
 
   let telegramFilePath: string;
   try {
-    const response = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/getFile`, {
+    const response = await fetch(`${apiBase}/bot${botToken}/getFile`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file_id: fileId }),
@@ -292,7 +291,7 @@ export async function downloadTelegramFile(
 
   let bytes: Uint8Array;
   try {
-    const download = await fetch(`${TELEGRAM_API_BASE}/file/bot${botToken}/${telegramFilePath}`);
+    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`);
     if (!download.ok) {
       return { ok: false, reason: `downloading the file failed with status ${download.status}` };
     }
