@@ -7,6 +7,14 @@
  * judges that verdict. Fail closed: timeouts, errors, and ambiguous replies
  * stay `high-risk`.
  *
+ * Before any model or policy plugin is asked, `findDeterministicHighRisk`
+ * reads the command with the shell lexer and marks it `high-risk` outright
+ * when its syntax alone rules out a lower verdict: an unterminated quote or
+ * expansion, command or process substitution, a redirection that writes or
+ * reads a file, or a command name built from an expansion. It knows no
+ * program names; what a given program does is the classifier's or the policy
+ * plugin's judgment.
+ *
  * When a run's metrics are passed in, classifier token usage is recorded
  * separately from the agent-loop totals so telemetry can split approval
  * gating from the conversation.
@@ -20,6 +28,7 @@ import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 import type { CommandRiskOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolRiskLevel } from "@/core/types/tools";
+import { parseShellCommandLine, type ShellRedirection } from "@/core/utils/shell-syntax";
 import {
   emitLLMUsage,
   recordClassifierUsage,
@@ -64,6 +73,53 @@ export function shouldClassifyExecuteCommand(
     return false;
   }
   return true;
+}
+
+const DISCARD_TARGET = "/dev/null";
+const FILE_DESCRIPTOR_TARGET_PATTERN = /^[0-9]+-?$|^-$/;
+const DUPLICATING_OPERATOR_PATTERN = /^[0-9]*(>&|<&)$/;
+const OUTPUT_OPERATOR_PATTERN = /^([0-9]*>|[0-9]*>>|&>|&>>|[0-9]*>\|)$/;
+
+/**
+ * Whether a redirection can only discard output or copy one open descriptor
+ * onto another (`2>/dev/null`, `2>&1`, `>&2`), neither of which touches a file.
+ */
+function isHarmlessRedirection(redirection: ShellRedirection): boolean {
+  const target = redirection.target;
+  if (target === undefined || target.expands) {
+    return false;
+  }
+  if (DUPLICATING_OPERATOR_PATTERN.test(redirection.operator)) {
+    return FILE_DESCRIPTOR_TARGET_PATTERN.test(target.text);
+  }
+  return OUTPUT_OPERATOR_PATTERN.test(redirection.operator) && target.text === DISCARD_TARGET;
+}
+
+/**
+ * The reason a command is high-risk regardless of any classifier or plugin
+ * verdict, or `undefined` when the classifier may judge it.
+ */
+export function findDeterministicHighRisk(command: string): string | undefined {
+  const line = parseShellCommandLine(command);
+  if (line.hazards.has("malformed")) {
+    return "unterminated quote or expansion";
+  }
+  if (line.hazards.has("substitution")) {
+    return "command or process substitution";
+  }
+
+  for (const simpleCommand of line.commands) {
+    const unsafeRedirection = simpleCommand.redirections.find(
+      (redirection) => !isHarmlessRedirection(redirection),
+    );
+    if (unsafeRedirection !== undefined) {
+      return `redirection ${unsafeRedirection.operator}`;
+    }
+    if (simpleCommand.words[0]?.expands === true) {
+      return "command name built from an expansion";
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -114,6 +170,7 @@ export type CommandRiskPolicyHook = (command: string) => Effect.Effect<CommandRi
 /**
  * Resolve an eligible command through the optional policy plugin, falling back
  * to Jazz's built-in classifier when no plugin answers or the plugin fails.
+ * A command `findDeterministicHighRisk` flags is high-risk before either runs.
  * An answered but uncertain distribution is deliberately high-risk rather than
  * a fallback: the provider made a decision, and the host applies its threshold.
  */
@@ -125,6 +182,15 @@ export function resolveCommandRisk(
   policyHook?: CommandRiskPolicyHook,
 ): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
   return Effect.gen(function* () {
+    const deterministicReason = findDeterministicHighRisk(command);
+    if (deterministicReason !== undefined) {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Command risk decided without the classifier", {
+        riskLevel: "high-risk",
+        reason: deterministicReason,
+      });
+      return "high-risk" as const;
+    }
     if (policyHook !== undefined) {
       const outcome = yield* policyHook(command).pipe(
         Effect.map((value) => ({ ok: true as const, value })),

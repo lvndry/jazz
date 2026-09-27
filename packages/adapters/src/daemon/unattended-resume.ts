@@ -13,7 +13,6 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import {
   loadConversationOrNull,
@@ -104,16 +103,6 @@ export function classifyTurnOutcome(
   };
 }
 
-export function approvalNotification(
-  turn: Pick<UnattendedTurn, "source" | "sourceId">,
-  parked: Extract<TurnOutcome, { kind: "parked" }>,
-): { readonly title: string; readonly body: string } {
-  return {
-    title: "Jazz needs your approval",
-    body: `${turn.source} "${turn.sourceId}" stopped on ${parked.waitingOn}. Run: jazz runs resume ${parked.runId}`,
-  };
-}
-
 /** A missing agent is logged and dropped rather than retried — there is nothing to resume into. */
 export function runUnattendedTurn(turn: UnattendedTurn) {
   return Effect.gen(function* () {
@@ -169,8 +158,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         if (outcome.messages !== undefined) {
           yield* persist(turn, priorRecord, outcome.messages);
         }
-        const notification = approvalNotification(turn, outcome);
-        yield* sendDesktopNotification(notification.title, notification.body);
+        // The daemon's notifier announces every parked run, with how to answer it.
         return;
       }
 

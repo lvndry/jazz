@@ -367,6 +367,16 @@ export class OneShotPresentationService implements PresentationService {
     });
   }
 
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      if (this.eventsActive) {
+        this.emitNdjson({ type: "status", level: "error", message });
+        return;
+      }
+      process.stderr.write(message);
+    });
+  }
+
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.void;
   }

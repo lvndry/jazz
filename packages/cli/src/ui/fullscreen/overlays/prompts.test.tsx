@@ -12,9 +12,9 @@
  */
 
 import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "../test-helpers";
 import { FilePicker, type FilePickerModel } from "./FilePicker";
 import { Question, type QuestionModel } from "./Question";
 import { TextPrompt, type TextPromptModel } from "./TextPrompt";
@@ -170,7 +170,7 @@ function framedRows(frame: string): number[] {
 }
 
 async function draw(node: ReactNode, viewport: Viewport) {
-  const setup = await testRender(node, { width: viewport.width, height: viewport.height });
+  const setup = await renderForTest(node, { width: viewport.width, height: viewport.height });
   await setup.renderOnce();
   return setup;
 }

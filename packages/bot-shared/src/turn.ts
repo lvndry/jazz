@@ -299,9 +299,8 @@ export function commandKeyFromApproval(event: JazzEvent): AlwaysAllowKey | undef
     APPROVAL_COMMAND_PATTERN.exec(event.message)?.[1] ??
     APPROVAL_COMMAND_LINE.exec(event.message)?.[1];
   if (command === undefined || command.trim().length === 0) return undefined;
-  // Typed wider than today's signature: the tokenizer version returns undefined for a
-  // command it refuses to key.
-  const key: string | undefined = extractCommandApprovalKey(command);
+  // Undefined for a command the tokenizer refuses to key: it chains, substitutes or redirects.
+  const key = extractCommandApprovalKey(command);
   return key === undefined || key.trim().length === 0
     ? { kind: "unallowable" }
     : { kind: "key", key };

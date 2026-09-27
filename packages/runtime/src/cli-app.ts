@@ -599,10 +599,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("get <key>")
-    .description("Get a configuration value")
-    .action((key: string) =>
+    .description("Get a configuration value (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((key: string, options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.getConfigCommand(key)),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.getConfigCommand(key, { reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -619,10 +623,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("show")
-    .description("Show all configuration values")
-    .action(() =>
+    .description("Show all configuration values (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.listConfigCommand()),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.listConfigCommand({ reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -1591,6 +1599,45 @@ function registerDaemonCommand(program: Command): void {
             }),
           ),
         cliRuntimeOptions(program),
+      ),
+    );
+
+  const attention = () => import("@jazz/cli/commands/daemon-attention");
+  daemonCommand
+    .command("status")
+    .description("What the daemon is doing, what it spent today, and what is waiting for you")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.daemonStatusCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("pause")
+    .description(
+      "Stop background work from starting (running work finishes; answering still works)",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.pauseDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("resume")
+    .description(
+      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.resumeDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
       ),
     );
 
@@ -2753,7 +2800,42 @@ function registerWorkflowCommands(program: Command): void {
  * - MCP server management
  * - Update command
  */
-export function createCLIApp(): Command {
+/**
+ * The first command-line operand (a subcommand name, typo or not), skipping the
+ * program's own options and the values they take. `jazz --no-tui` and
+ * `jazz --data-dir ~/work` have none, so they open the interactive home;
+ * `jazz agent list` and `jazz agnt` do, so Commander routes or rejects them.
+ */
+export function firstOperand(program: Command, args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === "--") {
+      return args[index + 1];
+    }
+    if (arg === "-" || !arg.startsWith("-")) {
+      return arg;
+    }
+    if (arg.includes("=")) {
+      continue;
+    }
+    const option = program.options.find(
+      (candidate) => candidate.long === arg || candidate.short === arg,
+    );
+    const next = args[index + 1];
+    const takesValue =
+      option !== undefined &&
+      (option.required || (option.optional && next !== undefined && !next.startsWith("-")));
+    if (takesValue) {
+      index += 1;
+    }
+  }
+  return undefined;
+}
+
+export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
   program
@@ -2817,7 +2899,7 @@ export function createCLIApp(): Command {
   registerRunsCommands(program);
   registerWorkflowCommands(program);
 
-  if (process.argv.length <= 2) {
+  if (firstOperand(program, argv.slice(2)) === undefined) {
     program.action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/wizard").then((mod) => mod.wizardCommand()),
