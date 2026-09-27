@@ -9,7 +9,11 @@
 
 import { NOTIFY_CHANNEL_SECRET_FIELDS } from "@jazz/core/types/notify";
 
-/** Keychain/libsecret service name under which Jazz stores its secrets. */
+/**
+ * Base Keychain/libsecret service name. Each Jazz home stores its secrets under
+ * `jazz.<home hash>` (see `keyringServiceName` in `keyring.ts`); the bare name holds only entries
+ * written before secrets were scoped per home, until the default home adopts them.
+ */
 export const KEYRING_SERVICE_NAME = "jazz";
 
 /**
@@ -182,6 +186,24 @@ export function notifyChannelSecretEnvVar(channel: string, field: string): strin
   return `JAZZ_NOTIFY_${secretEnvVarSuffix(channel)}_${fieldSuffix}`;
 }
 
+/** The two maps in an MCP server definition whose values are handed to the server. */
+export type McpServerSecretField = "env" | "headers";
+
+/** An MCP server's env var or HTTP header value, e.g. `mcpServers.signoz.env.SIGNOZ_API_KEY`. */
+const MCP_SERVER_SECRET_PATH = /^mcpServers\..+\.(env|headers)\.[^.]+$/;
+
+/**
+ * The keyring account holding one env var or header value of an MCP server defined in the
+ * user's `~/.agents/mcp.json`. The file keeps the key with an empty value.
+ */
+export function mcpServerSecretPath(
+  serverName: string,
+  field: McpServerSecretField,
+  key: string,
+): string {
+  return `mcpServers.${serverName}.${field}.${key}`;
+}
+
 /** Every config path Jazz treats as a secret. */
 export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
@@ -215,6 +237,9 @@ export function isSecretPath(path: string): boolean {
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
   if (OTLP_HEADER_PATH.test(path)) return true;
+  // Every MCP env var and header is treated as a secret: `--env` and `--header` carry API keys
+  // and bearer tokens under whatever name the server chose.
+  if (MCP_SERVER_SECRET_PATH.test(path)) return true;
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
@@ -247,4 +272,33 @@ export function envVarForSecretPath(path: string): string | undefined {
     return notifyChannelSecretEnvVar(channel[1], channel[2]);
   }
   return SECRET_ENV_VARS[path];
+}
+
+/** What `redactSecretValues` prints in place of a secret. */
+export const REDACTED_SECRET = "<redacted>";
+
+/**
+ * A copy of a config value with every non-empty string at a secret path replaced by
+ * `REDACTED_SECRET`. `prefix` is the dotted path of `value` itself, empty for a whole config.
+ */
+export function redactSecretValues(value: unknown, prefix = ""): unknown {
+  if (typeof value === "string") {
+    return value !== "" && prefix !== "" && isSecretPath(prefix) ? REDACTED_SECRET : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => redactSecretValues(item, joinPath(prefix, String(index))));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        redactSecretValues(nested, joinPath(prefix, key)),
+      ]),
+    );
+  }
+  return value;
+}
+
+function joinPath(prefix: string, key: string): string {
+  return prefix === "" ? key : `${prefix}.${key}`;
 }

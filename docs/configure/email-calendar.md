@@ -25,7 +25,7 @@ Then include the `email` skill in the agent or workflow. The skill covers listin
 
 Himalaya commands execute through `execute_command`. Jazz classifies the actual command before applying approval policy. A read-only run may list or read mail when the classifier can establish that the command is inspect-only; archive, move, reply, send, and delete operations should be treated as mutations.
 
-Do not broadly add `himalaya` to `autoApprovedCommands` for an unattended agent. The allowlist key includes the binary and first subcommand, which may not distinguish a safe mailbox operation from a more consequential operation sharing that subcommand.
+Do not broadly add `himalaya` to `autoApprovedCommands` for an unattended agent. The allowlist key is the binary and the word right after it, which may not distinguish a safe mailbox operation from a more consequential operation sharing that subcommand.
 
 The [read-only inbox briefing](../guides/inbox-triage.md) demonstrates a schedule that never changes mailbox state.
 

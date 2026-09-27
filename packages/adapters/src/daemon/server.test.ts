@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -24,8 +28,9 @@ import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
-import { Context, Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { AgentServiceImpl } from "@/adapters/agent-service";
+import { InMemoryGoalStore } from "@/adapters/storage/goal-store";
 import { InMemoryLoopStore } from "@/adapters/storage/loop-store";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
@@ -1570,4 +1575,133 @@ describe("refusing a request a browser made", () => {
     );
     expect(response.status).toBe(299);
   });
+});
+
+describe("the daemon's attention routes", () => {
+  it("pauses background work, refuses new runs while paused, and resumes", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "daemon-attention-"));
+    const previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = home;
+    try {
+      const runs = new InMemoryRunStore();
+      const layer = Layer.mergeAll(
+        Layer.succeed(RunStoreTag, runs),
+        Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
+        Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
+        Layer.succeed(AgentConfigServiceTag, {
+          reloadIfChanged: () => Effect.succeed(false),
+          appConfig: Effect.succeed({ notifications: { enabled: false } }),
+        } as unknown as AgentConfigService),
+      );
+      const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+        Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
+      );
+      const call = (method: string, route: string, body?: unknown) =>
+        handle(
+          request(method, route, {
+            headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          }),
+        );
+
+      expect((await call("POST", "/daemon/pause", {})).status).toBe(200);
+      const refused = await call("POST", "/runs", { agent: "sonnet", prompt: "hello" });
+      expect(refused.status).toBe(503);
+      expect(await refused.json()).toMatchObject({ ok: false, paused: true });
+
+      const status = (await (await call("GET", "/status")).json()) as {
+        paused: { kind: string } | null;
+        waiting: unknown[];
+      };
+      expect(status.paused?.kind).toBe("user");
+      expect(status.waiting).toEqual([]);
+      expect(await (await call("GET", "/waiting")).json()).toEqual({ ok: true, waiting: [] });
+
+      expect((await call("POST", "/daemon/resume", {})).status).toBe(200);
+      const resumed = (await (await call("GET", "/status")).json()) as { paused: unknown };
+      expect(resumed.paused).toBeNull();
+      expect((await handle(request("GET", "/waiting"))).status).toBe(401);
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("streams a snapshot, then each run that starts waiting and each that stops", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "daemon-events-"));
+    const previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = home;
+    const controller = new AbortController();
+    try {
+      const runs = new InMemoryRunStore();
+      const layer = Layer.mergeAll(
+        Layer.succeed(RunStoreTag, runs),
+        Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
+        Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
+        Layer.succeed(AgentConfigServiceTag, {
+          reloadIfChanged: () => Effect.succeed(false),
+          appConfig: Effect.succeed({}),
+        } as unknown as AgentConfigService),
+      );
+      const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+        Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
+      );
+      const response = await handle(
+        request("GET", "/events", {
+          headers: { authorization: "Bearer s3cret" },
+          signal: controller.signal,
+        }),
+      );
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      const until = async (text: string) => {
+        while (!seen.includes(text)) {
+          const chunk = await reader.read();
+          if (chunk.done) throw new Error(`stream ended before ${text}`);
+          seen += decoder.decode(chunk.value);
+        }
+      };
+
+      await until("event: snapshot");
+      const parked = {
+        ...createRunRecord({
+          runId: "run-1",
+          agentId: "a",
+          conversationId: "c",
+          input: "x",
+          now: new Date(),
+        }),
+        state: {
+          kind: "input-required",
+          pending: {
+            kind: "question",
+            toolCallId: "call-1",
+            request: { question: "Which folder?" },
+          },
+          snapshot: { messages: [], iteration: 1 },
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      } as unknown as RunRecord;
+      await Effect.runPromise(runs.save(parked));
+      await until("event: waiting");
+      expect(seen).toContain("Which folder?");
+
+      await Effect.runPromise(runs.save({ ...parked, state: { kind: "completed", content: "" } }));
+      await until("event: resolved");
+    } finally {
+      controller.abort();
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

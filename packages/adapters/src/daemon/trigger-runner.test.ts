@@ -76,6 +76,33 @@ describe("runTick", () => {
   });
 });
 
+describe("runTick while paused", () => {
+  it("delivers reminders but claims no wake triggers, workflows or jobs", async () => {
+    const started: string[] = [];
+    const work = tickWork({
+      claimWorkflows: Effect.sync(() => {
+        started.push("workflows");
+        return [];
+      }),
+      claimWakeTriggers: () =>
+        Effect.sync(() => {
+          started.push("wake triggers");
+          return [];
+        }),
+      claimReminders: () => Effect.succeed([{ agentId: "agent-1", item: reminder }]),
+      deliverReminder: () => Effect.sync(() => void started.push("reminder")),
+      drainJobBatches: Effect.sync(() => void started.push("jobs")),
+      drainDetachedJobs: Effect.sync(() => void started.push("detached")),
+    });
+    await Effect.runPromise(
+      runTick({ runWorkflows: true, startNew: false }, work).pipe(
+        Effect.zipRight(Effect.sleep("20 millis")),
+      ),
+    );
+    expect(started).toEqual(["reminder"]);
+  });
+});
+
 describe("wakeTriggerTurnPrompt", () => {
   const fireAt = Date.UTC(2026, 8, 27, 9, 0);
 

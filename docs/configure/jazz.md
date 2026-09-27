@@ -122,9 +122,34 @@ Both values are fractions of the effective model context window. Jazz requires `
 
 `peers` lists remote Jazz agents this installation has explicitly chosen to trust. Peer credentials belong in the keyring. See [Agent-to-agent](../concepts/agent-to-agent.md).
 
+## Daemon limits and notifications
+
+```json
+{
+  "daemon": {
+    "dailyCostUSD": 3,
+    "dailyTokens": 2000000,
+    "notify": {
+      "desktop": true,
+      "ntfyUrl": "https://ntfy.sh/my-private-jazz-topic",
+      "webhookUrl": "https://example.com/jazz-hook"
+    }
+  }
+}
+```
+
+`dailyCostUSD` and `dailyTokens` cap what unattended runs may spend per day, across all of them.
+Reaching one pauses `jazz daemon` until local midnight; `jazz daemon resume` lifts it for the rest
+of the day. Your chat turns never count. `notify` says where the daemon tells you something needs
+you or that it paused: `desktop` (on unless set to `false`, and off when `notifications.enabled`
+is `false`), an ntfy topic URL for a phone push, and a URL that gets each notification as a JSON
+POST with `type` (`waiting` or `paused`), `title`, `body`, and the item or pause. Pick an ntfy
+topic name nobody can guess: anyone who knows it can read what you are sent. See
+[Daemon](../concepts/daemon.md#when-it-needs-you).
+
 ## MCP overrides
 
-Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`.
+Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`. `trusted` is read from the global file only, and applies only to servers defined in `~/.agents/mcp.json`; a project file's `trusted` is ignored with a warning. See [MCP](./mcp.md#trust-controls-approval-not-identity).
 
 ## Telemetry
 
@@ -132,7 +157,7 @@ Local telemetry is enabled by default. The `telemetry` object controls retention
 
 ## Secrets and environment variables
 
-Provider and integration keys should be set through Jazz so it can use the system keyring, or supplied as documented environment variables. Run `jazz config show` to inspect resolved non-secret settings.
+Provider and integration keys should be set through Jazz so it can use the system keyring, or supplied as documented environment variables. Run `jazz config show` to inspect the resolved settings; secrets are redacted unless you pass `--reveal`.
 
 Common process-wide overrides include:
 

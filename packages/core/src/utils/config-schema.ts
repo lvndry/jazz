@@ -6,7 +6,7 @@
  * every field is optional, because a file is a partial override; `mcpServers` holds only the
  * `enabled`/`trusted` overrides Jazz owns, because full server definitions live in
  * `.agents/mcp.json`; and `daemon.token` may appear, the one secret whose no-keyring fallback
- * lands in this file under a section `AppConfig` does not model.
+ * lands in this file, in a field of the `daemon` section `AppConfig` does not model.
  *
  * - `parseConfigFile` checks a file as loaded and returns every problem alongside the largest
  *   valid subset. The adapter decides whether this is an initial load, which must fail closed, or
@@ -29,6 +29,8 @@ import type {
   ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
+  DaemonConfig,
+  DaemonNotifyConfig,
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
@@ -89,7 +91,7 @@ type SchemaShape<T> = {
 export interface ConfigFileContents extends Omit<AppConfig, "storage" | "mcpServers"> {
   readonly storage?: StorageConfig;
   readonly mcpServers?: Readonly<Record<string, MCPServerOverride>>;
-  readonly daemon?: { readonly token?: string };
+  readonly daemon?: DaemonConfig & { readonly token?: string };
 }
 
 /**
@@ -510,7 +512,20 @@ const configFileShape = {
   peers: z.array(z.strictObject(peerShape)).exactOptional(),
   hosts: z.array(z.strictObject(hostShape)).exactOptional(),
   webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
-  daemon: z.strictObject({ token: text.exactOptional() }).exactOptional(),
+  daemon: z
+    .strictObject({
+      token: text.exactOptional(),
+      dailyCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
+      dailyTokens: positiveWholeNumber.exactOptional(),
+      notify: z
+        .strictObject({
+          desktop: flag.exactOptional(),
+          ntfyUrl: described(z.url(), "an https URL").exactOptional(),
+          webhookUrl: described(z.url(), "an http or https URL").exactOptional(),
+        } satisfies SchemaShape<DaemonNotifyConfig>)
+        .exactOptional(),
+    } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
+    .exactOptional(),
   spend: z.strictObject(spendShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 

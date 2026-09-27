@@ -12,6 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import * as path from "node:path";
+import { announceWaiting, daemonGate } from "@jazz/adapters/daemon/attention";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
 import {
@@ -416,17 +417,33 @@ export function daemonCommand(options: DaemonCommandOptions) {
           });
         // Triggers, goals and loops share the tick but not its fate: a failing claim in one
         // must not keep the others from being claimed.
+        // One gate per tick: paused (by the user or at the daily cap), the workers still settle
+        // what is running, but nothing new starts. Announcing runs either way, so a pause or a
+        // run waiting on the user is told the moment it happens.
         void run(
-          Effect.all(
-            [
-              runDueTriggers({ runWorkflows: workflowsDue }).pipe(
-                Effect.catchAll(reportFailure("trigger")),
-              ),
-              runDueGoals().pipe(Effect.asVoid, Effect.catchAll(reportFailure("goal"))),
-              runDueLoops().pipe(Effect.asVoid, Effect.catchAll(reportFailure("loop"))),
-            ],
-            { concurrency: "unbounded", discard: true },
-          ) as Effect.Effect<void, unknown, DaemonRequirements>,
+          Effect.gen(function* () {
+            const gate = yield* daemonGate().pipe(
+              Effect.catchAll(() => Effect.succeed({ kind: "open" } as const)),
+            );
+            const startNew = gate.kind === "open";
+            yield* Effect.all(
+              [
+                runDueTriggers({ runWorkflows: workflowsDue, startNew }).pipe(
+                  Effect.catchAll(reportFailure("trigger")),
+                ),
+                runDueGoals({ startNew }).pipe(
+                  Effect.asVoid,
+                  Effect.catchAll(reportFailure("goal")),
+                ),
+                runDueLoops({ startNew }).pipe(
+                  Effect.asVoid,
+                  Effect.catchAll(reportFailure("loop")),
+                ),
+              ],
+              { concurrency: "unbounded", discard: true },
+            );
+            yield* announceWaiting().pipe(Effect.asVoid, Effect.catchAll(reportFailure("notify")));
+          }) as Effect.Effect<void, unknown, DaemonRequirements>,
         ).finally(() => {
           tickRunning = false;
         });

@@ -259,6 +259,16 @@ export const daemonTickWork = {
   compactSpendLedger: compactSpendLedger(),
 };
 
+export interface TickOptions {
+  readonly runWorkflows?: boolean;
+  /**
+   * False while the daemon is paused (by the user or at the daily cap): only reminders, which
+   * run nothing, are delivered, and wake triggers, workflows and jobs stay unclaimed and due
+   * until it resumes.
+   */
+  readonly startNew?: boolean;
+}
+
 /**
  * One tick: claim due workflow slots, wake triggers and reminders, and fork each claimed unit
  * of work; start (once) the detached-job and job-batch drains. Never waits for the work, so a
@@ -267,9 +277,10 @@ export const daemonTickWork = {
  * Claim failures are reported and swallowed: a stuck lock or a transient error must never stop
  * the ticker from running on the next interval.
  */
-export function runTick<R>(options: { readonly runWorkflows?: boolean }, work: TickWork<R>) {
+export function runTick<R>(options: TickOptions, work: TickWork<R>) {
   return Effect.gen(function* () {
-    if (options.runWorkflows === true) {
+    const startNew = options.startNew !== false;
+    if (startNew && options.runWorkflows === true) {
       const claims = yield* work.claimWorkflows.pipe(
         Effect.catchAllCause((cause) =>
           reportFailure("workflow claim")(cause).pipe(
@@ -286,13 +297,12 @@ export function runTick<R>(options: { readonly runWorkflows?: boolean }, work: T
     }
 
     const now = Date.now();
-    const wakeClaims = yield* work
-      .claimWakeTriggers(now)
-      .pipe(
-        Effect.catchAllCause((cause) =>
-          reportFailure("wake trigger claim")(cause).pipe(Effect.as([])),
-        ),
-      );
+    // Claiming takes a trigger for firing, so a paused daemon leaves due triggers unclaimed.
+    const wakeClaims = yield* (startNew ? work.claimWakeTriggers(now) : Effect.succeed([])).pipe(
+      Effect.catchAllCause((cause) =>
+        reportFailure("wake trigger claim")(cause).pipe(Effect.as([])),
+      ),
+    );
     for (const { agentId, item } of wakeClaims) {
       yield* forkOnce(
         `wake trigger:${agentId}:${item.id}`,
@@ -314,6 +324,9 @@ export function runTick<R>(options: { readonly runWorkflows?: boolean }, work: T
       );
     }
 
+    if (!startNew) {
+      return;
+    }
     yield* forkOnce(
       "detached jobs",
       work.drainDetachedJobs.pipe(Effect.catchAllCause(reportFailure("detached jobs"))),
@@ -346,6 +359,6 @@ type DaemonTickRequirements = {
 }[keyof typeof daemonTickWork];
 
 /** One daemon tick with the real work; see {@link runTick}. */
-export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}) {
+export function runDueTriggers(options: TickOptions = {}) {
   return runTick<DaemonTickRequirements>(options, daemonTickWork);
 }

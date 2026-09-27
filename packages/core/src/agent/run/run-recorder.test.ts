@@ -1,6 +1,7 @@
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AgentResponse } from "../types";
@@ -65,6 +66,26 @@ describe("withRunRecording", () => {
       autoApprovedTools: ["git_status"],
       maxIterations: 24,
     });
+  });
+
+  it("marks a run nobody could be asked in as unattended, and a chat's run as attended", async () => {
+    const unattendedStore = new InMemoryRunStore();
+    await runWith(unattendedStore, Effect.succeed(response("done")));
+    expect((await Effect.runPromise(unattendedStore.get(RUN_ID)))?.unattended).toBe(true);
+
+    const chatStore = new InMemoryRunStore();
+    const chat = { canPromptForApproval: () => true } as unknown as PresentationService;
+    await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.succeed(response("done"))).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(RunStoreTag, chatStore),
+            Layer.succeed(PresentationServiceTag, chat),
+          ),
+        ),
+      ) as Effect.Effect<AgentResponse, unknown>,
+    );
+    expect((await Effect.runPromise(chatStore.get(RUN_ID)))?.unattended).toBeUndefined();
   });
 
   it("records a completed run", async () => {

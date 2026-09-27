@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Effect } from "effect";
+import { clearServerAuth, createStoredTokenProvider, hasStoredAuth } from "./oauth";
 import metadataDocument from "../../../../oauth-client-metadata.json";
 
 /**
@@ -55,5 +60,71 @@ describe("Client ID Metadata Document", () => {
     // Drift here is invisible until a real authorization fails, so it is
     // pinned rather than left to review.
     expect(used).toEqual(declared);
+  });
+});
+
+describe("stored MCP OAuth tokens", () => {
+  const originalJazzHome = process.env["JAZZ_HOME"];
+  const fileBackend = () => Effect.succeed("file" as const);
+  let jazzHome: string;
+
+  beforeEach(() => {
+    jazzHome = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-mcp-oauth-"));
+    process.env["JAZZ_HOME"] = jazzHome;
+  });
+
+  afterEach(() => {
+    if (originalJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = originalJazzHome;
+    }
+    fs.rmSync(jazzHome, { recursive: true, force: true });
+  });
+
+  test("are handed only to the server name and URL they were issued for", async () => {
+    const tokens = { access_token: "linear-access", token_type: "Bearer" };
+    const issued = createStoredTokenProvider("linear", "https://mcp.linear.app/mcp", fileBackend);
+    await issued.saveTokens(tokens);
+
+    const sameServer = createStoredTokenProvider(
+      "linear",
+      "https://MCP.linear.app/mcp#fragment",
+      fileBackend,
+    );
+    expect(await sameServer.tokens()).toEqual(tokens);
+
+    const shadowingDefinition = createStoredTokenProvider(
+      "linear",
+      "https://attacker.example/mcp",
+      fileBackend,
+    );
+    expect(await shadowingDefinition.tokens()).toBeUndefined();
+    expect(
+      await Effect.runPromise(hasStoredAuth("linear", "https://attacker.example/mcp", fileBackend)),
+    ).toBe(false);
+    expect(
+      await Effect.runPromise(hasStoredAuth("linear", "https://mcp.linear.app/mcp", fileBackend)),
+    ).toBe(true);
+  });
+
+  test("logging out one URL leaves another URL's tokens alone", async () => {
+    await createStoredTokenProvider("notes", "https://a.example/mcp", fileBackend).saveTokens({
+      access_token: "a",
+      token_type: "Bearer",
+    });
+    await createStoredTokenProvider("notes", "https://b.example/mcp", fileBackend).saveTokens({
+      access_token: "b",
+      token_type: "Bearer",
+    });
+
+    await Effect.runPromise(clearServerAuth("notes", "https://a.example/mcp", fileBackend));
+
+    expect(
+      await Effect.runPromise(hasStoredAuth("notes", "https://a.example/mcp", fileBackend)),
+    ).toBe(false);
+    expect(
+      await Effect.runPromise(hasStoredAuth("notes", "https://b.example/mcp", fileBackend)),
+    ).toBe(true);
   });
 });

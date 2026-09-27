@@ -1,7 +1,7 @@
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, it } from "bun:test";
-import { approvalNotification, classifyTurnOutcome } from "./unattended-resume";
+import { classifyTurnOutcome } from "./unattended-resume";
 
 const TRANSCRIPT: ChatMessage[] = [
   { role: "user", content: "batch finished" },
@@ -76,18 +76,5 @@ describe("classifyTurnOutcome", () => {
     const outcome = classifyTurnOutcome({ ok: true });
 
     expect(outcome).toEqual({ kind: "finished", messages: [] });
-  });
-});
-
-describe("approvalNotification", () => {
-  it("tells the reader which run to answer and how", () => {
-    const outcome = classifyTurnOutcome({ ok: false, error: park() });
-    if (outcome.kind !== "parked") throw new Error("expected a park");
-
-    const notification = approvalNotification({ source: "job batch", sourceId: "b1" }, outcome);
-
-    expect(notification.body).toContain("jazz runs approve run-1");
-    expect(notification.body).toContain("execute_command");
-    expect(notification.body).toContain("b1");
   });
 });

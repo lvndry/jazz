@@ -96,6 +96,41 @@ of it.
 
 ---
 
+## When it needs you
+
+Work the daemon runs alone stops and waits when it needs a person: a run asking to approve a
+command, a question only you can answer, a goal stopped for review, a loop that failed three
+times. The daemon tells you the moment that happens, once per item, through the channels in
+`daemon.notify`: a desktop notification on the machine (on unless you turn it off), a push to
+your phone through an [ntfy](https://ntfy.sh) topic, or a JSON POST to a URL of yours. Each
+notification says what waits and the command that answers it.
+
+```bash
+jazz daemon status   # running or paused, what it spent today, and everything waiting for you
+```
+
+Over HTTP, `GET /waiting` lists the same items, and `GET /events` streams them as server-sent
+events: a `snapshot` when you connect, then `waiting` when something starts waiting, `resolved`
+when it is answered (from anywhere: chat, `jazz runs`, another client), and `paused` or
+`resumed`. `GET /status` returns what `jazz daemon status` prints. These need the daemon token,
+like every route but `/health`.
+
+## Pausing it, and its daily cap
+
+`jazz daemon pause` stops the daemon starting work of its own: goal cycles, loop runs, wake
+triggers, scheduled workflows, background jobs, and new `POST /runs`, webhook, and peer
+requests, which get a `503` saying why. Work already running finishes, and anything waiting on
+you can still be answered. `jazz daemon resume` starts it again. The HTTP equivalents are
+`POST /daemon/pause` and `POST /daemon/resume`.
+
+Each run the daemon starts is held to the agent loop's own limits, but nothing else bounds the
+sum. `daemon.dailyCostUSD` and `daemon.dailyTokens` do: once unattended runs started since local
+midnight have spent that much, the daemon pauses itself until midnight and tells you. Your chat
+turns never count. `jazz daemon resume` lifts the cap for the rest of that day. The dollar cap
+binds only while every counted run is priced; on a local model use `dailyTokens`.
+
+---
+
 ## Authentication
 
 `GET /health` is unauthenticated on purpose: a process supervisor should be able to see that the

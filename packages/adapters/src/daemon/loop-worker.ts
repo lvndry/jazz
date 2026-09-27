@@ -316,8 +316,9 @@ export function resumeLoopRun(options: ResumeRunOptions) {
 /**
  * One daemon tick for loops: settle claims whose runs have moved on, then start every loop that
  * is due. Started runs run on their own fibers, returned for callers that want to wait on them.
+ * With `startNew` false (the daemon is paused) runs in flight are still settled, but none starts.
  */
-export function runDueLoops() {
+export function runDueLoops(options: { readonly startNew?: boolean } = {}) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
     const logger = yield* LoggerServiceTag;
@@ -332,7 +333,7 @@ export function runDueLoops() {
         yield* settleClaim(loop);
         continue;
       }
-      if (!isLoopDue(loop, now)) {
+      if (!isLoopDue(loop, now) || options.startNew === false) {
         continue;
       }
       const stopped = stopAtLimit(loop);

@@ -97,6 +97,14 @@ import {
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
+import {
+  daemonGate,
+  daemonStatusSnapshot,
+  describePause,
+  listWaiting,
+  pauseDaemon,
+  resumeDaemon,
+} from "@jazz/adapters/daemon/attention";
 import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   controlGoal,
@@ -356,6 +364,26 @@ export function makeHandler(
     answerRunRoute(context.req.raw, context.req.param("runId"), runEffect),
   );
 
+  app.get("/waiting", () =>
+    runEffect(Effect.map(listWaiting(), (waiting) => json({ ok: true, waiting }))),
+  );
+  app.get("/status", () => runEffect(daemonStatus()));
+  app.post("/daemon/pause", () =>
+    runEffect(
+      Effect.map(pauseDaemon(), () => json({ ok: true, paused: true })).pipe(
+        Effect.catchAll((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
+      ),
+    ),
+  );
+  app.post("/daemon/resume", () =>
+    runEffect(
+      Effect.map(resumeDaemon(), () => json({ ok: true, paused: false })).pipe(
+        Effect.catchAll((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
+      ),
+    ),
+  );
+  app.get("/events", (context) => eventStream(context.req.raw, runEffect));
+
   app.post("/goals", (context) => createGoalRoute(context.req.raw, runEffect));
   app.get("/goals", () => runEffect(listGoals()));
   app.get("/goals/:goalId", (context) => runEffect(showGoal(context.req.param("goalId"))));
@@ -422,6 +450,113 @@ export function makeHandler(
   return (request) => Promise.resolve(app.fetch(request));
 }
 
+function daemonStatus() {
+  return Effect.map(daemonStatusSnapshot(), (status) => json({ ok: true, ...status }));
+}
+
+/** How often an event stream looks for changes. */
+const EVENT_POLL_MS = 2_000;
+/** A comment line at least this often, under Bun's 10 s idle timeout, so a quiet stream stays open. */
+const EVENT_KEEPALIVE_MS = 5_000;
+
+/**
+ * `GET /events`: a server-sent event stream of what needs the person. It opens with a
+ * `snapshot` of everything waiting and whether the daemon is paused, then sends `waiting` for
+ * each new item, `resolved` when one stops waiting, and `paused`/`resumed`. Changes are read
+ * from the stores, so an answer given from chat or another process shows up too.
+ */
+function eventStream(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Response {
+  const encoder = new TextEncoder();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stream = new ReadableStream<Uint8Array>({
+    start: async (controller) => {
+      const close = () => {
+        if (timer !== undefined) {
+          clearInterval(timer);
+          timer = undefined;
+        }
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the client going away.
+        }
+      };
+      const write = (text: string) => {
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          close();
+        }
+      };
+      const send = (event: string, data: unknown) =>
+        write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      request.signal.addEventListener("abort", close);
+      const snapshot = await runEffect(daemonStatusSnapshot()).catch(() => undefined);
+      if (snapshot === undefined) {
+        close();
+        return;
+      }
+      send("snapshot", { waiting: snapshot.waiting, paused: snapshot.paused });
+      let known = new Map(snapshot.waiting.map((item) => [item.key, item]));
+      let paused = snapshot.paused !== null;
+      let lastSentAt = Date.now();
+      let polling = false;
+      timer = setInterval(() => {
+        if (polling) return;
+        polling = true;
+        void runEffect(daemonStatusSnapshot())
+          .then((next) => {
+            const current = new Map(next.waiting.map((item) => [item.key, item]));
+            for (const [key, item] of current) {
+              if (!known.has(key)) {
+                send("waiting", item);
+                lastSentAt = Date.now();
+              }
+            }
+            for (const key of known.keys()) {
+              if (!current.has(key)) {
+                send("resolved", { key });
+                lastSentAt = Date.now();
+              }
+            }
+            if ((next.paused !== null) !== paused) {
+              send(next.paused !== null ? "paused" : "resumed", {
+                paused: next.paused,
+                ...(next.pauseReason !== undefined ? { reason: next.pauseReason } : {}),
+              });
+              lastSentAt = Date.now();
+            }
+            known = current;
+            paused = next.paused !== null;
+            if (Date.now() - lastSentAt >= EVENT_KEEPALIVE_MS) {
+              write(": keepalive\n\n");
+              lastSentAt = Date.now();
+            }
+          })
+          .catch(close)
+          .finally(() => {
+            polling = false;
+          });
+      }, EVENT_POLL_MS);
+    },
+    cancel: () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    },
+  });
+}
+
 async function startRunRoute(
   request: Request,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
@@ -442,7 +577,21 @@ async function startRunRoute(
       ? body.conversationId
       : generateConversationId("daemon");
 
-  return runEffect(startRun(agentIdentifier, prompt, conversationId));
+  return runEffect(whenOpen(startRun(agentIdentifier, prompt, conversationId)));
+}
+
+/**
+ * `start`, unless the daemon is paused (by the user or at its daily cap): then a 503 saying why,
+ * so a caller can retry later instead of reading the refusal as a broken run.
+ */
+function whenOpen<E, R>(start: Effect.Effect<Response, E, R>) {
+  return Effect.flatMap(
+    daemonGate().pipe(Effect.catchAll(() => Effect.succeed({ kind: "open" } as const))),
+    (gate): Effect.Effect<Response, E, R | DaemonRequirements> =>
+      gate.kind === "open"
+        ? start
+        : Effect.succeed(json({ ok: false, paused: true, error: describePause(gate.pause) }, 503)),
+  );
 }
 
 async function createGoalRoute(
@@ -1215,12 +1364,14 @@ export function makeWebhookHandler(
     }
 
     return runEffect(
-      fireWebhook(
-        webhook,
-        truncated,
-        threadKey.length > 0 ? threadKey : undefined,
-        progressUrl.length > 0 ? progressUrl : undefined,
-        wanted.kinds,
+      whenOpen(
+        fireWebhook(
+          webhook,
+          truncated,
+          threadKey.length > 0 ? threadKey : undefined,
+          progressUrl.length > 0 ? progressUrl : undefined,
+          wanted.kinds,
+        ),
       ),
     );
   });
@@ -1448,6 +1599,10 @@ function agentForPeer<T extends { readonly config: { readonly persona: string } 
 }
 
 function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string) {
+  return whenOpen(answerPeerNow(peer, agentIdentifier, question));
+}
+
+function answerPeerNow(peer: PeerConfig, agentIdentifier: string, question: string) {
   return Effect.gen(function* () {
     const base = yield* getAgentByIdentifier(agentIdentifier);
     const agent = agentForPeer(base, peer);
@@ -1471,6 +1626,9 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
   );
 }
 
+/** A JSON-RPC server error in the implementation-defined range: the daemon is paused. */
+const DAEMON_PAUSED_RPC_CODE = -32001;
+
 function answerA2A(
   peer: PeerConfig,
   agentIdentifier: string,
@@ -1479,6 +1637,16 @@ function answerA2A(
   body: unknown,
 ) {
   return Effect.gen(function* () {
+    const gate = yield* daemonGate().pipe(
+      Effect.catchAll(() => Effect.succeed({ kind: "open" } as const)),
+    );
+    if (gate.kind === "paused") {
+      return json({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: DAEMON_PAUSED_RPC_CODE, message: describePause(gate.pause) },
+      });
+    }
     const base = yield* getAgentByIdentifier(agentIdentifier);
     const agent = agentForPeer(base, peer);
     const response = yield* handleA2ARpc(
