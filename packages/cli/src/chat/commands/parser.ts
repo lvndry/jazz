@@ -46,6 +46,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
   const args = parts.slice(1);
 
   switch (command) {
+    case "memory":
+      return { type: "memory", args };
     case "new":
       return { type: "new", args };
     case "fork":
