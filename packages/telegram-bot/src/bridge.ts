@@ -59,6 +59,7 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
+import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -121,7 +122,13 @@ const BRIDGE_STARTED_AT = Date.now();
 // right jazz process.
 const activeRuns = new Map<
   string,
-  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+  {
+    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
+    cancelled: boolean;
+    chatId: number;
+    /** Whose message started the run: the one person who answers its prompts. */
+    requesterId: number;
+  }
 >();
 // Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
 // find the run to write the decision back to and the message to clear.
@@ -167,6 +174,11 @@ interface BridgeConfig {
   readonly webhookSecret: string;
   readonly webhookUrl: string | undefined;
   readonly allowedChatIds: ReadonlySet<number>;
+  /**
+   * Telegram user ids allowed to widen a chat's authority: `/mode yolo` and "Always allow".
+   * Being in an allowed chat is not enough, since in a group that is everyone in it.
+   */
+  readonly operatorIds: ReadonlySet<number>;
   readonly baseAgentId: string;
   readonly provider: string;
   readonly model: string;
@@ -247,16 +259,19 @@ function requireEnv(name: string): string {
   return value.trim();
 }
 
-function loadConfig(): BridgeConfig {
-  const allowedChatIdsRaw = process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "";
-  const allowedChatIds = new Set(
-    allowedChatIdsRaw
+function parseIdList(raw: string): Set<number> {
+  return new Set(
+    raw
       .split(",")
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)
       .map((entry) => Number.parseInt(entry, 10))
       .filter((entry) => Number.isFinite(entry)),
   );
+}
+
+function loadConfig(): BridgeConfig {
+  const allowedChatIds = parseIdList(process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "");
 
   if (allowedChatIds.size === 0) {
     throw new Error(
@@ -277,6 +292,7 @@ function loadConfig(): BridgeConfig {
     webhookSecret: process.env["TELEGRAM_WEBHOOK_SECRET"]?.trim() || "",
     webhookUrl,
     allowedChatIds,
+    operatorIds: parseIdList(process.env["TELEGRAM_OPERATOR_IDS"]?.trim() ?? ""),
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
     provider: process.env["JAZZ_TELEGRAM_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_TELEGRAM_MODEL"]?.trim() || "gpt-5.4",
@@ -453,6 +469,7 @@ async function maybeSetTzFromLocation(
 async function handleLocation(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   latitude: number,
   longitude: number,
 ): Promise<void> {
@@ -466,7 +483,7 @@ async function handleLocation(
     `Map: ${mapLink}\n\n` +
     "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
     "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
-  await handleMessage(config, chatId, prompt);
+  await handleMessage(config, chatId, requesterId, prompt);
 }
 
 // --- Persona discovery ----------------------------------------------------
@@ -642,6 +659,19 @@ function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string 
     `✅ Mode → <b>${APPROVAL_MODE_LABELS[mode]}</b>\n${modeExplanation(mode, configuredPolicy)}` +
     (mode === "yolo" ? "\nSend <code>/mode safe</code> to turn approvals back on." : "")
   );
+}
+
+/** Why a tap on someone else's prompt did nothing. */
+const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
+
+/** The toast a non-operator gets for an operator-only button. */
+function operatorOnlyToast(userId: number): string {
+  return `Only this bot's operator can do that. Your id is ${userId}; the operator adds it to TELEGRAM_OPERATOR_IDS.`;
+}
+
+/** The same refusal as a chat message, for a typed command. */
+function operatorOnlyHtml(userId: number, what: string): string {
+  return renderRichText(operatorOnlyMessage(String(userId), what, "TELEGRAM_OPERATOR_IDS"));
 }
 
 function webAppKeyboard(url: string, title: string): Record<string, unknown> {
@@ -884,7 +914,11 @@ async function sendApprovalRequest(
 
   const toolName = event.toolName ?? "tool";
   const message = event.message ?? "";
-  const commandKey = commandKeyFromApprovalMessage(event.toolName, message);
+  // Offered only where somebody can use it: an "Always allow" is operator-only.
+  const commandKey =
+    config.operatorIds.size > 0
+      ? commandKeyFromApprovalMessage(event.toolName, message)
+      : undefined;
   const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
   if (message.length > 0) lines.push(escapeHtml(message));
   if (event.previewDiff) {
@@ -963,6 +997,7 @@ async function sendUserInputRequest(
 async function runJazz(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   prompt: string,
   onEvent: (event: JazzEvent) => void,
   runToken: string,
@@ -1003,7 +1038,7 @@ async function runJazz(
     },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
-  activeRuns.set(runToken, { child, cancelled: false });
+  activeRuns.set(runToken, { child, cancelled: false, chatId, requesterId });
   // The message and an incognito transcript go in the stdin frame, never on
   // argv, where `ps` shows them to every account on the host.
   await writeStdinFrame(child, {
@@ -1112,6 +1147,7 @@ async function deliverComposition(
 async function handleMessage(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   text: string,
   replyToMessageId?: number,
 ): Promise<void> {
@@ -1178,6 +1214,7 @@ async function handleMessage(
     const envelope = await runJazz(
       config,
       chatId,
+      requesterId,
       text,
       (event) => reporter?.onEvent(event),
       runToken,
@@ -1523,7 +1560,7 @@ const HELP_TEXT = [
   "/model — pick an Ollama model, or /model provider/model for any other provider Jazz supports " +
     "(e.g. /model anthropic/claude-sonnet-5)",
   "/persona — pick my persona / style",
-  "/mode — safe (I ask before risky tools) or yolo (I never ask), e.g. /mode yolo",
+  "/mode — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. /mode yolo",
   "/new — start a fresh conversation (clears earlier context)",
   "/incognito — start a private conversation (nothing saved to history or memory) until /new",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
@@ -1553,7 +1590,12 @@ function cancelReminderForChat(config: BridgeConfig, chatId: number, id: string)
   return cancelReminder(sandbox.home, agentIdForChat(chatId), id, sandboxOwnership(sandbox));
 }
 
-async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
+async function handleRemind(
+  config: BridgeConfig,
+  chatId: number,
+  requesterId: number,
+  args: string,
+): Promise<void> {
   const usage =
     "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
     "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
@@ -1568,7 +1610,7 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   // Route through a normal full agent turn — the add_reminder tool (not this
   // handler) does the actual time parsing and scheduling, so there is exactly
   // one code path that creates reminders regardless of how the request arrived.
-  await handleMessage(config, chatId, `Add a reminder: ${trimmed}`);
+  await handleMessage(config, chatId, requesterId, `Add a reminder: ${trimmed}`);
 }
 
 async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1610,6 +1652,7 @@ async function handleTz(config: BridgeConfig, chatId: number, args: string): Pro
 async function handleCommand(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   command: string,
   args: string,
 ): Promise<void> {
@@ -1617,7 +1660,7 @@ async function handleCommand(
   const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
 
   if (command === "remind") {
-    await handleRemind(config, chatId, args);
+    await handleRemind(config, chatId, requesterId, args);
     return;
   }
 
@@ -1779,6 +1822,10 @@ async function handleCommand(
         );
         return;
       }
+      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
+        await sendReply(config, chatId, operatorOnlyHtml(requesterId, "Turning approvals off"));
+        return;
+      }
       setApprovalMode(config.jazzHome, MODE_FILE, chatId, requested);
       await sendReply(config, chatId, modeConfirmation(requested, config.approvalPolicy));
       return;
@@ -1828,6 +1875,17 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     console.warn(`Ignoring callback from non-allowed chat ${chatId}`);
     return;
   }
+  const tapperId = callback.from?.id;
+  if (typeof tapperId !== "number") {
+    return;
+  }
+  /** Tell the tapper why nothing happened, as a toast only they see. */
+  const refuse = (text: string): Promise<unknown> =>
+    callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text,
+      show_alert: true,
+    });
 
   const parts = data.split(":");
   const kind = parts[0];
@@ -1848,7 +1906,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       reply_markup: { inline_keyboard: [] },
     });
     await sendReply(config, chatId, escapeHtml(item.label), { replyTo: messageId });
-    void handleMessage(config, chatId, item.prompt, messageId).catch((error) =>
+    void handleMessage(config, chatId, tapperId, item.prompt, messageId).catch((error) =>
       console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
@@ -1856,7 +1914,12 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "x") {
     const runToken = indexRaw ?? "";
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.chatId === chatId ? found : undefined;
+    if (run && run.requesterId !== tapperId && !config.operatorIds.has(tapperId)) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1883,9 +1946,14 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   if (kind === "q") {
     const requestId = parts[1] ?? "";
     const optionIndex = Number.parseInt(parts[2] ?? "", 10);
-    const pending = pendingUserInputs.get(requestId);
+    const found = pendingUserInputs.get(requestId);
+    const pending = found?.chatId === chatId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
     const answer = pending?.options[optionIndex];
+    if (run && run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (!pending || !run || answer === undefined) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
@@ -1921,13 +1989,22 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     const decision = parts[2];
     const approved = decision === "1" || decision === "2";
     const always = decision === "2";
-    const pending = pendingApprovals.get(toolCallId);
+    const found = pendingApprovals.get(toolCallId);
+    const pending = found?.chatId === chatId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
     if (!pending || !run) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
         text: "This approval already expired or the run finished.",
       });
+      return;
+    }
+    if (run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
+    if (always && !config.operatorIds.has(tapperId)) {
+      await refuse(operatorOnlyToast(tapperId));
       return;
     }
     pendingApprovals.delete(toolCallId);
@@ -1962,7 +2039,12 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     const runToken = parts[1] ?? "";
     const approved = parts[2] === "1";
     const outstanding = pendingApprovalsForRun(runToken);
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.chatId === chatId ? found : undefined;
+    if (run && run.requesterId !== tapperId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (outstanding.length === 0 || !run) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
@@ -2003,7 +2085,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       reply_markup: { inline_keyboard: [] },
     });
     await sendReply(config, chatId, option.label, { replyTo: messageId });
-    void handleMessage(config, chatId, option.prompt, messageId).catch((error) =>
+    void handleMessage(config, chatId, tapperId, option.prompt, messageId).catch((error) =>
       console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
@@ -2025,6 +2107,10 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "md") {
     const mode = indexRaw === "yolo" ? "yolo" : "safe";
+    if (mode === "yolo" && !config.operatorIds.has(tapperId)) {
+      await refuse(operatorOnlyToast(tapperId));
+      return;
+    }
     setApprovalMode(config.jazzHome, MODE_FILE, chatId, mode);
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
@@ -2095,6 +2181,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 interface TelegramMessage extends TelegramMediaFields {
   readonly chat?: { readonly id?: number };
   readonly from?: {
+    readonly id?: number;
     readonly first_name?: string;
     readonly username?: string;
     readonly is_bot?: boolean;
@@ -2118,6 +2205,7 @@ interface TelegramMessage extends TelegramMediaFields {
 async function handleMedia(
   config: BridgeConfig,
   chatId: number,
+  requesterId: number,
   message: TelegramMessage,
   media: ExtractedMedia,
 ): Promise<void> {
@@ -2137,6 +2225,7 @@ async function handleMedia(
   await handleMessage(
     config,
     chatId,
+    requesterId,
     withReplyContext(
       message,
       buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
@@ -2165,6 +2254,8 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     return;
   }
 
+  // In a private chat the sender is the chat; elsewhere Telegram always names them.
+  const senderId = message?.from?.id ?? chatId;
   const text = message?.text?.trim();
   const latitude = message?.location?.latitude;
   const longitude = message?.location?.longitude;
@@ -2174,19 +2265,19 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     const parsed = parseCommand(text);
     work =
       parsed !== undefined
-        ? handleCommand(config, chatId, parsed.command, parsed.args)
-        : handleMessage(config, chatId, withReplyContext(message ?? {}, text));
+        ? handleCommand(config, chatId, senderId, parsed.command, parsed.args)
+        : handleMessage(config, chatId, senderId, withReplyContext(message ?? {}, text));
   } else if (
     typeof latitude === "number" &&
     Number.isFinite(latitude) &&
     typeof longitude === "number" &&
     Number.isFinite(longitude)
   ) {
-    work = handleLocation(config, chatId, latitude, longitude);
+    work = handleLocation(config, chatId, senderId, latitude, longitude);
   } else {
     const media = extractMedia(message ?? {});
     if (media !== undefined) {
-      work = handleMedia(config, chatId, message ?? {}, media);
+      work = handleMedia(config, chatId, senderId, message ?? {}, media);
     }
   }
 

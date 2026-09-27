@@ -51,6 +51,7 @@ import {
   setTzForChat,
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
+import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -142,7 +143,13 @@ const BRIDGE_STARTED_AT = Date.now();
 
 const activeRuns = new Map<
   string,
-  { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
+  {
+    child: Bun.Subprocess<"pipe", "pipe", "pipe">;
+    cancelled: boolean;
+    channelId: string;
+    /** Whose message started the run: the one person who answers its prompts. */
+    requesterId: string;
+  }
 >();
 interface PendingApproval {
   toolCallId: string;
@@ -171,6 +178,12 @@ const channelCache = new Map<string, ChannelMeta>();
 
 interface BridgeConfig extends AccessConfig {
   readonly botToken: string;
+  /**
+   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`). Being
+   * allowed to talk to the bot is not enough: with a guild allowlist that is the whole
+   * server.
+   */
+  readonly operatorIds: ReadonlySet<string>;
   readonly createThreads: boolean;
   readonly baseAgentId: string;
   readonly provider: string;
@@ -266,6 +279,7 @@ function loadConfig(): BridgeConfig {
 
   return {
     botToken: requireEnv("DISCORD_BOT_TOKEN"),
+    operatorIds: parseSnowflakeList(process.env["DISCORD_OPERATOR_IDS"] ?? ""),
     allowedUserIds,
     allowedChannelIds,
     allowedGuildIds,
@@ -483,6 +497,14 @@ function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string 
   );
 }
 
+/** Why a click on someone else's prompt did nothing. */
+const NOT_REQUESTER_TEXT = "Only the person who asked can answer this.";
+
+/** The refusal for an operator-only action, naming the clicker's id for the operator. */
+function operatorOnlyMarkdown(userId: string, what: string): string {
+  return renderDiscordMarkdown(operatorOnlyMessage(userId, what, "DISCORD_OPERATOR_IDS"));
+}
+
 function followupComponents(): unknown[] {
   const buttons = Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) =>
     button(`f:${key}`, option.label, BUTTON_SECONDARY),
@@ -682,6 +704,7 @@ async function sendApprovalRequest(
 async function runJazz(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   prompt: string,
   onEvent: (event: JazzEvent) => void,
   runToken: string,
@@ -721,7 +744,7 @@ async function runJazz(
       env: sandboxEnv(sandbox, process.env, "discord"),
     },
   );
-  activeRuns.set(runToken, { child, cancelled: false });
+  activeRuns.set(runToken, { child, cancelled: false, channelId, requesterId });
   // The message and an incognito transcript go in the stdin frame, never on
   // argv, where `ps` shows them to every account on the host.
   await writeStdinFrame(child, {
@@ -821,6 +844,7 @@ async function deliverComposition(
 async function handleMessage(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   text: string,
   progressMessageId?: string,
   replyToMessageId?: string,
@@ -893,6 +917,7 @@ async function handleMessage(
     const envelope = await runJazz(
       config,
       channelId,
+      requesterId,
       text,
       (event) => reporter?.onEvent(event),
       runToken,
@@ -1185,7 +1210,7 @@ const HELP_TEXT = [
   "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
     "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
-  "`/mode` — safe (I ask before risky tools) or yolo (I never ask), e.g. `/mode mode:yolo`",
+  "`/mode` — safe (I ask before risky tools) or yolo (I never ask; operators only), e.g. `/mode mode:yolo`",
   "`/new` — start a fresh conversation (clears earlier context)",
   "`/incognito` — start a private conversation (nothing saved) until `/new`",
   "`/remind <when> <text>` — e.g. `/remind when:30m text:take pizza out`",
@@ -1273,6 +1298,7 @@ interface CommandResult {
 async function handleCommand(
   config: BridgeConfig,
   channelId: string,
+  requesterId: string,
   command: string,
   args: string,
 ): Promise<CommandResult> {
@@ -1447,6 +1473,9 @@ async function handleCommand(
             "⚠️ Usage: `/mode safe` or `/mode yolo`, or send `/mode` on its own to pick from buttons.",
         };
       }
+      if (requested === "yolo" && !config.operatorIds.has(requesterId)) {
+        return { content: operatorOnlyMarkdown(requesterId, "Turning approvals off") };
+      }
       setApprovalMode(config.jazzHome, MODE_FILE, channelId, requested);
       return { content: modeConfirmation(requested, config.approvalPolicy) };
     }
@@ -1615,18 +1644,24 @@ async function dispatchMessage(
   try {
     if (parsed !== undefined && known.has(parsed.command)) {
       const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-      const result = await handleCommand(config, bound.channelId, parsed.command, parsed.args);
+      const result = await handleCommand(
+        config,
+        bound.channelId,
+        message.author.id,
+        parsed.command,
+        parsed.args,
+      );
       await sendReply(config, bound.channelId, result.content, {
         ...(result.components !== undefined ? { components: result.components } : {}),
       });
       if (result.runPrompt !== undefined) {
-        await handleMessage(config, bound.channelId, result.runPrompt);
+        await handleMessage(config, bound.channelId, message.author.id, result.runPrompt);
       }
       return;
     }
 
     const bound = await bindThreadIfNeeded(config, message, meta, stripped);
-    await handleMessage(config, bound.channelId, stripped);
+    await handleMessage(config, bound.channelId, message.author.id, stripped);
   } catch (error) {
     console.error(`Handling failed for ${message.channel_id}: ${String(error)}`);
     await sendReply(
@@ -1702,12 +1737,13 @@ async function dispatchSlash(
     });
   }
 
-  const result = await handleCommand(config, channelId, name, args);
+  const invokerId = interactionUserId(interaction) ?? "";
+  const result = await handleCommand(config, channelId, invokerId, name, args);
 
   if (needsDefer) {
     if (result.runPrompt !== undefined) {
       const original = await getOriginalInteraction(runtime.applicationId, interaction.token);
-      await handleMessage(config, channelId, result.runPrompt, original?.id);
+      await handleMessage(config, channelId, invokerId, result.runPrompt, original?.id);
       return;
     }
     await editOriginalInteraction(runtime.applicationId, interaction.token, {
@@ -1753,6 +1789,13 @@ async function dispatchComponent(
 
   const parts = customId.split(":");
   const kind = parts[0];
+  const clickerId = interactionUserId(interaction) ?? "";
+  /** Tell the clicker why nothing happened, in a reply only they see. */
+  const refuse = (content: string): Promise<unknown> =>
+    interactionCallback(interaction.id, interaction.token, {
+      type: CALLBACK_CHANNEL_MESSAGE,
+      data: { content, flags: FLAG_EPHEMERAL },
+    });
 
   if (kind === "s") {
     const items = suggestionStore.get(parts[1] ?? "");
@@ -1779,15 +1822,20 @@ async function dispatchComponent(
     await sendReply(config, channelId, `-# ${echo}`, {
       message_reference: { message_id: messageId },
     });
-    void handleMessage(config, channelId, item.prompt, undefined, messageId).catch((error) =>
-      console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
+    void handleMessage(config, channelId, clickerId, item.prompt, undefined, messageId).catch(
+      (error) => console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;
   }
 
   if (kind === "x") {
     const runToken = parts[1] ?? "";
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.channelId === channelId ? found : undefined;
+    if (run && run.requesterId !== clickerId && !config.operatorIds.has(clickerId)) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (run) {
       run.cancelled = true;
       run.child.kill();
@@ -1809,8 +1857,13 @@ async function dispatchComponent(
   if (kind === "a") {
     const token = parts[1] ?? "";
     const approved = parts[2] === "1";
-    const pending = pendingApprovals.get(token);
+    const found = pendingApprovals.get(token);
+    const pending = found?.channelId === channelId ? found : undefined;
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
+    if (run && run.requesterId !== clickerId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (!pending || !run) {
       await interactionCallback(interaction.id, interaction.token, {
         type: CALLBACK_CHANNEL_MESSAGE,
@@ -1840,7 +1893,12 @@ async function dispatchComponent(
     const runToken = parts[1] ?? "";
     const approved = parts[2] === "1";
     const outstanding = pendingApprovalsForRun(runToken);
-    const run = activeRuns.get(runToken);
+    const found = activeRuns.get(runToken);
+    const run = found?.channelId === channelId ? found : undefined;
+    if (run && run.requesterId !== clickerId) {
+      await refuse(NOT_REQUESTER_TEXT);
+      return;
+    }
     if (outstanding.length === 0 || !run) {
       await interactionCallback(interaction.id, interaction.token, {
         type: CALLBACK_CHANNEL_MESSAGE,
@@ -1876,6 +1934,10 @@ async function dispatchComponent(
 
   if (kind === "md") {
     const mode: ApprovalMode = parts[1] === "yolo" ? "yolo" : "safe";
+    if (mode === "yolo" && !config.operatorIds.has(clickerId)) {
+      await refuse(operatorOnlyMarkdown(clickerId, "Turning approvals off"));
+      return;
+    }
     setApprovalMode(config.jazzHome, MODE_FILE, channelId, mode);
     await interactionCallback(interaction.id, interaction.token, {
       type: CALLBACK_UPDATE_MESSAGE,
@@ -1899,8 +1961,8 @@ async function dispatchComponent(
     await sendReply(config, channelId, option.label, {
       message_reference: { message_id: messageId },
     });
-    void handleMessage(config, channelId, option.prompt, undefined, messageId).catch((error) =>
-      console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
+    void handleMessage(config, channelId, clickerId, option.prompt, undefined, messageId).catch(
+      (error) => console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;
   }

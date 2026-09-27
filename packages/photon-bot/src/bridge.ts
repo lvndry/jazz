@@ -45,6 +45,8 @@ interface BridgeConfig {
   readonly projectId: string;
   readonly projectSecret: string;
   readonly allowedHandles: ReadonlySet<string>;
+  /** Handles allowed to widen a chat's authority (`/mode yolo`). */
+  readonly operatorHandles: ReadonlySet<string>;
   readonly jazzBinary: string;
   readonly jazzHome: string;
   readonly baseAgentId: string;
@@ -219,6 +221,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     projectId: credentials.projectId,
     projectSecret: credentials.projectSecret,
     allowedHandles: allowed,
+    operatorHandles: parseHandleList(process.env["PHOTON_OPERATOR_HANDLES"]?.trim() ?? ""),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     jazzHome,
     baseAgentId: process.env["JAZZ_PHOTON_AGENT"]?.trim() || DEFAULT_BASE_AGENT_ID,
@@ -408,6 +411,8 @@ export async function startBridge(): Promise<void> {
     showReasoning: config.showReasoning,
     files: STORE_FILES,
     agentIdFor: (chatId) => agentIdForSpace(chatId),
+    isOperator: (senderId) => config.operatorHandles.has(senderId),
+    operatorSettingName: "PHOTON_OPERATOR_HANDLES",
   });
 
   startReminderSweep({
@@ -445,12 +450,13 @@ export async function startBridge(): Promise<void> {
     }
 
     const chatId: ChatId = space.id;
+    const senderId = normalizeHandle(sender);
     spaces.set(chatId, space);
     void promptFrom(message, config.jazzHome)
       .then(async (prompt) => {
         // A reaction or a read receipt carries nothing to answer.
         if (prompt.length === 0) return;
-        await runner.handle(chatId, prompt);
+        await runner.handle({ chatId, senderId, text: prompt });
       })
       .catch((error: unknown) => console.error(`Failed to handle ${message.id}: ${String(error)}`));
   }
