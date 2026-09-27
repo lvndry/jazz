@@ -56,7 +56,7 @@ next summarization.
 **Cost accepted.** The agent can't see the pressure history, so it can't reason about "I've
 been told this twice". In practice escalating tiers cover that.
 
-📄 [`agent-loop.ts:40`](../../packages/core/src/agent/execution/agent-loop.ts#L40) · [Agent loop](./run-lifecycle.md#guard-1--budget-pressure)
+📄 [`agent-loop.ts:40`](../../packages/core/src/agent/execution/agent-loop.ts#L40) · [Agent loop](./run-lifecycle.md#guard-1-budget-pressure)
 
 ### Meltdown detection keyed on name + arguments
 
@@ -72,7 +72,7 @@ looks like. Both are the behaviors you're trying to encourage.
 counter to the same query, slips through. Catching that needs semantic similarity, which
 costs a model call per check.
 
-📄 [`agent-loop.ts:101`](../../packages/core/src/agent/execution/agent-loop.ts#L101) · [Agent loop](./run-lifecycle.md#guard-2--meltdown-detection)
+📄 [`agent-loop.ts:101`](../../packages/core/src/agent/execution/agent-loop.ts#L101) · [Agent loop](./run-lifecycle.md#guard-2-meltdown-detection)
 
 ### Compaction at 80%, not truncation
 

@@ -110,7 +110,7 @@ tool that fetches a URL is still auto-approved under `--approval-policy read-onl
 always was. It matters at exactly one door: a tool listed here is **never** granted to another
 person's agent by a disclosure tier. It has to be named in that peer's `allow`, the same as a
 tool that writes to disk. See
-[Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
+[Security model: how the ceiling is computed](../security/index.md#how-the-ceiling-is-computed).
 
 ---
 

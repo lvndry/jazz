@@ -1,15 +1,25 @@
 /**
- * Verifies every relative Markdown link in published Markdown resolves.
+ * Verifies every relative Markdown link in published Markdown resolves, including its
+ * `#fragment`.
  *
  * Resolution is deliberately case-sensitive even on macOS: links are checked against the
  * paths git actually tracks, because that is what GitHub and Linux checkouts serve. A link
  * to `docs/SECURITY.md` when git tracks `docs/security.md` works locally and 404s in
  * production, so the filesystem is the wrong oracle here.
+ *
+ * A fragment must name a heading in the target Markdown file (or the same file, for a bare
+ * `#fragment`), slugged with github-slugger: the rule both GitHub and the website's Markdown
+ * pipeline use, including the `-1`, `-2` suffixes for repeated headings. An explicit
+ * `id="..."` or `name="..."` in the file's HTML also counts. Fragments on links to
+ * non-Markdown files are not checked, since those have no headings.
  */
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import GithubSlugger from "github-slugger";
+import matter from "gray-matter";
+import { marked, type Token, type Tokens } from "marked";
 
 /** Local-only plans; gitignored, so their links are not part of the published docs. */
 const EXCLUDED_DIRS = ["docs/superpowers"];
@@ -55,7 +65,7 @@ function markdownFiles(directory: string, collected: string[] = []): string[] {
 function isExternal(link: string): boolean {
   // A leading slash is an application route (Astro content uses /docs/... and /blog/...),
   // not a repository-relative filesystem link.
-  return /^(https?:|mailto:|#|\/)/.test(link);
+  return /^(https?:|mailto:|\/)/.test(link);
 }
 
 /**
@@ -75,6 +85,63 @@ function stripCodeFences(contents: string): string {
       return insideFence ? "" : line;
     })
     .join("\n");
+}
+
+/** The visible text of inline heading tokens: emphasis markers and link targets dropped. */
+function plainText(tokens: readonly Token[]): string {
+  return tokens
+    .map((token) => {
+      if (token.type === "html") {
+        return "";
+      }
+      if ("tokens" in token && Array.isArray(token.tokens)) {
+        return plainText(token.tokens);
+      }
+      return "text" in token && typeof token.text === "string" ? token.text : "";
+    })
+    .join("");
+}
+
+const EXPLICIT_ANCHOR_PATTERN = /\s(?:id|name)="([^"]+)"/g;
+
+const anchorCache = new Map<string, ReadonlySet<string>>();
+
+/** Every fragment a link may use to reach a place in this Markdown file. */
+export function anchorsIn(markdown: string): ReadonlySet<string> {
+  const slugger = new GithubSlugger();
+  const anchors = new Set<string>();
+  const body = matter(markdown).content;
+  const visit = (tokens: readonly Token[]) => {
+    for (const token of tokens) {
+      if (token.type === "heading") {
+        anchors.add(slugger.slug(plainText(token.tokens ?? [])));
+      } else if (token.type !== "code" && "tokens" in token && Array.isArray(token.tokens)) {
+        visit(token.tokens);
+      }
+      if (token.type === "list") {
+        for (const item of (token as Tokens.List).items) {
+          visit(item.tokens);
+        }
+      }
+    }
+  };
+  visit(marked.lexer(body));
+  for (const match of stripCodeFences(body).matchAll(EXPLICIT_ANCHOR_PATTERN)) {
+    if (match[1] !== undefined) {
+      anchors.add(match[1]);
+    }
+  }
+  return anchors;
+}
+
+function anchorsOfFile(file: string): ReadonlySet<string> {
+  const cached = anchorCache.get(file);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const anchors = anchorsIn(readFileSync(file, "utf-8"));
+  anchorCache.set(file, anchors);
+  return anchors;
 }
 
 function main(): void {
@@ -111,22 +178,36 @@ function main(): void {
     for (const match of contents.matchAll(LINK_PATTERN)) {
       const link = match[1];
       if (link === undefined || isExternal(link)) continue;
-      const target = link.split("#")[0];
-      if (target === undefined || target.length === 0) continue;
-      const resolved = path.normalize(path.join(directory, target));
-      if (tracked.has(resolved) || directories.has(resolved.replace(/\/$/, ""))) continue;
-      broken.push(`${file} → ${link}`);
+      const [target = "", fragment] = link.split("#");
+      const resolved = target.length === 0 ? file : path.normalize(path.join(directory, target));
+      if (
+        target.length > 0 &&
+        !tracked.has(resolved) &&
+        !directories.has(resolved.replace(/\/$/, ""))
+      ) {
+        broken.push(`${file} → ${link}`);
+        continue;
+      }
+      if (fragment === undefined || fragment.length === 0 || !resolved.endsWith(".md")) continue;
+      if (!anchorsOfFile(resolved).has(decodeURIComponent(fragment))) {
+        broken.push(`${file} → ${link} (no heading or id "${fragment}")`);
+      }
     }
   }
 
   if (broken.length > 0) {
     console.error(`✗ ${broken.length} broken link(s):\n`);
     for (const entry of broken) console.error(`  ${entry}`);
-    console.error("\nLinks are resolved against git-tracked paths (case-sensitive).");
+    console.error(
+      "\nLinks are resolved against git-tracked paths (case-sensitive); fragments against the target's heading slugs.",
+    );
     process.exit(1);
   }
 
-  console.log(`✓ every relative link in ${files.length} Markdown files resolves`);
+  console.log(`✓ every relative link and anchor in ${files.length} Markdown files resolves`);
 }
 
-main();
+// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
+if (import.meta.main) {
+  main();
+}

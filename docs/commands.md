@@ -414,7 +414,7 @@ optionally installing a background service.
 Who it answers is `IMESSAGE_ALLOWED_HANDLES`, deny-by-default; with nothing set, an
 interactive first run answers only you, via a `jazz` prefix in a chat with yourself. The
 background service's environment is snapshotted into its plist at install time: see
-[Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#imessage) for changing it
+[Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#imessage-through-your-own-mac) for changing it
 afterwards, and
 [`packages/imessage-bot/README.md`](../packages/imessage-bot/README.md) for every
 variable.

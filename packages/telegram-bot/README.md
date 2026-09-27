@@ -132,7 +132,7 @@ don't need to change, since they only set what a brand-new chat starts on.
 (calendar, non-Google), and [gcalcli](https://github.com/insanum/gcalcli) (calendar,
 Google): the CLIs the `email`/`calendar` skills already know how to drive via
 `execute_command` (see [Email & Calendar](../../docs/configure/email-calendar.md)
-and the calendar skill's [Google Calendar (gcalcli)](../../skills/calendar/SKILL.md#google-calendar-gcalcli)
+and the calendar skill's [gcalcli (Google)](../../skills/calendar/SKILL.md#gcalcli-google)
 section). None of them are allowlisted: like every other shell command, each call is
 `high-risk` and shows up in Telegram as an Accept/Reject prompt before it runs.
 
