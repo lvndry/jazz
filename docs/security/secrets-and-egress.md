@@ -84,25 +84,37 @@ CIDR entry allows those addresses behind any name.
 
 ## Read tools and Jazz's secret files
 
-`read_file`, `read_pdf`, `pdf_page_count`, `grep`, `find` and `ls` refuse Jazz's own secret files,
-after resolving symlinks, so a model steered by something it read cannot put Jazz's keys in its
-context:
+Jazz can discover and copy credential files without putting their values in the model context.
+`ls` and `find` include their paths with `protected: true`; `stat` provides metadata. Direct
+`read_file`, `read_pdf`, `pdf_page_count` and `grep` calls return a successful metadata-only result
+with `contentOmitted: true` and guidance to use `cp`. Searches spanning protected files omit their
+contents. `write_file` and `edit_file` decline protected files before building a preview diff.
 
-- `$JAZZ_HOME/secrets.json`, the no-keyring secret store;
-- the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which holds the
-  daemon token when no keyring is available;
-- the lock and temporary files written beside them while they change, including durable-write
-  siblings such as `.secrets.json-<pid>-<id>.tmp`;
-- corrupt-file quarantines such as `secrets.json.corrupt-<timestamp>`.
+Protection covers:
 
-Temporary and quarantined config copies are protected beside `JAZZ_CONFIG_PATH` too, even
-when that path is outside `JAZZ_HOME`.
+- files named `.env`, `.env.*` (including examples) and `secrets.json`;
+- the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which can hold a daemon token;
+- Jazz's credential locks, temporary writes and corrupt-file quarantines;
+- destinations previously copied or moved from protected files, including ordinary filenames;
+- internal copy and replacement staging directories and their descendants.
 
-A search that spans them, such as `grep` over `$JAZZ_HOME`, leaves their matches out.
+Use `cp` with the source and final destination path for a whole-file transfer. The approval shows
+paths, and the executor copies bytes internally; neither the proposal nor the result contains
+values. Protected copies have mode `0600` for a file or `0700` for the containing directory.
+Copying a directory with a protected descendant protects the entire destination tree. `mv`
+preserves protection too. Individual secret-value reads and edits are not part of this workflow.
 
-Credentials other programs keep, such as `~/.ssh` or a cloud CLI's token cache, are not on the
-list: Jazz cannot know every program's layout. Keep them out of the agent's reach with a dedicated
-OS user or container (see [unattended runs](./unattended-runs.md)).
+Before copying, Jazz records destination paths and their canonical aliases in the private
+`$JAZZ_HOME/.protected-files.json` registry. Protection survives process restarts and subsequent
+copies or moves through these tools. Records are append-only, including after a failed transfer
+or deletion. Filesystem mutation tools prevent replacing or deleting the registry or its ancestors.
+An unreadable or corrupt registry makes reads metadata-only and stops transfers until repaired.
+
+This is a contract of Jazz's filesystem tools using the same `JAZZ_HOME`, not an OS sandbox.
+Shell commands, external programs, hard-link aliases and runs using another home do not inherit
+this registry. Credentials with other names, such as `~/.ssh` or a cloud CLI's token cache, are
+not automatically recognized. Use a dedicated OS user or container where host isolation is needed
+(see [unattended runs](./unattended-runs.md)).
 
 ## Content from outside is labelled
 
@@ -138,8 +150,7 @@ None of it replaces operating-system permissions or network isolation. A shell t
 your user reaches whatever your user reaches.
 
 Scrubbing the environment stops a key being read out of `env`. It does not stop a read tool or a
-shell command from reading `~/.aws/credentials`: the read tools refuse only Jazz's own secret
-files, and `execute_command` is gated by approval.
+shell command from reading `~/.aws/credentials`: the read tools protect recognized credential paths and recorded copies, and `execute_command` is gated by approval.
 
 If that matters for your deployment, the answer is a dedicated OS user or a container, not a
 tighter approval policy. See [unattended runs](./unattended-runs.md).

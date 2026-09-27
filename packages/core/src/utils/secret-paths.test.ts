@@ -1,3 +1,4 @@
+/** Credential path rules cover direct names, aliases, and internal replacement trees. */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -49,6 +50,11 @@ describe("loadSecretPathRules", () => {
       path.join(jazzHome, "secrets.json.corrupt-2026-09-27"),
       path.join(jazzHome, "config.json.corrupt-2026-09-27"),
       path.join(jazzHome, ".chatgpt-credential.lock"),
+      path.join(root, ".env"),
+      path.join(root, ".env.local"),
+      path.join(root, "secrets.json"),
+      path.join(root, ".jazz-stage-copy-id", "nested", "ordinary.txt"),
+      path.join(root, ".jazz-previous-copy-id", "nested", "ordinary.txt"),
     ]) {
       expect(rules.reasonFor(secret)).toBeString();
     }
@@ -60,7 +66,6 @@ describe("loadSecretPathRules", () => {
       path.join(jazzHome, "notes.md"),
       path.join(jazzHome, "history", "a.json"),
       path.join(jazzHome, "agents", "default.json"),
-      path.join(root, "secrets.json"),
       path.join(os.homedir(), ".ssh", "id_ed25519"),
     ]) {
       expect(rules.reasonFor(ordinary)).toBeUndefined();
@@ -90,7 +95,7 @@ describe("secretPathReason", () => {
     const link = path.join(root, "innocent.txt");
     fs.symlinkSync(path.join(jazzHome, "secrets.json"), link);
     expect(rules.reasonFor(link)).toBeUndefined();
-    expect(secretPathReason(link, rules)).toBe("Jazz secrets");
+    expect(secretPathReason(link, rules)).toBeString();
   });
 
   it("matches a secret reached through a symlinked JAZZ_HOME", () => {

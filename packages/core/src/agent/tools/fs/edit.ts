@@ -1,3 +1,4 @@
+/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { z } from "zod";
@@ -5,6 +6,8 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
+import { secretPathReason } from "@/core/utils/secret-paths";
 import { withLock } from "@/core/utils/storage";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
@@ -501,6 +504,17 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
 
         const fs = yield* FileSystem.FileSystem;
         const fileExists = yield* fs
@@ -622,6 +636,17 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
         const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
         if (canonicalTargetResult._tag === "Left") {
           const err = new FileNotFoundError({ path: target });

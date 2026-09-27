@@ -197,7 +197,7 @@ trim the toolset. See
 
 Below `high-risk`, Jazz narrows what injected content can do on its own: model-chosen URLs reach
 public hosts only unless the agent lists private ones in `network.allowPrivateHosts`, the read
-tools refuse Jazz's own secret files such as `$JAZZ_HOME/secrets.json`, outside content
+tools omit credential contents while allowing metadata and approved whole-file copies, outside content
 reaches the model labelled as untrusted, and once a run has read it, egress tools need approval.
 See [Secrets and egress](docs/security/secrets-and-egress.md).
 

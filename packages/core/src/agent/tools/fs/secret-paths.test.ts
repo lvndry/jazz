@@ -1,7 +1,7 @@
 /**
  * The read tools against Jazz's own secret files, in a throwaway JAZZ_HOME. Mirrors the
  * first half of the audit's exfiltration chain (`chain.ts`): `read_file` of
- * `$JAZZ_HOME/secrets.json` must come back refused.
+ * `$JAZZ_HOME/secrets.json` must return metadata without credential values.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createFindTool } from "./find";
 import { createGrepTool } from "./grep";
 import { createLsTool } from "./ls";
+import { createPdfPageCountTool } from "./pdf-page-count";
 import { createReadFileTool } from "./read";
+import { createReadPdfTool } from "./read-pdf";
 import { runTool } from "./test-helpers";
 
 let root: string;
@@ -54,35 +56,35 @@ afterEach(() => {
 });
 
 describe("read_file", () => {
-  it("refuses $JAZZ_HOME/secrets.json", async () => {
+  it("returns protected metadata for $JAZZ_HOME/secrets.json", async () => {
     const result = await runTool(
       createReadFileTool(),
       { path: path.join(jazzHome, "secrets.json") },
       workspace,
     );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Refused to read");
+    expect(result.success).toBe(true);
+    expect(result.result).toMatchObject({ protected: true, contentOmitted: true });
     expect(JSON.stringify(result)).not.toContain("needle-secret");
   });
 
   it.each([".secrets.json-123-id.tmp", "config.json.corrupt-2026-09-27"])(
-    "refuses the credential copy %s left by durable storage",
+    "omits contents of the credential copy %s left by durable storage",
     async (filename) => {
       const secretCopy = path.join(jazzHome, filename);
       fs.writeFileSync(secretCopy, "needle-secret-copy");
       const result = await runTool(createReadFileTool(), { path: secretCopy }, workspace);
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Refused to read");
+      expect(result.success).toBe(true);
+      expect(result.result).toMatchObject({ protected: true, contentOmitted: true });
       expect(JSON.stringify(result)).not.toContain("needle-secret-copy");
     },
   );
 
-  it("refuses a symlink that points at the config holding the daemon token", async () => {
+  it("protects a symlink that points at the config holding the daemon token", async () => {
     const link = path.join(workspace, "harmless.txt");
     fs.symlinkSync(path.join(jazzHome, "config.json"), link);
     const result = await runTool(createReadFileTool(), { path: link }, workspace);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("daemon token");
+    expect(result.success).toBe(true);
+    expect(result.result).toMatchObject({ protected: true, contentOmitted: true });
   });
 
   it("frames a file outside the working directory and leaves one inside unframed", async () => {
@@ -104,6 +106,17 @@ describe("read_file", () => {
   });
 });
 
+describe("PDF metadata-only reads", () => {
+  it("omits protected contents before extension checks or PDF parsing", async () => {
+    for (const tool of [createReadPdfTool(), createPdfPageCountTool()]) {
+      const result = await runTool(tool, { path: path.join(jazzHome, "secrets.json") }, workspace);
+      expect(result.success).toBe(true);
+      expect(result.result).toMatchObject({ protected: true, contentOmitted: true });
+      expect(JSON.stringify(result)).not.toContain("needle-secret");
+    }
+  });
+});
+
 describe("grep", () => {
   it("drops matches inside secret files from a search that spans them", async () => {
     const result = await runTool(
@@ -118,25 +131,25 @@ describe("grep", () => {
     expect(files.some((file) => file.endsWith("config.json"))).toBe(false);
   });
 
-  it("refuses to start inside a secret lock directory", async () => {
+  it("returns metadata for a secret lock directory", async () => {
     const result = await runTool(
       createGrepTool(),
       { pattern: "needle", path: path.join(jazzHome, ".secrets.lock") },
       workspace,
     );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Refused to read");
+    expect(result.success).toBe(true);
+    expect(result.result).toMatchObject({ protected: true, contentOmitted: true });
   });
 });
 
 describe("ls and find", () => {
-  it("ls refuses a secret lock directory and hides secret files inside a listing", async () => {
+  it("ls discovers protected paths without reading their contents", async () => {
     const refused = await runTool(
       createLsTool(),
       { path: path.join(jazzHome, ".secrets.lock") },
       workspace,
     );
-    expect(refused.success).toBe(false);
+    expect(refused.success).toBe(true);
 
     const listing = await runTool(
       createLsTool(),
@@ -146,17 +159,19 @@ describe("ls and find", () => {
     expect(listing.success).toBe(true);
     const paths = (listing.result as { path: string }[]).map((entry) => entry.path);
     expect(paths.some((entry) => entry.endsWith("notes.md"))).toBe(true);
-    expect(paths.some((entry) => entry.includes(".secrets.lock"))).toBe(false);
-    expect(paths.some((entry) => entry.endsWith("secrets.json"))).toBe(false);
+    expect(paths.some((entry) => entry.includes(".secrets.lock"))).toBe(true);
+    expect(paths.some((entry) => entry.endsWith("secrets.json"))).toBe(true);
   });
 
-  it("find refuses a secret lock directory as its starting point", async () => {
+  it("find lists protected paths from a secret lock directory", async () => {
     const result = await runTool(
       createFindTool(),
       { path: path.join(jazzHome, ".secrets.lock"), name: "*" },
       workspace,
     );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Refused to read");
+    expect(result.success).toBe(true);
+    expect(result.result).toMatchObject({
+      results: [expect.objectContaining({ protected: true })],
+    });
   });
 });

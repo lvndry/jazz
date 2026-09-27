@@ -8,7 +8,7 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { UntrustedProvenance } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
-import { secretPathReason, secretPathRefusal } from "@/core/utils/secret-paths";
+import { secretPathReason, protectedFileResult } from "@/core/utils/secret-paths";
 import { buildKeyFromContext } from "../context-utils";
 
 export type FsToolDeps = FileSystem.FileSystem | FileSystemContextService;
@@ -69,11 +69,7 @@ export function resolveReadableFile(
     if (secretReason !== undefined) {
       return {
         kind: "failure",
-        result: {
-          success: false,
-          result: null,
-          error: secretPathRefusal(requestedPath, secretReason),
-        },
+        result: protectedFileResult(requestedPath, secretReason),
       };
     }
 

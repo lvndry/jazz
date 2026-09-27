@@ -1,14 +1,21 @@
+/**
+ * Search using ripgrep JSON or system grep with NUL-terminated filenames. Filename framing is
+ * independent of matching content, so credentials containing delimiter-like text cannot
+ * forge an unprotected path. Only complete records are returned when output is capped.
+ */
+import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
+import { isRecord } from "@/core/utils/is-record";
 import {
   createSecretResultFilter,
   loadSecretPathRules,
   secretPathReason,
-  secretPathRefusal,
+  protectedFileResult,
 } from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES, type CollectedProcessOutput } from "../capped-output";
@@ -88,7 +95,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     const cmdArgs: string[] = [];
 
     // Always include filename in output (rg omits it for single-file searches)
-    cmdArgs.push("--with-filename");
+    cmdArgs.push("--json", "--color=never", "--no-config");
 
     if (!recursive || isFile) {
       if (isDirectory && !recursive) {
@@ -98,9 +105,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
     if (args.ignoreCase) cmdArgs.push("-i");
 
-    if (outputMode === "files") cmdArgs.push("-l");
-    else if (outputMode === "count") cmdArgs.push("-c");
-    else cmdArgs.push("-n");
+    cmdArgs.push("-n");
 
     if (
       outputMode === "content" &&
@@ -122,7 +127,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       cmdArgs.push("--fixed-strings");
     }
 
-    cmdArgs.push(searchPattern, searchPath);
+    cmdArgs.push("--", searchPattern, searchPath);
     return cmdArgs;
   }
 
@@ -137,13 +142,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     const cmdArgs: string[] = [];
 
     // Always include filename in output (grep omits it for single-file searches)
-    cmdArgs.push("-H");
+    cmdArgs.push("-H", "--null", "--color=never", "--binary-files=without-match");
 
     if (recursive && isDirectory) cmdArgs.push("-r");
     if (args.ignoreCase) cmdArgs.push("-i");
 
     if (outputMode === "files") cmdArgs.push("-l");
-    else if (outputMode === "count") cmdArgs.push("-c");
     else cmdArgs.push("-n");
 
     if (
@@ -168,7 +172,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
       cmdArgs.push("-F");
     }
 
-    cmdArgs.push(searchPattern, searchPath);
+    cmdArgs.push("--", searchPattern, searchPath);
     return cmdArgs;
   }
 
@@ -183,27 +187,77 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     return `${message} Output truncated at ${DEFAULT_SPAWN_OUTPUT_CAP_BYTES} bytes; narrow the path or pattern.`;
   }
 
-  function parseFilesOutput(stdout: string, maxResults: number) {
-    return stdout
-      .split("\n")
-      .filter((line) => line.trim())
-      .slice(0, maxResults);
+  /** Consume complete filename-NUL-payload-newline records, never infer a path from content. */
+  function parseFramedOutput(stdout: string): Array<{ file: string; payload: string } | null> {
+    const records: Array<{ file: string; payload: string } | null> = [];
+    let offset = 0;
+    while (offset < stdout.length) {
+      if (stdout.startsWith("--\n", offset)) {
+        records.push(null);
+        offset += 3;
+        continue;
+      }
+      const separator = stdout.indexOf("\0", offset);
+      if (separator < 0) break;
+      const end = stdout.indexOf("\n", separator + 1);
+      if (end < 0) break;
+      records.push({
+        file: stdout.slice(offset, separator),
+        payload: stdout.slice(separator + 1, end),
+      });
+      offset = end + 1;
+    }
+    return records;
   }
 
-  function parseCountOutput(stdout: string, maxResults: number) {
-    const counts: Array<{ file: string; count: number }> = [];
-    const lines = stdout.split("\n").filter((line) => line.trim());
-    for (const line of lines) {
-      const lastColon = line.lastIndexOf(":");
-      if (lastColon > 0) {
-        const file = line.slice(0, lastColon);
-        const count = parseInt(line.slice(lastColon + 1), 10);
-        if (!isNaN(count) && count > 0) {
-          counts.push({ file, count });
-        }
+  function parseFilesOutput(stdout: string, maxResults: number) {
+    const files = stdout.split("\0");
+    files.pop();
+    return files.filter((file) => file.length > 0).slice(0, maxResults);
+  }
+
+  type SearchRecord = { file: string; payload: string } | null;
+
+  /** JSON separates paths from content, including binary diagnostics and delimiter-like bytes. */
+  function parseRipgrepOutput(stdout: string): SearchRecord[] {
+    const records: SearchRecord[] = [];
+    let previous: { file: string; line: number } | undefined;
+    for (const line of stdout.split("\n")) {
+      if (!line) continue;
+      let record: unknown;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        continue;
       }
+      if (!isRecord(record)) continue;
+      if (record["type"] === "end") {
+        records.push(null);
+        continue;
+      }
+      if (record["type"] !== "match" && record["type"] !== "context") continue;
+      const data = record["data"];
+      if (!isRecord(data) || !isRecord(data["path"]) || !isRecord(data["lines"])) continue;
+      const file = data["path"]["text"];
+      const text = data["lines"]["text"];
+      const lineNumber = data["line_number"];
+      if (
+        typeof file !== "string" ||
+        typeof text !== "string" ||
+        typeof lineNumber !== "number" ||
+        !Number.isSafeInteger(lineNumber) ||
+        lineNumber < 1
+      )
+        continue;
+      if (previous && (previous.file !== file || lineNumber > previous.line + 1))
+        records.push(null);
+      previous = { file, line: lineNumber };
+      records.push({
+        file,
+        payload: `${lineNumber}${record["type"] === "match" ? ":" : "-"}${text.replace(/\r?\n$/, "")}`,
+      });
     }
-    return counts.slice(0, maxResults);
+    return records;
   }
 
   interface ContextLine {
@@ -226,23 +280,17 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     kind: "match" | "context";
   }
 
-  function parseSearchOutputLine(rawLine: string): ParsedContentLine | null {
-    // Both rg and grep use:
-    // - "file:line:text" for a match
-    // - "file-line-text" for context lines when -C is enabled
-    const parsed = rawLine.match(/^(.*)([:-])(\d+)\2(.*)$/);
-    if (!parsed) return null;
-    const file = parsed[1] ?? "";
-    const delimiter = parsed[2];
-    const lineNum = parseInt(parsed[3] ?? "", 10);
-    const text = parsed[4] ?? "";
-
-    if (!file || Number.isNaN(lineNum)) return null;
+  function parseSearchOutputLine(record: {
+    file: string;
+    payload: string;
+  }): ParsedContentLine | null {
+    const parsed = record.payload.match(/^(\d+)([:-])(.*)$/s);
+    if (!parsed || record.file.length === 0) return null;
     return {
-      file,
-      line: lineNum,
-      text,
-      kind: delimiter === ":" ? "match" : "context",
+      file: record.file,
+      line: Number(parsed[1]),
+      text: parsed[3] ?? "",
+      kind: parsed[2] === ":" ? "match" : "context",
     };
   }
 
@@ -263,16 +311,15 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   }
 
   function parseContentOutput(
-    stdout: string,
+    lines: SearchRecord[],
     maxResults: number,
     includeContext: boolean,
   ): ContentMatch[] {
-    const lines = stdout.split("\n").filter((line) => line.trim());
-    const blocks: string[][] = [];
-    let currentBlock: string[] = [];
+    const blocks: Array<Array<{ file: string; payload: string }>> = [];
+    let currentBlock: Array<{ file: string; payload: string }> = [];
 
     for (const line of lines) {
-      if (line === "--") {
+      if (line === null) {
         if (currentBlock.length > 0) blocks.push(currentBlock);
         currentBlock = [];
         continue;
@@ -381,13 +428,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const secretRules = loadSecretPathRules();
         const startSecretReason = secretPathReason(start, secretRules);
         if (startSecretReason !== undefined) {
-          return {
-            success: false,
-            result: null,
-            error: secretPathRefusal(args.path ?? start, startSecretReason),
-          };
+          return protectedFileResult(args.path ?? start, startSecretReason);
         }
-        const isSecretResult = createSecretResultFilter(start, secretRules);
+        const isSecretPath = createSecretResultFilter(start, secretRules);
+        const isSecretResult = (candidate: string): boolean =>
+          isSecretPath(candidate) ||
+          secretPathReason(path.resolve(start, candidate), secretRules) !== undefined;
 
         const isFile = stat.type === "File";
         const isDirectory = stat.type === "Directory";
@@ -406,7 +452,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const sanitizedEnv = createSanitizedEnv();
 
         // Try ripgrep first, fallback to grep
-        const useRipgrep = yield* Effect.promise(() => checkExternalTool("rg"));
+        let useRipgrep = yield* Effect.promise(() => checkExternalTool("rg"));
 
         let result: CollectedProcessOutput;
 
@@ -428,6 +474,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           // If ripgrep failed unexpectedly (exit > 1), retry with system grep
           if (result.exitCode > 1) {
+            useRipgrep = false;
             const grepArgs = buildSystemGrepArgs(
               args,
               searchPath,
@@ -470,11 +517,23 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           };
         }
 
+        const records = useRipgrep
+          ? parseRipgrepOutput(result.stdout)
+          : parseFramedOutput(result.stdout + (result.stdoutTruncated ? "" : "\n"));
+
         // Handle output modes
         if (outputMode === "files") {
-          const files = parseFilesOutput(result.stdout, maxResults).filter(
-            (file) => !isSecretResult(file),
-          );
+          const files = (
+            useRipgrep
+              ? [
+                  ...new Set(
+                    records.flatMap((record) =>
+                      record !== null && /^\d+:/.test(record.payload) ? [record.file] : [],
+                    ),
+                  ),
+                ].slice(0, maxResults)
+              : parseFilesOutput(result.stdout, maxResults)
+          ).filter((file) => !isSecretResult(file));
           return {
             success: true,
             result: {
@@ -496,9 +555,17 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         if (outputMode === "count") {
-          const counts = parseCountOutput(result.stdout, maxResults).filter(
-            (entry) => !isSecretResult(entry.file),
-          );
+          const parsedCounts = [
+            ...records.reduce((counts, record) => {
+              if (record !== null && /^\d+:/.test(record.payload)) {
+                counts.set(record.file, (counts.get(record.file) ?? 0) + 1);
+              }
+              return counts;
+            }, new Map<string, number>()),
+          ]
+            .map(([file, count]) => ({ file, count }))
+            .slice(0, maxResults);
+          const counts = parsedCounts.filter((entry) => !isSecretResult(entry.file));
           return {
             success: true,
             result: {
@@ -521,7 +588,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         // Content mode (default)
         const matches = parseContentOutput(
-          result.stdout,
+          records,
           maxResults,
           typeof args.contextLines === "number" && args.contextLines > 0,
         ).filter((match) => !isSecretResult(match.file));

@@ -1,3 +1,4 @@
+/** Path and metadata discovery, including protected files; never returns file contents. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import glob from "fast-glob";
@@ -5,11 +6,7 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { toError } from "@/core/utils/errors";
-import {
-  loadSecretPathRules,
-  secretPathReason,
-  secretPathRefusal,
-} from "@/core/utils/secret-paths";
+import { loadSecretPathRules, secretPathReason } from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
@@ -91,15 +88,6 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         }
 
         const secretRules = loadSecretPathRules();
-        const secretReason = secretPathReason(resolvedPath, secretRules);
-        if (secretReason !== undefined) {
-          return {
-            success: false,
-            result: null,
-            error: secretPathRefusal(args.path ?? resolvedPath, secretReason),
-          };
-        }
-
         const includeHidden = args.showHidden === true;
         const recursive = args.recursive === true;
         const requestedMaxResults =
@@ -134,7 +122,8 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           catch: toError,
         }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
 
-        const results: { path: string; name: string; type: "file" | "dir" }[] = [];
+        const results: { path: string; name: string; type: "file" | "dir"; protected?: boolean }[] =
+          [];
 
         for (const entryPath of entries) {
           if (results.length >= maxResults) break;
@@ -142,9 +131,6 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           const isDir = entryPath.endsWith("/");
           const cleanPath = isDir ? entryPath.slice(0, -1) : entryPath;
           const name = cleanPath.split("/").pop() || "";
-          if (secretRules.reasonFor(cleanPath) !== undefined) {
-            continue;
-          }
 
           // Apply filter
           if (filter.type === "regex" && filter.regex) {
@@ -157,6 +143,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
             path: cleanPath,
             name,
             type: isDir ? "dir" : "file",
+            ...(secretPathReason(cleanPath, secretRules) !== undefined ? { protected: true } : {}),
           });
         }
 

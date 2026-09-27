@@ -1,26 +1,15 @@
 /**
- * Jazz's own credential files, which the model's read tools refuse.
- *
- * `read_file`, `read_pdf`, `pdf_page_count`, `grep`, `find` and `ls` are read-only and run
- * without a prompt, and a model steered by something it read can point them anywhere. Jazz
- * knows exactly where it keeps its own secrets, so those files are refused outright:
- *
- * - `secrets.json`, the no-keyring secret store (`getSecretsFilePath`);
- * - the global config file (`getGlobalConfigFilePath`), which holds `daemon.token` when no
- *   keyring is available;
- * - the lock, temp, and quarantined files written beside them while they change.
- *
- * Each location comes from the same `paths.ts` function the writer uses, so the list cannot
- * drift from where the files really are. Paths are compared as given and after `realpath`, so a
- * symlink to one of them is refused like the file itself, and case-insensitively on macOS and
- * Windows, whose default filesystems are.
- *
- * Credentials other programs keep (`~/.ssh`, cloud CLIs, keyrings) are outside what Jazz can
- * know; keeping them out of reach is the job of the OS user or container the agent runs as.
+ * Credential path classification for metadata-only reads and approved whole-file transfers.
+ * `loadSecretPathRules` combines known credential names, Jazz-owned paths, internal staging
+ * trees, and persistent copy destinations. Reuse its result within each tool invocation.
+ * `secretPathReason` checks lexical and canonical paths; `createSecretResultFilter` also maps
+ * search results through the canonical search root. Discovery returns paths, never values.
+ * This is tool-level protection, not isolation from shell commands or external file mutations.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import type { ToolExecutionResult } from "@/core/types/tools";
 import {
   getChatGptCredentialLockPath,
   getGlobalConfigFilePath,
@@ -29,19 +18,20 @@ import {
   getSecretsLockPath,
   isSecretsTempFileName,
 } from "@/core/utils/paths";
+import { getProtectedFileRoots, getProtectedFilesRegistryPath } from "@/core/utils/protected-files";
 
 interface SecretLocation {
   /** Absolute path of the file or directory. */
   readonly location: string;
   /** A directory: everything beneath it is covered. */
   readonly directory: boolean;
-  /** What it holds, for the refusal message. */
+  /** What it holds, for the metadata result. */
   readonly label: string;
 }
 
 /** A prepared set of secret locations; build once per tool call with `loadSecretPathRules`. */
 export interface SecretPathRules {
-  /** Why `absolutePath` is refused, or undefined when it is readable. Compares lexically. */
+  /** Why `absolutePath` is protected, or undefined when it is readable. Compares lexically. */
   readonly reasonFor: (absolutePath: string) => string | undefined;
 }
 
@@ -92,7 +82,28 @@ export function loadSecretPathRules(
   const caseInsensitive = CASE_INSENSITIVE_PLATFORMS.has(options.platform ?? process.platform);
   const fold = (value: string): string => (caseInsensitive ? value.toLowerCase() : value);
 
-  const locations = withResolvedSpellings(jazzSecretLocations()).map((entry) => ({
+  let protectedRoots: readonly string[];
+  try {
+    protectedRoots = getProtectedFileRoots();
+  } catch {
+    return {
+      reasonFor: () =>
+        "unavailable protection metadata; repair the protection registry before reading contents",
+    };
+  }
+  const locations = withResolvedSpellings([
+    ...jazzSecretLocations(),
+    {
+      location: getProtectedFilesRegistryPath(),
+      directory: false,
+      label: "Jazz protection metadata",
+    },
+    ...protectedRoots.map((location) => ({
+      location,
+      directory: true,
+      label: "a protected file copy",
+    })),
+  ]).map((entry) => ({
     ...entry,
     folded: fold(path.normalize(entry.location)),
   }));
@@ -105,6 +116,17 @@ export function loadSecretPathRules(
     reasonFor: (absolutePath) => {
       const normalized = path.normalize(absolutePath);
       const folded = fold(normalized);
+      const basename = path.basename(folded);
+      if (basename === ".env" || basename.startsWith(".env.") || basename === "secrets.json") {
+        return "a credential file";
+      }
+      if (
+        folded
+          .split(path.sep)
+          .some((part) => part.startsWith(".jazz-stage-") || part.startsWith(".jazz-previous-"))
+      ) {
+        return "an internal file-transfer staging copy";
+      }
       for (const entry of locations) {
         if (folded === entry.folded) {
           return entry.label;
@@ -134,7 +156,7 @@ export function loadSecretPathRules(
 }
 
 /**
- * Why `absolutePath` is refused, checking both the path as given and where its symlinks lead.
+ * Why `absolutePath` is protected, checking both the path as given and where its symlinks lead.
  */
 export function secretPathReason(
   absolutePath: string,
@@ -168,11 +190,17 @@ export function createSecretResultFilter(
   };
 }
 
-/** The error a read tool returns for a refused path. */
-export function secretPathRefusal(requestedPath: string, reason: string): string {
-  return (
-    `Refused to read ${requestedPath}: it holds ${reason}. ` +
-    "Credential files stay out of the agent's context; ask the user to run the command " +
-    "that needs them."
-  );
+/** Metadata-only result: tools can identify and copy the file without returning its bytes. */
+export function protectedFileResult(requestedPath: string, reason: string): ToolExecutionResult {
+  return {
+    success: true,
+    result: {
+      path: requestedPath,
+      protected: true,
+      contentOmitted: true,
+      reason,
+      message:
+        "Contents are protected. Use cp with source and destination to copy the whole file through approval without exposing its values. Use stat for file metadata.",
+    },
+  };
 }
