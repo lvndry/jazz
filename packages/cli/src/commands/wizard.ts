@@ -12,6 +12,7 @@ import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { WAITING_ON_USER_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
+import { LLM_PROVIDER_ENV_VARS, llmProviderEnvVars } from "@jazz/core/constants/provider-env-vars";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
@@ -22,7 +23,7 @@ import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { agentModelString } from "@jazz/core/utils/provider-model";
+import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
@@ -613,22 +614,11 @@ function promptNotificationsOnFirstRun(
     yield* terminal.heading("🎷 Welcome to Jazz! Let's get you set up.");
     yield* terminal.log("");
 
-    // Check for API keys from environment variables
-    const envVarMap: Record<string, string> = {
-      OPENAI_API_KEY: "openai",
-      ANTHROPIC_API_KEY: "anthropic",
-      GOOGLE_GENERATIVE_AI_API_KEY: "google",
-      MISTRAL_API_KEY: "mistral",
-      XAI_API_KEY: "xai",
-      DEEPSEEK_API_KEY: "deepseek",
-      GROQ_API_KEY: "groq",
-      OPENROUTER_API_KEY: "openrouter",
-      OLLAMA_API_KEY: "ollama",
-    };
     const detectedProviders: string[] = [];
-    for (const [envVar, provider] of Object.entries(envVarMap)) {
-      if (process.env[envVar]) {
-        detectedProviders.push(`${provider} (${envVar})`);
+    for (const provider of Object.keys(LLM_PROVIDER_ENV_VARS)) {
+      const envVar = llmProviderEnvVars(provider).find((name) => process.env[name]?.trim());
+      if (envVar !== undefined) {
+        detectedProviders.push(`${formatProviderDisplayName(provider)} (${envVar})`);
       }
     }
     if (detectedProviders.length > 0) {
