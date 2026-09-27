@@ -150,7 +150,8 @@ caller can check every quarter second without waking the model each time. It is 
 interject. Waits that outlast that belong to `register_trigger`, which suspends the run and resumes
 it later; the two compose, polling tightly inside the budget and re-arming across it.
 
-In the interactive terminal, an operator can also type `! <command>`. That explicit shell escape
+In the interactive terminal, an operator can also type `! <command>` (the space after `!` is
+required). That explicit shell escape
 uses the same cwd resolution, environment sanitization, denylist, timeout, interruption, and
 output caps as `execute_command`, then gives the result to the agent as context. It is not
 available through `jazz run` or remote chat surfaces.
@@ -359,8 +360,10 @@ himalaya invocation is declined. The fix is usually _not_ to raise the whole tie
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-That keeps the tier low while letting the one command through. Matching is on a parsed key
-(binary + first subcommand), never a raw prefix: see
+That keeps the tier low while letting the one command through. Matching is on a key parsed the
+way the shell reads the command (binary, plus the next word when it is not a flag), never a raw
+prefix, and a compound, redirected, substituted or `NAME=value`-prefixed command never matches:
+see
 [Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
 
 ---

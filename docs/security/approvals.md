@@ -46,7 +46,21 @@ is `unknown`.
 When the verdict would change the outcome, Jazz asks a model to classify that specific command as
 `read-only`, `low-risk`, or `high-risk`, then applies the policy to that.
 
-Three properties of that classifier are worth knowing:
+Before any model is asked, Jazz reads the command the way the shell will and marks it
+`high-risk` outright when it contains:
+
+- command or process substitution: `$(...)`, backticks, `$((...))`, `<(...)`, `>(...)`
+- a redirection that reads or writes a file (discarding output to `/dev/null` and `2>&1` are
+  fine)
+- input piped into a shell or interpreter (`| sh`, `| python3`, `| xargs`), `eval`, `source`,
+  or inline code (`bash -c`, `python3 -c`, `node -e`)
+- a command name built from a variable (`$EDITOR notes.md`)
+- a network client (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync` and similar), or a DNS lookup
+  of an expanded name (`dig $USER.example.com`)
+
+No classifier or [policy plugin](../configure/plugins.md) verdict can lower those.
+
+Three properties of the classifier itself are worth knowing:
 
 - **Uncertainty is high-risk.** Ambiguity resolves upward, never downward.
 - **The command is classified first, and the conversation cannot talk it down.** A clearly
@@ -68,8 +82,26 @@ things. Narrow the exception instead:
 | Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json`  | persisted, `execute_command` only |
 | Toolset trimming      | the agent's `deniedTools`                        | permanent, and the strongest      |
 
-Command matching uses a parsed key, the binary plus its first subcommand, never a raw string
-prefix. Approving `git status` does not also approve `git status && rm -rf /`.
+Command matching uses a parsed key, never a raw string prefix. Jazz lexes the command the way
+the shell will, and the key is the binary plus the word right after it when that word is not a
+flag: `git diff --stat` keys to `git diff`, `ls -la` to `ls`, `git -C repo status` to `git`. An
+entry covers its own key and any longer key at a word boundary, so `git` covers `git push` and
+`git status` covers `git status --short`.
+
+A command that is more than one plain command has no key, and no entry ever approves it. That
+covers control operators (`&&`, `||`, `;`, `|`, `&`, a newline), command or process
+substitution, `${...}` expansion, any redirection, a comment, and a leading `NAME=value`
+assignment. With `git status` and `git log` approved, all of these still ask:
+
+```text
+git status && rm -rf x      git status | sh          git status <(rm x)
+git status $(rm x)          git status > ~/.bashrc   git status 2>/dev/null
+git status `rm x`           git status & rm x        PAGER=x git log
+```
+
+Wrappers are part of the key: `sudo apt install x` keys to `sudo apt` and `npx jest` to
+`npx jest`, so approving a command never extends to running it as another user or through a
+package runner.
 
 ## With nobody there
 

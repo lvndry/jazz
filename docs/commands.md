@@ -643,6 +643,11 @@ stdout, stderr, and exit code to the agent as context for the next response:
 > Did that remove the folder successfully?
 ```
 
+The `!` must be followed by a space (or tab). A message such as `!!! call the bank today` or
+`!important` is prose and goes to the agent. In the fullscreen interface, typing `!` on an empty
+line inserts the `!` and a space for you; typing a second `!` straight away takes the space
+back.
+
 The command is executed because you entered it explicitly; it does not wait for the model to
 call `execute_command`. The built-in shell denylist, sanitized environment, timeout, process
 interruption, and 256 KiB per-stream output cap still apply. Output is treated as command data,
