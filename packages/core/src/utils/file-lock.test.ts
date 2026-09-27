@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentProcessOwner } from "@jazz/core/utils/process";
 import { describe, expect, it } from "bun:test";
+import { currentProcessOwner } from "@/core/utils/process";
 import { acquireFileLock, withFileLock } from "./file-lock";
 
 function lockPath(): string {
@@ -36,7 +36,24 @@ describe("acquireFileLock", () => {
     await expect(acquireFileLock(lock, { maxWaitMs: 200 })).rejects.toThrow("Timed out");
   });
 
-  it("reclaims a live or remote holder that kept the lock past the longest hold", async () => {
+  it("never reclaims a live local holder by age, however long it has held the lock", async () => {
+    const lock = lockPath();
+    plantHolder(lock, currentProcessOwner(), 60_000);
+    await expect(acquireFileLock(lock, { maxWaitMs: 200, maxHoldMs: 1_000 })).rejects.toThrow(
+      "Timed out",
+    );
+  });
+
+  it("reclaims a lock left unstamped by a crash once it is older than the stale window", async () => {
+    const lock = lockPath();
+    mkdirSync(lock);
+    const when = new Date(Date.now() - 5_000);
+    utimesSync(lock, when, when);
+    const release = await acquireFileLock(lock, { maxWaitMs: 1_000, staleMs: 1_000 });
+    await release();
+  });
+
+  it("reclaims a remote holder that kept the lock past the longest hold", async () => {
     const lock = lockPath();
     plantHolder(lock, { pid: 1, host: "another-host" }, 5_000);
     const release = await acquireFileLock(lock, { maxWaitMs: 1_000, maxHoldMs: 1_000 });

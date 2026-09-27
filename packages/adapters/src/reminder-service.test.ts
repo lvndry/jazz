@@ -354,3 +354,33 @@ describe("osScheduler integration", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("damaged and versioned reminder files", () => {
+  test("a torn file is quarantined, never overwritten", async () => {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    await runEffect(service.add("agent1", "2h", "first", "UTC"));
+    await runEffect(service.add("agent1", "3h", "second", "UTC"));
+    const filePath = path.join(tmpDir, "agent1.json");
+    const good = fs.readFileSync(filePath, "utf8");
+    fs.writeFileSync(filePath, good.slice(0, good.length - 40));
+
+    await runEffect(service.add("agent1", "4h", "third", "UTC"));
+
+    const quarantined = fs.readdirSync(tmpDir).filter((name) => name.includes(".corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    const aside = fs.readFileSync(path.join(tmpDir, quarantined[0] as string), "utf8");
+    expect(aside).toContain("second");
+    const current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    expect(current.schemaVersion).toBe(1);
+    expect(current.reminders.map((reminder: { text: string }) => reminder.text)).toEqual(["third"]);
+  });
+
+  test("refuses a file written by a newer Jazz and leaves it untouched", async () => {
+    const filePath = path.join(tmpDir, "agent1.json");
+    const newer = JSON.stringify({ schemaVersion: 99, reminders: [] });
+    fs.writeFileSync(filePath, newer);
+    const result = await runEither(makeService(makeFakeOsScheduler().scheduler).list("agent1"));
+    expect(result._tag).toBe("Left");
+    expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
+  });
+});

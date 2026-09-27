@@ -1,42 +1,68 @@
 /**
- * Cross-process mutex for file stores whose read-modify-write must not interleave.
+ * Cross-process mutex for file stores whose read-modify-write must not interleave. It is the
+ * one lock implementation in Jazz: `withLock` in `storage.ts` is this lock seen from Effect.
  *
  * The lock is a directory created exclusively and stamped with its holder (`owner.json`: pid,
- * host, process start time, and a per-acquisition token). A lock is reclaimed when its holder is
- * a dead or reused process on this host, when it has carried no readable holder for longer than
- * `staleMs` (a crash between creating the directory and stamping it), or when it has been held
- * longer than `maxHoldMs`, which no critical section comes near and which also frees a lock whose
- * holder is on another host. Reclaiming and releasing both happen under a short-lived guard
- * directory: a reclaimer re-checks staleness while holding it, so two waiters that both saw a
- * dead holder cannot take turns removing each other's fresh lock, and a release removes the lock
- * only while it still carries this acquisition's token.
+ * host, process start time, and a per-acquisition token). A waiter reclaims the lock when:
+ * - its holder is a dead or reused process on this host (checked by pid and start time, so a
+ *   laptop that slept mid-section keeps its lock: the holder is still alive when it wakes);
+ * - it has carried no readable holder for longer than `staleMs` (a crash between creating the
+ *   directory and stamping it);
+ * - its holder is on another host, where liveness cannot be checked, and it has been held
+ *   longer than `maxHoldMs`.
+ * A live holder on this host is never reclaimed, however long it holds the lock.
+ *
+ * Reclaiming and releasing both happen under a short-lived guard directory: a reclaimer
+ * re-checks staleness while holding it, so two waiters that both saw a dead holder cannot take
+ * turns removing each other's fresh lock, and a release removes the lock only while it still
+ * carries this acquisition's token.
+ *
+ * Usage: `await withFileLock(path, async () => { read; check; write })`, or
+ * `const release = await acquireFileLock(path)` when the hold spans several calls.
  */
 
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { isRecord } from "@jazz/core/utils/is-record";
-import { currentProcessOwner, isLocalOwnerGone } from "@jazz/core/utils/process";
+import { parentOwnerWhenRoot } from "@/core/utils/durable-file";
+import { isRecord } from "@/core/utils/is-record";
+import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@/core/utils/private-mode";
+import { currentProcessOwner, localOwnerStatus } from "@/core/utils/process";
 
 const HOLDER_FILE = "owner.json";
 
 export interface FileLockOptions {
   /** How long a lock with no readable holder is trusted to be mid-acquisition. */
   readonly staleMs?: number;
-  /** How long any holder may keep the lock before it is presumed stuck and reclaimed. */
+  /** How long a holder on another host may keep the lock before it is presumed stuck. */
   readonly maxHoldMs?: number;
+  /** How long to wait for a live holder before failing. */
   readonly maxWaitMs?: number;
   readonly retryDelayMs?: number;
   readonly timeoutError?: (lockDirectory: string) => Error;
 }
 
-const DEFAULT_STALE_MS = 30_000;
-/** Critical sections are a read, a check, and a write; ten minutes is a stuck holder. */
+/** Creating the directory and stamping it are two syscalls; ten seconds unstamped is a crash. */
+const DEFAULT_STALE_MS = 10_000;
+/** Critical sections are a read, a check, and a write; ten minutes is a stuck remote holder. */
 const DEFAULT_MAX_HOLD_MS = 10 * 60_000;
 /** The guard covers one stat, one read, and one removal; older than this, its holder died. */
 const GUARD_STALE_MS = 10_000;
-const DEFAULT_MAX_WAIT_MS = 5_000;
+/** Headroom on top of the slowest crash recovery, for a live holder's ordinary hold time. */
+const RECOVERY_MARGIN_MS = 10_000;
+/**
+ * How long a waiter keeps trying by default. A crash can leave an unstamped lock (reclaimed
+ * after `DEFAULT_STALE_MS`) behind a dead guard (removed after `GUARD_STALE_MS`), so the budget
+ * covers both in sequence plus a margin: a write that starts right after a crash waits out the
+ * recovery instead of failing.
+ */
+export const FILE_LOCK_MAX_WAIT_MS = DEFAULT_STALE_MS + GUARD_STALE_MS + RECOVERY_MARGIN_MS;
 const DEFAULT_RETRY_DELAY_MS = 25;
+/**
+ * Checking a holder's start time spawns `ps`, so a waiter re-checks one live holder at most
+ * this often instead of on every retry.
+ */
+const LIVENESS_RECHECK_MS = 1_000;
 
 interface LockHolder {
   readonly pid: number;
@@ -64,17 +90,37 @@ async function readHolder(lockDirectory: string): Promise<LockHolder | undefined
   }
 }
 
-async function isStale(lockDirectory: string, staleMs: number, maxHoldMs: number) {
+/** One waiter's memory of which holder tokens it has already seen alive, and when. */
+type LivenessCache = Map<string, number>;
+
+async function isStale(
+  lockDirectory: string,
+  staleMs: number,
+  maxHoldMs: number,
+  seenAlive: LivenessCache,
+): Promise<boolean> {
   const stats = await nodeFs.stat(lockDirectory).catch(() => undefined);
   if (stats === undefined) {
     return false;
   }
   const heldForMs = Date.now() - stats.mtimeMs;
   const holder = await readHolder(lockDirectory);
-  if (holder !== undefined) {
-    return heldForMs > maxHoldMs || isLocalOwnerGone(holder);
+  if (holder === undefined) {
+    return heldForMs > staleMs;
   }
-  return heldForMs > staleMs;
+  const lastSeenAlive = seenAlive.get(holder.token);
+  if (lastSeenAlive !== undefined && Date.now() - lastSeenAlive < LIVENESS_RECHECK_MS) {
+    return false;
+  }
+  const status = localOwnerStatus(holder);
+  if (status === "gone") {
+    return true;
+  }
+  if (status === "unverifiable") {
+    return heldForMs > maxHoldMs;
+  }
+  seenAlive.set(holder.token, Date.now());
+  return false;
 }
 
 /**
@@ -84,7 +130,7 @@ async function isStale(lockDirectory: string, staleMs: number, maxHoldMs: number
 async function underGuard(lockDirectory: string, operation: () => Promise<void>) {
   const guard = `${lockDirectory}.guard`;
   try {
-    await nodeFs.mkdir(guard, { mode: 0o700 });
+    await nodeFs.mkdir(guard, { mode: PRIVATE_DIRECTORY_MODE });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
       throw error;
@@ -111,19 +157,29 @@ export async function acquireFileLock(
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
   const maxHoldMs = options.maxHoldMs ?? DEFAULT_MAX_HOLD_MS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
-  const deadline = Date.now() + (options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS);
+  const deadline = Date.now() + (options.maxWaitMs ?? FILE_LOCK_MAX_WAIT_MS);
   const token = randomUUID();
   const holder: LockHolder = { ...currentProcessOwner(), token };
-  await nodeFs.mkdir(path.dirname(lockDirectory), { recursive: true, mode: 0o700 });
+  const seenAlive: LivenessCache = new Map();
+  await nodeFs.mkdir(path.dirname(lockDirectory), {
+    recursive: true,
+    mode: PRIVATE_DIRECTORY_MODE,
+  });
   for (;;) {
     try {
-      await nodeFs.mkdir(lockDirectory, { mode: 0o700 });
+      await nodeFs.mkdir(lockDirectory, { mode: PRIVATE_DIRECTORY_MODE });
       try {
-        await nodeFs.writeFile(path.join(lockDirectory, HOLDER_FILE), JSON.stringify(holder), {
+        const holderFile = path.join(lockDirectory, HOLDER_FILE);
+        await nodeFs.writeFile(holderFile, JSON.stringify(holder), {
           encoding: "utf8",
           flag: "wx",
-          mode: 0o600,
+          mode: PRIVATE_FILE_MODE,
         });
+        const owner = await parentOwnerWhenRoot(path.dirname(lockDirectory));
+        if (owner !== undefined) {
+          await nodeFs.chown(lockDirectory, owner.uid, owner.gid);
+          await nodeFs.chown(holderFile, owner.uid, owner.gid);
+        }
       } catch (error) {
         await nodeFs.rm(lockDirectory, { recursive: true, force: true });
         throw error;
@@ -149,7 +205,7 @@ export async function acquireFileLock(
       }
       let reclaimed = false;
       await underGuard(lockDirectory, async () => {
-        if (await isStale(lockDirectory, staleMs, maxHoldMs)) {
+        if (await isStale(lockDirectory, staleMs, maxHoldMs, seenAlive)) {
           await nodeFs.rm(lockDirectory, { recursive: true, force: true });
           reclaimed = true;
         }

@@ -12,9 +12,9 @@
 
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
 import { toError } from "@jazz/core/utils/errors";
-import { writeJsonFileDurably } from "./durable-file";
-import { withFileLock } from "./file-lock";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 
 export interface VersionedRecord {
   readonly version: number;

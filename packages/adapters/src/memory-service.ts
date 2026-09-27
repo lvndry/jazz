@@ -356,15 +356,12 @@ function readProvenanceForWrite(
 }
 
 function writeScopeProvenance(
-  fs: FileSystem.FileSystem,
   scopeRoot: string,
   provenance: MemoryScopeProvenance,
 ): Effect.Effect<void, never> {
   return writeFileStringAtomic(
-    fs,
     path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
     `${JSON.stringify(provenance, null, 2)}\n`,
-    { tempPrefix: "memory-provenance" },
   ).pipe(Effect.catchAll(() => Effect.void));
 }
 
@@ -562,7 +559,7 @@ function recordWrite(
         : {}),
     };
 
-    yield* writeScopeProvenance(fs, scopeRoot, {
+    yield* writeScopeProvenance(scopeRoot, {
       files: { ...provenance.files, [relativePath]: updated },
     });
   });
@@ -595,7 +592,7 @@ function forgetProvenance(
     if (removed.length === 0) return;
     const files = { ...provenance.files };
     for (const key of removed) delete files[key];
-    yield* writeScopeProvenance(fs, scopeRoot, { files });
+    yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
 
@@ -639,7 +636,7 @@ function moveProvenance(
     }
 
     if (moved.length === 0) return;
-    yield* writeScopeProvenance(fs, scopeRoot, { files });
+    yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
 
@@ -652,7 +649,7 @@ function touchViewed(
     const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const existing = provenance.files[relativePath];
     if (existing === undefined) return;
-    yield* writeScopeProvenance(fs, scopeRoot, {
+    yield* writeScopeProvenance(scopeRoot, {
       files: {
         ...provenance.files,
         [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },
@@ -903,10 +900,8 @@ export class MemoryServiceImpl implements MemoryService {
         }
         if (provenanceChanged) {
           yield* writeFileStringAtomic(
-            fs,
             path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
             `${JSON.stringify({ files: provenanceByPath }, null, 2)}\n`,
-            { tempPrefix: "memory-provenance" },
           );
         }
         return entries;
@@ -1121,7 +1116,7 @@ export class MemoryServiceImpl implements MemoryService {
               if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
                 return REVOKED_CLAIM_OUTCOME;
               }
-              yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, fileText);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
@@ -1203,7 +1198,7 @@ export class MemoryServiceImpl implements MemoryService {
                 return REVOKED_CLAIM_OUTCOME;
               }
 
-              yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, updatedContent);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
@@ -1281,7 +1276,7 @@ export class MemoryServiceImpl implements MemoryService {
                 return REVOKED_CLAIM_OUTCOME;
               }
 
-              yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, updatedContent);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {

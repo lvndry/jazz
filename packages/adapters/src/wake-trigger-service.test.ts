@@ -345,3 +345,70 @@ describe("osScheduler integration", () => {
     expect(list).toEqual([]);
   });
 });
+
+describe("damaged and versioned trigger files", () => {
+  /** The repro: a torn file used to read as empty, and the next add wiped every earlier trigger. */
+  test("a torn file is quarantined, never overwritten", async () => {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    await runEffect(service.add("agent1", "c1", "2h", "first", "r", "UTC"));
+    await runEffect(service.add("agent1", "c1", "3h", "second", "r", "UTC"));
+    const filePath = path.join(tmpDir, "agent1.json");
+    const good = fs.readFileSync(filePath, "utf8");
+    fs.writeFileSync(filePath, good.slice(0, good.length - 40));
+
+    expect(await runEffect(service.list("agent1"))).toEqual([]);
+    await runEffect(service.add("agent1", "c1", "4h", "third", "r", "UTC"));
+
+    const quarantined = fs.readdirSync(tmpDir).filter((name) => name.includes(".corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    const aside = fs.readFileSync(path.join(tmpDir, quarantined[0] as string), "utf8");
+    expect(aside).toContain("first");
+    expect(aside).toContain("second");
+    const current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    expect(current.triggers.map((trigger: { prompt: string }) => trigger.prompt)).toEqual([
+      "third",
+    ]);
+  });
+
+  test("a sweep quarantines a torn file instead of skipping it forever", async () => {
+    const filePath = path.join(tmpDir, "agent1.json");
+    fs.writeFileSync(filePath, "[{");
+    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, Date.now()));
+    expect(fired).toEqual([]);
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(fs.readdirSync(tmpDir).some((name) => name.includes(".corrupt-"))).toBe(true);
+  });
+
+  test("stores triggers with a schema version and reads files from before versioning", async () => {
+    const filePath = path.join(tmpDir, "agent1.json");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify([
+        {
+          id: "legacy",
+          fireAt: Date.now() + 60_000,
+          conversationId: "c1",
+          prompt: "p",
+          reason: "r",
+          createdAt: Date.now(),
+        },
+      ]),
+    );
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    await runEffect(service.add("agent1", "c1", "2h", "new", "r", "UTC"));
+    const stored = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    expect(stored.schemaVersion).toBe(1);
+    expect(stored.triggers.map((trigger: { id: string }) => trigger.id)).toContain("legacy");
+    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+  });
+
+  test("refuses a file written by a newer Jazz and leaves it untouched", async () => {
+    const filePath = path.join(tmpDir, "agent1.json");
+    const newer = JSON.stringify({ schemaVersion: 99, triggers: [] });
+    fs.writeFileSync(filePath, newer);
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    const result = await runEither(service.add("agent1", "c1", "2h", "new", "r", "UTC"));
+    expect(result._tag).toBe("Left");
+    expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
+  });
+});

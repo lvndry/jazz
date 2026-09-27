@@ -206,7 +206,7 @@ export class FileStorageService implements StorageService {
     return Effect.gen(
       function* (this: FileStorageService) {
         const content = JSON.stringify(data, null, 2);
-        yield* writeFileStringAtomic(this.fs, path, content, { tempPrefix: "agent" }).pipe(
+        yield* writeFileStringAtomic(path, content).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({

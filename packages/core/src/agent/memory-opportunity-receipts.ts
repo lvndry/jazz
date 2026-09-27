@@ -62,15 +62,15 @@ function withScopeLock<A>(
 
 function writeEpoch(fs: FileSystem.FileSystem, scopeDirectory: string): ReceiptEffect<string> {
   const epoch = randomUUID();
-  return fs.makeDirectory(scopeDirectory, { recursive: true }).pipe(
-    Effect.mapError(toError),
-    Effect.zipRight(
-      writeFileStringAtomic(fs, path.join(scopeDirectory, EPOCH_FILENAME), `${epoch}\n`, {
-        tempPrefix: "memory-receipt-epoch",
-      }),
-    ),
-    Effect.as(epoch),
-  );
+  return fs
+    .makeDirectory(scopeDirectory, { recursive: true })
+    .pipe(
+      Effect.mapError(toError),
+      Effect.zipRight(
+        writeFileStringAtomic(path.join(scopeDirectory, EPOCH_FILENAME), `${epoch}\n`),
+      ),
+      Effect.as(epoch),
+    );
 }
 
 /**
@@ -196,7 +196,7 @@ function storeReceipt(
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(toError));
     const content = `${JSON.stringify(receipt)}\n`;
     if (replaceExisting) {
-      yield* writeFileStringAtomic(fs, target, content, { tempPrefix: "memory-receipt" });
+      yield* writeFileStringAtomic(target, content);
     } else {
       const temporaryPath = path.join(directory, `.memory-receipt-${randomUUID()}.tmp`);
       yield* fs.writeFileString(temporaryPath, content).pipe(Effect.mapError(toError));

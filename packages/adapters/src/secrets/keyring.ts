@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { writeFileDurably } from "@jazz/core/utils/durable-file";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
 
@@ -160,85 +163,77 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
 }
 
 const SECRETS_FILE_MODE = 0o600;
-const SECRETS_LOCK_RETRIES = 1_000;
-const SECRETS_LOCK_RETRY_MS = 10;
-const SECRETS_LOCK_STALE_MS = 30_000;
-
 function secretsFilePath(): string {
   return path.join(getJazzHomeDirectory(), "secrets.json");
 }
 
-async function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
-  const lockPath = path.join(getJazzHomeDirectory(), ".secrets.lock");
-  await nodeFs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < SECRETS_LOCK_RETRIES; attempt++) {
-    try {
-      await nodeFs.mkdir(lockPath, { mode: 0o700 });
-      try {
-        return await operation();
-      } finally {
-        await nodeFs.rm(lockPath, { recursive: true, force: true });
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        const stat = await nodeFs.stat(lockPath);
-        if (Date.now() - stat.mtimeMs > SECRETS_LOCK_STALE_MS) {
-          await nodeFs.rm(lockPath, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        continue;
-      }
-      await new Promise((resolve) => setTimeout(resolve, SECRETS_LOCK_RETRY_MS));
-    }
-  }
-  throw new Error(`Timed out acquiring secret-file lock ${lockPath}`);
+function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  return withFileLock(path.join(getJazzHomeDirectory(), ".secrets.lock"), operation);
 }
 
-/** Missing file, unreadable file, or corrupt JSON all read as "nothing stored yet". */
+type SecretsFileRead =
+  | { readonly status: "ok"; readonly secrets: Record<string, string> }
+  | { readonly status: "corrupt"; readonly reason: string }
+  | { readonly status: "unreadable"; readonly error: Error };
+
+async function readSecretsFileContent(): Promise<SecretsFileRead> {
+  let raw: string;
+  try {
+    raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { status: "ok", secrets: {} };
+    }
+    return { status: "unreadable", error: error as Error };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed)
+      ? { status: "ok", secrets: parsed as Record<string, string> }
+      : { status: "corrupt", reason: "expected an object" };
+  } catch (error) {
+    return { status: "corrupt", reason: (error as Error).message };
+  }
+}
+
+/** For lookups: a missing, unreadable, or corrupt file reads as "nothing stored". */
 function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
   return Effect.promise(async () => {
-    try {
-      const raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
-      const parsed: unknown = JSON.parse(raw);
-      if (isRecord(parsed)) {
-        return parsed as Record<string, string>;
-      }
-      return {};
-    } catch {
-      return {};
-    }
+    const read = await readSecretsFileContent();
+    return read.status === "ok" ? read.secrets : {};
   });
 }
 
 /**
- * Write via a sibling temp file and rename, so a crash mid-write can't leave `secrets.json`
- * truncated or invalid. Callers performing read-modify-write hold `.secrets.lock`, preventing
- * concurrent provider/plugin secret updates from silently losing one another.
+ * For a read-modify-write under `.secrets.lock`: a corrupt file is moved aside before the write
+ * replaces it, so the secrets it held stay recoverable instead of being overwritten.
  */
-function writeSecretsFile(secrets: Record<string, string>): Effect.Effect<boolean, never> {
-  return Effect.promise(async () => {
-    const filePath = secretsFilePath();
-    const tempPath = path.join(
-      path.dirname(filePath),
-      `.secrets-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-    try {
-      await nodeFs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      await nodeFs.writeFile(tempPath, `${JSON.stringify(secrets, null, 2)}\n`, {
-        mode: SECRETS_FILE_MODE,
-      });
-      await nodeFs.rename(tempPath, filePath);
-      // `rename` preserves the temp file's mode, but chmod again in case `secrets.json`
-      // already existed with a wider mode from before this fallback existed.
-      await nodeFs.chmod(filePath, SECRETS_FILE_MODE);
-      return true;
-    } catch {
-      await nodeFs.rm(tempPath, { force: true }).catch(() => undefined);
-      return false;
-    }
-  });
+async function readSecretsFileForWrite(): Promise<Record<string, string>> {
+  const read = await readSecretsFileContent();
+  if (read.status === "ok") {
+    return read.secrets;
+  }
+  if (read.status === "unreadable") {
+    throw read.error;
+  }
+  await Effect.runPromise(quarantineCorruptFile(secretsFilePath(), read.reason));
+  return {};
+}
+
+/**
+ * Replace `secrets.json` durably (temp file, fsync, rename) with mode 0600. Callers performing
+ * read-modify-write hold `.secrets.lock`, preventing concurrent provider/plugin secret updates
+ * from silently losing one another.
+ */
+async function writeSecretsFile(secrets: Record<string, string>): Promise<boolean> {
+  try {
+    await writeFileDurably(secretsFilePath(), `${JSON.stringify(secrets, null, 2)}\n`, {
+      mode: SECRETS_FILE_MODE,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Read a secret. Returns undefined when absent or unreadable. */
@@ -288,8 +283,8 @@ export function keyringSet(
     if (backend === "file") {
       return yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
-          const secrets = await Effect.runPromise(readSecretsFile());
-          return Effect.runPromise(writeSecretsFile({ ...secrets, [account]: secret }));
+          const secrets = await readSecretsFileForWrite();
+          return writeSecretsFile({ ...secrets, [account]: secret });
         }),
       ).pipe(Effect.catchAll(() => Effect.succeed(false)));
     }
@@ -330,10 +325,10 @@ export function keyringDelete(
     if (backend === "file") {
       yield* Effect.promise(() =>
         withSecretsFileLock(async () => {
-          const secrets = await Effect.runPromise(readSecretsFile());
+          const secrets = await readSecretsFileForWrite();
           if (!(account in secrets)) return;
           const { [account]: _removed, ...rest } = secrets;
-          await Effect.runPromise(writeSecretsFile(rest));
+          await writeSecretsFile(rest);
         }),
       ).pipe(Effect.catchAll(() => Effect.void));
       return;

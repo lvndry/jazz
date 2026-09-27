@@ -232,7 +232,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         const effectiveRuntime =
           nextRuntime === undefined ? undefined : sanitizeEffectiveConfig(nextRuntime);
 
-        yield* writePrivateFile(this.fs, path, JSON.stringify(nextDocument, null, 2));
+        yield* writePrivateFile(path, JSON.stringify(nextDocument, null, 2));
         this.fileDocument = nextDocument;
         if (this.sources === undefined) {
           this.applyToRuntime(key, value, secret);
@@ -734,21 +734,11 @@ function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
 }
 
 /**
- * Write a file that only the owning user can read, repairing the mode on files
- * that already exist — `writeFileString`'s mode applies solely at creation.
+ * Durably replace a file that only the owning user can read. The replacement is a new file
+ * created with that mode, so a wider mode on the old file does not carry over.
  */
-function writePrivateFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  content: string,
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    yield* writeFileStringAtomic(fs, filePath, content, {
-      tempPrefix: "jazz-config",
-      mode: CONFIG_FILE_MODE,
-    }).pipe(Effect.orDie);
-    yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
-  });
+function writePrivateFile(filePath: string, content: string): Effect.Effect<void, never> {
+  return writeFileStringAtomic(filePath, content, { mode: CONFIG_FILE_MODE }).pipe(Effect.orDie);
 }
 
 /** chmod that tolerates both failures and FileSystem stubs without `chmod`. */
@@ -856,7 +846,7 @@ function resolveSecrets(
         deepDelete(cleaned, path);
       }
       if (droppedLegacy) delete cleaned["google"];
-      yield* writePrivateFile(fs, globalConfigPath, JSON.stringify(cleaned, null, 2));
+      yield* writePrivateFile(globalConfigPath, JSON.stringify(cleaned, null, 2));
       if (droppedLegacy) noticeLegacyGoogleRemoved(globalConfigPath);
       return { config: resolved as unknown as AppConfig, document: cleaned };
     }

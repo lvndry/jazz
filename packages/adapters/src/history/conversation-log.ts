@@ -31,6 +31,7 @@ import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interf
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
+import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@jazz/core/utils/private-mode";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 
@@ -331,6 +332,24 @@ function readLogContent(
   return fs.readFileString(logPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
 }
 
+/**
+ * Refuses a log whose header was written by a newer Jazz, whose events this version may
+ * misread or, by appending, corrupt.
+ */
+function requireReadableLogVersion(
+  events: readonly ConversationLogEvent[],
+  logPath: string,
+): Effect.Effect<void, Error> {
+  const header = events.find((event) => event.type === "conversation");
+  return header !== undefined && header.version > CONVERSATION_LOG_VERSION
+    ? Effect.fail(
+        new Error(
+          `${logPath} was written by a newer version of Jazz (log version ${header.version}; this version reads up to ${CONVERSATION_LOG_VERSION}). Update Jazz to open it.`,
+        ),
+      )
+    : Effect.void;
+}
+
 /** Parses a log body into events, skipping lines a crash left unreadable. */
 export function parseConversationLog(content: string): ConversationLogEvent[] {
   const events: ConversationLogEvent[] = [];
@@ -349,12 +368,12 @@ export function readConversationLog(
 ): Effect.Effect<Conversation | null, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const content = yield* readLogContent(
-      fs,
-      conversationLogPath(agentId, conversationId, historyDirectory),
-    );
+    const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    const content = yield* readLogContent(fs, logPath);
     if (content === null) return null;
-    return reduceConversationLog(parseConversationLog(content));
+    const events = parseConversationLog(content);
+    yield* requireReadableLogVersion(events, logPath);
+    return reduceConversationLog(events);
   });
 }
 
@@ -466,7 +485,7 @@ interface LoadedAppendState {
 function loadAppendState(
   fs: FileSystem.FileSystem,
   logPath: string,
-): Effect.Effect<LoadedAppendState, never> {
+): Effect.Effect<LoadedAppendState, Error> {
   return Effect.gen(function* () {
     const content = yield* readLogContent(fs, logPath);
     if (content === null) return { state: null, needsLeadingNewline: false };
@@ -474,7 +493,9 @@ function loadAppendState(
     // A crash can leave the last line half-written; the next append has to start on a
     // fresh line or it would corrupt an otherwise readable record too.
     const needsLeadingNewline = content.length > 0 && !content.endsWith("\n");
-    const conversation = reduceConversationLog(parseConversationLog(content));
+    const events = parseConversationLog(content);
+    yield* requireReadableLogVersion(events, logPath);
+    const conversation = reduceConversationLog(events);
     if (!conversation) return { state: null, needsLeadingNewline };
 
     return {
@@ -524,7 +545,7 @@ export function recordConversationTranscript(
     const messages = input.messages.filter((message) => message.role !== "system");
 
     yield* fs
-      .makeDirectory(path.dirname(logPath), { recursive: true })
+      .makeDirectory(path.dirname(logPath), { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
       .pipe(Effect.mapError(toError));
 
     const loaded = yield* loadAppendState(fs, logPath);
@@ -590,7 +611,7 @@ export function recordConversationTranscript(
 
     if (chunks.length > 0) {
       yield* fs
-        .writeFileString(logPath, chunks.join(""), { flag: "a" })
+        .writeFileString(logPath, chunks.join(""), { flag: "a", mode: PRIVATE_FILE_MODE })
         .pipe(Effect.mapError(toError));
     }
   });

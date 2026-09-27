@@ -154,7 +154,7 @@ export function getCatchUpCandidates() {
       return [];
     }
 
-    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const history = yield* loadRunHistory();
     const lastRunMap = getLastRunSnapshot(history);
     const now = new Date();
     const candidates: CatchUpCandidate[] = [];
@@ -218,7 +218,7 @@ export function runCatchUpForWorkflows(
     // Only load history and re-check decisions when records were not pre-created.
     // When the interactive prompt pre-creates records, re-checking would find
     // "already ran" (because the record exists) and skip execution entirely.
-    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const history = yield* loadRunHistory();
     const lastRunMap = options.recordsPreCreated ? undefined : getLastRunSnapshot(history);
 
     for (const entry of entries) {
@@ -354,7 +354,7 @@ export function runInProcessScheduledWorkflows() {
     const scheduled = yield* scheduler
       .listScheduled()
       .pipe(Effect.catchAll(() => Effect.succeed([])));
-    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const history = yield* loadRunHistory();
     const lastRunMap = getLastRunSnapshot(history);
     const now = new Date();
     const due: ScheduledWorkflow[] = [];

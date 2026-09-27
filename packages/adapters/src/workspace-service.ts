@@ -273,7 +273,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, fileText);
 
           return {
             success: true,
@@ -332,7 +332,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, updatedContent);
 
           return {
             success: true,
@@ -387,7 +387,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, updatedContent);
 
           return {
             success: true,
