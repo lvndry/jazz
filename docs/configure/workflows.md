@@ -75,7 +75,7 @@ does not clear asks you first.
 | ----------- | ----------------------------------------------------------------------------------------------------------------- |
 | `false`     | Nothing, and so does leaving it out. A gated tool is declined and the agent can continue or report the limitation |
 | `read-only` | Reads, search, web requests, `git status`/`log`/`diff`/`blame`/`branch`                                           |
-| `low-risk`  | + work-state/todo writes, subagents, and shell commands classified low-risk                                       |
+| `low-risk`  | + memory writes, reminders, triggers, and shell commands classified low-risk                                      |
 | `high-risk` | + every gated tool: `write_file`, `edit_file`, `rm`, `mv`, `cp`, `mkdir`, `execute_command`                       |
 | `true`      | Same as `high-risk`                                                                                               |
 
@@ -98,8 +98,9 @@ workflow needs.
 
 ## The `low-risk` trap
 
-`low-risk` is narrower than it sounds. It covers durable work-state, memory, reminders, triggers,
-subagents, and commands the classifier judges low-risk. It does **not** cover email, calendar, or
+`low-risk` is narrower than it sounds. It covers memory, reminders, triggers, and commands the
+classifier judges low-risk (todos, work state, the scratchpad and subagents already run at
+`read-only`). It does **not** cover email, calendar, or
 file writes merely because those actions sound routine.
 
 This matters because the capabilities people most want on a schedule are skills that shell

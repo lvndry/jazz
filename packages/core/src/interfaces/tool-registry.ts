@@ -177,6 +177,14 @@ export interface Tool<R = never> {
    */
   readonly egress: boolean;
   /**
+   * Whether another person's agent may reach this tool only when a peer's `allow` names it,
+   * even though it is `read-only` and sends nothing. Set on tools that are harmless to the
+   * operator's own run but act beyond answering a question: they write the agent's durable
+   * bookkeeping (todos, work state, scratchpad) or start child runs. A peer's tier alone
+   * grants read-only answers, never those.
+   */
+  readonly peerGrantRequired?: boolean;
+  /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.
    */

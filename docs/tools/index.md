@@ -22,8 +22,8 @@ and [Security](../../SECURITY.md) for the threat model.
 | **Agent-facing tools**                                                  | **51** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
 | Total registered                                                        | 62     |
-| `read-only`                                                             | 24     |
-| `low-risk`                                                              | 14     |
+| `read-only`                                                             | 28     |
+| `low-risk`                                                              | 10     |
 | `high-risk`                                                             | 10     |
 | `unknown`                                                               | 3      |
 
@@ -41,7 +41,7 @@ Plus, registered per agent rather than globally:
 
 Every tool above `read-only` is **gated**: under a policy that does not clear its level it
 asks first, or is declined (or parked) when nobody can answer. With no policy, or
-`false`, nothing clears. Of the 51 agent-facing tools, 27 are gated: 11 approval pairs and 16
+`false`, nothing clears. Of the 51 agent-facing tools, 23 are gated: 11 approval pairs and 12
 plain tools (every `low-risk` tool, plus `create_pdf` and `http_request`).
 
 The 11 approval pairs split proposing from acting: calling one does not act. It returns a
@@ -122,6 +122,10 @@ person's agent by a disclosure tier. It has to be named in that peer's `allow`, 
 tool that writes to disk. See
 [Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
 
+The same holds for `manage_todos`, `update_work_state`, `manage_scratchpad` and
+`spawn_subagent`. They are `read-only` for your own runs, but they write the agent's durable
+bookkeeping or start child runs, so a peer reaches them only when its `allow` names them.
+
 ---
 
 ## The tools
@@ -189,8 +193,8 @@ available through `jazz run` or remote chat surfaces.
 | Tool                | Risk        | Approval pair | What it does                                                                                                 |
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
 | `list_todos`        | `read-only` | none          | Read the current todo list. Returns all items with their status and priority.                                |
-| `manage_todos`      | `low-risk`  | none          | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
-| `update_work_state` | `low-risk`  | none          | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
+| `manage_todos`      | `read-only` | none          | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+| `update_work_state` | `read-only` | none          | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
@@ -212,7 +216,7 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
-| `manage_scratchpad` | `low-risk`  | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
+| `manage_scratchpad` | `read-only` | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
 
 ### Reminders
 
@@ -318,7 +322,7 @@ you get a desktop notification naming it, and `jazz runs approve <id>` finishes 
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                                                                                              |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spawn_subagent`    | `low-risk`  | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
+| `spawn_subagent`    | `read-only` | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
 | `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                              |
 
 ### Perception Delegation

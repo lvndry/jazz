@@ -68,7 +68,7 @@ flowchart TD
 Three rules shape that gate:
 
 - **Every tool above `read-only` is gated.** An approval tool raises its request by returning
-  one. A plain tool (`manage_todos`, `create_pdf`, a custom command tool) never gets the chance
+  one. A plain tool (`manage_memory`, `create_pdf`, a custom command tool) never gets the chance
   to act first: `plainToolGateRisk` reads its level (or `resolveRiskLevel(args)` when the level
   depends on the call, as `http_request`'s method does) and the executor raises the request on
   its behalf. Approving it runs the tool itself.
@@ -106,7 +106,9 @@ That one set does three jobs:
   the registry, and returns a plain tool-error result: the same treatment as unparseable
   arguments: for anything outside it.
 - **Inheritance.** `spawn_subagent` hands it down as the child's `toolAllowlist`, so a child
-  can never hold a tool its parent lacks.
+  can never hold a tool its parent lacks. `childRunAuthority` builds that allowlist (empty when
+  the parent's set is unknown) together with the parent's live policy getter and command and
+  tool allowlists, which is why `spawn_subagent` is `read-only`: spawning grants nothing new.
 
 The second is not redundant. The registry resolves a name against every tool registered in
 the process, so a narrowed advertisement only shapes what a model is _likely_ to ask for.
@@ -192,8 +194,8 @@ Every tool declares a level. One dial decides what runs without asking.
 flowchart LR
     subgraph tiers["Tool risk levels"]
         direction TB
-        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request"]
-        LR["<b>low-risk</b><br/>manage_todos<br/>spawn_subagent"]
+        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch<br/>manage_todos · spawn_subagent"]
+        LR["<b>low-risk</b><br/>manage_memory<br/>register_trigger"]
         HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir"]
         UN["<b>unknown</b><br/>execute_command"]
     end

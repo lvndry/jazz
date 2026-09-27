@@ -70,10 +70,10 @@ triage a non-issue than miss a real one.
 
 ## How Jazz protects you
 
-**Approval gating is the primary control.** 27 of the 51 built-in agent-facing tools are gated.
+**Approval gating is the primary control.** 23 of the 51 built-in agent-facing tools are gated.
 11 of them come in approval pairs: they do not act when the model calls them; they describe
 what they would do (including a real diff for edits) and wait for approval, from you or from
-the policy tier on an unattended run. The other 16 are plain tools above `read-only`, which the
+the policy tier on an unattended run. The other 12 are plain tools above `read-only`, which the
 executor holds until the same approval. Counts: [tool inventory](docs/tools/index.md). Mechanism and risk tiers:
 [Tools & approval](docs/maintainers/tool-lifecycle.md).
 
@@ -151,12 +151,12 @@ on the gate.
 
 ### Pick the lowest policy tier that lets the job finish
 
-| Tier            | Auto-approves                                                                      |
-| --------------- | ---------------------------------------------------------------------------------- |
-| unset / `false` | **Nothing.** Interactive: prompts for every gated call. Unattended: declines them  |
-| `read-only`     | Reads, search, web requests, shell classified inspect-only                         |
-| `low-risk`      | + `manage_todos`, `update_work_state`, `spawn_subagent`, shell classified low-risk |
-| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                               |
+| Tier            | Auto-approves                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------ |
+| unset / `false` | **Nothing.** Interactive: prompts for every gated call. Unattended: declines them                                  |
+| `read-only`     | Reads, search, web requests, the agent's own todos/work state/scratchpad, subagents, shell classified inspect-only |
+| `low-risk`      | + memory writes, reminders, triggers, compositions, shell classified low-risk                                      |
+| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                                               |
 
 Leaving the tier unset is the safe default everywhere because it grants nothing: a workflow
 without `autoApprove`, `jazz run` without `--approval-policy`, and the interactive safe mode all

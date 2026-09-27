@@ -19,17 +19,20 @@ goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat ask
 or the one granted when starting a loop (`jazz loop start --approval-policy <tier>`, or the
 question `/loop` asks).
 
-| Policy           | Runs without asking                                                   |
-| ---------------- | --------------------------------------------------------------------- |
-| `false` or unset | Nothing. A gated call asks, or is declined when nobody can answer     |
-| `read-only`      | Reads, searches, web requests                                         |
-| `low-risk`       | Adds todos, work state, subagents, and shell commands judged low-risk |
-| `high-risk`      | Adds everything gated: writes, edits, deletes, `execute_command`      |
+| Policy           | Runs without asking                                                         |
+| ---------------- | --------------------------------------------------------------------------- |
+| `false` or unset | Nothing. A gated call asks, or is declined when nobody can answer           |
+| `read-only`      | Reads, searches, web requests                                               |
+| `low-risk`       | Adds memory writes, reminders, triggers, and shell commands judged low-risk |
+| `high-risk`      | Adds everything gated: writes, edits, deletes, `execute_command`            |
 
 Anything above the active policy is gated: in front of a person it asks, and unattended it is
 declined or [parked](#with-nobody-there). That holds for every tool whose level is above
 `read-only`, whether or not it has a proposal half. A plain `read-only` tool (`read_file`,
-`web_search`) runs under every policy; removing it from the agent is how you deny it.
+`web_search`) runs under every policy; removing it from the agent is how you deny it. That
+includes the agent's own bookkeeping (`manage_todos`, `update_work_state`, `manage_scratchpad`)
+and `spawn_subagent`: a sub-agent runs under its parent's policy, allowlists and tools, so
+spawning one grants nothing new.
 
 With no policy set, nothing runs unasked. `jazz run` without `--approval-policy`, a workflow
 without `autoApprove`, a woken trigger or goal without a granted tier: each asks for every gated
@@ -69,7 +72,7 @@ that is shaped like an approval request (an MCP server's reply, a fetched JSON d
 refused, and nothing runs. MCP results are always nested under `content` or
 `structuredContent`, so a server cannot produce one at all.
 
-A plain tool above `read-only` (`manage_todos`, `create_pdf`, a custom command tool, an
+A plain tool above `read-only` (`manage_memory`, `create_pdf`, a custom command tool, an
 `http_request` other than `GET` or `HEAD`) has no proposal half. The executor asks with the
 tool's name, level and arguments, and runs the tool once approved.
 

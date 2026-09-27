@@ -56,6 +56,7 @@ import { agentModelString, parseProviderModel } from "@/core/utils/provider-mode
 import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
+import { childRunAuthority } from "./child-run-authority";
 
 /** Companion execution timeout: matches spawn_subagent. */
 const COMPANION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -336,17 +337,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         maxIterations: COMPANION_MAX_ITERATIONS,
         ephemeralRegionId: regionId,
         initialAttachments: [...job.attachments],
+        ...childRunAuthority(context),
         // Eyes, ears and hands need no tools — and many media-capable models cannot
         // use them anyway. An empty allowlist strips every tool.
         toolAllowlist: [],
         subagentDepth: (context.subagentDepth ?? 0) + 1,
-        ...(context.getAutoApprovePolicy
-          ? { autoApprovePolicy: context.getAutoApprovePolicy }
-          : {}),
-        ...(context.autoApprovedCommands
-          ? { autoApprovedCommands: context.autoApprovedCommands }
-          : {}),
-        ...(context.autoApprovedTools ? { autoApprovedTools: context.autoApprovedTools } : {}),
       }).pipe(
         Effect.tapError(() =>
           presentation.collapseEphemeralRegion(regionId, label, {
