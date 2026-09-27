@@ -6,7 +6,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-https://github.com/user-attachments/assets/e39dc2ec-1d68-4679-8077-2e2917819747
+<video src="https://github.com/user-attachments/assets/e39dc2ec-1d68-4679-8077-2e2917819747" controls width="100%"></video>
 
 </div>
 
