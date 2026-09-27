@@ -38,5 +38,5 @@ export function openLink(target: string): void {
   if (!isOpenableLink(target)) {
     return;
   }
-  openBrowser(target);
+  openBrowser(target, OPENABLE_PROTOCOLS);
 }

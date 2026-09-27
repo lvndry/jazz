@@ -44,6 +44,7 @@ describe("a request that grants authority", () => {
       ["/runs/r/answer", { response: "yes" }],
       ["/runs/r/answer", { filePath: "/etc/passwd" }],
       ["/goals/g/resume", { version: 1 }],
+      ["/daemon/resume", {}],
       ["/loops", LOOP],
       ["/loops/l/resume", { version: 1 }],
     ] as const) {
@@ -78,6 +79,8 @@ describe("a request that grants nothing", () => {
     expect((await handle(post("/goals/g/pause", { version: 1 }))).status).toBe(299);
     expect((await handle(post("/goals/g/cancel", { version: 1 }))).status).toBe(299);
     expect((await handle(post("/loops/l/pause", { version: 1 }))).status).toBe(299);
+    // Pausing is a brake, not a grant.
+    expect((await handle(post("/daemon/pause", {}))).status).toBe(299);
   });
 });
 

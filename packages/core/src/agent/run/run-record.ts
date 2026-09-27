@@ -49,6 +49,11 @@ export interface RunRecord {
    * an unlimited budget.
    */
   readonly boundary?: RunRecordBoundary;
+  /**
+   * Set when nobody could be asked while it started (the daemon, a headless run), as opposed
+   * to a chat. The daemon's daily spend cap counts only these.
+   */
+  readonly unattended?: boolean;
 }
 
 /** The limits beyond the approval policy that a resumed run gets back. */
@@ -84,6 +89,7 @@ export function createRunRecord(input: {
   readonly maxIterations?: number;
   readonly workingDirectory?: string;
   readonly boundary?: RunRecordBoundary;
+  readonly unattended?: boolean;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -103,5 +109,6 @@ export function createRunRecord(input: {
     ...(input.boundary !== undefined && Object.keys(input.boundary).length > 0
       ? { boundary: input.boundary }
       : {}),
+    ...(input.unattended === true ? { unattended: true } : {}),
   };
 }

@@ -44,6 +44,9 @@ function post(path: string, body: string, headers: Record<string, string> = {}):
   return new Request(`http://localhost${path}`, { method: "POST", headers, body });
 }
 
+/** A daemon that is not paused. */
+const OPEN = async () => undefined;
+
 /** A runner that answers without running anything, so reaching it is the assertion. */
 const REACHED = async () => new Response("reached the runner", { status: 299 }) as never;
 
@@ -71,6 +74,7 @@ function signedHandler(overrides: { readonly secret?: string | undefined } = {})
     {
       resolveSecret: async () => ("secret" in overrides ? overrides.secret : SECRET),
       claimDelivery: memoryDeliveries(),
+      pausedRefusal: OPEN,
     },
   );
 }
@@ -187,6 +191,28 @@ describe("a delivery that arrives twice", () => {
   });
 });
 
+describe("a delivery that arrives while the daemon is paused", () => {
+  it("is refused without being claimed, so it runs once the daemon resumes", async () => {
+    let paused = true;
+    const handle = makeWebhookHandler(
+      async () => [SIGNED],
+      async () => undefined,
+      REACHED,
+      {
+        resolveSecret: async () => SECRET,
+        claimDelivery: memoryDeliveries(),
+        pausedRefusal: async () => (paused ? new Response("paused", { status: 503 }) : undefined),
+      },
+    );
+    const body = '{"n":5}';
+    const headers = { "x-hub-signature-256": sign(body), "x-github-delivery": "d-5" };
+
+    expect((await handle(post("/webhooks/gh", body, headers))).status).toBe(503);
+    paused = false;
+    expect((await handle(post("/webhooks/gh", body, headers))).status).toBe(299);
+  });
+});
+
 describe("which webhooks exist", () => {
   it("is not revealed by the answer to an unknown name", async () => {
     const handle = makeWebhookHandler(
@@ -221,7 +247,7 @@ describe("a failure seen from outside", () => {
       async () => [{ name: "deploys", agentId: "default", promptTemplate: "{{payload}}" }],
       async () => "token",
       failingRunner(),
-      { claimDelivery: async () => "fresh" },
+      { claimDelivery: async () => "fresh", pausedRefusal: OPEN },
     );
     const response = await handle(
       post("/webhooks/deploys", "{}", { authorization: "Bearer token" }),
@@ -352,7 +378,7 @@ describe("how many runs a door may have in flight", () => {
       ],
       async () => "token",
       REACHED,
-      { claimDelivery: async () => "fresh", concurrency },
+      { claimDelivery: async () => "fresh", concurrency, pausedRefusal: OPEN },
     );
 
     const response = await handle(
