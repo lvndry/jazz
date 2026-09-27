@@ -135,21 +135,25 @@ finishes, and are configured via `maxCostUSD`, `maxTokens`, and `maxDurationMs`;
   unknown. It never guess-aborts a run it cannot verify the spend of.
 - **`maxTokens`** just sums `totalPromptTokens + totalCompletionTokens`. No pricing lookup, so
   it still enforces on a local/unpriced model where `maxCostUSD` cannot.
-- **`maxDurationMs`** compares wall-clock elapsed time (`Date.now() - runMetrics.startedAt`)
-  against the budget. Unlike the other two, it also gets an ephemeral pressure message inside
-  `runIteration` itself (`buildTimeBudgetPressureMessage`) at 50%, 80%, and 90% elapsed,
-  mirroring the iteration-budget nudge above.
+- **`maxDurationMs`** is a deadline. Each iteration races the time left
+  (`Date.now() - runMetrics.startedAt` against the budget) with `Effect.timeoutOption`, so it
+  interrupts a model call, a tool batch or a sub-agent in flight. Dangling tool calls are
+  closed with a note and the loop finalizes normally. It also gets an ephemeral pressure
+  message inside `runIteration` (`buildTimeBudgetPressureMessage`) at 50%, 80%, and 90%
+  elapsed, and `spawn_subagent` hands the child the time left through `remainingRunBudget`.
 
-All three share the same timing as the iteration budget: checked _between_ iterations, not a
-preemptive interrupt. A single expensive iteration: a costly tool call, or a sub-agent
-delegation that itself runs for a while: can push the total past the cap before the next
-check trips. A run stopped this way reports which cap fired on the response:
+`maxCostUSD` and `maxTokens` share the iteration budget's timing: checked _between_
+iterations, not a preemptive interrupt. A single expensive iteration (a costly tool call, or a
+sub-agent delegation that runs for a while) can push the total past the cap before the next
+check trips. A run stopped by any cap reports which one fired on the response:
 `costCapped` / `tokenCapped` / `durationCapped`.
 
-This is deliberately different from `--timeout`, which lives outside the loop entirely: the
-CLI races the whole run against a deadline (`packages/core/src/utils/run-deadline.ts`) and
-kills it with no warning to the agent. `--timeout` is the hard outer safety net;
-`maxDurationMs` is the warned, graceful budget.
+`--timeout` lives outside the loop entirely: the CLI races the whole run against a deadline
+(`packages/core/src/utils/run-deadline.ts`) with `Effect.raceFirst` and ends it as a failure
+with no warning to the agent. Interrupting the run interrupts its tool fibers (the shell kills
+the command's process group) and the LLM stream's finalizer aborts the provider request.
+`--timeout` is the hard outer safety net; `maxDurationMs` is the warned budget that still
+returns a result.
 
 ---
 
