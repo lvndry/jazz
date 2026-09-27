@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { setSkillCommands } from "./constants";
-import { parseSpecialCommand } from "./parser";
+import { isCommandInput, isShellEscape, parseSpecialCommand } from "./parser";
 
 describe("parseSpecialCommand", () => {
   describe("recognized commands", () => {
@@ -207,6 +207,34 @@ describe("parseSpecialCommand", () => {
 
     it("does not treat a bare ! as a shell command", () => {
       expect(parseSpecialCommand("!").type).toBe("unknown");
+    });
+
+    it("requires a space or tab after the bang", () => {
+      expect(parseSpecialCommand("!\tls").type).toBe("shell");
+      expect(parseSpecialCommand("!!! urgent: call the bank").type).toBe("unknown");
+      expect(parseSpecialCommand("!ls").type).toBe("unknown");
+      expect(parseSpecialCommand("!important").type).toBe("unknown");
+    });
+  });
+
+  describe("isShellEscape and isCommandInput", () => {
+    it("recognizes a bang followed by a space as a shell escape", () => {
+      expect(isShellEscape("! git status")).toBe(true);
+      expect(isShellEscape("  ! git status")).toBe(true);
+      expect(isShellEscape("! ")).toBe(true);
+    });
+
+    it("reads anything else starting with a bang as prose", () => {
+      expect(isShellEscape("!!! urgent")).toBe(false);
+      expect(isShellEscape("!ls")).toBe(false);
+      expect(isShellEscape("!")).toBe(false);
+      expect(isCommandInput("!!! urgent")).toBe(false);
+    });
+
+    it("counts slash commands and shell escapes as command input", () => {
+      expect(isCommandInput("/help")).toBe(true);
+      expect(isCommandInput("! ls")).toBe(true);
+      expect(isCommandInput("hello")).toBe(false);
     });
   });
 

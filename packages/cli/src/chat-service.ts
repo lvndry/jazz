@@ -67,6 +67,7 @@ import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
 import {
   handleSpecialCommand,
+  isCommandInput,
   parseSpecialCommand,
   setPluginCommands,
   setSkillCommands,
@@ -443,11 +444,11 @@ export class ChatServiceImpl implements ChatService {
         let trustMessageAsMemorySource = goalTurn === undefined;
 
         // A message with interior newlines (multi-line composition or a
-        // combined prose drain) is prose even when it starts with "/" or "!" —
+        // combined prose drain) is prose even when it starts with "/" or "! " —
         // command parsing would silently discard everything after line one.
         if (
           goalTurn === undefined &&
-          (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
+          isCommandInput(trimmedMessage) &&
           !trimmedMessage.includes("\n")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
