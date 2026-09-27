@@ -70,22 +70,25 @@ Anything that can read that directory can act as the account.
 
 ## Configuration
 
-| Variable                             | Default                | What it does                                                                                                  |
-| ------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits.                |
-| `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.          |
-| `WHATSAPP_OPERATOR_NUMBERS`          | _(none)_               | Comma-separated numbers allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.           |
-| `WHATSAPP_REQUIRE_MENTION_IN_GROUPS` | on                     | In an allowed group, only answer when @-mentioned or replied to. Turning this off makes it answer everything. |
-| `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                             |
-| `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                                    |
-| `JAZZ_BIN`                           | `jazz`                 | Path to the Jazz binary.                                                                                      |
-| `JAZZ_HOME`                          | `~/.jazz-whatsapp`     | Data directory: agents, conversations, reminders, usage.                                                      |
-| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                  |
-| `JAZZ_APPROVAL_POLICY`               | `low-risk`             | Tier above which tools stop and ask.                                                                          |
-| `JAZZ_AUTO_APPROVE_TOOLS`            | _(none)_               | Tool names that never prompt, whatever the policy.                                                            |
-| `JAZZ_RUN_TIMEOUT_MS`                | `300000`               | Per-turn timeout.                                                                                             |
-| `JAZZ_DAILY_COST_CAP_USD`            | `0` (off)              | Spend ceiling across all chats per day.                                                                       |
-| `JAZZ_WHATSAPP_SHOW_REASONING`       | off                    | Send the run's reasoning under the answer.                                                                    |
+| Variable                             | Default                | What it does                                                                                                       |
+| ------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits.                     |
+| `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.               |
+| `WHATSAPP_OPERATOR_NUMBERS`          | _(none)_               | Comma-separated numbers allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.                |
+| `WHATSAPP_REQUIRE_MENTION_IN_GROUPS` | on                     | In an allowed group, only answer when @-mentioned or replied to. Turning this off makes it answer everything.      |
+| `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                                  |
+| `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                                         |
+| `JAZZ_BIN`                           | `jazz`                 | Path to the Jazz binary.                                                                                           |
+| `JAZZ_HOME`                          | `~/.jazz-whatsapp`     | Data directory: agents, conversations, reminders, usage.                                                           |
+| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                       |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`             | Tier above which tools stop and ask.                                                                               |
+| `JAZZ_AUTO_APPROVE_TOOLS`            | _(none)_               | Tool names that never prompt, whatever the policy.                                                                 |
+| `JAZZ_RUN_TIMEOUT_MS`                | `300000`               | Per-turn timeout.                                                                                                  |
+| `JAZZ_DAILY_COST_CAP_USD`            | `0` (off)              | Spend ceiling across all chats per day.                                                                            |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS`       | `4`                    | Agent runs in flight at once across every chat; the rest wait for a slot and are told so.                          |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES`       | `5`                    | Messages that may wait behind a chat's current run; more are dropped with a reply.                                 |
+| `JAZZ_BRIDGE_HEALTH_PORT`            | _(none)_               | Serve `GET /health` on `127.0.0.1:<port>`: `200` while the connection works, `503` once it has been down for 90 s. |
+| `JAZZ_WHATSAPP_SHOW_REASONING`       | off                    | Send the run's reasoning under the answer.                                                                         |
 
 ## Commands
 
