@@ -12,29 +12,26 @@ on:
           - minor
           - major
 
-# Every job that writes uses RELEASE_PAT; GITHUB_TOKEN stays read-only everywhere, including
-# the release-notes job, where an auto-approving agent reads untrusted commit text.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   tag:
     name: Bump version & create tag
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     outputs:
       new_tag: ${{ steps.bump.outputs.new_tag }}
       previous_tag: ${{ steps.bump.outputs.previous_tag }}
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
 
@@ -71,25 +68,25 @@ jobs:
           echo "new_tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
           echo "previous_tag=${{ steps.prev_tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
 
-  notes:
-    name: Generate release notes
+  release:
+    name: Generate release notes & create release
     needs: tag
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The release is created with RELEASE_PAT, so GITHUB_TOKEN stays read-only in the job that
+    # runs the auto-approving release-notes agent over commit text.
     permissions:
       contents: read
-    outputs:
-      body: ${{ steps.extract.outputs.body }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.new_tag }}
           persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
@@ -110,36 +107,24 @@ jobs:
           echo "--- Substituted workflow ---"
           cat workflows/release-notes/WORKFLOW.md
 
-      # The workflow's own policy (autoApprove: read-only plus its git allowlist) is what
-      # --auto-approve applies. A failed run is not fatal: the publish job falls back to
-      # GitHub's generated notes.
       - name: Generate release notes
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
-          JAZZ_MAX_COST_USD: "2"
         run: |
-          set +e -o pipefail
-          jazz workflow run release-notes --auto-approve --agent release-notes \
-            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-release-notes.txt
-          echo "${PIPESTATUS[0]}" > /tmp/jazz-release-notes-exit
+          jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
+            --max-cost-usd 2 \
+            2>&1 | tee /tmp/jazz-release-notes.txt
 
-      - name: Extract release notes
-        id: extract
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+      - name: Create GitHub release
+        uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.RELEASE_PAT }}
           script: |
-            const { readRunOutcome, describeFailure } = require('./.github/jazz/scripts/run-outcome.cjs');
-            const outcome = readRunOutcome('/tmp/jazz-release-notes.txt', '/tmp/jazz-release-notes-exit');
-            if (outcome.kind !== 'answered') {
-              const notice = describeFailure(outcome, `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`, 'Release notes');
-              core.warning(`${notice} Falling back to GitHub's generated notes.`);
-              await core.summary.addHeading('Release notes', 2).addRaw(notice, true).write();
-              core.setOutput('body', '');
-              return;
-            }
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/jazz-release-notes.txt', 'utf8');
 
             // Prefer the agent's four-backtick fence; fall back to a
             // last-occurrence scan of the three-backtick form so inner
@@ -156,37 +141,20 @@ jobs:
               return after.slice(0, close).trim();
             };
 
-            core.setOutput('body', extractFencedMarkdown(outcome.answer) ?? '');
-
-  release:
-    name: Create release
-    needs: [tag, notes]
-    if: always() && needs.tag.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Create GitHub release
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-        env:
-          NOTES_BODY: ${{ needs.notes.outputs.body }}
-          NEW_TAG: ${{ needs.tag.outputs.new_tag }}
-          PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag }}
-        with:
-          github-token: ${{ secrets.RELEASE_PAT }}
-          script: |
-            const tag = process.env.NEW_TAG;
-            let releaseBody = process.env.NOTES_BODY;
+            let releaseBody = extractFencedMarkdown(output);
 
             if (!releaseBody) {
-              console.log('Jazz release notes unavailable, falling back to GitHub auto-generated notes.');
+              console.log('Jazz release notes unavailable — falling back to GitHub auto-generated notes.');
               const generated = await github.rest.repos.generateReleaseNotes({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                tag_name: tag,
-                previous_tag_name: process.env.PREVIOUS_TAG,
+                tag_name: '${{ needs.tag.outputs.new_tag }}',
+                previous_tag_name: '${{ needs.tag.outputs.previous_tag }}',
               });
               releaseBody = generated.data.body || '_Release notes could not be generated. See commit history for changes._';
             }
+
+            const tag = '${{ needs.tag.outputs.new_tag }}';
 
             await github.rest.repos.createRelease({
               owner: context.repo.owner,

@@ -9,7 +9,7 @@ Turn Jazz into a GitHub Actions-powered PR reviewer and on-demand assistant. Whe
 
 ## Architecture
 
-The setup uses seven files in your repo plus one model-provider secret:
+The setup uses five files in your repo plus one model-provider secret:
 
 ```
 .github/
@@ -19,9 +19,6 @@ The setup uses seven files in your repo plus one model-provider secret:
     ├── agents/
     │   ├── ci-reviewer.json   # Code review agent config
     │   └── pr-assistant.json  # PR assistant agent config
-    ├── scripts/
-    │   ├── snapshot-pr-context.sh  # Writes trusted PR context for the agent
-    │   └── run-outcome.cjs         # Reads the run's JSON envelope for the posting steps
     └── workflows/
         ├── code-review/
         │   └── WORKFLOW.md    # Review instructions
@@ -53,11 +50,10 @@ Only PRs from the same repository (not forks) trigger Jazz jobs, and only users 
 
 The PR diff, title, body and comments are untrusted input to an agent with shell access, so the template keeps that agent's reach small:
 
-- **No token for the agent.** Checkouts use `persist-credentials: false`, so `GITHUB_TOKEN` is not left in `.git/config`. PR context is pre-fetched by `.github/jazz/scripts/snapshot-pr-context.sh` (the only step with `GH_TOKEN`) and written to `/tmp/jazz-pr-context.json`. All posting back to GitHub is done by `actions/github-script` steps after the agent finishes.
-- **Only trusted comments.** The snapshot keeps comments, reviews and inline review comments from `OWNER`, `MEMBER` and `COLLABORATOR` authors plus the `github-actions` bot (the workflow's own earlier reviews). Anyone can comment on a public PR; everything else is dropped and counted in `omittedUntrusted`.
-- **Read-only policy.** Both workflows set `autoApprove: read-only` with a short `autoApprovedCommands` list of read-only `git` subcommands. Any other shell command goes through Jazz's command classifier and runs only if it is classified read-only. The agents have no `http_request` and no file-writing tools.
+- **No token for the agent.** Checkouts use `persist-credentials: false`, so `GITHUB_TOKEN` is not left in `.git/config`. PR context is pre-fetched by a snapshot step (the only step besides the posting steps with `GH_TOKEN`) and written to `/tmp/jazz-pr-context.json`. All posting back to GitHub is done by `actions/github-script` steps after the agent finishes.
+- **Only trusted comments.** The snapshot's `jq` filter keeps comments, reviews and inline review comments from `OWNER`, `MEMBER` and `COLLABORATOR` authors plus the `github-actions` bot (the workflow's own earlier reviews). Anyone can comment on a public PR; everything else is dropped.
+- **Read-only policy.** Both workflows set `autoApprove: read-only`: every shell command goes through Jazz's command classifier and runs only if it is classified read-only, which covers the `git diff`/`git log` reads the agents need. The agents have no `http_request` and no file-writing tools.
 - **Bounded runs.** Every job has `timeout-minutes`, and each run passes `--max-cost-usd "$JAZZ_MAX_COST_USD"` (set once at the top of `jazz.yml`).
-- **Pinned actions.** Every third-party action is pinned to a commit SHA with its tag in a trailing comment.
 
 ## Setup
 
@@ -81,7 +77,7 @@ The key design:
 - **`code-review` job** checks out PR head with `persist-credentials: false`, installs `jazz-ai` (`bun install -g jazz-ai --trust`), copies agent config + workflow file into `$HOME/.jazz/agents/` and `workflows/code-review/` with placeholder substitution, snapshots trusted PR context, runs `jazz workflow run code-review --auto-approve --agent ci-reviewer --max-cost-usd "$JAZZ_MAX_COST_USD" --json`, then posts results
 - **`assistant` job** same structure, runs `jazz workflow run pr-assistant --auto-approve --agent pr-assistant --max-cost-usd "$JAZZ_MAX_COST_USD" --json`, posts a PR comment
 
-`--json` is required: stdout carries exactly one JSON envelope (`{"ok":true,"answer":…}` or `{"ok":false,"error":…}`) that `.github/jazz/scripts/run-outcome.cjs` reads. When a run fails, the posted comment and the job summary name the cause (for example "Review skipped: provider authentication failed.") instead of reporting an unparseable verdict.
+`--json` is required: stdout carries exactly one JSON envelope (`{"ok":true,"answer":…}` or `{"ok":false,"error":…}`) that the run step reads with `jq`. When a run fails, the posted comment and the job summary name the cause (for example "Review skipped: provider authentication failed.") instead of reporting an unparseable verdict.
 
 `--trust` is required on the install step: `bun install -g` runs with lifecycle scripts (postinstall) blocked by default, and `jazz-ai`'s postinstall is what actually installs the `jazz` binary. Without `--trust`, the install "succeeds" but no binary lands, and every later `jazz` invocation in the workflow fails with `jazz: command not found`. CI runners are ephemeral, so there's no persistent trust state to set up (unlike `bun pm trust` on a dev machine) — pass `--trust` on every run.
 
@@ -165,15 +161,6 @@ Each `WORKFLOW.md` also carries YAML frontmatter. Start both from this policy:
 
 ```yaml
 autoApprove: read-only
-autoApprovedCommands:
-  - git diff
-  - git log
-  - git show
-  - git blame
-  - git status
-  - git ls-files
-  - git merge-base
-  - git rev-parse
 agent: ci-reviewer
 maxIterations: 50
 ```

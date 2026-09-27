@@ -2,15 +2,6 @@
 name: pr-assistant
 description: Respond to /jazz PR comments with PR-aware assistance
 autoApprove: read-only
-autoApprovedCommands:
-  - git diff
-  - git log
-  - git show
-  - git blame
-  - git status
-  - git ls-files
-  - git merge-base
-  - git rev-parse
 agent: pr-assistant
 maxIterations: 50
 ---

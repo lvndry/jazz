@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
-import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
@@ -80,12 +79,7 @@ const mockAgentService = {
   listAgents: mock(() => Effect.succeed([mockAgent])),
 } as unknown as AgentService;
 
-const mockConfigService = {
-  appConfig: Effect.succeed({ autoApprovedCommands: ["himalaya"] }),
-} as unknown as AgentConfigService;
-
 const testLayer = Layer.mergeAll(
-  Layer.succeed(AgentConfigServiceTag, mockConfigService),
   Layer.succeed(TerminalServiceTag, mockTerminal),
   Layer.succeed(WorkflowServiceTag, mockWorkflowService),
   Layer.succeed(LoggerServiceTag, mockLogger),
@@ -229,7 +223,6 @@ describe("runWorkflowCommand", () => {
         listAgents: mock(() => Effect.succeed([mockAgent])),
       } as unknown as AgentService;
       const layer = Layer.mergeAll(
-        Layer.succeed(AgentConfigServiceTag, mockConfigService),
         Layer.succeed(TerminalServiceTag, mockTerminal),
         Layer.succeed(WorkflowServiceTag, mockWorkflowService),
         Layer.succeed(LoggerServiceTag, mockLogger),
@@ -279,34 +272,6 @@ describe("runWorkflowCommand", () => {
     await Effect.runPromiseExit(runnable);
 
     expect(runOptions?.["stream"]).toBe(true);
-  });
-
-  it("approves the config allowlist plus the workflow's own commands", async () => {
-    let runOptions: Record<string, unknown> | undefined;
-    AgentRunner.run = mock((options: Record<string, unknown>) => {
-      runOptions = options;
-      return Effect.succeed({ content: "ok" });
-    }) as unknown as typeof AgentRunner.run;
-    const allowlistingWorkflowService = {
-      listWorkflows: mock(() => Effect.succeed([])),
-      loadWorkflow: mock(() =>
-        Effect.succeed({
-          ...mockWorkflow,
-          metadata: { ...mockWorkflow.metadata, autoApprovedCommands: ["git diff"] },
-        }),
-      ),
-    } as unknown as WorkflowService;
-
-    const program = runWorkflowCommand("code-review", { autoApprove: true, agent: "ci-reviewer" });
-    const runnable = program.pipe(
-      Effect.provide(
-        Layer.merge(testLayer, Layer.succeed(WorkflowServiceTag, allowlistingWorkflowService)),
-      ),
-    ) as Effect.Effect<void, unknown, never>;
-
-    await Effect.runPromiseExit(runnable);
-
-    expect(runOptions?.["autoApprovedCommands"]).toEqual(["himalaya", "git diff"]);
   });
 
   it("leaves stream unset when neither --stream nor --no-stream is given", async () => {

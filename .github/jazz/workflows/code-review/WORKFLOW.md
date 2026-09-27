@@ -2,15 +2,6 @@
 name: code-review
 description: Adversarial multi-agent review board for pull request changes
 autoApprove: read-only
-autoApprovedCommands:
-  - git diff
-  - git log
-  - git show
-  - git blame
-  - git status
-  - git ls-files
-  - git merge-base
-  - git rev-parse
 agent: ci-reviewer
 maxIterations: 50
 ---

@@ -1,7 +1,6 @@
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -40,7 +39,6 @@ import {
   formatWorkflow,
   groupWorkflows,
   renderWorkflowPrompt,
-  resolveWorkflowAutoApprovedCommands,
 } from "@jazz/core/workflows/workflow-utils";
 import { Duration, Effect } from "effect";
 import { store } from "@/cli/ui/store";
@@ -170,12 +168,6 @@ export function showWorkflowCommand(workflowName: string) {
 
     if (workflow.metadata.autoApprove !== undefined) {
       yield* terminal.log(`Auto-approve: ${workflow.metadata.autoApprove}`);
-    }
-
-    if (workflow.metadata.autoApprovedCommands !== undefined) {
-      yield* terminal.log(
-        `Auto-approved commands: ${workflow.metadata.autoApprovedCommands.join(", ")}`,
-      );
     }
 
     if (workflow.metadata.skills && workflow.metadata.skills.length > 0) {
@@ -431,11 +423,6 @@ export function runWorkflowCommand(
     // Run the agent with the workflow prompt. Cap precedence for maxIterations,
     // maxCostUSD, maxTokens, and maxDurationMs alike: CLI flag > workflow metadata >
     // default (omitted here).
-    const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    const autoApprovedCommands = resolveWorkflowAutoApprovedCommands(
-      workflow.metadata,
-      appConfig.autoApprovedCommands,
-    );
     const resolvedMaxIterations = options?.maxIterations ?? workflow.metadata.maxIterations;
     const resolvedMaxCostUSD = options?.maxCostUSD ?? workflow.metadata.maxCostUSD;
     const resolvedMaxTokens = options?.maxTokens ?? workflow.metadata.maxTokens;
@@ -450,7 +437,6 @@ export function runWorkflowCommand(
       ...(resolvedMaxTokens != null ? { maxTokens: resolvedMaxTokens } : {}),
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-      ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
     });
     const runResult = yield* (

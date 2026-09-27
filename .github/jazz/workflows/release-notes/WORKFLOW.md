@@ -2,15 +2,6 @@
 name: release-notes
 description: Generate release notes by analyzing commits between git tags
 autoApprove: read-only
-autoApprovedCommands:
-  - git diff
-  - git log
-  - git show
-  - git blame
-  - git status
-  - git ls-files
-  - git merge-base
-  - git rev-parse
 agent: release-notes
 maxIterations: 100
 ---

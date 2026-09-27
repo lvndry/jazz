@@ -59,9 +59,6 @@ env:
     agents/
       ci-reviewer.json                   # agent for /jazz-review (inline review)
       pr-assistant.json                  # agent for /jazz (conversational)
-    scripts/
-      snapshot-pr-context.sh             # trusted PR context for the agents
-      run-outcome.cjs                    # reads the run's JSON envelope for posting
     workflows/
       code-review/WORKFLOW.md            # instructions for the reviewer
       pr-assistant/WORKFLOW.md           # instructions for the assistant
@@ -115,15 +112,13 @@ access, so the workflow keeps that agent's reach small:
   static JSON file and prints its answer, and the posting steps write to GitHub.
 - **Only trusted comments.** The snapshot keeps comments and reviews from
   `OWNER`, `MEMBER` and `COLLABORATOR` authors, plus the workflow's own earlier
-  reviews (the `github-actions` bot). Other comments are dropped and counted in
-  `omittedUntrusted`.
-- **Read-only.** Both workflows use `autoApprove: read-only` and approve a short
-  `autoApprovedCommands` list of read-only `git` subcommands. Any other command
-  runs only if Jazz's classifier judges it read-only. The agents have no
+  reviews (the `github-actions` bot). Other comments are dropped.
+- **Read-only.** Both workflows use `autoApprove: read-only`: a shell command
+  runs only if Jazz's command classifier judges it read-only, which covers the
+  `git diff`/`git log` reads the reviewers need. The agents have no
   `http_request` and no file-writing tools.
 - **Bounded.** Each job has `timeout-minutes`; each run passes
   `--max-cost-usd "$JAZZ_MAX_COST_USD"`, set once at the top of `jazz.yml`.
-- **Pinned.** Third-party actions are pinned to commit SHAs.
 
 ## Forks and security
 

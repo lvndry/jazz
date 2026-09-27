@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  renameWorkflowDefinition,
-  renderWorkflowPrompt,
-  resolveWorkflowAutoApprovedCommands,
-} from "./workflow-utils";
+import { renameWorkflowDefinition, renderWorkflowPrompt } from "./workflow-utils";
 
 describe("renameWorkflowDefinition", () => {
   it("rewrites only the frontmatter name and leaves the body untouched", () => {
@@ -55,20 +51,5 @@ describe("renderWorkflowPrompt", () => {
         startedAt: "now",
       }),
     ).toBe("since .");
-  });
-});
-
-describe("resolveWorkflowAutoApprovedCommands", () => {
-  it("unions the config allowlist with the workflow's own, without duplicates", () => {
-    expect(
-      resolveWorkflowAutoApprovedCommands({ autoApprovedCommands: ["git diff", "himalaya"] }, [
-        "himalaya",
-        "khal",
-      ]),
-    ).toEqual(["himalaya", "khal", "git diff"]);
-  });
-
-  it("is empty when neither side allowlists anything", () => {
-    expect(resolveWorkflowAutoApprovedCommands({}, undefined)).toEqual([]);
   });
 });

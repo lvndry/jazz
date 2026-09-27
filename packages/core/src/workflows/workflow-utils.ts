@@ -72,16 +72,3 @@ export function renderWorkflowPrompt(prompt: string, context: WorkflowRunContext
     .replaceAll("{schedule.lastRunAt}", context.lastRunAt ?? "")
     .replaceAll("{run.startedAt}", context.startedAt);
 }
-
-/**
- * The shell command prefixes a workflow run approves without asking: the machine-wide
- * `autoApprovedCommands` from config.json plus the workflow's own frontmatter list, deduplicated.
- * Every workflow run path (manual, scheduled, catch-up) passes this to the agent runner, so an
- * allowlisted command behaves the same however the run started.
- */
-export function resolveWorkflowAutoApprovedCommands(
-  workflow: Pick<WorkflowMetadata, "autoApprovedCommands">,
-  configCommands: readonly string[] | undefined,
-): readonly string[] {
-  return [...new Set([...(configCommands ?? []), ...(workflow.autoApprovedCommands ?? [])])];
-}

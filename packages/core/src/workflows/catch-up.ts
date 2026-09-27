@@ -7,7 +7,6 @@ import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
-import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron";
 import { toError } from "@/core/utils/errors";
@@ -25,10 +24,7 @@ import {
   type ScheduledWorkflow,
 } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
-import {
-  renderWorkflowPrompt,
-  resolveWorkflowAutoApprovedCommands,
-} from "@/core/workflows/workflow-utils";
+import { renderWorkflowPrompt } from "@/core/workflows/workflow-utils";
 
 export interface CatchUpDecision {
   readonly shouldRun: boolean;
@@ -293,10 +289,6 @@ export function runCatchUpForWorkflows(
       }
 
       const autoApprovePolicy = workflow.autoApprove ?? true;
-      const autoApprovedCommands = resolveWorkflowAutoApprovedCommands(
-        workflow,
-        (yield* (yield* AgentConfigServiceTag).appConfig).autoApprovedCommands,
-      );
       const runId = formatAgentRunId(entry, now);
       const prompt = renderWorkflowPrompt(workflowContent.prompt, {
         label: entry.label,
@@ -315,7 +307,6 @@ export function runCatchUpForWorkflows(
         ...(workflow.maxTokens != null ? { maxTokens: workflow.maxTokens } : {}),
         ...(workflow.maxDurationMs != null ? { maxDurationMs: workflow.maxDurationMs } : {}),
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-        ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
       }).pipe(
         Effect.tap(() =>
           updateLatestRunRecord(entry.workflowName, {

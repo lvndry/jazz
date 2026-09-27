@@ -68,7 +68,7 @@ function confirmInstall(
 ): Effect.Effect<boolean, never, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const { autoApprove, autoApprovedCommands } = download.definition;
+    const { autoApprove } = download.definition;
 
     yield* terminal.heading(`Library workflow: ${download.entry.name}`);
     yield* terminal.log(download.entry.description);
@@ -84,13 +84,6 @@ function confirmInstall(
       yield* terminal.log(
         chalk.yellow(
           `Run with --auto-approve or on a schedule, its tools execute without asking up to the "${String(autoApprove)}" tier.`,
-        ),
-      );
-    }
-    if (autoApprovedCommands !== undefined) {
-      yield* terminal.log(
-        chalk.yellow(
-          `These commands run without asking whenever it runs: ${autoApprovedCommands.join(", ")}.`,
         ),
       );
     }

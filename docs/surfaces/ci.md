@@ -51,8 +51,8 @@ flowchart TD
 
 Release notes work the same way: [`release.yml`](../../.github/workflows/release.yml) bumps
 the version, tags it, then runs an agent over every commit since the last tag and creates
-the GitHub Release with the result. The agent runs in its own job with a read-only
-`GITHUB_TOKEN` and a read-only approval policy; a separate job creates the release.
+the GitHub Release with the result. That job's `GITHUB_TOKEN` is read-only and the
+agent runs at a read-only approval policy; the release itself is created with a separate token.
 
 ---
 
@@ -116,10 +116,10 @@ sequenceDiagram
 Three flags do the CI-specific work:
 
 - `--json`: stdout carries exactly one envelope, `{"ok":true,"answer":…}` or
-  `{"ok":false,"error":…}`. The posting step reads it, so a failed run is reported with
+  `{"ok":false,"error":…}`. The run step reads it with `jq`, so a failed run is reported with
   its cause ("Review skipped: provider authentication failed.") in the PR comment and
   the job summary.
-- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner. The shipped workflows use `read-only` plus an `autoApprovedCommands` list of read-only `git` subcommands.
+- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner. The shipped workflows use `read-only`, where the command classifier admits read-only commands such as `git diff`.
 - `--max-cost-usd`: stop the run between iterations once it has spent this much.
 
 `fetch-depth: 0` matters: the agent needs real history to diff against the base.
