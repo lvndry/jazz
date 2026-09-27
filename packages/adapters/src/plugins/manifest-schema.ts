@@ -8,6 +8,7 @@
  * changing this boundary parser.
  */
 
+import { isLifecycleEventId } from "@jazz/core/types/plugin";
 import type {
   JsonValue,
   LifecycleEventId,
@@ -228,29 +229,11 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
   return { name, description, content };
 }
 
-const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
-  "session-start",
-  "session-end",
-  "user-prompt",
-  "run-complete",
-  "run-failed",
-  "awaiting-input",
-  "tool-start",
-  "tool-end",
-  "tool-error",
-  "subagent-start",
-  "subagent-stop",
-  "compact-start",
-  "compact-end",
-  "permission-request",
-  "permission-denied",
-]);
-
 function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
   if (value === undefined) return [];
   const events = uniqueStrings(value, "lifecycleHooks", { maxItems: 16, maxLength: 64 });
   for (const event of events) {
-    if (!LIFECYCLE_EVENTS.has(event)) throw new Error(`unknown lifecycle event: ${event}`);
+    if (!isLifecycleEventId(event)) throw new Error(`unknown lifecycle event: ${event}`);
   }
   return events as readonly LifecycleEventId[];
 }

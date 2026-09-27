@@ -8,6 +8,7 @@ import {
   MAX_PLUGIN_IDENTIFIER_LENGTH,
   MAX_PLUGIN_STATE_BYTES,
   PluginValidationError,
+  isLifecycleEventId,
   type DecisionBatchResult,
   type DecisionRequest,
   type CommandRiskInput,
@@ -125,16 +126,10 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
     if (skill.description.length === 0) fail(`skill ${skill.name} must have a description`);
     if (skill.content.length === 0) fail(`skill ${skill.name} must have content`);
   }
-  const validLifecycleEvents = new Set([
-    "session-start",
-    "user-prompt",
-    "run-complete",
-    "awaiting-input",
-  ]);
   if (new Set(manifest.lifecycleHooks).size !== manifest.lifecycleHooks.length) {
     fail("manifest lifecycleHooks must be unique");
   }
-  if (manifest.lifecycleHooks.some((event) => !validLifecycleEvents.has(event))) {
+  if (manifest.lifecycleHooks.some((event) => !isLifecycleEventId(event))) {
     fail("manifest contains an unknown lifecycle event");
   }
   return manifest;
