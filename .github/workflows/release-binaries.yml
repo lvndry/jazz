@@ -1,9 +1,19 @@
 name: Release Binaries
 
+# Builds every binary for a release, runs each one on a machine of its own platform, attaches
+# them with SHA256SUMS and build provenance, and only then publishes the draft release that
+# release.yml created. Until that last step the release stays a draft, so
+# releases/latest/download/install.sh keeps serving the previous release instead of a 404,
+# and a failed build leaves the previous release as latest.
+#
+# Triggers: the Release workflow finishing (workflow_run), or a manual dispatch with a tag
+# to rebuild. Both run this file as its own workflow, which is the identity npm trusted
+# publishing is configured for.
+
 on:
-  release:
-    types:
-      - published
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -12,16 +22,49 @@ on:
         type: string
 
 permissions:
-  contents: write
-  id-token: write
-
-env:
-  TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.event.release.tag_name }}
+  contents: read
 
 jobs:
+  tag:
+    name: Resolve the release tag
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      name: ${{ steps.resolve.outputs.name }}
+    steps:
+      - name: Download the tag the Release run created
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-tag
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve
+        id: resolve
+        env:
+          DISPATCHED_TAG: ${{ github.event.inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${DISPATCHED_TAG:-}" ]; then
+            name="$DISPATCHED_TAG"
+          else
+            name="$(cat release-tag.txt)"
+          fi
+          if ! printf '%s' "$name" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Not a release tag: '$name'"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.name }}
+    needs: tag
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -41,12 +84,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ env.TAG_NAME }}
+          ref: ${{ needs.tag.outputs.name }}
+          persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -54,8 +98,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Compile binaries
+        env:
+          TARGETS: ${{ matrix.targets }}
         run: |
-          for target in ${{ matrix.targets }}; do
+          for target in $TARGETS; do
             bun run scripts/build.ts --compile --target "$target"
           done
 
@@ -67,35 +113,107 @@ jobs:
             codesign --verify --verbose "$binary"
           done
 
-      - name: Smoke test the native binary
-        if: matrix.name == 'darwin-arm64' || matrix.name == 'linux'
-        run: |
-          native="deploy/binaries/jazz-$(uname -s | tr '[:upper:]' '[:lower:]')-$([ "$(uname -m)" = "x86_64" ] && echo x64 || echo arm64)"
-          JAZZ_HOME="$(mktemp -d)" "$native" --version
-          JAZZ_HOME="$(mktemp -d)" "$native" persona list | grep -q "built-in"
-
       - name: Compress binaries
         run: gzip -9 deploy/binaries/*
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.name }}
           path: deploy/binaries/*.gz
           retention-days: 1
 
-  publish:
-    name: Attach binaries to the release
-    needs: build
-    runs-on: ubuntu-latest
+  # Every shipped binary runs on its own platform before anything is published: a binary
+  # that builds but cannot start (a missing musl runtime library, a bad signature, the wrong
+  # architecture) fails here instead of on a user's machine.
+  # Every shipped binary runs on its own platform before anything is published: a binary
+  # that builds but cannot start (a missing musl runtime library, a bad signature, the wrong
+  # architecture) fails here instead of on a user's machine.
+  smoke:
+    name: Smoke ${{ matrix.binary }}
+    needs: [tag, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - binary: jazz-darwin-arm64
+            artifact: binaries-darwin-arm64
+            runner: macos-latest
+          - binary: jazz-darwin-x64
+            artifact: binaries-darwin-x64
+            runner: macos-15-intel
+          - binary: jazz-linux-x64
+            artifact: binaries-linux
+            runner: ubuntu-latest
+          - binary: jazz-linux-arm64
+            artifact: binaries-linux
+            runner: ubuntu-24.04-arm
+          - binary: jazz-linux-x64-musl
+            artifact: binaries-linux
+            runner: ubuntu-latest
+            alpine: true
+          - binary: jazz-linux-arm64-musl
+            artifact: binaries-linux
+            runner: ubuntu-24.04-arm
+            alpine: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ env.TAG_NAME }}
+          ref: ${{ needs.tag.outputs.name }}
+          persist-credentials: false
+
+      - name: Download ${{ matrix.artifact }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifacts
+
+      - name: Unpack ${{ matrix.binary }}
+        env:
+          BINARY: ${{ matrix.binary }}
+        run: |
+          gunzip -c "artifacts/$BINARY.gz" > ./jazz
+          chmod +x ./jazz
+
+      - name: Run ${{ matrix.binary }}
+        if: ${{ !matrix.alpine }}
+        env:
+          TAG_NAME: ${{ needs.tag.outputs.name }}
+        run: scripts/smoke-binary.sh ./jazz "${TAG_NAME#v}"
+
+      # The musl builds run in Alpine, which is where they are meant to run. Bun's musl
+      # builds link the C++ runtime dynamically and Alpine does not ship it by default.
+      - name: Run ${{ matrix.binary }} in Alpine
+        if: ${{ matrix.alpine }}
+        env:
+          TAG_NAME: ${{ needs.tag.outputs.name }}
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e "EXPECTED=${TAG_NAME#v}" alpine:3 \
+            sh -c 'apk add --no-cache libstdc++ libgcc >/dev/null && scripts/smoke-binary.sh ./jazz "$EXPECTED"'
+
+  publish:
+    name: Attach binaries and publish the release
+    needs: [tag, build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG_NAME: ${{ needs.tag.outputs.name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.tag.outputs.name }}
+          persist-credentials: false
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           pattern: binaries-*
@@ -104,8 +222,17 @@ jobs:
       - name: Generate checksums
         working-directory: artifacts
         run: |
-          sha256sum *.gz > SHA256SUMS
+          sha256sum -- *.gz > SHA256SUMS
           cat SHA256SUMS
+
+      # Signed SLSA provenance for every binary and the checksum file, verifiable with
+      # `gh attestation verify <file> --repo lvndry/jazz` (see docs/getting-started/install.md).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*.gz
+            artifacts/SHA256SUMS
 
       - name: Upload release assets
         env:
@@ -114,23 +241,35 @@ jobs:
           cp scripts/install.sh artifacts/install.sh
           gh release upload "$TAG_NAME" artifacts/* --clobber
 
+      # Last, so the release only becomes "latest" once every asset is attached.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$TAG_NAME" --draft=false
+
   publish-npm:
     name: Publish npm packages
-    needs: build
+    needs: [tag, build, smoke]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # npm trusted publishing authenticates with this workflow's OIDC token.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ env.TAG_NAME }}
+          ref: ${{ needs.tag.outputs.name }}
+          persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
@@ -139,7 +278,7 @@ jobs:
         run: npm install -g npm@^11.5.1
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           pattern: binaries-*

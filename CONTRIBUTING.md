@@ -141,7 +141,9 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - [ ] `bun run typecheck` passes
 - [ ] `bun run lint` passes
 - [ ] `bun test` passes
+- [ ] `bun run test:e2e` passes (`jazz run --json` against a scripted model server)
 - [ ] `bun run build:binary` succeeds
+- [ ] Changes a user must act on are listed under `[Unreleased]` in `CHANGELOG.md`
 - [ ] Update relevant READMEs if interfaces change
 
 ## Getting Help

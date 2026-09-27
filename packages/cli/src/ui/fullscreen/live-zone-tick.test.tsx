@@ -1,8 +1,8 @@
 /** @jsxImportSource @opentui/react */
 
-import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React, { memo, useRef } from "react";
+import { renderForTest } from "./test-helpers";
 import { MOTION } from "../theme";
 import { App } from "./App";
 import { Header } from "./Header";
@@ -33,7 +33,7 @@ describe("live tick isolation", () => {
     }
 
     const view = sampleView();
-    const { renderer, renderOnce, flush } = await testRender(<CountingApp view={view} />, {
+    const { renderer, renderOnce, flush } = await renderForTest(<CountingApp view={view} />, {
       width: WIDTH,
       height: HEIGHT,
     });
@@ -105,7 +105,7 @@ describe("live tick isolation", () => {
       );
     }
 
-    const { renderer, renderOnce, flush } = await testRender(<Shell />, {
+    const { renderer, renderOnce, flush } = await renderForTest(<Shell />, {
       width: WIDTH,
       height: HEIGHT,
     });
@@ -150,7 +150,7 @@ describe("live tick isolation", () => {
       );
     }
 
-    const { renderer, renderOnce, flush } = await testRender(<Shell />, {
+    const { renderer, renderOnce, flush } = await renderForTest(<Shell />, {
       width: WIDTH,
       height: HEIGHT,
     });
