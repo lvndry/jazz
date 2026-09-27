@@ -2,7 +2,11 @@ import { spawn } from "node:child_process";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import {
+  getSecretsFilePath,
+  getSecretsLockPath,
+  getSecretsTempFilePath,
+} from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
 
@@ -165,11 +169,11 @@ const SECRETS_LOCK_RETRY_MS = 10;
 const SECRETS_LOCK_STALE_MS = 30_000;
 
 function secretsFilePath(): string {
-  return path.join(getJazzHomeDirectory(), "secrets.json");
+  return getSecretsFilePath();
 }
 
 async function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
-  const lockPath = path.join(getJazzHomeDirectory(), ".secrets.lock");
+  const lockPath = getSecretsLockPath();
   await nodeFs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < SECRETS_LOCK_RETRIES; attempt++) {
     try {
@@ -220,10 +224,7 @@ function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
 function writeSecretsFile(secrets: Record<string, string>): Effect.Effect<boolean, never> {
   return Effect.promise(async () => {
     const filePath = secretsFilePath();
-    const tempPath = path.join(
-      path.dirname(filePath),
-      `.secrets-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
+    const tempPath = getSecretsTempFilePath(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
     try {
       await nodeFs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
       await nodeFs.writeFile(tempPath, `${JSON.stringify(secrets, null, 2)}\n`, {

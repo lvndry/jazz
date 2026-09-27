@@ -1,5 +1,5 @@
 /**
- * The read tools against the secret-path list, in a throwaway HOME and JAZZ_HOME. Mirrors the
+ * The read tools against Jazz's own secret files, in a throwaway JAZZ_HOME. Mirrors the
  * first half of the audit's exfiltration chain (`chain.ts`): `read_file` of
  * `$JAZZ_HOME/secrets.json` must come back refused.
  */
@@ -17,33 +17,33 @@ let root: string;
 let home: string;
 let jazzHome: string;
 let workspace: string;
-let previousHome: string | undefined;
 let previousJazzHome: string | undefined;
+let previousConfigPath: string | undefined;
 
 beforeEach(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jazz-secret-tools-")));
   home = path.join(root, "home");
   jazzHome = path.join(home, "jazz-home");
   workspace = path.join(home, "project");
-  fs.mkdirSync(path.join(home, ".ssh"), { recursive: true });
-  fs.mkdirSync(jazzHome, { recursive: true });
+  fs.mkdirSync(path.join(jazzHome, ".secrets.lock"), { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
-  fs.writeFileSync(path.join(home, ".ssh", "id_ed25519"), "PRIVATE KEY needle");
+  fs.writeFileSync(path.join(jazzHome, ".secrets.lock", "owner"), "needle lock");
   fs.writeFileSync(path.join(jazzHome, "secrets.json"), '{"token":"needle-secret"}');
+  fs.writeFileSync(path.join(jazzHome, "config.json"), '{"daemon":{"token":"needle-daemon"}}');
   fs.writeFileSync(path.join(home, "notes.md"), "a needle in notes");
   fs.writeFileSync(path.join(workspace, "todo.md"), "project needle");
 
-  previousHome = process.env["HOME"];
   previousJazzHome = process.env["JAZZ_HOME"];
-  process.env["HOME"] = home;
+  previousConfigPath = process.env["JAZZ_CONFIG_PATH"];
   process.env["JAZZ_HOME"] = jazzHome;
+  delete process.env["JAZZ_CONFIG_PATH"];
 });
 
 afterEach(() => {
-  if (previousHome === undefined) {
-    delete process.env["HOME"];
+  if (previousConfigPath === undefined) {
+    delete process.env["JAZZ_CONFIG_PATH"];
   } else {
-    process.env["HOME"] = previousHome;
+    process.env["JAZZ_CONFIG_PATH"] = previousConfigPath;
   }
   if (previousJazzHome === undefined) {
     delete process.env["JAZZ_HOME"];
@@ -65,12 +65,12 @@ describe("read_file", () => {
     expect(JSON.stringify(result)).not.toContain("needle-secret");
   });
 
-  it("refuses a symlink that points at an SSH key", async () => {
+  it("refuses a symlink that points at the config holding the daemon token", async () => {
     const link = path.join(workspace, "harmless.txt");
-    fs.symlinkSync(path.join(home, ".ssh", "id_ed25519"), link);
+    fs.symlinkSync(path.join(jazzHome, "config.json"), link);
     const result = await runTool(createReadFileTool(), { path: link }, workspace);
     expect(result.success).toBe(false);
-    expect(result.error).toContain("SSH keys");
+    expect(result.error).toContain("daemon token");
   });
 
   it("frames a file outside the working directory and leaves one inside unframed", async () => {
@@ -103,13 +103,13 @@ describe("grep", () => {
     const files = (result.result as { files: string[] }).files;
     expect(files.some((file) => file.endsWith("notes.md"))).toBe(true);
     expect(files.some((file) => file.endsWith("secrets.json"))).toBe(false);
-    expect(files.some((file) => file.includes(".ssh"))).toBe(false);
+    expect(files.some((file) => file.endsWith("config.json"))).toBe(false);
   });
 
-  it("refuses to start inside a secret directory", async () => {
+  it("refuses to start inside a secret lock directory", async () => {
     const result = await runTool(
       createGrepTool(),
-      { pattern: "PRIVATE", path: path.join(home, ".ssh") },
+      { pattern: "needle", path: path.join(jazzHome, ".secrets.lock") },
       workspace,
     );
     expect(result.success).toBe(false);
@@ -118,8 +118,12 @@ describe("grep", () => {
 });
 
 describe("ls and find", () => {
-  it("ls refuses a secret directory and hides one inside a listing", async () => {
-    const refused = await runTool(createLsTool(), { path: path.join(home, ".ssh") }, workspace);
+  it("ls refuses a secret lock directory and hides secret files inside a listing", async () => {
+    const refused = await runTool(
+      createLsTool(),
+      { path: path.join(jazzHome, ".secrets.lock") },
+      workspace,
+    );
     expect(refused.success).toBe(false);
 
     const listing = await runTool(
@@ -130,14 +134,14 @@ describe("ls and find", () => {
     expect(listing.success).toBe(true);
     const paths = (listing.result as { path: string }[]).map((entry) => entry.path);
     expect(paths.some((entry) => entry.endsWith("notes.md"))).toBe(true);
-    expect(paths.some((entry) => entry.includes(`${path.sep}.ssh`))).toBe(false);
+    expect(paths.some((entry) => entry.includes(".secrets.lock"))).toBe(false);
     expect(paths.some((entry) => entry.endsWith("secrets.json"))).toBe(false);
   });
 
-  it("find refuses a secret directory as its starting point", async () => {
+  it("find refuses a secret lock directory as its starting point", async () => {
     const result = await runTool(
       createFindTool(),
-      { path: path.join(home, ".ssh"), name: "*" },
+      { path: path.join(jazzHome, ".secrets.lock"), name: "*" },
       workspace,
     );
     expect(result.success).toBe(false);
