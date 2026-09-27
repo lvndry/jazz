@@ -21,6 +21,12 @@ import { ThinkingRenderer } from "./thinking-renderer";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
 /**
+ * Body text in the terminal's own foreground colour, so it reads on light and
+ * dark backgrounds alike.
+ */
+const terminalDefaultText = (text: string): string => text;
+
+/**
  * Get terminal width, with fallback to 80
  */
 function getTerminalWidth(): number {
@@ -513,19 +519,19 @@ export class CLIRenderer {
           renderer: new TerminalRenderer({
             code: codeColor,
             codespan: codeColor,
-            blockquote: chalk.gray,
-            html: chalk.gray,
+            blockquote: CHALK_THEME.muted,
+            html: CHALK_THEME.muted,
             heading: CHALK_THEME.agentBold,
             firstHeading: CHALK_THEME.headingUnderline,
-            strong: chalk.bold.white,
+            strong: chalk.bold,
             em: chalk.italic,
             del: chalk.strikethrough,
             link: CHALK_THEME.link,
-            href: chalk.gray,
-            listitem: chalk.white,
+            href: CHALK_THEME.muted,
+            listitem: terminalDefaultText,
             // Custom styling for better terminal experience
-            paragraph: chalk.white,
-            text: chalk.white,
+            paragraph: terminalDefaultText,
+            text: terminalDefaultText,
             emoji: true,
             // Disable some features that don't work well in terminal
             showSectionPrefix: false,
@@ -737,7 +743,7 @@ export class CLIRenderer {
    */
   formatToolExecutionError(errorMessage: string, durationMs: number): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return ` ${chalk.red("✗")} ${chalk.red(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+      return ` ${CHALK_THEME.error("✗")} ${CHALK_THEME.error(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
     });
   }
 
@@ -759,7 +765,7 @@ export class CLIRenderer {
           return name;
         })
         .join(", ");
-      return `\n${chalk.yellow("⌁")} ${chalk.yellow(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
+      return `\n${CHALK_THEME.primary("⌁")} ${CHALK_THEME.agentBold(agentName)} is using tools: ${CHALK_THEME.primary(formattedTools)}\n`;
     });
   }
 
@@ -787,7 +793,7 @@ export class CLIRenderer {
    * Format warning message with styling
    */
   formatWarning(agentName: string, message: string): Effect.Effect<string, never> {
-    return Effect.sync(() => chalk.yellow(`⚠️  ${agentName}: ${message}`));
+    return Effect.sync(() => CHALK_THEME.warning(`⚠️  ${agentName}: ${message}`));
   }
 
   // ==================== Static Methods ====================

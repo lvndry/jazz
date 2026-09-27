@@ -5,7 +5,7 @@
 
 import type { ColorProfile, RenderTheme } from "@jazz/core/types";
 import chalk from "chalk";
-import { CHALK_THEME } from "../ui/theme";
+import { CHALK_THEME, noColorRequested } from "../ui/theme";
 
 /**
  * Display constants
@@ -30,23 +30,34 @@ export function createTheme(profile: ColorProfile): RenderTheme {
 }
 
 /**
+ * The theme's colours for plain output, the same semantic tokens the
+ * interactive interfaces use: the accent for the agent and its tools, the
+ * neutral ramp for arguments, info and dim text, and the feedback hues only for
+ * success, errors and warnings. On a 16-colour terminal chalk maps each token
+ * to its nearest basic colour.
+ */
+function themeColors(): RenderTheme["colors"] {
+  return {
+    thinking: CHALK_THEME.agentBold,
+    thinkingContent: CHALK_THEME.reasoning.italic,
+    toolName: CHALK_THEME.primaryBold,
+    toolArgs: CHALK_THEME.muted,
+    success: CHALK_THEME.success,
+    error: CHALK_THEME.error,
+    warning: CHALK_THEME.warning,
+    info: CHALK_THEME.info,
+    dim: CHALK_THEME.muted,
+    highlight: CHALK_THEME.white.bold,
+    agentName: CHALK_THEME.agentBold,
+  };
+}
+
+/**
  * Full color theme with all features
  */
 function createFullColorTheme(): RenderTheme {
   return {
-    colors: {
-      thinking: CHALK_THEME.agentBold,
-      thinkingContent: CHALK_THEME.reasoning.italic,
-      toolName: chalk.hex("#F59E0B").bold,
-      toolArgs: chalk.hex("#60A5FA"),
-      success: CHALK_THEME.success,
-      error: CHALK_THEME.error,
-      warning: CHALK_THEME.warning,
-      info: CHALK_THEME.link,
-      dim: CHALK_THEME.muted,
-      highlight: chalk.bold.hex("#F8FAFC"),
-      agentName: CHALK_THEME.agentBold,
-    },
+    colors: themeColors(),
     icons: {
       thinking: "◔",
       tool: "⌁",
@@ -65,19 +76,7 @@ function createFullColorTheme(): RenderTheme {
  */
 function createBasicColorTheme(): RenderTheme {
   return {
-    colors: {
-      thinking: chalk.yellowBright,
-      thinkingContent: chalk.gray,
-      toolName: chalk.yellowBright,
-      toolArgs: chalk.cyan,
-      success: chalk.greenBright,
-      error: chalk.redBright,
-      warning: chalk.yellowBright,
-      info: chalk.cyanBright,
-      dim: chalk.gray,
-      highlight: chalk.whiteBright,
-      agentName: chalk.cyanBright,
-    },
+    colors: themeColors(),
     icons: {
       thinking: "[*]",
       tool: "[>]",
@@ -128,8 +127,7 @@ function createNoColorTheme(): RenderTheme {
  * Detect appropriate color profile based on environment
  */
 export function detectColorProfile(): ColorProfile {
-  // Check if colors are disabled
-  if (process.env["NO_COLOR"] || process.env["NODE_DISABLE_COLORS"]) {
+  if (noColorRequested() || process.env["NODE_DISABLE_COLORS"]) {
     return "none";
   }
 

@@ -155,6 +155,63 @@ export const PALETTES: Record<ThemeVariant, ThemeColors> = {
 };
 
 /**
+ * Whether the user asked for no colour: `NO_COLOR` set to anything but the
+ * empty string, per https://no-color.org.
+ */
+export function noColorRequested(environment: NodeJS.ProcessEnv = process.env): boolean {
+  const value = environment["NO_COLOR"];
+  return value !== undefined && value !== "";
+}
+
+/**
+ * A palette with every hue replaced by the neutral ramp, for `NO_COLOR`.
+ *
+ * Roles keep their place on the ramp (primary text, secondary text, muted
+ * metadata) and grounds and rules keep theirs, so emphasis still comes from
+ * weight and shade. The fullscreen interface paints cells with these; the
+ * classic interface and plain output get no colour at all, because chalk is
+ * switched off (see `applyNoColor`).
+ */
+export function neutralPalette(palette: ThemeColors): ThemeColors {
+  return {
+    ...palette,
+    primary: palette.selected,
+    agent: palette.selected,
+    accentDim: palette.secondary,
+    link: palette.secondary,
+    success: palette.selected,
+    error: palette.selected,
+    warning: palette.selected,
+    info: palette.secondary,
+    prompt: palette.selected,
+    reasoning: palette.secondary,
+    syntaxStructure: palette.selected,
+    syntaxValue: palette.secondary,
+    syntaxType: palette.selected,
+  };
+}
+
+const colorDisabled = noColorRequested();
+
+/** The palette a variant paints with, neutral when `NO_COLOR` is set. */
+function paletteFor(variant: ThemeVariant): ThemeColors {
+  return colorDisabled ? neutralPalette(PALETTES[variant]) : PALETTES[variant];
+}
+
+/**
+ * Turn chalk's colour off when `NO_COLOR` is set. Ink renders through the same
+ * chalk instance, so this covers the classic interface, the plain presentation,
+ * and every `CHALK_THEME` helper. Runs once, when this module loads.
+ */
+function applyNoColor(): void {
+  if (colorDisabled) {
+    chalk.level = 0;
+  }
+}
+
+applyNoColor();
+
+/**
  * Resolve the theme variant: `JAZZ_THEME=light|dark` wins; otherwise the
  * terminal's advertised background via `COLORFGBG` (last field is the
  * background color index — 7/15 mean a light background); dark by default.
@@ -179,7 +236,7 @@ let activeVariant: ThemeVariant = resolveThemeVariant();
  * constants that captured a color at import time keep the old value until
  * restart (acceptable: /theme persists the choice for the next run too).
  */
-export const THEME: ThemeColors = { ...PALETTES[activeVariant] };
+export const THEME: ThemeColors = { ...paletteFor(activeVariant) };
 
 export function getThemeVariant(): ThemeVariant {
   return activeVariant;
@@ -187,7 +244,7 @@ export function getThemeVariant(): ThemeVariant {
 
 export function setThemeVariant(variant: ThemeVariant): void {
   activeVariant = variant;
-  Object.assign(THEME, PALETTES[variant]);
+  Object.assign(THEME, paletteFor(variant));
 }
 
 /**
@@ -309,6 +366,9 @@ export const CHALK_THEME = {
   },
   get muted() {
     return chalk.hex(THEME.secondary);
+  },
+  get info() {
+    return chalk.hex(THEME.info);
   },
   get secondary() {
     return chalk.dim;
