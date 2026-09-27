@@ -132,7 +132,7 @@ const KILL_GRACE_MS = 15_000;
 /** How many stderr lines to keep for the log when a run produces no envelope. */
 const STDERR_TAIL_LINES = 50;
 
-function buildArgs(options: JazzRunOptions): string[] {
+export function buildJazzRunArgs(options: JazzRunOptions): string[] {
   const conversationArgs =
     options.conversation.kind === "ephemeral"
       ? [
@@ -163,6 +163,7 @@ function buildArgs(options: JazzRunOptions): string[] {
     ...conversationArgs,
     "--timeout",
     String(options.runTimeoutMs),
+    "--",
     options.prompt,
   ];
 }
@@ -220,7 +221,7 @@ export function parseEnvelope(stdout: string): JazzEnvelope | undefined {
  * shape that only handed back a promise could never unblock its own run.
  */
 export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers = {}): JazzRun {
-  const child = Bun.spawn(sandboxCommand(options.sandbox, buildArgs(options)), {
+  const child = Bun.spawn(sandboxCommand(options.sandbox, buildJazzRunArgs(options)), {
     stdout: "pipe",
     stderr: "pipe",
     stdin: "pipe",

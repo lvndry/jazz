@@ -686,6 +686,7 @@ async function runJazz(
         : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, channelId)]),
       "--timeout",
       String(config.runTimeoutMs),
+      "--",
       prompt,
     ]),
     {
@@ -1028,6 +1029,7 @@ async function jazzJson(
       "--agent",
       agentId,
       ...extraArgs,
+      "--",
       prompt,
     ]),
     { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "discord") },

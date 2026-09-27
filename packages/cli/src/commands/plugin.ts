@@ -303,9 +303,7 @@ export function pluginTrustCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    if (!options.yes) {
-      yield* requireInteractive(terminal, "Plugin trust");
-    }
+    yield* requireInteractive(terminal, "Plugin trust");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
@@ -331,9 +329,7 @@ export function pluginEnableCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
-    if (!options.yes) {
-      yield* requireInteractive(terminal, "Plugin egress consent");
-    }
+    yield* requireInteractive(terminal, "Plugin egress consent");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
