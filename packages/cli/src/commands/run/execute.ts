@@ -7,6 +7,7 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
+import { judgeAnswer } from "@jazz/core/agent/run/answer-outcome";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
@@ -29,7 +30,9 @@ import { Effect, Layer, Option } from "effect";
 import { describeReasoningAdjustment } from "@/cli/helpers/reasoning";
 import {
   ONE_SHOT_EXIT,
+  answerOutcomeFields,
   formatOneShotError,
+  type OneShotFailureDetails,
   formatOneShotParked,
   formatOneShotResult,
   type OneShotOutputOptions,
@@ -243,10 +246,10 @@ const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
   costUSD = 0,
-  stoppedToolCalls?: readonly StoppedToolCall[],
+  details: OneShotFailureDetails = {},
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, costUSD, stoppedToolCalls);
+    const formatted = formatOneShotError(message, options, costUSD, details);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -469,18 +472,18 @@ export function runAgentOnceCommand(
       },
     });
 
-    // `raceFirst`, not `race`: `race` waits for the first success, so a deadline that fails
-    // would leave the run going. This stops at whichever settles first and interrupts the
-    // other, which kills running tools and aborts the provider request.
     const runResult = yield* (
       deadline ? Effect.raceFirst(runEffect, deadline.watch) : runEffect
     ).pipe(
-      Effect.tap((response) =>
-        emitLifecycle("run-complete", {
-          prompt: prompt.slice(0, 2000),
-          summary: response.content.slice(0, 2000),
-        }),
-      ),
+      Effect.tap((response) => {
+        const outcome = judgeAnswer(response);
+        return outcome.kind === "failed"
+          ? emitLifecycle("run-failed", { error: outcome.message })
+          : emitLifecycle("run-complete", {
+              prompt: prompt.slice(0, 2000),
+              summary: response.content.slice(0, 2000),
+            });
+      }),
       Effect.tapError((error) =>
         isRunParkRequested(error)
           ? Effect.void
@@ -521,6 +524,15 @@ export function runAgentOnceCommand(
     const composition = extractCompositionResult(runResult.toolResults);
     const artifacts = runResult.artifacts ?? [];
 
+    const verdict = judgeAnswer(runResult);
+    if (verdict.kind === "failed") {
+      return yield* failOneShot(verdict.message, outputOptions, runResult.costUSD ?? 0, {
+        code: verdict.code,
+        ...(runResult.finishReason !== undefined ? { finishReason: runResult.finishReason } : {}),
+        ...(runResult.toolsDisabled === true ? { toolsDisabled: true } : {}),
+      });
+    }
+
     yield* writeStdout(
       formatOneShotResult(
         {
@@ -535,6 +547,7 @@ export function runAgentOnceCommand(
           ...(runResult.costCapped === true ? { costCapped: true } : {}),
           ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
           ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
+          ...answerOutcomeFields(runResult),
           ...(runResult.stalled === true ? { stalled: true } : {}),
           ...(runResult.stoppedToolCalls !== undefined
             ? { stoppedToolCalls: runResult.stoppedToolCalls }
@@ -585,7 +598,12 @@ export function runAgentOnceCommand(
         }),
     ),
     Effect.catchAll((error) =>
-      failOneShot(getErrorMessage(error), outputOptions, 0, stoppedToolCalls),
+      failOneShot(
+        getErrorMessage(error),
+        outputOptions,
+        0,
+        stoppedToolCalls !== undefined ? { stoppedToolCalls } : {},
+      ),
     ),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.

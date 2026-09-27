@@ -48,6 +48,38 @@ describe("StreamProcessor", () => {
     expect(events.some((e) => e.type === "complete")).toBe(true);
   });
 
+  it("reports why the stream finished, and unknown when the provider gave no reason", async () => {
+    const run = async (parts: readonly Record<string, unknown>[]) => {
+      const processor = new StreamProcessor(
+        { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+        () => undefined,
+        mockLogger,
+      );
+      return processor.process({
+        fullStream: (async function* () {
+          yield* parts;
+        })(),
+        usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+      } as any);
+    };
+
+    const cutOff = await run([
+      { type: "text-delta", text: "half" },
+      { type: "finish", finishReason: "length" },
+    ]);
+    const filtered = await run([{ type: "finish", finishReason: "content-filter" }]);
+    const unified = await run([
+      { type: "text-delta", text: "half" },
+      { type: "finish", finishReason: { unified: "length", raw: "max_tokens" } },
+    ]);
+    const silent = await run([{ type: "text-delta", text: "answer" }, { type: "finish" }]);
+
+    expect(cutOff.finishReason).toBe("length");
+    expect(filtered.finishReason).toBe("content-filter");
+    expect(unified.finishReason).toBe("length");
+    expect(silent.finishReason).toBe("unknown");
+  });
+
   it("measures tokens per second over output tokens and the decode window only", async () => {
     const events: any[] = [];
     const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {

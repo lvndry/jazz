@@ -65,6 +65,18 @@ describe("read_file", () => {
     expect(JSON.stringify(result)).not.toContain("needle-secret");
   });
 
+  it.each([".secrets.json-123-id.tmp", "config.json.corrupt-2026-09-27"])(
+    "refuses the credential copy %s left by durable storage",
+    async (filename) => {
+      const secretCopy = path.join(jazzHome, filename);
+      fs.writeFileSync(secretCopy, "needle-secret-copy");
+      const result = await runTool(createReadFileTool(), { path: secretCopy }, workspace);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Refused to read");
+      expect(JSON.stringify(result)).not.toContain("needle-secret-copy");
+    },
+  );
+
   it("refuses a symlink that points at the config holding the daemon token", async () => {
     const link = path.join(workspace, "harmless.txt");
     fs.symlinkSync(path.join(jazzHome, "config.json"), link);

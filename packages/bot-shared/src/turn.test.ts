@@ -215,6 +215,25 @@ describe("turn runner", () => {
     expect(reasoningAt).toBeLessThan(answerAt);
   });
 
+  test("the shared runner appends outcome notices to the answer", async () => {
+    const { turn } = await startTurn();
+    current?.finish({
+      ok: true,
+      answer: "partial answer",
+      costUSD: 0,
+      toolsDisabled: true,
+      truncated: true,
+    });
+    await turn;
+
+    const answer = sent.find((message) => message.text.includes("partial answer"));
+    expect(answer?.text).toContain("Tools were OFF");
+    expect(answer?.text).toContain("cut off");
+    expect(answer?.text.indexOf("partial answer")).toBeLessThan(
+      answer?.text.indexOf("Tools were OFF") ?? -1,
+    );
+  });
+
   test("a button tap answers the approval it names", async () => {
     const { turn } = await startTurn();
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });

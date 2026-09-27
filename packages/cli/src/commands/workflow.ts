@@ -1,5 +1,6 @@
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
+import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -47,7 +48,7 @@ import {
 import { Duration, Effect } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
-import { formatOneShotError, formatOneShotResult } from "./run/envelope";
+import { answerOutcomeFields, formatOneShotError, formatOneShotResult } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -443,7 +444,14 @@ export function runWorkflowCommand(
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
-    });
+    }).pipe(
+      Effect.flatMap((response) => {
+        const verdict = judgeAnswer(response);
+        return verdict.kind === "failed"
+          ? Effect.fail(new NoUsableAnswerError(verdict))
+          : Effect.succeed(response);
+      }),
+    );
     const runResult = yield* (
       options?.timeoutMs != null
         ? runEffect.pipe(
@@ -503,6 +511,7 @@ export function runWorkflowCommand(
               ...(runResult.costCapped === true ? { costCapped: true } : {}),
               ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
               ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
+              ...answerOutcomeFields(runResult),
               ...(runResult.stalled === true ? { stalled: true } : {}),
               tokenUsage: {
                 promptTokens,
@@ -538,7 +547,14 @@ export function runWorkflowCommand(
   return command.pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => {
-        process.stdout.write(formatOneShotError(getErrorMessage(error), { json: true }));
+        process.stdout.write(
+          formatOneShotError(
+            getErrorMessage(error),
+            { json: true },
+            0,
+            error instanceof NoUsableAnswerError ? { code: error.code } : {},
+          ),
+        );
         process.exitCode = 1;
       }),
     ),

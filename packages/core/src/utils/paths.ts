@@ -70,15 +70,7 @@ export function getSecretsLockPath(): string {
 const SECRETS_TEMP_PREFIX = ".secrets-";
 const SECRETS_TEMP_SUFFIX = ".tmp";
 
-/** The temp file `secrets.json` is written to before the atomic rename. */
-export function getSecretsTempFilePath(uniqueSuffix: string): string {
-  return path.join(
-    getJazzHomeDirectory(),
-    `${SECRETS_TEMP_PREFIX}${uniqueSuffix}${SECRETS_TEMP_SUFFIX}`,
-  );
-}
-
-/** Whether a basename is one `getSecretsTempFilePath` produces. */
+/** Whether a basename is a secret temp file left by the former keyring writer. */
 export function isSecretsTempFileName(name: string): boolean {
   return (
     name.startsWith(SECRETS_TEMP_PREFIX) &&

@@ -208,6 +208,3 @@ Before exposing an unattended agent:
 Implementation paths and regression tests are linked from [Tools and approval](../maintainers/tool-lifecycle.md),
 [Surface access](./surface-access.md), [Secrets and egress](./secrets-and-egress.md), and
 [SECURITY.md](../../SECURITY.md).
-
-Secret-file read guards also cover the durable writer’s sibling temporary files and corrupt-file
-quarantines, including when `JAZZ_CONFIG_PATH` places the config outside `JAZZ_HOME`.

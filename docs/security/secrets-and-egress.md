@@ -91,7 +91,12 @@ context:
 - `$JAZZ_HOME/secrets.json`, the no-keyring secret store;
 - the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which holds the
   daemon token when no keyring is available;
-- the lock and temp files written beside them while they change.
+- the lock and temporary files written beside them while they change, including durable-write
+  siblings such as `.secrets.json-<pid>-<id>.tmp`;
+- corrupt-file quarantines such as `secrets.json.corrupt-<timestamp>`.
+
+Temporary and quarantined config copies are protected beside `JAZZ_CONFIG_PATH` too, even
+when that path is outside `JAZZ_HOME`.
 
 A search that spans them, such as `grep` over `$JAZZ_HOME`, leaves their matches out.
 

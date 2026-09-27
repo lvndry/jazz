@@ -10,7 +10,7 @@
 
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
-import type { CompletionFinishReason } from "@jazz/core/types/chat";
+import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
 import type { LanguageModelUsage, streamText } from "ai";
@@ -93,28 +93,6 @@ const CONTENT_PART_TYPES: ReadonlySet<string> = new Set([
 export function isContentStreamPart(part: unknown): boolean {
   const type = (part as { type?: unknown } | null)?.type;
   return typeof type === "string" && CONTENT_PART_TYPES.has(type);
-}
-
-const COMPLETION_FINISH_REASONS: ReadonlySet<CompletionFinishReason> = new Set([
-  "stop",
-  "length",
-  "content-filter",
-  "tool-calls",
-  "error",
-  "other",
-  "unknown",
-]);
-
-/** The SDK's finish reason as Jazz's, or undefined when it reported none Jazz knows. */
-export function toCompletionFinishReason(raw: unknown): CompletionFinishReason | undefined {
-  const unified =
-    raw !== null && typeof raw === "object" && "unified" in raw
-      ? (raw as { unified?: unknown }).unified
-      : raw;
-  return typeof unified === "string" &&
-    COMPLETION_FINISH_REASONS.has(unified as CompletionFinishReason)
-    ? (unified as CompletionFinishReason)
-    : undefined;
 }
 
 /** Raised when a provider stream stops producing without closing. */
@@ -257,7 +235,7 @@ interface StreamProcessorState {
 
   // Completion tracking
   finishEventReceived: boolean;
-  finishReason: string | undefined;
+  finishReason: FinishReason | undefined;
   /** Usage the `finish` part carried, which arrives in-stream before `result.usage` settles. */
   finishUsage: LanguageModelUsage | undefined;
 
@@ -562,7 +540,7 @@ export class StreamProcessor {
               this.state.pendingNativeToolCalls.delete(id);
             }
 
-            const finishReason = part.finishReason || "unknown";
+            const finishReason = toFinishReason(part.finishReason);
             this.state.finishEventReceived = true;
             this.state.finishReason = finishReason;
             if ("totalUsage" in part && part.totalUsage) {
@@ -735,18 +713,17 @@ export class StreamProcessor {
     }
 
     const reasoningText = this.state.accumulatedReasoning;
-    const finishReason = toCompletionFinishReason(this.state.finishReason);
 
     return {
       id: "",
       model: this.config.modelName,
       content: finalText,
-      ...(finishReason !== undefined ? { finishReason } : {}),
       ...(reasoningText.length > 0 && { reasoning: reasoningText }),
       ...(reasoningParts ? { reasoningParts } : {}),
       ...(toolCalls && { toolCalls }),
       ...(usage && { usage }),
       ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
+      finishReason: this.state.finishReason ?? "unknown",
       ...(this.config.toolDefinitionChars != null
         ? { toolDefinitionChars: this.config.toolDefinitionChars }
         : {}),

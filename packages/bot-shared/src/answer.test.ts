@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  answerNotices,
   doneSummary,
   FOLLOWUP_OPTIONS,
   followupChoices,
@@ -14,6 +15,26 @@ import type { JazzSuccessEnvelope } from "./jazz-run";
 import { renderPlain } from "./surface";
 
 const OK: JazzSuccessEnvelope = { ok: true, answer: "hi", costUSD: 0 };
+
+describe("answerNotices", () => {
+  test("says nothing for a complete answer with tools", () => {
+    expect(answerNotices(OK)).toEqual([]);
+  });
+
+  test("warns loudly when the model was sent no tools", () => {
+    const [notice] = answerNotices({ ...OK, toolsDisabled: true });
+
+    expect(notice).toContain("Tools were OFF");
+    expect(notice).toContain("capabilityOverrides");
+  });
+
+  test("warns about a cut-off answer and an iteration limit", () => {
+    expect(answerNotices({ ...OK, truncated: true, iterationLimited: true })).toEqual([
+      "⚠️ The answer was cut off at the model's output limit.",
+      "⚠️ The agent hit its iteration limit before finishing.",
+    ]);
+  });
+});
 
 describe("doneSummary", () => {
   test("names the tools that ran", () => {

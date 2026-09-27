@@ -1,9 +1,18 @@
 /**
- * Process helpers: whether a process recorded by pid (a lock holder, a run's owner) is still
- * running, and how to kill a spawned command together with everything it started.
+ * Process helpers: shutdown signal exit codes, process liveness, and killing spawned
+ * commands together with everything they started.
  */
 import type { ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
+
+/** The signals Jazz treats as a request to shut down. */
+export type ShutdownSignal = "SIGINT" | "SIGTERM";
+
+/** Exit code for a process stopped by a signal: 128 plus the signal number, as shells report it. */
+export const SIGNAL_EXIT_CODE: Readonly<Record<ShutdownSignal, number>> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
 
 /** A process that holds something: a lock, a cycle, a working run. */
 export interface ProcessOwner {
