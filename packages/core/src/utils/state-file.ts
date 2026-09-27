@@ -73,40 +73,51 @@ export class CorruptStateFileError extends Error {
   }
 }
 
-type Decoded<Content> =
+/** What a state file's text decodes to, before anything is done about it. */
+export type DecodedStateFile<Content> =
   | { readonly status: "ok"; readonly content: Content }
-  | { readonly status: "corrupt"; readonly reason: string };
+  | { readonly status: "corrupt"; readonly reason: string }
+  | { readonly status: "newer"; readonly error: NewerStateFileError };
 
-function decode<Content>(
+/**
+ * Decode a state file's text as `kind`, with no I/O: for a reader that has the bytes already
+ * (a chat bridge reading through a pinned directory) and decides itself what to do with a
+ * corrupt or newer file. `filePath` only names the file in errors.
+ */
+export function decodeStateFile<Content>(
   raw: string,
   filePath: string,
   kind: StateFileKind<Content>,
-): Effect.Effect<Decoded<Content>, NewerStateFileError> {
+): DecodedStateFile<Content> {
   let document: unknown;
   try {
     document = JSON.parse(raw);
   } catch (error) {
-    return Effect.succeed({
-      status: "corrupt",
-      reason: `invalid JSON (${toError(error).message})`,
-    });
+    return { status: "corrupt", reason: `invalid JSON (${toError(error).message})` };
   }
   const version =
     isRecord(document) && document["schemaVersion"] !== undefined
       ? document["schemaVersion"]
       : undefined;
   if (version !== undefined && (!Number.isSafeInteger(version) || (version as number) < 1)) {
-    return Effect.succeed({ status: "corrupt", reason: "invalid schemaVersion" });
+    return { status: "corrupt", reason: "invalid schemaVersion" };
   }
   if (typeof version === "number" && version > kind.schemaVersion) {
-    return Effect.fail(new NewerStateFileError(filePath, version, kind.schemaVersion));
+    return {
+      status: "newer",
+      error: new NewerStateFileError(filePath, version, kind.schemaVersion),
+    };
   }
   const parsed = kind.parse(document, version as number | undefined);
-  return Effect.succeed(
-    parsed.ok
-      ? { status: "ok", content: parsed.content }
-      : { status: "corrupt", reason: parsed.error },
-  );
+  return parsed.ok
+    ? { status: "ok", content: parsed.content }
+    : { status: "corrupt", reason: parsed.error };
+}
+
+/** The text a state file holds for `content`, stamped with the kind's `schemaVersion`. */
+export function encodeStateFile<Content>(kind: StateFileKind<Content>, content: Content): string {
+  const document = { schemaVersion: kind.schemaVersion, ...kind.serialize(content) };
+  return `${JSON.stringify(document, null, 2)}\n`;
 }
 
 /**
@@ -135,9 +146,12 @@ export function readStateFile<Content>(
     if (raw === undefined) {
       return undefined;
     }
-    const decoded = yield* decode(raw, filePath, kind);
+    const decoded = decodeStateFile(raw, filePath, kind);
     if (decoded.status === "ok") {
       return decoded.content;
+    }
+    if (decoded.status === "newer") {
+      return yield* Effect.fail(decoded.error);
     }
     if (options.onCorrupt === "fail") {
       return yield* Effect.fail(new CorruptStateFileError(filePath, decoded.reason));
@@ -153,8 +167,7 @@ export function writeStateFile<Content>(
   kind: StateFileKind<Content>,
   content: Content,
 ): Effect.Effect<void, Error> {
-  const document = { schemaVersion: kind.schemaVersion, ...kind.serialize(content) };
-  return writeFileStringAtomic(filePath, `${JSON.stringify(document, null, 2)}\n`);
+  return writeFileStringAtomic(filePath, encodeStateFile(kind, content));
 }
 
 /**

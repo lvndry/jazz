@@ -73,7 +73,8 @@ function reminderLockPath(baseReminderDirectory: string, agentId: string): strin
   return path.join(baseReminderDirectory, reminderLockName(agentId));
 }
 
-const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema);
+/** The on-disk format of an agent's reminder file, shared with the chat bridges. */
+export const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema);
 
 /** Read an agent's reminders under its lock: a corrupt file is quarantined and reads as empty. */
 function readReminderFile(filePath: string): Effect.Effect<ReminderRecord[], Error> {
