@@ -7,6 +7,7 @@
  * provider options; callers supply already-validated observations and overrides.
  */
 
+import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
 import type { ReasoningControlSurface } from "@jazz/core/types/model-capabilities";
 import {
@@ -16,8 +17,13 @@ import {
   type ModelCapabilityRegistry,
 } from "./registry";
 
+/**
+ * Where a capability came from. `assumed` marks tool support granted to a cloud
+ * model nothing describes: a newly released or custom model id, or a catalog
+ * that could not be reached.
+ */
 export type CapabilitySource =
-  "unknown" | "catalog" | "provider-default" | "builtin-model" | "live" | "operator";
+  "unknown" | "assumed" | "catalog" | "provider-default" | "builtin-model" | "live" | "operator";
 
 export interface CatalogCapabilities {
   readonly supportsReasoning?: boolean;
@@ -91,6 +97,7 @@ function pickReasoning(
 }
 
 function pickTools(
+  provider: ProviderName,
   catalog: CatalogCapabilities | undefined,
   providerDefault: CapabilityProfile | undefined,
   model: CapabilityProfile | undefined,
@@ -111,18 +118,26 @@ function pickTools(
       };
     }
   }
-  return {
-    ...(catalog?.supportsTools !== undefined ? { supportsTools: catalog.supportsTools } : {}),
-    source: {
-      reasoning: "unknown",
-      tools: catalog?.supportsTools === undefined ? "unknown" : "catalog",
-    },
-  };
+  if (catalog?.supportsTools !== undefined) {
+    return {
+      supportsTools: catalog.supportsTools,
+      source: { reasoning: "unknown", tools: "catalog" },
+    };
+  }
+  if (!isLocalServerProvider(provider)) {
+    return { supportsTools: true, source: { reasoning: "unknown", tools: "assumed" } };
+  }
+  return { source: { reasoning: "unknown", tools: "unknown" } };
 }
 
 /**
  * Resolve controls with a fixed, inspectable precedence:
  * operator > live deployment > exact built-in model > provider default > catalog.
+ *
+ * When no source knows whether a cloud model takes tools, it is assumed to:
+ * nearly every hosted chat model does, and a wrong guess fails loudly at the
+ * provider, while dropping tools silently turns the agent into a chatbot. A
+ * local server's model stays unknown until its live probe answers.
  *
  * The precedence is evaluated independently for reasoning and tools. Invalid
  * transport/provider pairs are ignored rather than passed to a provider.
@@ -141,7 +156,14 @@ export function resolveModelCapabilities(
     input.live,
     input.operator,
   );
-  const tools = pickTools(input.catalog, provider?.default, model, input.live, input.operator);
+  const tools = pickTools(
+    input.provider,
+    input.catalog,
+    provider?.default,
+    model,
+    input.live,
+    input.operator,
+  );
 
   return {
     reasoning: reasoning.reasoning,
