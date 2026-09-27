@@ -125,14 +125,26 @@ export interface Tool<R = never> {
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
   /**
-   * Risk level for auto-approval in workflows.
-   * - `read-only`: Always auto-approved (default for non-approval tools)
-   * - `low-risk`: Auto-approved when workflow allows low-risk operations
-   * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
-   * - `unknown`: Resolved by the command classifier under every tier below yolo;
-   *   an unresolved `unknown` is only auto-approved under yolo
+   * The level the approval policy judges a call against.
+   * - `read-only`: a plain (non-approval) tool at this level runs under every policy; an
+   *   approval tool at this level runs unasked from the `read-only` tier up
+   * - `low-risk`: runs unasked under `low-risk` and above
+   * - `high-risk`: runs unasked only under `high-risk` (yolo); default for approval tools
+   * - `unknown`: resolved by the command classifier under the `read-only` and `low-risk`
+   *   tiers; an unresolved `unknown` is only auto-approved under yolo
+   *
+   * A plain tool above `read-only` is gated by the executor exactly like an approval tool:
+   * it asks, or is declined or parked when nobody can answer.
    */
   readonly riskLevel: ToolRiskLevel;
+  /**
+   * The level of one call, for a plain tool whose blast radius depends on its arguments
+   * (an HTTP `GET` reads, a `DELETE` mutates). When present, the executor gates the call on
+   * this instead of `riskLevel`, which then states the tool's worst case. It receives the
+   * arguments before validation, so it reads them defensively and falls back to the worst
+   * case for anything it does not recognize.
+   */
+  readonly resolveRiskLevel?: (args: Record<string, unknown>) => ToolRiskLevel;
   /**
    * What an answer from this tool reveals about the operator.
    *

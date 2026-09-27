@@ -438,7 +438,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
    *
    * Both directions take exactly this path — only the copy around it differs — so the
    * key-setup detour and the "nobody can pick here" wording live once. A bound companion
-   * skips the prompt entirely, which is the only path an unattended run can take.
+   * skips the prompt entirely: binding it in the agent's config is the operator's standing
+   * consent, and it is the only path an unattended run can take.
    */
   const resolveCompanion = (parentAgent: Agent, role: CompanionRole, _toolName: string) =>
     Effect.gen(function* () {
@@ -535,6 +536,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
   const proposalTool = defineTool({
     name: "analyze_media",
+    approvalExecuteToolName: "execute_analyze_media",
     disclosure: "internal",
     longRunning: true,
     timeoutMs: COMPANION_TIMEOUT_MS,
@@ -674,6 +676,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
   const generateProposalTool = defineTool({
     name: "generate_media",
+    approvalExecuteToolName: "execute_generate_media",
     disclosure: "internal",
     longRunning: true,
     timeoutMs: COMPANION_TIMEOUT_MS,
