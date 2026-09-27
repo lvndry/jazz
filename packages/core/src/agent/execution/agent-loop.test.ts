@@ -157,6 +157,11 @@ function recordingObserver() {
     onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onStalled: (name: string) => Effect.sync(() => void calls.push(`stalled:${name}`)),
+    onCompactionUnavailable: (name: string, reason: string) =>
+      Effect.sync(() => void calls.push(`compaction-unavailable:${name}:${reason}`)),
+    onContextOverflow: (name: string) =>
+      Effect.sync(() => void calls.push(`context-overflow:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onHistoryTrimmed: (name: string, messagesRemoved: number) =>
@@ -211,6 +216,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       totalCacheReadTokens: 0,
       childCostUSD: 0,
       childCostUnknown: false,
+      usageMissing: false,
       iterationSummaries: [],
       errors: [],
       metrics: {
@@ -703,6 +709,139 @@ describe("executeAgentLoop", () => {
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
   });
 
+  function longHistory(): ChatMessage[] {
+    const filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);
+    return [
+      { role: "system", content: "system prompt" },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `turn ${index}: ${filler}`,
+      })),
+    ];
+  }
+
+  it("shrinks the history and retries once when the provider says the prompt is too long", async () => {
+    const seenLengths: number[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        seenLengths.push(messages.length);
+        return seenLengths.length === 1
+          ? Effect.fail(
+              new LLMRequestError({
+                provider: "openai",
+                message: "prompt is too long",
+                statusCode: 400,
+                contextOverflow: true,
+              }),
+            )
+          : Effect.succeed({
+              completion: { id: "c2", model: "gpt-4", content: "fits now" },
+              interrupted: false,
+            });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ messages: longHistory() as any }),
+        displayConfig,
+        strategy,
+        observer,
+        summarizing,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("fits now");
+    expect(calls).toContain("context-overflow:test-agent");
+    expect(seenLengths[1]).toBeLessThan(seenLengths[0] ?? 0);
+  });
+
+  it("fails the run when the retry after an overflow is rejected too", async () => {
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.fail(
+          new LLMRequestError({
+            provider: "openai",
+            message: "prompt is too long",
+            statusCode: 400,
+            contextOverflow: true,
+          }),
+        );
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+
+    await expect(
+      Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext({ messages: longHistory() as any }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          summarizing,
+        ).pipe(Effect.provide(TestLayer)),
+      ),
+    ).rejects.toThrow("prompt is too long");
+    expect(calls).toBe(2);
+  });
+
+  it("trims instead of failing the run when the summarizer fails", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "answered" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const failingSummarizer: RecursiveRunner = () => Effect.fail(new Error("summarizer offline"));
+    const messages = longHistory();
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens: Math.ceil(usedTokens / 0.9) },
+    } as any;
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        observer,
+        failingSummarizer,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("answered");
+    expect(calls).toContain("compaction-unavailable:test-agent:summarizer offline");
+    expect(calls.some((entry) => entry.startsWith("history-trimmed:"))).toBe(true);
+  });
+
   it("tells the model to consolidate once context passes the warn threshold", () => {
     expect(buildContextPressureMessage(6_000, 10_000)).toBeNull();
     expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("CONTEXT WARNING");
@@ -936,10 +1075,11 @@ describe("executeAgentLoop", () => {
     };
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
-    // Strategy that always returns tool calls (never finishes)
+    // Strategy that always returns tool calls (never finishes), each with fresh arguments so
+    // the run is busy rather than looping.
     const strategy: CompletionStrategy = {
       shouldShowReasoning: false,
-      getCompletion: () =>
+      getCompletion: (_messages, iteration) =>
         Effect.succeed({
           completion: {
             id: "c1",
@@ -949,7 +1089,7 @@ describe("executeAgentLoop", () => {
               {
                 id: "call_1",
                 type: "function" as const,
-                function: { name: "test_tool", arguments: "{}" },
+                function: { name: "test_tool", arguments: JSON.stringify({ page: iteration }) },
               },
             ],
           },
@@ -2415,6 +2555,59 @@ describe("executeAgentLoop cost and token caps", () => {
       if (message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0) {
         expect(lastRequest[index + 1]?.role).toBe("tool");
       }
+    }
+  });
+
+  it("stops a run that keeps looping after its meltdown nudge, with stalled", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    let completions = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        completions++;
+        return Effect.succeed({
+          completion: {
+            id: `c${completions}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: `call_${completions}`,
+                type: "function" as const,
+                function: { name: "read_file", arguments: '{"path":"README.md"}' },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const { observer, calls } = recordingObserver();
+
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 100 }),
+          makeRunContext({ maxIterations: 100 }),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(response.stalled).toBe(true);
+      expect(completions).toBe(2 * MELTDOWN_WINDOW_SIZE);
+      expect(calls).toContain("stalled:test-agent");
+      expect(calls.some((entry) => entry.startsWith("limit:"))).toBe(false);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
     }
   });
 });

@@ -30,6 +30,14 @@ import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../type
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
 
 /**
+ * Transient streaming failures in one step before its remaining attempts switch to a plain
+ * request. More than one, because a single dropped stream is usually just a network blip;
+ * few enough that a provider whose streaming is broken still gets answered well inside the
+ * retry budget.
+ */
+const STREAMING_FAILURES_BEFORE_FALLBACK = 3;
+
+/**
  * Streaming implementation that processes LLM responses in real-time.
  */
 export function executeWithStreaming(
@@ -133,7 +141,8 @@ export function executeWithStreaming(
           ) => presentationService.presentStatus(message, level, agent.name);
 
           const retryAttemptRef = yield* Ref.make(0);
-          const streamingRetrySchedule = makeUserVisibleLlmRetrySchedule(
+          const streamingFailuresRef = yield* Ref.make(0);
+          const retrySchedule = makeUserVisibleLlmRetrySchedule(
             maxRetries,
             agent.name,
             showAgentStatus,
@@ -233,9 +242,56 @@ export function executeWithStreaming(
             ),
           );
 
+          const nonStreamingAttempt = Effect.suspend(() =>
+            llmService.createChatCompletion(provider, llmOptions),
+          ).pipe(
+            Effect.map((completion) => ({ completion, interrupted: false })),
+            Effect.tapError((error) =>
+              Effect.gen(function* () {
+                recordLLMRetry(runMetrics, error);
+                yield* emitLLMRetry(runMetrics, error);
+              }),
+            ),
+          );
+
+          /**
+           * One attempt of the shared retry loop. After STREAMING_FAILURES_BEFORE_FALLBACK
+           * transient streaming failures the remaining attempts go non-streaming, which
+           * survives the stalls and dropped streams a plain request does not have. A 429
+           * never counts toward that: a rate limit applies to both modes alike.
+           */
+          const attempt = Effect.gen(function* () {
+            const streamingFailures = yield* Ref.get(streamingFailuresRef);
+            if (streamingFailures >= STREAMING_FAILURES_BEFORE_FALLBACK) {
+              return yield* nonStreamingAttempt;
+            }
+            return yield* streamingAttempt.pipe(
+              Effect.tapError((error) =>
+                isRetryableLLMError(error) && !(error instanceof LLMRateLimitError)
+                  ? Ref.updateAndGet(streamingFailuresRef, (count) => count + 1).pipe(
+                      Effect.flatMap((count) =>
+                        count === STREAMING_FAILURES_BEFORE_FALLBACK
+                          ? logger.warn("Streaming failed, falling back to non-streaming mode", {
+                              provider,
+                              model: agent.config.llmModel,
+                              errorType: error._tag,
+                              message: error.message,
+                              agentId: agent.id,
+                              conversationId: actualConversationId,
+                            })
+                          : Effect.void,
+                      ),
+                    )
+                  : Effect.void,
+              ),
+            );
+          });
+
+          // One retry budget and one wall-clock limit for the whole step, whichever mode
+          // each attempt uses.
           const completionWithRetries = Effect.retry(
-            withLongRunningLlmNotice(agent.name, showAgentStatus, streamingAttempt),
-            streamingRetrySchedule,
+            withLongRunningLlmNotice(agent.name, showAgentStatus, attempt),
+            retrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
             Effect.tapError((error) =>
@@ -245,43 +301,6 @@ export function executeWithStreaming(
                     "warning",
                   )
                 : Effect.void,
-            ),
-            Effect.catchIf(
-              (error): error is LLMRequestError | LLMRateLimitError => isRetryableLLMError(error),
-              (error) =>
-                Effect.gen(function* () {
-                  yield* logger.warn("Streaming failed, falling back to non-streaming mode", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                  const fallbackAttemptRef = yield* Ref.make(0);
-                  const fallbackRetrySchedule = makeUserVisibleLlmRetrySchedule(
-                    maxRetries,
-                    agent.name,
-                    showAgentStatus,
-                    fallbackAttemptRef,
-                  );
-                  const completion = yield* Effect.retry(
-                    withLongRunningLlmNotice(
-                      agent.name,
-                      showAgentStatus,
-                      llmService.createChatCompletion(provider, llmOptions).pipe(
-                        Effect.tapError((innerError) =>
-                          Effect.gen(function* () {
-                            recordLLMRetry(runMetrics, innerError);
-                            yield* emitLLMRetry(runMetrics, innerError);
-                          }),
-                        ),
-                      ),
-                    ),
-                    fallbackRetrySchedule,
-                  ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
-                  return { completion, interrupted: false };
-                }),
             ),
           );
 

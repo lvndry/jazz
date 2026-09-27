@@ -63,7 +63,9 @@ inside a large tool result is one you are trusting compaction with.
 ## Meltdown detection
 
 Over the last 10 tool calls, if unique `name:arguments` keys fall below 40%, the agent is told it
-is looping and the window resets.
+is looping and the window resets. If it fills the next window with the same repetition anyway,
+the run stops there with a warning, and `jazz run --json` reports `stalled: true`, rather than
+spending the rest of its iterations in the same groove.
 
 It keys on name _and_ arguments on purpose. Counting tool names alone would flag
 `web_search → web_fetch → web_search`, which is what research looks like, and ten `read_file`

@@ -21,7 +21,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  type ToolNotFoundError,
+  ToolTimeoutError,
+} from "@/core/types/errors";
 import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
@@ -33,6 +37,7 @@ import {
   type ToolExecutionResult,
   type ToolRiskLevel,
 } from "@/core/types/tools";
+import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
@@ -64,6 +69,35 @@ function resolveToolDisplayMetadata(
       context.parentAgent?.config.webSearchProvider ?? appConfig.web_search?.provider;
     return { provider: provider ?? "builtin" };
   });
+}
+
+/** A tool call's arguments as the tool receives them, or why they cannot be used. */
+type ParsedToolArguments =
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Read a tool call's arguments. A call the provider flagged invalid, arguments that are not
+ * JSON, and JSON that is not an object are all refused with the reason, so the model is told
+ * its call was malformed instead of the tool running on defaults.
+ */
+export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
+  if (toolCall.invalidReason !== undefined) {
+    return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function.arguments);
+  } catch (parseError) {
+    return {
+      ok: false,
+      error: `Invalid JSON in tool arguments: ${toError(parseError).message}`,
+    };
+  }
+  if (!isRecord(parsed)) {
+    return { ok: false, error: "Invalid tool arguments: expected a JSON object." };
+  }
+  return { ok: true, args: parsed };
 }
 
 /**
@@ -241,28 +275,21 @@ export class ToolExecutor {
         ? execution.pipe(
             Effect.timeoutFail({
               duration: timeoutMs,
-              onTimeout: () => {
-                const timeoutMinutes = Math.round(timeoutMs / 60000);
-                return new Error(`Operation timed out after '${timeoutMinutes}m'`);
-              },
+              onTimeout: () => new ToolTimeoutError({ toolName: name, timeoutMs }),
             }),
-            Effect.catchAll((error) => {
-              const message = toError(error).message;
-              if (message.includes("timed out")) {
-                Effect.runFork(
-                  logger.warn("Tool execution timed out", {
-                    toolName: toolMeta?.name ?? "unknown",
-                    timeoutMs,
-                  }),
-                );
-                return Effect.succeed({
+            Effect.catchTag("ToolTimeoutError", (timeout) =>
+              Effect.gen(function* () {
+                yield* logger.warn("Tool execution timed out", {
+                  toolName: toolMeta?.name ?? "unknown",
+                  timeoutMs: timeout.timeoutMs,
+                });
+                return {
                   success: false,
                   result: null,
-                  error: message,
-                } satisfies ToolExecutionResult);
-              }
-              return Effect.fail(error);
-            }),
+                  error: `Tool '${timeout.toolName}' timed out after ${formatDuration(timeout.timeoutMs)} and was stopped.`,
+                } satisfies ToolExecutionResult;
+              }),
+            ),
           )
         : execution;
 
@@ -305,26 +332,17 @@ export class ToolExecutor {
         return { toolCallId: toolCall.id, result: null, success: false, name: "unknown" };
       }
 
-      const { name, arguments: argsString } = toolCall.function;
+      const { name } = toolCall.function;
       recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
       let telemetryToolName = "unknown";
 
       try {
-        // Parse arguments
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(argsString);
-        } catch (parseError) {
-          throw new Error(`Invalid JSON in tool arguments: ${toError(parseError).message}`, {
-            cause: parseError,
-          });
+        const parsedArguments = parseToolCallArguments(toolCall);
+        if (!parsedArguments.ok) {
+          throw new Error(parsedArguments.error);
         }
-
-        const args: Record<string, unknown> =
-          parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {};
+        const args = parsedArguments.args;
 
         yield* logger.logToolCall(name, args);
 
@@ -925,16 +943,12 @@ export class ToolExecutor {
           const name = toolCall.function.name;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
-          let args: Record<string, unknown> = {};
-          try {
-            const parsed: unknown = JSON.parse(toolCall.function.arguments);
-            if (isRecord(parsed)) {
-              args = parsed;
-            }
-          } catch {
-            // Unparseable arguments are the per-call path's error to report, not this one's.
+          const parsedArguments = parseToolCallArguments(toolCall);
+          // Malformed arguments are the per-call path's error to report, not this one's.
+          if (!parsedArguments.ok) {
             continue;
           }
+          const args = parsedArguments.args;
 
           const toolMeta = toolMetaByName.get(name);
           const plainGateRisk = plainToolGateRisk(toolMeta, args);

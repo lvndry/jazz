@@ -535,6 +535,7 @@ export function runAgentOnceCommand(
           ...(runResult.costCapped === true ? { costCapped: true } : {}),
           ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
           ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
+          ...(runResult.stalled === true ? { stalled: true } : {}),
           ...(runResult.stoppedToolCalls !== undefined
             ? { stoppedToolCalls: runResult.stoppedToolCalls }
             : {}),
