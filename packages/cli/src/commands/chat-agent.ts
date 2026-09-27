@@ -6,6 +6,7 @@ import { CommonSuggestions } from "@jazz/core/presentation/error-handler";
 import { AgentNotFoundError } from "@jazz/core/types/errors";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { Effect } from "effect";
+import { continuedSessionOptions, type ContinueOptions } from "./continue-conversation";
 import packageJson from "../../../../package.json";
 
 /**
@@ -25,7 +26,7 @@ export function chatWithAIAgentCommand(
     stream?: boolean;
     maxIterations?: number;
     ephemeral?: boolean;
-  },
+  } & ContinueOptions,
 ) {
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -87,6 +88,14 @@ export function chatWithAIAgentCommand(
     }
 
     yield* terminal.log("");
+
+    const continued = yield* continuedSessionOptions(agent, options);
+    options = { ...options, ...continued };
+    if (continued.initialHistory !== undefined) {
+      yield* terminal.info(
+        `Continuing a saved conversation (${continued.initialHistory.length} messages).`,
+      );
+    }
 
     // Start the chat session using the chat service
     const chatService = yield* ChatServiceTag;

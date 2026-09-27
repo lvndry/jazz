@@ -3,6 +3,7 @@ import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
+  VALID_REASONING_EFFORTS,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
 import {
@@ -22,7 +23,7 @@ import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import packageJson from "../../../package.json";
 
 /**
@@ -103,7 +104,8 @@ function registerRunCommand(program: Command): void {
     .description(
       "Run an agent once non-interactively (for scripts/webhooks). Prompt comes from the argument or piped stdin; the answer goes to stdout, all chatter to stderr.",
     )
-    .requiredOption("--agent <agentId>", "Agent ID or name to run")
+    .usage("--agent <agentId> [options] [prompt]")
+    .requiredOption("--agent <agentId>", "Agent ID or name to run (required)")
     .option("--json", "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }")
     .option(
       "--approval-policy <policy>",
@@ -133,7 +135,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-cost-usd <dollars>",
-      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively — see docs/reference/configuration.md.",
+      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively; see docs/configure/jazz.md#run-budgets.",
       parsePositiveFloat("--max-cost-usd"),
     )
     .option(
@@ -152,7 +154,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--reasoning <effort>",
-      "Reasoning effort for this run: low | medium | high | disable (overrides the agent's config)",
+      `Reasoning effort for this run: ${VALID_REASONING_EFFORTS.join(" | ")} (overrides the agent's config)`,
     )
     .option(
       "--conversation <id>",
@@ -251,7 +253,7 @@ function registerRunCommand(program: Command): void {
         }
 
         if (options.reasoning !== undefined && !isReasoningEffortFlag(options.reasoning)) {
-          const message = `Invalid --reasoning "${options.reasoning}". Expected low, medium, high, or disable.`;
+          const message = `Invalid --reasoning "${options.reasoning}". Expected one of: ${VALID_REASONING_EFFORTS.join(", ")}.`;
           if (json) {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
           } else {
@@ -486,6 +488,8 @@ function registerAgentCommands(program: Command): void {
       "--ephemeral",
       "Skip Jazz conversation/session persistence: no conversation history save, no session log, and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
+    .option("--continue", "Continue the agent's most recent saved conversation")
+    .option("--conversation <id>", "With --continue, the saved conversation to continue")
     .action(
       (
         agentIdentifier: string,
@@ -494,6 +498,8 @@ function registerAgentCommands(program: Command): void {
           noStream?: boolean;
           maxIterations?: number;
           ephemeral?: boolean;
+          continue?: boolean;
+          conversation?: string;
         },
       ) => {
         const streamOption =
@@ -507,6 +513,10 @@ function registerAgentCommands(program: Command): void {
                   ? { maxIterations: options.maxIterations }
                   : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
+                ...(options.continue === true ? { continue: true } : {}),
+                ...(options.conversation !== undefined
+                  ? { conversation: options.conversation }
+                  : {}),
               }),
             ),
           cliRuntimeOptions(program),
@@ -2103,7 +2113,7 @@ function registerLoopCommand(program: Command): void {
  */
 function registerWakeTriggerCommand(program: Command): void {
   const wakeTriggerCommand = program
-    .command("wake-trigger")
+    .command("wake-trigger", { hidden: true })
     .description("Internal: commands invoked by the host scheduler for self-registered wake-ups");
 
   wakeTriggerCommand
@@ -2127,7 +2137,7 @@ function registerWakeTriggerCommand(program: Command): void {
 /** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
 function registerJobCommand(program: Command): void {
   const jobCommand = program
-    .command("job")
+    .command("job", { hidden: true })
     .description("Internal: commands invoked by the background job worker");
 
   jobCommand
@@ -2152,7 +2162,7 @@ function registerJobCommand(program: Command): void {
  */
 function registerReminderCommand(program: Command): void {
   const reminderCommand = program
-    .command("reminder")
+    .command("reminder", { hidden: true })
     .description("Internal: commands invoked by the host scheduler for self-registered reminders");
 
   reminderCommand
@@ -2801,10 +2811,17 @@ export function createCLIApp(): Command {
     .description(
       "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
     )
-    .version(packageJson.version);
+    .version(packageJson.version, "-v, --version", "Print the Jazz version");
+
+  // `-V` also prints the version, as it does in many CLIs; it stays out of the help.
+  program.addOption(new Option("-V").hideHelp());
+  program.on("option:V", () => {
+    process.stdout.write(`${packageJson.version}\n`);
+    process.exit(0);
+  });
 
   program
-    .option("-v, --verbose", "Enable verbose logging")
+    .option("--verbose", "Enable verbose logging")
     .option("--debug", "Enable debug level logging")
     .option("--config <path>", "Path to configuration file")
     .option(

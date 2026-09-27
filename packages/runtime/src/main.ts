@@ -4,7 +4,10 @@
  * and parses argv.
  */
 
+import { exitQuietlyOnBrokenPipe } from "./broken-pipe";
 import { createCLIApp } from "./cli-app";
+
+exitQuietlyOnBrokenPipe();
 
 // The `ai` SDK's default warning logger writes its one-time banner via console.info, which is
 // STDOUT — this corrupts `jazz run --json`'s output contract (stdout must be JSON only), and
