@@ -15,6 +15,11 @@ import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
 import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
+import {
+  PIPE_DRAIN_GRACE_MS,
+  terminateProcessGroup,
+  trackChildProcess,
+} from "@/core/utils/process";
 import { defineTool, makeZodValidator } from "./base-tool";
 import {
   appendCapped,
@@ -61,11 +66,13 @@ type CommandExecutionOutcome =
   | { readonly ok: false; readonly error: string };
 
 /**
- * Spawn `argv` directly (no shell), write `stdin` to the child's stdin, and
- * collect stdout/stderr up to `MAX_COMMAND_OUTPUT_BYTES` each. Resolves
- * (never rejects) with either the process outcome or a bounded error message
- * covering spawn failures and timeout kills — mirrors how `execute_command`
- * in `shell.ts` reports failures to the model.
+ * Spawn `argv` directly (no shell) in its own process group, write `stdin` to the child's
+ * stdin, and collect stdout/stderr up to `MAX_COMMAND_OUTPUT_BYTES` each. Never fails: the
+ * outcome carries spawn failures and timeout kills as a bounded error message, the way
+ * `execute_command` in `shell.ts` reports failures to the model. A timeout or an interrupted
+ * tool fiber stops the whole group, SIGTERM first and SIGKILL after a grace
+ * ({@link terminateProcessGroup}), and the call returns once the command exits even when a
+ * process it started keeps the pipes open.
  */
 function runCustomToolCommand(
   argv: readonly string[],
@@ -73,11 +80,11 @@ function runCustomToolCommand(
   cwd: string,
   env: ProcessEnvRecord,
   timeoutMs: number,
-): Promise<CommandExecutionOutcome> {
-  return new Promise((resolve) => {
+): Effect.Effect<CommandExecutionOutcome> {
+  return Effect.async<CommandExecutionOutcome>((resume) => {
     const [command, ...args] = argv;
     if (!command) {
-      resolve({ ok: false, error: "Custom tool command is empty" });
+      resume(Effect.succeed({ ok: false, error: "Custom tool command is empty" }));
       return;
     }
 
@@ -85,63 +92,86 @@ function runCustomToolCommand(
     let stdout: CappedOutput = EMPTY_CAPPED_OUTPUT;
     let stderr: CappedOutput = EMPTY_CAPPED_OUTPUT;
     let child: ChildProcess;
+    let pipeGraceHandle: ReturnType<typeof setTimeout> | undefined;
 
-    try {
-      child = spawn(command, args, {
-        cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        env,
-        detached: false,
-      });
-    } catch (spawnError) {
-      resolve({
-        ok: false,
-        error: toError(spawnError).message,
-      });
-      return;
-    }
+    const clearTimers = (): void => {
+      clearTimeout(timeoutHandle);
+      clearTimeout(pipeGraceHandle);
+    };
 
     const finish = (outcome: CommandExecutionOutcome): void => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timeoutHandle);
-      resolve(outcome);
+      clearTimers();
+      resume(Effect.succeed(outcome));
     };
 
-    const timeoutHandle = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish({ ok: false, error: `Command timed out after ${timeoutMs}ms` });
-    }, timeoutMs);
+    try {
+      child = spawn(command, args, {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        env,
+        detached: true,
+      });
+    } catch (spawnError) {
+      resume(Effect.succeed({ ok: false, error: toError(spawnError).message }));
+      return;
+    }
 
-    child.stdout?.on("data", (data: Buffer) => {
-      stdout = appendCapped(stdout, data, MAX_COMMAND_OUTPUT_BYTES);
-    });
+    const spawned = child;
+    trackChildProcess(spawned);
 
-    child.stderr?.on("data", (data: Buffer) => {
-      stderr = appendCapped(stderr, data, MAX_COMMAND_OUTPUT_BYTES);
-    });
-
-    child.on("error", (error) => {
-      finish({ ok: false, error: toError(error).message });
-    });
-
-    child.on("close", (code) => {
+    const finishWithExit = (code: number | null): void => {
       finish({
         ok: true,
         exitCode: code ?? 0,
         stdout: decodeCapped(stdout),
         stderr: decodeCapped(stderr),
       });
+    };
+
+    const timeoutHandle = setTimeout(() => {
+      void terminateProcessGroup(spawned);
+      finish({ ok: false, error: `Command timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+
+    spawned.stdout?.on("data", (data: Buffer) => {
+      stdout = appendCapped(stdout, data, MAX_COMMAND_OUTPUT_BYTES);
+    });
+
+    spawned.stderr?.on("data", (data: Buffer) => {
+      stderr = appendCapped(stderr, data, MAX_COMMAND_OUTPUT_BYTES);
+    });
+
+    spawned.on("error", (error) => {
+      finish({ ok: false, error: toError(error).message });
+    });
+
+    spawned.on("exit", (code) => {
+      pipeGraceHandle = setTimeout(() => {
+        spawned.stdout?.destroy();
+        spawned.stderr?.destroy();
+        finishWithExit(code);
+      }, PIPE_DRAIN_GRACE_MS);
+    });
+
+    spawned.on("close", (code) => {
+      finishWithExit(code);
     });
 
     // If the child exits before consuming stdin (or never reads it), writing
     // can raise EPIPE. The close/error handlers above still settle the
-    // promise, so just prevent an unhandled 'error' event on the stream.
-    child.stdin?.on("error", () => {});
-    child.stdin?.write(stdin);
-    child.stdin?.end();
+    // outcome, so just prevent an unhandled 'error' event on the stream.
+    spawned.stdin?.on("error", () => {});
+    spawned.stdin?.write(stdin);
+    spawned.stdin?.end();
+
+    return Effect.sync(() => {
+      clearTimers();
+      settled = true;
+    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 
@@ -249,8 +279,12 @@ function buildCommandTool(
           const sanitizedEnv = createSanitizedEnv({}, declaringEnvAllowlist);
           const stdinPayload = JSON.stringify(args);
 
-          const outcome = yield* Effect.promise(() =>
-            runCustomToolCommand(commandArgv, stdinPayload, cwd, sanitizedEnv, timeoutMs),
+          const outcome = yield* runCustomToolCommand(
+            commandArgv,
+            stdinPayload,
+            cwd,
+            sanitizedEnv,
+            timeoutMs,
           );
 
           if (!outcome.ok) {
@@ -267,7 +301,11 @@ function buildCommandTool(
             return { success: false, result: null, error: message };
           }
 
-          return { success: true, result: outcome.stdout };
+          return {
+            success: true,
+            result: outcome.stdout,
+            untrusted: { kind: "external", source: `${definition.name} command output` },
+          };
         }),
     }),
     sourceCustomToolDefinition: definition,

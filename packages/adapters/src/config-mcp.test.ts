@@ -1,10 +1,10 @@
 /** MCP definitions: where they come from, who may trust them, and where their secrets live. */
 
 import fs from "node:fs";
+import * as nodeFs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { SystemError } from "@effect/platform/Error";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -12,7 +12,7 @@ import {
   type MCPServerConfigHttp,
   type MCPServerConfigStdio,
 } from "@jazz/core/interfaces/mcp-server";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
   createConfigLayer,
@@ -263,22 +263,15 @@ describe("MCP env and header secrets", () => {
         ),
       );
       const original = fs.readFileSync(userMcpPath(), "utf8");
-      const failingFileSystem: FileSystem.FileSystem = {
-        ...fileSystem,
-        rename: () =>
-          Effect.fail(
-            new SystemError({
-              module: "FileSystem",
-              method: "rename",
-              reason: "PermissionDenied",
-              pathOrDescriptor: userMcpPath(),
-            }),
-          ),
-      };
+      const originalRename = nodeFs.rename;
+      const rename = spyOn(nodeFs, "rename").mockImplementation(async (source, destination) => {
+        if (destination === userMcpPath()) throw new Error("Injected definition commit failure");
+        return originalRename(source, destination);
+      });
       const change =
         operation === "replace"
           ? writeAgentsMcpServer(
-              failingFileSystem,
+              fileSystem,
               "svc",
               {
                 command: "replacement",
@@ -286,8 +279,12 @@ describe("MCP env and header secrets", () => {
               },
               "file",
             )
-          : removeAgentsMcpServer(failingFileSystem, "svc", "file");
-      expect((await Effect.runPromise(Effect.either(change)))._tag).toBe("Left");
+          : removeAgentsMcpServer(fileSystem, "svc", "file");
+      try {
+        expect((await Effect.runPromise(Effect.either(change)))._tag).toBe("Left");
+      } finally {
+        rename.mockRestore();
+      }
       expect(fs.readFileSync(userMcpPath(), "utf8")).toBe(original);
       const servers = await Effect.runPromise(loadAgentsMcpServers(fileSystem, "file"));
       expect((servers["svc"] as MCPServerConfigStdio).env).toEqual({

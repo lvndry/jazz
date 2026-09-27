@@ -297,6 +297,7 @@ export function resumeRun(options: ResumeRunOptions) {
         ? { remoteCaller: boundary.remoteCaller, ingestUserInputPaths: false }
         : {}),
       ...(options.startedBy !== undefined ? { startedBy: options.startedBy } : {}),
+      origin: { source: options.startedBy ?? "resume" },
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

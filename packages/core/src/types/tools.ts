@@ -144,6 +144,12 @@ export interface ToolCall {
    * internal reasoning. Must be preserved when present to maintain context.
    */
   thought_signature?: string;
+  /**
+   * Why the provider marked this call invalid (arguments that do not parse or do not match the
+   * tool's schema, or a tool that does not exist). An invalid call is answered with this error
+   * as its tool result and is never executed.
+   */
+  invalidReason?: string;
 }
 
 export interface ToolCallResult {
@@ -151,6 +157,33 @@ export interface ToolCallResult {
   role: "tool";
   name: string;
   content: string;
+}
+
+/**
+ * Where untrusted text in a tool result came from, as declared by the tool that produced it.
+ *
+ * `external` is content from off this machine or from another party (web pages, API responses,
+ * MCP servers, shell and custom-command output, peers). `local-file` is a file outside the run's
+ * working directory: framed because anybody may have written it, but it does not change what the
+ * run may send.
+ */
+export interface UntrustedProvenance {
+  readonly kind: "external" | "local-file";
+  /** Short, human-readable origin, e.g. `web_fetch https://example.com/post`. */
+  readonly source: string;
+  /** Replaces the default reminder after the content. */
+  readonly reminder?: string;
+}
+
+/**
+ * Whether a run has read external untrusted content. One object is shared by a run and every
+ * sub-agent it spawns, so taint flows both ways across the tree (see `egress-taint.ts`).
+ */
+export interface EgressTaint {
+  readonly isTainted: () => boolean;
+  /** The sources that marked the run, oldest first, for approval messages. */
+  readonly sources: () => readonly string[];
+  readonly mark: (source: string) => void;
 }
 
 export interface ToolExecutionResult {
@@ -166,6 +199,11 @@ export interface ToolExecutionResult {
   readonly artifacts?: readonly GeneratedArtifact[];
   /** A memory entry this call showed the model, declared by the producer for the same reason. */
   readonly memoryExposure?: MemoryExposure;
+  /**
+   * Set when the result carries text from a party other than the user. The agent loop wraps the
+   * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
+   */
+  readonly untrusted?: UntrustedProvenance;
 }
 
 /**
@@ -344,6 +382,11 @@ export interface ToolExecutionContext {
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**
+   * Whether this run has read external untrusted content. Egress tools stop auto-approving
+   * below `high-risk` once it is marked. Shared with sub-agents by reference.
+   */
+  readonly egressTaint?: EgressTaint;
+  /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *
    * Declining is right when nobody will ever answer — a cron job with no approval channel
@@ -457,6 +500,12 @@ export interface ToolExecutionContext {
    */
   readonly recordChildCostUnknown?: () => void;
   /**
+   * What is left of the running agent's own budgets at the moment of the call. A sub-agent
+   * spawned here runs under these, so delegating work can never outlast or outspend the
+   * parent. Absent fields are uncapped.
+   */
+  readonly remainingRunBudget?: () => RemainingRunBudget;
+  /**
    * Commands that are always auto-approved for execute_command tool.
    * Each entry is a prefix — a command is approved if it starts with any entry.
    */
@@ -494,4 +543,20 @@ export interface ToolExecutionContext {
    */
   readonly timezone?: string;
   readonly [key: string]: unknown;
+}
+
+/** A run's unspent budgets, as handed to a sub-agent it spawns. */
+export interface RemainingRunBudget {
+  /** Wall-clock milliseconds before the run's `maxDurationMs` deadline. */
+  readonly maxDurationMs?: number;
+}
+
+/** What became of one call in a tool batch that was stopped before it finished. */
+export type ToolCallStatus = "completed" | "interrupted" | "not-started";
+
+/** One call of a stopped batch, as the response and `jazz run --json` report it. */
+export interface StoppedToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly status: ToolCallStatus;
 }

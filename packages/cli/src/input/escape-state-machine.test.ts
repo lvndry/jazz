@@ -17,7 +17,6 @@ function createMockCapabilities(): TerminalCapabilities {
   return {
     type: "unknown",
     supportsUnicode: true,
-    supportsTrueColor: true,
     supportsHyperlinks: false,
     columns: 80,
     rows: 24,

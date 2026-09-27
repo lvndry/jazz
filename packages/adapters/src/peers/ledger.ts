@@ -22,6 +22,7 @@ import {
   type PeerLedgerService,
 } from "@jazz/core/interfaces/peers";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, Layer } from "effect";
 
 export type { LedgerEntry, LedgerOutcome } from "@jazz/core/interfaces/peers";
@@ -52,9 +53,12 @@ function serialize(entry: LedgerEntry): string {
 export function record(entry: LedgerEntry): Effect.Effect<void, never> {
   return Effect.tryPromise({
     try: async () => {
-      await nodeFs.mkdir(getPeersDirectory(), { recursive: true });
+      await nodeFs.mkdir(getPeersDirectory(), { recursive: true, mode: stateDirectoryMode() });
       const line = serialize(entry);
-      await nodeFs.appendFile(ledgerPath(), (await endsMidLine()) ? `\n${line}` : line, "utf-8");
+      await nodeFs.appendFile(ledgerPath(), (await endsMidLine()) ? `\n${line}` : line, {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));
@@ -160,8 +164,11 @@ export function readLastSeenInboundAt(): Effect.Effect<string | undefined, never
 export function recordLastSeenInboundAt(at: string): Effect.Effect<void, never> {
   return Effect.tryPromise({
     try: async () => {
-      await nodeFs.mkdir(getPeersDirectory(), { recursive: true });
-      await nodeFs.writeFile(lastSeenPath(), JSON.stringify({ at }), "utf-8");
+      await nodeFs.mkdir(getPeersDirectory(), { recursive: true, mode: stateDirectoryMode() });
+      await nodeFs.writeFile(lastSeenPath(), JSON.stringify({ at }), {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));

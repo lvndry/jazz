@@ -4,14 +4,13 @@
  * built-in workflows; shared ones come from the library via `jazz workflow install`.
  */
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
-import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
+import { getGlobalWorkflowsDirectory, getJazzHomeDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 
@@ -54,6 +53,8 @@ export interface WorkflowMetadata {
   readonly maxTokens?: number;
   /** Wall-clock spend budget in ms. Unset, the run falls back to config `maxDurationMs`; unset at both means uncapped. */
   readonly maxDurationMs?: number;
+  /** Notify channels (`notifications.channels.<name>`) that receive each run's answer. */
+  readonly deliver?: readonly string[];
 }
 
 /** Everything a WORKFLOW.md declares about itself, before Jazz knows where it lives. */
@@ -128,6 +129,8 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ? data["skills"].filter((s): s is string => typeof s === "string")
     : undefined;
 
+  const deliver = parseDeliver(data["deliver"]);
+
   // Build the metadata object using conditional spreading
   return {
     name,
@@ -145,7 +148,17 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ...(typeof data["maxCostUSD"] === "number" && { maxCostUSD: data["maxCostUSD"] }),
     ...(typeof data["maxTokens"] === "number" && { maxTokens: data["maxTokens"] }),
     ...(typeof data["maxDurationMs"] === "number" && { maxDurationMs: data["maxDurationMs"] }),
+    ...(deliver.length > 0 && { deliver }),
   };
+}
+
+/** `deliver: phone` or `deliver: [phone, team]`: the notify channels a result goes to. */
+function parseDeliver(value: unknown): readonly string[] {
+  const names = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  return names
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
 }
 
 /** Every value `autoApprove` accepts, in the order the tiers widen. */
@@ -217,8 +230,7 @@ export class WorkflowsLive implements WorkflowService {
   public static readonly layer = Layer.effect(
     WorkflowServiceTag,
     Effect.gen(function* () {
-      const homeDir = os.homedir();
-      const globalCachePath = path.join(homeDir, ".jazz", "global-workflows-index.json");
+      const globalCachePath = path.join(getJazzHomeDirectory(), "global-workflows-index.json");
       const loadedWorkflows = yield* Ref.make(new Map<string, WorkflowContent>());
       const workflowCache = yield* Ref.make(new Map<string, WorkflowMetadata>());
 

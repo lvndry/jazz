@@ -11,8 +11,12 @@
  * command's job; saying what they look like on the wire is this file's.
  */
 
+import { isTruncated, type AnswerFailureCode } from "@jazz/core/agent/run/answer-outcome";
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
+import type { FinishReason } from "@jazz/core/types/chat";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
+import { SIGNAL_EXIT_CODE, type ShutdownSignal } from "@jazz/core/utils/process";
 
 export interface OneShotTokenUsage {
   readonly promptTokens: number;
@@ -54,6 +58,22 @@ export interface OneShotSuccess {
   readonly tokenCapped?: boolean;
   /** True when the run stopped early because it hit a configured --max-duration-ms budget. */
   readonly durationCapped?: boolean;
+  /** True when the run used every allowed iteration without a final answer. */
+  readonly iterationLimited?: boolean;
+  /** Why the model stopped writing the final answer. */
+  readonly finishReason?: FinishReason;
+  /** True when the answer was cut off at the model's output limit (`finishReason: "length"`). */
+  readonly truncated?: boolean;
+  /**
+   * True when the agent has tools but none were sent, because Jazz does not
+   * know the model supports tool calling. The answer came from a model that
+   * could only talk.
+   */
+  readonly toolsDisabled?: boolean;
+  /** True when the run was stopped for repeating the same tool calls without progress. */
+  readonly stalled?: boolean;
+  /** The calls of a tool batch the run stopped part-way, and what became of each. */
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly composition?: OneShotComposition;
@@ -76,6 +96,29 @@ export interface OneShotSuccess {
    * disk.
    */
   readonly messages?: readonly ChatMessage[];
+}
+
+type OutcomeFields = Pick<
+  OneShotSuccess,
+  "iterationLimited" | "finishReason" | "truncated" | "toolsDisabled"
+>;
+
+/**
+ * The success-envelope fields that say how complete the answer is, from the
+ * run's response. Shared by `jazz run` and `jazz workflow run --json` so both
+ * report the same flags.
+ */
+export function answerOutcomeFields(response: {
+  readonly iterationLimited?: boolean;
+  readonly finishReason?: FinishReason;
+  readonly toolsDisabled?: boolean;
+}): OutcomeFields {
+  return {
+    ...(response.iterationLimited === true ? { iterationLimited: true } : {}),
+    ...(response.finishReason !== undefined ? { finishReason: response.finishReason } : {}),
+    ...(isTruncated(response.finishReason) ? { truncated: true } : {}),
+    ...(response.toolsDisabled === true ? { toolsDisabled: true } : {}),
+  };
 }
 
 export interface OneShotOutputOptions {
@@ -110,6 +153,12 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ...(result.costCapped ? { costCapped: true } : {}),
     ...(result.tokenCapped ? { tokenCapped: true } : {}),
     ...(result.durationCapped ? { durationCapped: true } : {}),
+    ...(result.iterationLimited ? { iterationLimited: true } : {}),
+    ...(result.finishReason !== undefined ? { finishReason: result.finishReason } : {}),
+    ...(result.truncated ? { truncated: true } : {}),
+    ...(result.toolsDisabled ? { toolsDisabled: true } : {}),
+    ...(result.stalled ? { stalled: true } : {}),
+    ...(result.stoppedToolCalls ? { stoppedToolCalls: result.stoppedToolCalls } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.composition ? { composition: result.composition } : {}),
@@ -159,30 +208,65 @@ export function formatOneShotParked(
   );
 }
 
+/**
+ * Machine-readable failure reasons in the `code` field of a failure envelope.
+ *
+ * - `failed`: the run errored (provider, tool, configuration, timeout).
+ * - `empty_response`, `no_answer`, `content_filtered`: the run finished but
+ *   produced no usable answer (see `judgeAnswer`).
+ * - `interrupted`: SIGINT or SIGTERM stopped the run.
+ */
+export type OneShotErrorCode = "failed" | "interrupted" | AnswerFailureCode;
+
+/** Extra fields a failure envelope carries beyond its message and cost. */
+export interface OneShotFailureDetails {
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
+  readonly code?: OneShotErrorCode;
+  readonly finishReason?: FinishReason;
+  readonly signal?: ShutdownSignal;
+  readonly toolsDisabled?: boolean;
+}
+
 /** Format a failure (plain message to stderr, or JSON envelope to stdout in --json mode). */
 export function formatOneShotError(
   message: string,
   options: OneShotOutputOptions,
   costUSD = 0,
+  details: OneShotFailureDetails = {},
 ): string {
-  return options.json
-    ? `${JSON.stringify({ ok: false, error: message, costUSD })}\n`
-    : `${message}\n`;
+  if (!options.json) {
+    return `${message}\n`;
+  }
+  return `${JSON.stringify({
+    ok: false,
+    error: message,
+    code: details.code ?? "failed",
+    ...(details.stoppedToolCalls !== undefined
+      ? { stoppedToolCalls: details.stoppedToolCalls }
+      : {}),
+    costUSD,
+    ...(details.finishReason !== undefined ? { finishReason: details.finishReason } : {}),
+    ...(details.signal !== undefined ? { signal: details.signal } : {}),
+    ...(details.toolsDisabled ? { toolsDisabled: true } : {}),
+  })}\n`;
 }
 
 /**
- * The three answers `jazz run` can give a caller.
+ * The exit codes `jazz run` can give a caller.
  *
  * Named together because they are one contract: a script branching on the exit code needs
- * all three to mean something, and `parked` only makes sense as "neither of the other
- * two". Previously 0 and 1 were bare literals at their call sites, which is how you end up
- * with a fourth one nobody documented.
+ * each to mean something, and `parked` only makes sense as "neither success nor failure".
+ * The signal codes follow the shell convention of 128 plus the signal number.
  */
 export const ONE_SHOT_EXIT = {
   /** An answer was produced. */
   ok: 0,
-  /** The run failed and there is nothing to come back to. */
+  /** The run failed, or finished without a usable answer, and there is nothing to come back to. */
   failed: 1,
   /** The run stopped for a person and can be resumed with `jazz runs approve`. */
   parked: 2,
+  /** SIGINT stopped the run. */
+  interrupted: SIGNAL_EXIT_CODE.SIGINT,
+  /** SIGTERM stopped the run. */
+  terminated: SIGNAL_EXIT_CODE.SIGTERM,
 } as const;

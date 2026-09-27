@@ -123,6 +123,11 @@ export function parseDurationMs(spec: string): number | null {
   return totalMs > 0 && leftover === "" ? totalMs : null;
 }
 
+/** Days in `month` (1-12) of `year`, leap years included. */
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 /**
  * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
  * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
@@ -143,7 +148,12 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
     const day = Number(absolute[3]);
     const hours = Number(absolute[4]);
     const minutes = Number(absolute[5]);
-    if (month < 1 || month > 12 || day < 1 || day > 31 || hours > 23 || minutes > 59) return null;
+    if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+      return null;
+    }
+    if (hours > 23 || minutes > 59) {
+      return null;
+    }
     return wallClockToEpoch(year, month, day, hours, minutes, tz);
   }
 

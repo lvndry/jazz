@@ -19,12 +19,9 @@ import {
   type AgentConfig,
   type AgentFile,
   agentPath,
-  ensureScopedAgentFrom,
   readAgentFile,
   syncAgentDisplayNameEverywhere,
-  writeAgentFile,
 } from "@jazz/bot-shared/agent-file";
-import { type ChatSandbox, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 
 export type { AgentConfig, AgentFile };
 export { agentPath, readAgentFile };
@@ -45,26 +42,6 @@ export function chatIdFromAgentId(agentId: string): number | undefined {
   const numeric = suffix.startsWith("n") ? `-${suffix.slice(1)}` : suffix;
   const chatId = Number.parseInt(numeric, 10);
   return Number.isFinite(chatId) ? chatId : undefined;
-}
-
-export function ensureChatAgent(
-  dataDir: string,
-  sandbox: ChatSandbox,
-  chatId: number,
-  baseAgentId: string,
-): AgentFile {
-  return ensureScopedAgentFrom(
-    dataDir,
-    sandbox.home,
-    agentIdForChat(chatId),
-    baseAgentId,
-    sandboxOwnership(sandbox),
-  );
-}
-
-/** Write an agent file into a chat's own home, leaving it owned by that chat. */
-export function writeChatAgentFile(sandbox: ChatSandbox, agent: AgentFile): void {
-  writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
 }
 
 /**

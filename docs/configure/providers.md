@@ -84,7 +84,7 @@ The [CI reviewer](../guides/pr-review.md) shows the same workflow running throug
 
 ## NVIDIA NIM
 
-The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists the models your key can call from NIM's `/v1/models`, leaving out embedding, reranking, guardrail and document-parsing models, and fills in context windows and tool support from the models.dev catalog. A model the catalog lists only under another host keeps that entry's context window and tool support but shows no price, since the price belongs to that host. A model the catalog does not list at all gets a 128,000-token window and no tools; if it does call tools, set `"supportsTools": true` for it under [`llm.capabilityOverrides`](#model-capability-overrides), and `jazz agent create` will offer tool selection for it.
+The `nvidia` provider talks to NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`. Get a key from [NVIDIA Build](https://build.nvidia.com/); new accounts receive free inference credits. Jazz lists the models your key can call from NIM's `/v1/models`, leaving out embedding, reranking, guardrail and document-parsing models, and fills in context windows and tool support from the models.dev catalog. A model the catalog lists only under another host keeps that entry's context window and tool support but shows no price, since the price belongs to that host. A model the catalog does not list at all gets a 128,000-token window and is assumed to call tools, like any cloud model nothing describes. If it cannot, NIM rejects the request; set `"supportsTools": false` for it under [`llm.capabilityOverrides`](#model-capability-overrides). Setting `"supportsTools": true` there also makes `jazz agent create` offer tool selection for it.
 
 ```bash
 export NVIDIA_API_KEY="nvapi-..."
@@ -199,7 +199,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 }
 ```
 
-Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
+Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. When none of them says whether a cloud model takes tools (a model released after the catalog, a custom id, or the catalog unreachable), Jazz assumes it does. A local server's model gets tools only once the server reports them. Whenever a run sends no tools to an agent that has some, every surface warns: stderr for `jazz run`, the chat transcript, `toolsDisabled: true` in the JSON envelope, and a notice under the bot's answer. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
 Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
 
@@ -215,9 +215,9 @@ A bare `llama-server` serves the one model loaded at launch and ignores the requ
 
 ## Slow first tokens from local models
 
-Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
+Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds once output is flowing, 120000 by default, and reports `Provider stream produced no additional part for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
 
-Most hosted providers answer well inside two minutes, but NVIDIA NIM can queue a request for over three minutes before its first token. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+The wait for the first token has its own budget: five minutes, or `llm.streamIdleTimeoutMs` when that is higher. That covers NVIDIA NIM, which can queue a request for over three minutes, and large reasoning models that prefill for a long time. Ollama, llama.cpp, vLLM, or SGLang loading a large model from disk and then prefilling a long prompt can take longer still, so raise the budget for those hosts:
 
 ```bash
 jazz config set llm.streamIdleTimeoutMs 600000
@@ -237,9 +237,16 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 - Authentication errors: confirm the agent's provider ID matches the key you supplied and inspect `jazz config show` for the resolved non-secret configuration.
 - Stream idle errors say whether the provider produced no first part or stopped between parts. The
-  former points to queuing, model loading, or prompt prefill; the latter means generation had
-  already started. Local servers that legitimately need longer can set
-  `llm.streamIdleTimeoutMs` or `JAZZ_STREAM_IDLE_TIMEOUT_MS`; the default is 120000 ms.
+  former points to queuing, model loading, or prompt prefill (allowed five minutes); the latter
+  means generation had already started (allowed 120000 ms). Local servers that legitimately need
+  longer can set `llm.streamIdleTimeoutMs` or `JAZZ_STREAM_IDLE_TIMEOUT_MS`.
+- Retries: each model call gets `maxRetries` retries in total. After three streaming failures the
+  remaining attempts use a plain request; a rate limit (429) keeps streaming. Backoff is jittered
+  and follows the provider's `Retry-After`; a provider asking for more than two minutes fails the
+  call instead of waiting.
+- "Prompt is too long": Jazz compacts the conversation (or trims it when it cannot compact) and
+  retries once. A second rejection fails the run; lower the agent's `maxContextTokens` to match
+  what the server really holds.
 - Unknown model: rerun agent editing after the provider catalog is reachable; do not copy a model name from an old documentation page.
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.

@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import type { TelemetryEventReader, TelemetrySink } from "./sink";
 
 const EVENTS_DIR = "events";
@@ -32,7 +33,7 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
     if (events.length === 0) return;
 
     if (!this.directoryCreated) {
-      await mkdir(this.eventsDirectory, { recursive: true });
+      await mkdir(this.eventsDirectory, { recursive: true, mode: stateDirectoryMode() });
       this.directoryCreated = true;
     }
 
@@ -50,7 +51,7 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
     for (const [partition, partitionEvents] of byPartition) {
       const filePath = path.join(this.eventsDirectory, `${partition}.ndjson`);
       const lines = partitionEvents.map((event) => JSON.stringify(event)).join("\n") + "\n";
-      await appendFile(filePath, lines, { encoding: "utf8" });
+      await appendFile(filePath, lines, { encoding: "utf8", mode: stateFileMode() });
     }
   }
 

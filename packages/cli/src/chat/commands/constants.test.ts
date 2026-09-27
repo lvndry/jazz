@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { filterCommandsByPrefix, setSkillCommands, slashCommandQuery } from "./constants";
+import {
+  commandFormLines,
+  filterCommandsByPrefix,
+  findBuiltinCommand,
+  findCommand,
+  isExitCommand,
+  setPluginCommands,
+  setSkillCommands,
+  slashCommandQuery,
+  suggestCommand,
+} from "./constants";
 
 describe("slashCommandQuery", () => {
   it("reads the prefix until arguments or a newline start", () => {
@@ -45,5 +55,65 @@ describe("filterCommandsByPrefix", () => {
     const helpEntries = results.filter((cmd) => cmd.name === "help");
     expect(helpEntries).toHaveLength(1);
     expect(helpEntries[0]?.source).not.toBe("skill");
+  });
+});
+
+describe("command lookup", () => {
+  afterEach(() => {
+    setSkillCommands([]);
+    setPluginCommands([]);
+  });
+
+  it("finds a built-in by alias, with or without the slash", () => {
+    expect(findBuiltinCommand("/stats")?.name).toBe("info");
+    expect(findBuiltinCommand("QUIT")?.name).toBe("exit");
+  });
+
+  it("finds registered commands too", () => {
+    setSkillCommands([{ name: "deep-research", description: "Research a topic" }]);
+    expect(findCommand("deep-research")?.source).toBe("skill");
+  });
+
+  it("suggests the closest command for a typo, and nothing for noise", () => {
+    expect(suggestCommand("halp")?.name).toBe("help");
+    expect(suggestCommand("/resum")?.name).toBe("resume");
+    expect(suggestCommand("xyzzyplugh")).toBeUndefined();
+  });
+
+  it("keeps aliases from being taken by skills or plugins", () => {
+    setSkillCommands([{ name: "quit", description: "a skill named like an alias" }]);
+    setPluginCommands([{ name: "stats", description: "a plugin named like an alias" }]);
+    expect(findCommand("quit")?.source).toBeUndefined();
+    expect(findCommand("stats")?.source).toBeUndefined();
+  });
+
+  it("autocompletes by alias", () => {
+    expect(filterCommandsByPrefix("stat").some((command) => command.name === "info")).toBe(true);
+  });
+});
+
+describe("isExitCommand", () => {
+  it("ends the chat only on /exit or its alias", () => {
+    expect(isExitCommand("/exit")).toBe(true);
+    expect(isExitCommand("  /QUIT ")).toBe(true);
+    expect(isExitCommand("exit")).toBe(false);
+    expect(isExitCommand("quit")).toBe(false);
+    expect(isExitCommand("/exit now")).toBe(false);
+  });
+});
+
+describe("commandFormLines", () => {
+  it("aligns every form of a command and ends with its note", () => {
+    const loop = findBuiltinCommand("loop");
+    if (loop === undefined) {
+      throw new Error("/loop is registered");
+    }
+    const lines = commandFormLines(loop);
+    const forms = loop.forms ?? [];
+    const formWidth = Math.max(...forms.map((entry) => entry.form.length));
+    for (const [index, entry] of forms.entries()) {
+      expect(lines[index]).toBe(`${entry.form.padEnd(formWidth)}  ${entry.meaning}`);
+    }
+    expect(lines.at(-1)).toContain("jazz daemon");
   });
 });

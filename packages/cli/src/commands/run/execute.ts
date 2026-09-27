@@ -3,10 +3,12 @@ import {
   saveConversation,
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
+import { judgeAnswer } from "@jazz/core/agent/run/answer-outcome";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
@@ -22,13 +24,16 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
 import { describeReasoningAdjustment } from "@/cli/helpers/reasoning";
 import {
   ONE_SHOT_EXIT,
+  answerOutcomeFields,
   formatOneShotError,
+  type OneShotFailureDetails,
   formatOneShotParked,
   formatOneShotResult,
   type OneShotOutputOptions,
@@ -242,9 +247,10 @@ const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
   costUSD = 0,
+  details: OneShotFailureDetails = {},
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, costUSD);
+    const formatted = formatOneShotError(message, options, costUSD, details);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -285,6 +291,8 @@ export function runAgentOnceCommand(
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
   const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
+  // Set when a tool batch is stopped part-way, so a failure envelope can say what ran.
+  let stoppedToolCalls: readonly StoppedToolCall[] | undefined;
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -441,6 +449,7 @@ export function runAgentOnceCommand(
       userInput: prompt,
       trustUserInputAsMemorySource: promptFromArgument || options.inputStdin === true,
       conversationId,
+      origin: { source: "run" },
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
         : resumedHistory !== null
@@ -460,15 +469,23 @@ export function runAgentOnceCommand(
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
+      onToolBatchStopped: (calls) => {
+        stoppedToolCalls = calls;
+      },
     });
 
-    const runResult = yield* (deadline ? Effect.race(runEffect, deadline.watch) : runEffect).pipe(
-      Effect.tap((response) =>
-        emitLifecycle("run-complete", {
-          prompt: prompt.slice(0, 2000),
-          summary: response.content.slice(0, 2000),
-        }),
-      ),
+    const runResult = yield* (
+      deadline ? Effect.raceFirst(runEffect, deadline.watch) : runEffect
+    ).pipe(
+      Effect.tap((response) => {
+        const outcome = judgeAnswer(response);
+        return outcome.kind === "failed"
+          ? emitLifecycle("run-failed", { error: outcome.message })
+          : emitLifecycle("run-complete", {
+              prompt: prompt.slice(0, 2000),
+              summary: response.content.slice(0, 2000),
+            });
+      }),
       Effect.tapError((error) =>
         isRunParkRequested(error)
           ? Effect.void
@@ -509,6 +526,15 @@ export function runAgentOnceCommand(
     const composition = extractCompositionResult(runResult.toolResults);
     const artifacts = runResult.artifacts ?? [];
 
+    const verdict = judgeAnswer(runResult);
+    if (verdict.kind === "failed") {
+      return yield* failOneShot(verdict.message, outputOptions, runResult.costUSD ?? 0, {
+        code: verdict.code,
+        ...(runResult.finishReason !== undefined ? { finishReason: runResult.finishReason } : {}),
+        ...(runResult.toolsDisabled === true ? { toolsDisabled: true } : {}),
+      });
+    }
+
     yield* writeStdout(
       formatOneShotResult(
         {
@@ -523,6 +549,11 @@ export function runAgentOnceCommand(
           ...(runResult.costCapped === true ? { costCapped: true } : {}),
           ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
           ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
+          ...answerOutcomeFields(runResult),
+          ...(runResult.stalled === true ? { stalled: true } : {}),
+          ...(runResult.stoppedToolCalls !== undefined
+            ? { stoppedToolCalls: runResult.stoppedToolCalls }
+            : {}),
           tokenUsage: {
             promptTokens,
             completionTokens,
@@ -568,7 +599,16 @@ export function runAgentOnceCommand(
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),
     ),
-    Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    Effect.catchAll((error) =>
+      failOneShot(
+        getErrorMessage(error),
+        outputOptions,
+        0,
+        stoppedToolCalls !== undefined ? { stoppedToolCalls } : {},
+      ),
+    ),
+    // A run that parked, failed or hit a spend ceiling may have queued a notification.
+    Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),

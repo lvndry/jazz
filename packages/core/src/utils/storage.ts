@@ -1,19 +1,16 @@
 /**
  * Shared primitives for Jazz's filesystem-backed stores.
  *
- * This module owns storage directory selection, storage-safe agent IDs,
- * atomic text writes, and user-facing formatting of backing paths.
+ * This module owns storage directory selection, storage-safe agent IDs, the
+ * Effect face of the shared file lock and durable writes, quarantine of
+ * unreadable state files, and user-facing formatting of backing paths.
  */
+import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
-import { Effect, Option } from "effect";
-import {
-  FILE_LOCK_MAX_RETRIES,
-  FILE_LOCK_RETRY_DELAY_MS,
-  FILE_LOCK_TIMEOUT_MS,
-} from "@/core/constants/agent";
+import { Effect } from "effect";
+import { type DurableWriteOptions, writeFileDurably } from "@/core/utils/durable-file";
+import { acquireFileLock, type FileLockOptions } from "@/core/utils/file-lock";
 import type { StorageConfig } from "../types";
 import { toError } from "./errors";
 import { getGlobalUserDataDirectory } from "./paths";
@@ -98,111 +95,73 @@ export function abbreviateHomePath(targetPath: string): string {
   return targetPath;
 }
 
-export interface AtomicFileWriteOptions {
-  /** Human-readable prefix used to identify leftover temporary files. */
-  readonly tempPrefix: string;
-  /** File mode applied when creating the sibling temporary file. */
-  readonly mode?: number;
-}
-
-function isAlreadyExistsError(error: PlatformError): boolean {
-  return error._tag === "SystemError" && error.reason === "AlreadyExists";
-}
-
 /**
- * Acquire a directory mutex, reclaiming locks whose mtime exceeds the timeout.
- *
- * Staleness is based only on elapsed time, so FILE_LOCK_TIMEOUT_MS must exceed the longest
- * protected operation. The parent directory of `lockPath` is created first, so callers can
- * lock a store before its directory exists. Only an existing lock counts as contention; any
- * other mkdir failure (permissions, read-only filesystem) fails immediately instead of being
- * retried into a misleading timeout. Retry delay is jittered so several waiters don't poll in lockstep and keep losing the
- * acquisition race to the same one.
- */
-function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs
-      .makeDirectory(path.dirname(lockPath), { recursive: true })
-      .pipe(Effect.mapError(toError));
-    for (let attempt = 0; attempt < FILE_LOCK_MAX_RETRIES; attempt++) {
-      const acquired = yield* fs.makeDirectory(lockPath, { recursive: false }).pipe(
-        Effect.as(true),
-        Effect.catchIf(isAlreadyExistsError, () => Effect.succeed(false)),
-        Effect.mapError(toError),
-      );
-      if (acquired) return;
-
-      const statResult = yield* fs.stat(lockPath).pipe(Effect.option);
-      const stat = Option.getOrNull(statResult);
-      const modifiedAt = Option.match(stat?.mtime ?? Option.none(), {
-        onNone: () => 0,
-        onSome: (date) => date.getTime(),
-      });
-      if (stat && Date.now() - modifiedAt > FILE_LOCK_TIMEOUT_MS) {
-        yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-        continue;
-      }
-      const jitter = Math.floor(Math.random() * FILE_LOCK_RETRY_DELAY_MS);
-      yield* Effect.sleep(FILE_LOCK_RETRY_DELAY_MS + jitter);
-    }
-    return yield* Effect.fail(new Error(`Failed to acquire lock at ${lockPath} after retries`));
-  });
-}
-
-function releaseLock(lockPath: string): Effect.Effect<void, never, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
-  });
-}
-
-/**
- * Run an operation while holding a cross-process directory mutex.
+ * Run an operation while holding a cross-process lock (see `file-lock.ts`).
  *
  * Read/validate/write sequences must all occur inside the supplied operation;
- * splitting guardrail checks across lock acquisitions introduces races.
+ * splitting guardrail checks across lock acquisitions introduces races. The
+ * parent directory of `lockPath` is created first, so callers can lock a store
+ * before its directory exists.
  */
 export function withLock<A, E, R>(
   lockPath: string,
   operation: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | Error, R | FileSystem.FileSystem> {
+  options?: FileLockOptions,
+): Effect.Effect<A, E | Error, R> {
   return Effect.acquireUseRelease(
-    acquireLock(lockPath),
+    Effect.tryPromise({
+      try: () => acquireFileLock(lockPath, options),
+      catch: toError,
+    }),
     () => operation,
-    () => releaseLock(lockPath),
+    (release) => Effect.promise(() => release().catch(() => undefined)),
   );
 }
 
 /**
- * Atomically replace a text file by writing and renaming a sibling temporary file.
- *
- * The parent directory is created when needed. A failed rename triggers a
- * best-effort removal of the temporary file. Filesystem failures surface as
- * generic Error values; callers must not branch on message text.
+ * Atomically and durably replace a text file (see `writeFileDurably`): a crash
+ * leaves the old content or the new, never a torn file. The file and any missing
+ * parent directory get Jazz's state modes (owner-only in a private home, see
+ * `private-mode.ts`) unless `options.mode` says otherwise. Cancellation waits for the
+ * write to settle, so an enclosing lock cannot be released while its rename is still pending.
  */
 export function writeFileStringAtomic(
-  fs: FileSystem.FileSystem,
   targetPath: string,
   content: string,
-  options: AtomicFileWriteOptions,
+  options?: DurableWriteOptions,
 ): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const directory = path.dirname(targetPath);
-    const tempPath = path.join(
-      directory,
-      `.${options.tempPrefix}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
+  return Effect.tryPromise({
+    try: () => writeFileDurably(targetPath, content, options),
+    catch: toError,
+  }).pipe(Effect.uninterruptible);
+}
 
-    yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(toError));
-    const write =
-      options.mode === undefined
-        ? fs.writeFileString(tempPath, content)
-        : fs.writeFileString(tempPath, content, { mode: options.mode });
-    yield* write.pipe(Effect.mapError(toError));
-    yield* fs.rename(tempPath, targetPath).pipe(
-      Effect.tapError(() => fs.remove(tempPath).pipe(Effect.catchAll(() => Effect.void))),
-      Effect.mapError(toError),
-    );
+/**
+ * Move an unreadable state file aside to `<file>.corrupt-<timestamp>` and warn,
+ * so the caller can continue from an empty store without overwriting the bytes.
+ * Returns the quarantine path. A file that vanished in the meantime is not an
+ * error; any other rename failure is, because continuing would overwrite it.
+ */
+export function quarantineCorruptFile(
+  filePath: string,
+  reason: string,
+): Effect.Effect<string, Error> {
+  const quarantinePath = `${filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  return Effect.tryPromise({
+    try: async () => {
+      try {
+        await nodeFs.rename(filePath, quarantinePath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return quarantinePath;
+        }
+        throw error;
+      }
+      console.error(
+        `[jazz] ${filePath} could not be read (${reason}). It was moved to ${quarantinePath} and a fresh file will be started.`,
+      );
+      return quarantinePath;
+    },
+    catch: toError,
   });
 }

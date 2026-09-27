@@ -33,9 +33,6 @@ export const WAIT_FOR_MIN_INTERVAL_MS = 250;
 
 export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
 
-/** Maximum number of workflow run history records to keep */
-export const MAX_RUN_HISTORY_RECORDS = 100;
-
 /**
  * Maximum number of conversation history records to keep per agent.
  *
@@ -48,27 +45,6 @@ export const MAX_CONVERSATION_HISTORY_PER_AGENT = 100;
 
 /** Default maximum age for workflow catch-up runs in seconds (24 hours) */
 export const DEFAULT_MAX_CATCH_UP_AGE_SECONDS = 60 * 60 * 24;
-
-/** File lock timeout in milliseconds (30 seconds) */
-export const FILE_LOCK_TIMEOUT_MS = 30 * 1000;
-
-/**
- * File lock max retries.
- *
- * Paired with `FILE_LOCK_RETRY_DELAY_MS` and its jitter, this bounds the worst-case wait
- * around 2-3 seconds. That budget matters under real contention (several callers racing the
- * same per-agent lock): each hold is typically single-digit milliseconds, far shorter than
- * one retry interval, so a handful of waiters can otherwise starve a fixed, low retry count.
- */
-export const FILE_LOCK_MAX_RETRIES = 100;
-
-/**
- * Base file lock retry delay in milliseconds, before jitter.
- *
- * `acquireLock` adds up to one more full interval of random jitter on top of this, so
- * concurrent waiters don't poll in lockstep and repeatedly lose the same race.
- */
-export const FILE_LOCK_RETRY_DELAY_MS = 20;
 
 /** Default maximum number of LLM API retries on transient failures */
 export const DEFAULT_MAX_LLM_RETRIES = 10;

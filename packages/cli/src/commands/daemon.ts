@@ -11,6 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import * as path from "node:path";
 import { announceWaiting, daemonGate } from "@jazz/adapters/daemon/attention";
 import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache";
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
@@ -65,8 +66,12 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
+import { toError } from "@jazz/core/utils/errors";
+import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
+import { markInterruptedRuns } from "@jazz/core/workflows/run-history";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 import {
@@ -305,9 +310,20 @@ export function daemonCommand(options: DaemonCommandOptions) {
       return;
     }
 
+    const releaseHomeLock = yield* acquireDaemonHomeLock();
+    if (releaseHomeLock === undefined) {
+      process.exitCode = 1;
+      return;
+    }
+
     const logger = yield* LoggerServiceTag;
     const scheduler = yield* SchedulerServiceTag;
     const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
+    yield* markInterruptedRuns().pipe(
+      Effect.catchAll((error) =>
+        logger.warn("Could not mark interrupted workflow runs", { error: error.message }),
+      ),
+    );
 
     // The whole agent stack, captured once. Each request runs on this rather than on a
     // fresh runtime: `Effect.runPromise` inside the handler would start with an empty
@@ -387,9 +403,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
       void writeDaemonPid(daemonOptions.port, process.pid);
 
       // In-process alternative to depending on launchd/crontab existing on the host: every
-      // tick, run whatever workflow catch-up is due and fire any self-registered wake
-      // triggers. A tick that throws is logged and swallowed — one bad tick must never stop
-      // the next one from firing.
+      // tick claims what is due (workflow slots, wake triggers, reminders, jobs, goal cycles,
+      // loop runs) and forks the work itself, so the tick is only reads and short locked
+      // writes and one slow unit never delays another. A tick that throws is logged and
+      // swallowed: one bad tick must never stop the next one from firing.
       const tickIntervalMs = (() => {
         const raw = process.env["JAZZ_DAEMON_TICK_MS"];
         const parsed = raw !== undefined ? Number(raw) : Number.NaN;
@@ -409,8 +426,8 @@ export function daemonCommand(options: DaemonCommandOptions) {
           Effect.sync(() => {
             process.stderr.write(`jazz daemon ${work} tick failed: ${String(error)}\n`);
           });
-        // Triggers and goals share the tick but not its fate: a failing or slow trigger must
-        // not keep goal cycles from being settled and started.
+        // Triggers, goals and loops share the tick but not its fate: a failing claim in one
+        // must not keep the others from being claimed.
         // One gate per tick: paused (by the user or at the daily cap), the workers still settle
         // what is running, but nothing new starts. Announcing runs either way, so a pause or a
         // run waiting on the user is told the moment it happens.
@@ -449,7 +466,11 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-        resume(Effect.void);
+        // The home lock is released before the process ends (a few file operations), so the
+        // next daemon finds nothing of this one's to clean up.
+        void releaseHomeLock()
+          .catch(() => undefined)
+          .finally(() => resume(Effect.void));
       };
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
@@ -458,7 +479,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         clearInterval(ticker);
         void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
-      });
+      }).pipe(Effect.zipRight(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
     });
 
     yield* logger.info("Daemon stopped");
@@ -473,6 +494,44 @@ export function daemonCommand(options: DaemonCommandOptions) {
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
+  );
+}
+
+/** The lock one daemon holds per `$JAZZ_HOME` for as long as it runs. */
+function daemonHomeLockPath(): string {
+  return path.join(getJazzHomeDirectory(), "daemon.lock");
+}
+
+/**
+ * How long a starting daemon waits for the home lock: long enough to outlast a daemon that is
+ * shutting down, short enough that a second `jazz daemon` fails promptly.
+ */
+const DAEMON_HOME_LOCK_WAIT_MS = 3_000;
+
+/**
+ * Hold the home-wide daemon lock, so two daemons (on different ports, say) never run the same
+ * schedules against one `$JAZZ_HOME`. Returns its release, or undefined (after saying why) when
+ * another live daemon holds it. A daemon that died leaves a lock the next one reclaims.
+ */
+function acquireDaemonHomeLock() {
+  return Effect.tryPromise({
+    try: () =>
+      acquireFileLock(daemonHomeLockPath(), {
+        maxWaitMs: DAEMON_HOME_LOCK_WAIT_MS,
+        timeoutError: () =>
+          new Error(
+            `Another jazz daemon is already running for ${getJazzHomeDirectory()}. ` +
+              "Stop it with `jazz daemon stop --port <port>` first, or give this one its own --data-dir.",
+          ),
+      }),
+    catch: toError,
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        process.stderr.write(`${error.message}\n`);
+        return undefined;
+      }),
+    ),
   );
 }
 

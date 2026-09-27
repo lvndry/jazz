@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import { getMemoryRecallLogDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 
 const MEMORY_RECALL_LOG_FILENAME = "memory-recall.jsonl";
 
@@ -141,13 +142,15 @@ export function recordMemoryRecall(input: {
         ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
         ...analyzeMemoryRecall(input.messages, input.memoryToolsOffered),
       };
-      await nodeFs.mkdir(getMemoryRecallLogDirectory(), { recursive: true });
+      await nodeFs.mkdir(getMemoryRecallLogDirectory(), {
+        recursive: true,
+        mode: stateDirectoryMode(),
+      });
       const line = `${JSON.stringify(entry)}\n`;
-      await nodeFs.appendFile(
-        memoryRecallLogPath(),
-        (await endsMidLine()) ? `\n${line}` : line,
-        "utf-8",
-      );
+      await nodeFs.appendFile(memoryRecallLogPath(), (await endsMidLine()) ? `\n${line}` : line, {
+        encoding: "utf-8",
+        mode: stateFileMode(),
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));

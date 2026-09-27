@@ -19,7 +19,7 @@
  * decide how to put the events on screen.
  */
 
-import { type ChatSandbox, sandboxCommand, sandboxEnv } from "./chat-sandbox";
+import { bridgeRunEnv, type ChatSandbox, sandboxCommand } from "./chat-sandbox";
 
 /** A subset of Jazz's NDJSON stream events (`jazz run --events`); other fields ignored. */
 export interface JazzEvent {
@@ -59,6 +59,12 @@ export interface JazzSuccessEnvelope {
     readonly cacheReadTokens?: number;
   };
   readonly composition?: JazzComposition;
+  /** True when the agent has tools but none were sent: the model could only reply in text. */
+  readonly toolsDisabled?: boolean;
+  /** True when the answer was cut off at the model's output limit. */
+  readonly truncated?: boolean;
+  /** True when the run used every allowed iteration without a final answer. */
+  readonly iterationLimited?: boolean;
   /**
    * Only present for `--ephemeral` runs (incognito conversations): the full
    * transcript, opaque to the bridge, round-tripped back in as the stdin
@@ -253,7 +259,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     stdout: "pipe",
     stderr: "pipe",
     stdin: "pipe",
-    env: sandboxEnv(options.sandbox, process.env, options.surface),
+    env: bridgeRunEnv(options.sandbox, process.env, options.surface),
   });
 
   let cancelled = false;

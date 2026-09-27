@@ -142,6 +142,8 @@ is the same thing.
 | `/persona name`         | Switch this chat's persona; bare `/persona` lists them                                    |
 | `/mode safe\|yolo`      | Whether risky tools stop to ask. Yolo is operator-only. Sticky per chat; `/new` keeps it. |
 | `/tz Europe/Paris`      | Timezone reminders resolve in                                                             |
+| `/remind <when> <text>` | Set a reminder, e.g. `/remind 30m take pizza out`; or just ask in words                   |
+| `/reminders`            | List your pending reminders                                                               |
 | `/status`               | Model, persona, mode, timezone, today's usage                                             |
 | `/help`                 | The list above                                                                            |
 

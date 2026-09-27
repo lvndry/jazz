@@ -463,10 +463,15 @@ function startChatWithAgent(
     const terminal = yield* TerminalServiceTag;
     const jazzState = yield* JazzStateServiceTag;
 
-    // Save as last used agent
     yield* jazzState
       .set("wizard.lastUsedAgentId", agent.id)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(
+        Effect.catchAll((error) =>
+          terminal.warn(
+            `Could not remember ${agent.name} as the last used agent: ${error.message}`,
+          ),
+        ),
+      );
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);

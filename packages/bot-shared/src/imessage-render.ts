@@ -50,6 +50,7 @@ export function renderForIMessage(message: OutgoingMessage): string {
             .map((span) => (span.kind === "code" ? `“${span.text}”` : span.text))
             .join("");
         case "codeBlock":
+        case "markdown":
           return block.text;
         case "quote":
           return block.text

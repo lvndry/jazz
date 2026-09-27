@@ -198,6 +198,7 @@ export function proposeGoal(options: {
           JSON.stringify(options.request.slice(0, DISCOVERY_REQUEST_CHARS)),
         ].join("\n"),
         conversationId: generateConversationId("goal-discovery"),
+        origin: { source: "goal" },
         maxIterations: DISCOVERY_MAX_ITERATIONS,
         maxTokens: DISCOVERY_MAX_TOKENS,
         maxDurationMs: DISCOVERY_MAX_DURATION_MS,

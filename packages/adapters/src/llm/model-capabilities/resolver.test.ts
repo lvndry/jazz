@@ -144,4 +144,31 @@ describe("resolveModelCapabilities", () => {
     expect(result.supportsTools).toBe(false);
     expect(result.source).toEqual({ reasoning: "unknown", tools: "provider-default" });
   });
+
+  test("assumes a cloud model nothing describes takes tools", () => {
+    for (const provider of ["anthropic", "openai", "openrouter", "gemini"] as const) {
+      const result = resolveModelCapabilities({ provider, modelId: "brand-new-model" });
+
+      expect(result.supportsTools).toBe(true);
+      expect(result.source.tools).toBe("assumed");
+    }
+  });
+
+  test("keeps a catalog's tool verdict over the cloud assumption", () => {
+    const result = resolveModelCapabilities({
+      provider: "openai",
+      modelId: "text-only-model",
+      catalog: { supportsTools: false },
+    });
+
+    expect(result.supportsTools).toBe(false);
+    expect(result.source.tools).toBe("catalog");
+  });
+
+  test("leaves a local server's unknown model unknown", () => {
+    const result = resolveModelCapabilities({ provider: "llamacpp", modelId: "unprobed.gguf" });
+
+    expect(result.supportsTools).toBeUndefined();
+    expect(result.source.tools).toBe("unknown");
+  });
 });

@@ -47,6 +47,7 @@ import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memo
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   abbreviateHomePath,
   isValidStorageKey,
@@ -356,15 +357,12 @@ function readProvenanceForWrite(
 }
 
 function writeScopeProvenance(
-  fs: FileSystem.FileSystem,
   scopeRoot: string,
   provenance: MemoryScopeProvenance,
 ): Effect.Effect<void, never> {
   return writeFileStringAtomic(
-    fs,
     path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
     `${JSON.stringify(provenance, null, 2)}\n`,
-    { tempPrefix: "memory-provenance" },
   ).pipe(Effect.catchAll(() => Effect.void));
 }
 
@@ -562,7 +560,7 @@ function recordWrite(
         : {}),
     };
 
-    yield* writeScopeProvenance(fs, scopeRoot, {
+    yield* writeScopeProvenance(scopeRoot, {
       files: { ...provenance.files, [relativePath]: updated },
     });
   });
@@ -595,7 +593,7 @@ function forgetProvenance(
     if (removed.length === 0) return;
     const files = { ...provenance.files };
     for (const key of removed) delete files[key];
-    yield* writeScopeProvenance(fs, scopeRoot, { files });
+    yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
 
@@ -639,7 +637,7 @@ function moveProvenance(
     }
 
     if (moved.length === 0) return;
-    yield* writeScopeProvenance(fs, scopeRoot, { files });
+    yield* writeScopeProvenance(scopeRoot, { files });
   });
 }
 
@@ -652,7 +650,7 @@ function touchViewed(
     const provenance = yield* readProvenanceForWrite(fs, scopeRoot);
     const existing = provenance.files[relativePath];
     if (existing === undefined) return;
-    yield* writeScopeProvenance(fs, scopeRoot, {
+    yield* writeScopeProvenance(scopeRoot, {
       files: {
         ...provenance.files,
         [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },
@@ -702,7 +700,9 @@ export class MemoryServiceImpl implements MemoryService {
       yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseMemoryDirectory, scope);
-      yield* fs.makeDirectory(rawRoot, { recursive: true }).pipe(Effect.mapError(toError));
+      yield* fs
+        .makeDirectory(rawRoot, { recursive: true, mode: stateDirectoryMode() })
+        .pipe(Effect.mapError(toError));
       const rootInfo = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(rawRoot),
         catch: toError,
@@ -903,10 +903,8 @@ export class MemoryServiceImpl implements MemoryService {
         }
         if (provenanceChanged) {
           yield* writeFileStringAtomic(
-            fs,
             path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
             `${JSON.stringify({ files: provenanceByPath }, null, 2)}\n`,
-            { tempPrefix: "memory-provenance" },
           );
         }
         return entries;
@@ -1121,7 +1119,7 @@ export class MemoryServiceImpl implements MemoryService {
               if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
                 return REVOKED_CLAIM_OUTCOME;
               }
-              yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, fileText);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
@@ -1203,7 +1201,7 @@ export class MemoryServiceImpl implements MemoryService {
                 return REVOKED_CLAIM_OUTCOME;
               }
 
-              yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, updatedContent);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
@@ -1281,7 +1279,7 @@ export class MemoryServiceImpl implements MemoryService {
                 return REVOKED_CLAIM_OUTCOME;
               }
 
-              yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* writeFileStringAtomic(target, updatedContent);
               yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
@@ -1404,7 +1402,10 @@ export class MemoryServiceImpl implements MemoryService {
               }
 
               yield* fs
-                .makeDirectory(path.dirname(destination), { recursive: true })
+                .makeDirectory(path.dirname(destination), {
+                  recursive: true,
+                  mode: stateDirectoryMode(),
+                })
                 .pipe(Effect.mapError(toError));
               yield* fs.rename(source, destination).pipe(Effect.mapError(toError));
               yield* moveClaimSentences(

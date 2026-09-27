@@ -22,6 +22,8 @@ import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { writeFileDurably } from "@jazz/core/utils/durable-file";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import { appendDetachEvent, DetachEventRecorder, recordingPresentationService } from "./events";
@@ -108,29 +110,8 @@ function cancelMarkerPath(id: string): string {
 }
 
 /** Short cross-process lock around compare-and-replace state changes. */
-async function withJobLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-  const lock = `${jobPath(id)}.lock`;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      await fs.mkdir(lock, { mode: 0o700 });
-      try {
-        return await operation();
-      } finally {
-        await fs.rm(lock, { recursive: true, force: true });
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-      const stat = await fs.stat(lock).catch(() => undefined);
-      if (stat && Date.now() - stat.mtimeMs > 30_000) {
-        await fs.rm(lock, { recursive: true, force: true });
-        continue;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-  throw new Error("Timed out waiting for detach job lock");
+function withJobLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+  return withFileLock(`${jobPath(id)}.lock`, operation);
 }
 
 function validate(input: EnqueueDetachedJobInput): void {
@@ -189,21 +170,7 @@ async function read(id: string): Promise<DetachedJobRecord | undefined> {
 }
 
 async function write(record: DetachedJobRecord): Promise<void> {
-  const target = jobPath(record.input.handoffId);
-  await fs.mkdir(directory(), { recursive: true, mode: 0o700 });
-  const temporary = path.join(directory(), `.${record.input.handoffId}-${crypto.randomUUID()}.tmp`);
-  const handle = await fs.open(temporary, "wx", 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(record)}\n`);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await fs.rename(temporary, target);
-  } finally {
-    await fs.rm(temporary, { force: true });
-  }
+  await writeFileDurably(jobPath(record.input.handoffId), `${JSON.stringify(record)}\n`);
 }
 
 /** Save a job once, returning the same record on an identical retry. */
@@ -509,6 +476,7 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
       conversationId: input.conversationId,
       conversationHistory: preamble === undefined ? prior.messages : [preamble, ...prior.messages],
       userInput,
+      origin: { source: "detached" },
       autoApprovePolicy: input.approvalPolicy,
       ...limits,
       stream: true,

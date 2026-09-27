@@ -10,8 +10,14 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
+import {
+  PIPE_DRAIN_GRACE_MS,
+  terminateProcessGroup,
+  trackChildProcess,
+} from "@/core/utils/process";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -24,19 +30,6 @@ import {
   formatCappedStream,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-
-/**
- * Format a timeout duration for the approval prompt. Unlike `formatDuration`
- * (built for logging elapsed time, where fractional seconds are meaningful),
- * timeouts are always round config values — "15m 0.0s" reads as noise where
- * "15m" reads as an answer.
- */
-function formatTimeoutForApproval(ms: number): string {
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
 
 /**
  * Patterns that block obviously dangerous shell commands before execution.
@@ -517,11 +510,16 @@ ${evalCommand}`;
 }
 
 /**
- * Spawn `sh -c command` in a way that Effect can interrupt. `Effect.promise`
- * is uninterruptible, so a double-Esc during a long `sleep` (or any other
- * hanging command) used to leave the child running and the UI stuck on
- * "still running after 30s". Returning an interrupt finalizer from
- * `Effect.async` SIGKILLs the child when the tool fiber is interrupted.
+ * Spawn `sh -c command` in a way that Effect can interrupt. The command runs in
+ * its own process group. When the tool fiber is interrupted (Esc, `--timeout`,
+ * SIGTERM, a run deadline) or the command runs out of time, the whole group gets
+ * SIGTERM and, after `PROCESS_TERMINATION_GRACE_MS`, SIGKILL
+ * ({@link terminateProcessGroup}), so a pipeline or a script's own children stop
+ * with it and a process that handles SIGTERM can finish writing first. The
+ * interrupt finalizer waits for that, so an interrupted call has stopped
+ * everything it started by the time the interrupt returns. The call resolves when the shell exits: a command that
+ * leaves a background job holding stdout (`server &`) returns once the shell
+ * is done, after {@link PIPE_DRAIN_GRACE_MS} for the pipes to drain.
  *
  * `interactive` loads the operator's own shell rc file (aliases, functions)
  * for zsh/bash — see {@link interactiveShellArgs}. Any other `$SHELL` falls
@@ -570,7 +568,7 @@ export function runShellCommand(input: {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         env: input.env,
-        detached: false,
+        detached: true,
       });
     } catch (spawnError) {
       finish(Effect.fail(toError(spawnError)));
@@ -583,7 +581,9 @@ export function runShellCommand(input: {
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
     // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
-      child?.kill("SIGKILL");
+      if (child !== undefined) {
+        void terminateProcessGroup(child);
+      }
       const collected = snapshot();
       const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
       const stderr = formatCappedStream(
@@ -604,7 +604,11 @@ export function runShellCommand(input: {
       finish(Effect.fail(error));
     });
 
-    child.on("close", (code, signal) => {
+    const finishWithExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (pipeGraceId) {
+        clearTimeout(pipeGraceId);
+        pipeGraceId = null;
+      }
       const collected = snapshot();
       finish(
         Effect.succeed({
@@ -614,17 +618,38 @@ export function runShellCommand(input: {
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
         }),
       );
+    };
+
+    const spawned = child;
+    trackChildProcess(spawned);
+    let pipeGraceId: ReturnType<typeof setTimeout> | null = null;
+
+    spawned.on("exit", (code, signal) => {
+      pipeGraceId = setTimeout(() => {
+        // A background job the command left running still holds the pipes open; stop
+        // reading them so the call returns now.
+        spawned.stdout?.destroy();
+        spawned.stderr?.destroy();
+        finishWithExit(code, signal);
+      }, PIPE_DRAIN_GRACE_MS);
+    });
+
+    spawned.on("close", (code, signal) => {
+      finishWithExit(code, signal);
     });
 
     return Effect.sync(() => {
+      if (pipeGraceId) {
+        clearTimeout(pipeGraceId);
+        pipeGraceId = null;
+      }
       if (settled) return;
       settled = true;
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-      child?.kill("SIGKILL");
-    });
+    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 
@@ -680,7 +705,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         return `Command: ${args.command}
 Description: ${description}
 Working Directory: ${workingDir}
-Timeout: ${formatTimeoutForApproval(timeout)}
+Timeout: ${formatDuration(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
       }),
@@ -692,7 +717,8 @@ This command will be executed on your system. Only approve commands you trust.`;
         const shell = yield* FileSystemContextServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Resolve and validate working directory (prevents path traversal attacks)
+        // Resolve the working directory against this conversation's cwd. Any existing
+        // directory is accepted, absolute paths included: this is not a confinement boundary.
         const key = buildKeyFromContext(context);
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
@@ -774,6 +800,8 @@ This command will be executed on your system. Only approve commands you trust.`;
               stderr: result.stderr,
               success: result.exitCode === 0,
             },
+            // Jazz cannot tell what a command read, so its output is always outside content.
+            untrusted: { kind: "external", source: "execute_command output" },
           };
         } catch (error) {
           const errorMessage = toError(error).message;
