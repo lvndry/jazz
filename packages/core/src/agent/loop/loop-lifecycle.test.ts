@@ -29,7 +29,6 @@ function loop(overrides: Partial<LoopRecord> = {}): LoopRecord {
       maxTokens: 100_000,
       maxDurationMs: 3_600_000,
       maxCostUSD: 1,
-      maxIterationsPerRun: 12,
     },
     usage: { runs: 0, totalTokens: 0, costKnown: true, costUSD: 0, activeDurationMs: 0 },
     state: { kind: "active" },
@@ -187,7 +186,7 @@ describe("settling a run", () => {
 
   it("completes at its run limit and stops at a spent budget", () => {
     const limited = running({
-      budget: { maxRuns: 1, maxTokens: 100_000, maxDurationMs: 3_600_000, maxIterationsPerRun: 12 },
+      budget: { maxRuns: 1, maxTokens: 100_000, maxDurationMs: 3_600_000 },
     });
     expect(settleLoopRun(limited, { outcome: "completed" }, NOW).state.kind).toBe("completed");
 
@@ -204,7 +203,6 @@ describe("settling a run", () => {
       budget: {
         maxTokens: 100_000,
         maxDurationMs: 3_600_000,
-        maxIterationsPerRun: 12,
         expiresAt: "2026-09-26T09:00:00.000Z",
       },
     });

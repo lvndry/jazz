@@ -153,7 +153,8 @@ export const tasks: EvalTask[] = [
       let cycleSeen: { runId: string; at: number } | undefined;
       return runGoal(context, {
         request: "Sort every note in inbox/ exactly as RULES.md says.",
-        budget: { maxIterationsPerCycle: 6, maxCycles: 10 },
+        budget: { maxCycles: 10 },
+        maxIterationsPerTurn: 6,
         plan: plan(
           "Every inbox note is sorted by topic and logged once in processed.log",
           [

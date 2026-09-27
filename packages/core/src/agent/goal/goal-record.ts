@@ -35,7 +35,7 @@ export interface GoalPlanStep {
 
 export const feasibilityAssessmentSchema = z.enum(["plausible", "uncertain", "unlikely"]);
 
-export const goalLimitSchema = z.enum(["cycles", "tokens", "cost", "duration"]);
+export const goalLimitSchema = z.enum(["cycles"]);
 
 /** The cap a budget-limited goal reached. */
 export type GoalLimit = z.infer<typeof goalLimitSchema>;
@@ -54,21 +54,14 @@ export interface GoalPlan {
   readonly verification: readonly string[];
 }
 
+/**
+ * What bounds a goal beyond its cycles. Each cycle is an ordinary run, held to the agent
+ * loop's own limits (iterations, tokens, cost, time) like any other; the goal adds only an
+ * optional cycle count, and is otherwise unbounded.
+ */
 export interface GoalBudget {
-  /**
-   * Cycles the goal may run; unbounded when absent, since the token, time, and dollar caps
-   * already stop a goal that goes nowhere, and a cycle count is a poor proxy for work done.
-   */
+  /** Cycles the goal may run; unbounded when absent. */
   readonly maxCycles?: number;
-  readonly maxTokens: number;
-  readonly maxDurationMs: number;
-  /** A dollar limit is enforced only when the provider pricing is known. */
-  readonly maxCostUSD?: number;
-  /**
-   * Iterations one cycle may take before it must report and be checked. Shorter cycles
-   * verify and persist progress more often at the cost of more checkpoints.
-   */
-  readonly maxIterationsPerCycle?: number;
 }
 
 export interface GoalUsage {
@@ -382,13 +375,7 @@ export const goalRecordSchema = z
     approvedPlanRevision: positiveInteger.optional(),
     approvalPolicy: z.enum(APPROVAL_POLICY_LEVELS).optional(),
     state: goalStateSchema,
-    budget: z.object({
-      maxCycles: positiveInteger.optional(),
-      maxTokens: positiveInteger,
-      maxDurationMs: positiveInteger,
-      maxCostUSD: z.number().finite().positive().optional(),
-      maxIterationsPerCycle: positiveInteger.optional(),
-    }),
+    budget: z.object({ maxCycles: positiveInteger.optional() }),
     usage: usageSchema,
     cycle: z
       .object({

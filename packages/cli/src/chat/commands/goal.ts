@@ -241,7 +241,7 @@ function stopHere(goal: GoalRecord, control: "pause" | "cancel") {
 
 /**
  * Where a goal stands after a turn toward it, told in the chat, and whether the next turn
- * should start. When it stopped for the user (a question, a blocker, its budget) the chat asks
+ * should start. When it stopped for the user (a question, a blocker, its turn cap) the chat asks
  * right here and carries on with the answer; Esc there leaves it paused.
  */
 export function settledHere(goal: GoalRecord | undefined) {
@@ -266,7 +266,7 @@ export function settledHere(goal: GoalRecord | undefined) {
         return undefined;
       case "budget-limited": {
         const more = yield* terminal.confirm(
-          `Goal ${handle} used its ${state.limit === "cycles" ? "turns" : state.limit} budget. Keep going with another budget?`,
+          `Goal ${handle} used the ${String(goal.budget.maxCycles ?? goal.usage.cycles)} turns it was given. Keep going?`,
           true,
         );
         return more === true ? yield* resumeHere(goal, "") : yield* leavePaused(goal);

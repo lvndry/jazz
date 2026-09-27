@@ -772,8 +772,9 @@ describe("a goal worked on in chat", () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));
     const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    // No limits of its own: the turn is held to the agent loop's, like any chat turn.
+    expect(Object.keys(turn?.runOptions ?? {}).sort()).toEqual(["runId", "startedBy"]);
     expect(turn?.runOptions.startedBy).toBe("goal");
-    expect(turn?.runOptions.runId).toBe(turn?.runId);
     expect(turn?.prompt).toContain(`[goal cycle ${turn?.runId ?? ""}]`);
     expect(turn?.prompt).toContain("ask_user_question");
     const goal = await current(test);

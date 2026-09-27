@@ -396,14 +396,14 @@ function AppView({
   }, [submitCount]);
 
   useEffect(() => {
-    if (focus === "input") {
+    if (followLive) {
       seenBlocks.current = view.blocks.length;
       setNewBelow(undefined);
       return;
     }
     const added = view.blocks.length - seenBlocks.current;
     setNewBelow(added > 0 ? added : undefined);
-  }, [focus, view.blocks.length]);
+  }, [followLive, view.blocks.length]);
 
   useKeyboard((key) => {
     const currentView = viewRef.current;
@@ -686,7 +686,7 @@ function AppView({
           viewport={viewport}
           focus={focus}
           visibleCount={visibleCount}
-          followLive={followLive && focus === "input" && newBelow === undefined && !overlayOpen}
+          followLive={followLive && !overlayOpen}
           onReachedBottom={handleReachedBottom}
           {...(newBelow === undefined ? {} : { newBelow })}
         />

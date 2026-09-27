@@ -403,7 +403,7 @@ describe("goal routing scenarios", () => {
           verification: [],
         },
         state: { kind: "proposed" },
-        budget: { maxCycles: 1, maxTokens: 1, maxDurationMs: 1 },
+        budget: { maxCycles: 1 },
         usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: false },
         createdAt: now,
         updatedAt: now,

@@ -8,16 +8,30 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 /** Open a URL in the user's default browser, best-effort. */
 export function openBrowser(url: string): void {
-  const command =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  const [command, args] = browserCommand(url);
   try {
-    const child = spawn(command, [url], { stdio: "ignore", detached: true });
+    const child = spawn(command, args, { stdio: "ignore", detached: true, windowsHide: true });
     child.on("error", () => {
       // Falling back to the printed URL is the whole recovery path.
     });
     child.unref();
   } catch {
     // Same: the caller has already printed the URL.
+  }
+}
+
+/**
+ * `start` is a cmd.exe builtin, not an executable, so Windows goes through
+ * `rundll32`, which hands the URL to the default browser without a shell.
+ */
+function browserCommand(url: string): readonly [string, readonly string[]] {
+  switch (process.platform) {
+    case "darwin":
+      return ["open", [url]];
+    case "win32":
+      return ["rundll32.exe", ["url.dll,FileProtocolHandler", url]];
+    default:
+      return ["xdg-open", [url]];
   }
 }
 

@@ -122,7 +122,6 @@ function runLoop(loop: LoopRecord, runId: string) {
         userInput: loopRunPrompt(loop),
         conversationId: loop.conversationId,
         conversationHistory: [...(prior?.messages ?? [])],
-        maxIterations: loop.budget.maxIterationsPerRun,
         ...caps.caps,
         ...(loop.approvalPolicy !== undefined ? { autoApprovePolicy: loop.approvalPolicy } : {}),
         parkWhenUnattended: true,

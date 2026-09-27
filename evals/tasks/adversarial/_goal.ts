@@ -10,7 +10,7 @@
  * `evals/report/<runId>.daemon.log`, which the result names as its `eventsPath`.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { closeSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FileGoalStore } from "@jazz/adapters/storage/goal-store";
 import { Effect } from "effect";
@@ -63,8 +63,13 @@ export interface GoalHarness {
 
 export interface GoalScenario {
   readonly request: string;
-  /** Overrides on the eval's default budget, e.g. short cycles to force several of them. */
+  /** Overrides on the eval's default budget. */
   readonly budget?: Partial<GoalBudget>;
+  /**
+   * The agent loop's iteration cap for every cycle, written into the sample's config like any
+   * run's, e.g. short cycles to force several of them.
+   */
+  readonly maxIterationsPerTurn?: number;
   /**
    * The tier granted at acceptance. Defaults to high-risk, the same authority the one-shot
    * scenarios run with, so a goal and a one-shot run are compared on equal terms.
@@ -150,18 +155,23 @@ export async function runGoal(
     approvedPlanRevision: 1,
     approvalPolicy: scenario.approvalPolicy ?? "high-risk",
     state: { kind: "active" },
-    budget: {
-      maxCycles: 6,
-      maxTokens: 3_000_000,
-      maxDurationMs: 20 * 60 * 1000,
-      ...scenario.budget,
-    },
+    budget: { maxCycles: 6, ...scenario.budget },
     usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: true, costUSD: 0 },
     ...scenario.initial,
     createdAt: now,
     updatedAt: now,
   };
   await Effect.runPromise(sampleGoalStore(context.jazzHome).create(goal));
+  if (scenario.maxIterationsPerTurn !== undefined) {
+    const configPath = join(context.jazzHome, "config.json");
+    const config = existsSync(configPath)
+      ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
+      : {};
+    writeFileSync(
+      configPath,
+      JSON.stringify({ ...config, maxIterations: scenario.maxIterationsPerTurn }, null, 2),
+    );
+  }
 
   const port = freePort();
   const token = randomBytes(16).toString("hex");

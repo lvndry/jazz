@@ -1,5 +1,5 @@
 ---
-description: "The contract for inferred goals that outlive individual Jazz runs: routing, plan scope, evidence, budgets, pause and recovery."
+description: "The contract for inferred goals that outlive individual Jazz runs: routing, plan scope, evidence, limits, pause and recovery."
 ---
 
 # Goal lifecycle
@@ -8,7 +8,7 @@ description: "The contract for inferred goals that outlive individual Jazz runs:
 
 ## Goal, run, and work state
 
-A **goal** is a durable user objective with an approved scope, plan, evidence criteria, aggregate budget, and lifecycle. A **run** is one `AgentRunner.run` invocation. A **conversation** holds messages across runs. **Work state** is the model's account of the task and can be stale or wrong. Keep these records separate: [run state](../../packages/core/src/agent/run/run-state.ts), [work state](../../packages/core/src/agent/context/work-state.ts), and [goal state](../../packages/core/src/agent/goal/goal-state.ts) answer different questions.
+A **goal** is a durable user objective with an approved scope, plan, evidence criteria, an optional cycle cap, and lifecycle. A **run** is one `AgentRunner.run` invocation. A **conversation** holds messages across runs. **Work state** is the model's account of the task and can be stale or wrong. Keep these records separate: [run state](../../packages/core/src/agent/run/run-state.ts), [work state](../../packages/core/src/agent/context/work-state.ts), and [goal state](../../packages/core/src/agent/goal/goal-state.ts) answer different questions.
 
 The goal record is authoritative for whether more work may start. Run records remain authoritative for what happened in one attempt. `update_work_state`, todos, and the model's final answer may help plan the next cycle, but none can mark the goal complete on their own.
 
@@ -52,7 +52,7 @@ A claimed cycle lives on the record as `cycle`: its run ID, the process that sta
 - `awaiting-input` covers a user question or a parked tool approval;
 - `paused` prevents new cycles; a paused goal can still hold a parked cycle;
 - `stopping` records a pause or cancel while an in-flight cycle settles;
-- `budget-limited` waits for an explicit budget change;
+- `budget-limited` means the goal reached the cycle cap it was given (`maxCycles`, none by default) and waits for an explicit resume, which gives it as many cycles again;
 - `review-required` means progress or side effects cannot be safely inferred;
 - `completed`, `failed`, and `canceled` are terminal.
 
@@ -70,11 +70,9 @@ This checks provenance and criterion coverage, but the model authors the disposi
 
 This follows Jazz's existing grounding rule: a matching tool call is not enough; the final answer must also agree with the observed result. See [`toolGroundedAnswerCheck`](../../evals/checks.ts) and the [eval methodology](./testing-and-evals.md).
 
-## Budgets span the whole goal
+## Each cycle is an ordinary run
 
-Each cycle runs for at most the goal's `maxIterationsPerCycle` iterations (24 by default) before it must report, and receives the remaining aggregate token, duration, and known-cost caps, and a resumed approval receives what remains after the parked run's spend so far. Run records accumulate tokens, known cost, and active duration across resume segments, and goal usage preserves unknown cost as unknown. The [default budget](../../packages/core/src/agent/goal/goal-usage.ts) is sized for about a dozen cycles: every model call resends the conversation, so tokens grow with iterations, and a single call with the default persona and tools already costs tens of thousands of prompt tokens. A budget-limited goal continues only after an explicit budget change; `/goal resume` on one extends every cap by one default budget and says so, as does resuming a paused goal whose parked run exhausted the budget while it waited. Planning and discovery before acceptance are counted in tokens; their dollar cost is not priced.
-
-Jazz's current `maxCostUSD`, `maxTokens`, and `maxDurationMs` are checked between run iterations, so a single model call or tool phase can cross a cap. `maxTokens` counts the run's own prompt and completion tokens, while cost rolls up delegated spend. A goal-level limit therefore must not just pass the same per-run cap to every cycle. Keep a finite cycle cap as an independent stop and be explicit that per-run soft checks can overshoot by one in-flight phase. See [budgets](../concepts/budgets.md) and [run lifecycle](./run-lifecycle.md).
+A cycle is held to the agent loop's own limits and nothing else: `maxIterations` (100 by default), plus `maxTokens`, `maxCostUSD`, and `maxDurationMs` when they are set in config, exactly as any run is. The goal adds no spend cap of its own and no per-cycle iteration cap; the only goal-level limit is an optional `maxCycles` (`jazz goal start --max-cycles`), none by default. A goal that reaches it is `budget-limited`, and resuming gives it as many cycles again. Run records accumulate tokens, known cost, and active duration across resume segments, and goal usage sums them for display, preserving unknown cost as unknown. Planning and discovery before acceptance are counted in tokens; their dollar cost is not priced.
 
 Waiting for approval or a user answer pauses active-time accounting, but it does not erase usage. Parked runs retain the ordinary run TTL; the goal itself does not currently have an independent wall-clock expiry.
 

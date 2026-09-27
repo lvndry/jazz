@@ -1734,24 +1734,8 @@ function registerGoalCommand(program: Command): void {
     )
     .option(
       "--max-cycles <n>",
-      "Most cycles the goal may run (default: no limit; the token, time, and cost budgets stop it)",
+      "Most cycles the goal may run (default: no limit; each cycle is held to the agent loop's own limits)",
       parsePositiveInt("--max-cycles"),
-    )
-    .option(
-      "--cycle-iterations <n>",
-      "Iterations per cycle before progress is checked and saved",
-      parsePositiveInt("--cycle-iterations"),
-    )
-    .option("--max-tokens <n>", "Token budget for the whole goal", parsePositiveInt("--max-tokens"))
-    .option(
-      "--max-minutes <n>",
-      "Active-time budget for the whole goal, in minutes",
-      parsePositiveInt("--max-minutes"),
-    )
-    .option(
-      "--max-cost-usd <amount>",
-      "Dollar budget for the whole goal (enforced when pricing is known)",
-      parsePositiveFloat("--max-cost-usd"),
     )
     .action(
       (
@@ -1762,10 +1746,6 @@ function registerGoalCommand(program: Command): void {
           yes?: boolean;
           json?: boolean;
           maxCycles?: number;
-          cycleIterations?: number;
-          maxTokens?: number;
-          maxMinutes?: number;
-          maxCostUsd?: number;
           approvalPolicy?: string;
         },
       ) =>
@@ -1781,17 +1761,7 @@ function registerGoalCommand(program: Command): void {
                 ...(options.approvalPolicy !== undefined
                   ? { approvalPolicy: options.approvalPolicy }
                   : {}),
-                budget: {
-                  ...(options.maxCycles !== undefined ? { maxCycles: options.maxCycles } : {}),
-                  ...(options.cycleIterations !== undefined
-                    ? { maxIterationsPerCycle: options.cycleIterations }
-                    : {}),
-                  ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-                  ...(options.maxMinutes !== undefined
-                    ? { maxDurationMs: options.maxMinutes * 60_000 }
-                    : {}),
-                  ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
-                },
+                budget: options.maxCycles !== undefined ? { maxCycles: options.maxCycles } : {},
               }),
             ),
           cliRuntimeOptions(program),
@@ -1950,11 +1920,6 @@ function registerLoopCommand(program: Command): void {
       "What a run may do without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, the run waits for approval. Default: read-only and low-risk tools.",
     )
     .option("--max-runs <n>", "Most runs before the loop completes", parsePositiveInt("--max-runs"))
-    .option(
-      "--run-iterations <n>",
-      "Iterations one run may take",
-      parsePositiveInt("--run-iterations"),
-    )
     .option("--max-tokens <n>", "Token budget across all runs", parsePositiveInt("--max-tokens"))
     .option(
       "--max-minutes <n>",
@@ -1978,7 +1943,6 @@ function registerLoopCommand(program: Command): void {
           until?: string;
           approvalPolicy?: string;
           maxRuns?: number;
-          runIterations?: number;
           maxTokens?: number;
           maxMinutes?: number;
           maxCostUsd?: number;
@@ -2000,9 +1964,6 @@ function registerLoopCommand(program: Command): void {
                   : {}),
                 budget: {
                   ...(options.maxRuns !== undefined ? { maxRuns: options.maxRuns } : {}),
-                  ...(options.runIterations !== undefined
-                    ? { maxIterationsPerRun: options.runIterations }
-                    : {}),
                   ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
                   ...(options.maxMinutes !== undefined
                     ? { maxDurationMs: options.maxMinutes * 60_000 }

@@ -12,7 +12,7 @@ import type { RunState } from "@/core/agent/run/run-state";
 import type { ApprovalPolicyLevel } from "@/core/types/tools";
 import { settleCycle } from "./goal-reconcile";
 import { asInput, withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
-import { extendBudget, reachedLimit, remainingCaps } from "./goal-usage";
+import { extendBudget, reachedLimit } from "./goal-usage";
 
 export type GoalControl = "pause" | "resume" | "cancel";
 
@@ -90,8 +90,8 @@ function withGuidance(goal: GoalRecordInput, guidance: string | undefined): Goal
 
 /**
  * Resume a paused, review-required, or budget-limited goal. `guidance` is the user's answer
- * or direction for the next cycle. Resuming a budget-limited goal is the explicit budget
- * change it waits for: every cap gains one default budget of room.
+ * or direction for the next cycle. Resuming a budget-limited goal is the explicit change it
+ * waits for: it gets as many cycles again as its cap allowed.
  */
 export function decideResume(
   goal: GoalRecord,
@@ -107,12 +107,6 @@ export function decideResume(
         ...asInput(goal),
         state: { kind: "awaiting-input", reason },
       };
-      if (remainingCaps(goal, latestRun?.spend).kind === "limit") {
-        return write(
-          { ...waiting, budget: extendBudget(goal, latestRun?.spend) },
-          "The budget ran out while the run waited; it was extended by one default budget.",
-        );
-      }
       return write(waiting);
     }
     if (run?.kind === "working" || run?.kind === "submitted") {
@@ -136,7 +130,7 @@ export function decideResume(
     if (reachedLimit(resumed) !== undefined) {
       return write(
         { ...resumed, budget: extendBudget(goal) },
-        "The goal had used its budget; resuming extended it by one default budget.",
+        "The goal had used its cycles; resuming gave it as many again.",
       );
     }
     return write(resumed);
@@ -147,7 +141,7 @@ export function decideResume(
         { ...withoutCycle(goal), budget: extendBudget(goal), state: { kind: "active" } },
         guidance,
       ),
-      "The budget was extended by one default budget.",
+      "It was given as many cycles again.",
     );
   }
   return refuse(`A ${state.kind} goal cannot be resumed.`);

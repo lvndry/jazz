@@ -49,7 +49,7 @@ export function goalStatus(goal: GoalRecord, pending?: PendingGoalInput): string
         ? "has a question for you"
         : `stopped for your review: ${state.reason}`;
     case "budget-limited":
-      return `out of budget (${state.limit})`;
+      return "at its cycle limit";
     case "completed":
       return `completed: ${state.summary}`;
     case "failed":
@@ -83,7 +83,7 @@ export function nextGoalCommands(
         ? [`${command} resume ${id} <your answer>`]
         : [`${command} resume ${id} [note]`, `${command} cancel ${id}`];
     case "budget-limited":
-      return [`${command} resume ${id} (adds one default budget)`, `${command} cancel ${id}`];
+      return [`${command} resume ${id} (gives it as many cycles again)`, `${command} cancel ${id}`];
     default:
       return [];
   }
@@ -106,7 +106,7 @@ export function describeGoal(
   const lines = [
     `Goal ${goalHandle(goal)} · ${goalStatus(goal, pending)}`,
     `  ${goal.plan.objective}`,
-    `  Progress: step ${String(done)} of ${String(goal.plan.steps.length)} · cycle ${String(goal.usage.cycles)}${goal.budget.maxCycles !== undefined ? ` of ${String(goal.budget.maxCycles)}` : ""} · ${formatCompactCount(goal.usage.totalTokens)} of ${formatCompactCount(goal.budget.maxTokens)} tokens · ${String(Math.round(goal.usage.activeDurationMs / 60_000))} of ${String(Math.round(goal.budget.maxDurationMs / 60_000))} min`,
+    `  Progress: step ${String(done)} of ${String(goal.plan.steps.length)} · cycle ${String(goal.usage.cycles)}${goal.budget.maxCycles !== undefined ? ` of ${String(goal.budget.maxCycles)}` : ""} · ${formatCompactCount(goal.usage.totalTokens)} tokens · ${String(Math.round(goal.usage.activeDurationMs / 60_000))} min${goal.usage.costKnown && goal.usage.costUSD !== undefined ? ` · $${goal.usage.costUSD.toFixed(2)}` : ""}`,
     ...(goal.approvalPolicy !== undefined
       ? [`  In the background it may, without asking: ${UNATTENDED_GRANTS[goal.approvalPolicy]}`]
       : []),

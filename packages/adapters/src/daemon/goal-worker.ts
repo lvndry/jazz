@@ -26,16 +26,11 @@ import {
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
 import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
-import { addSpend, reachedLimit, remainingCaps } from "@jazz/core/agent/goal/goal-usage";
+import { addSpend, reachedLimit } from "@jazz/core/agent/goal/goal-usage";
 import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
-import {
-  priceOneOffCall,
-  runSpend,
-  type RunSpend,
-  type SpendBudget,
-} from "@jazz/core/agent/run/run-spend";
+import { priceOneOffCall, runSpend, type RunSpend } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import { goalCycleReport } from "@jazz/core/agent/tools/goal-report";
 import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
@@ -56,28 +51,8 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
-/**
- * Iterations one cycle may take before it must report, unless the goal's budget sets its
- * own. Each cycle ends with a disposition the controller checks, so this sets how often
- * progress is verified and persisted; the goal's token, time, and cost caps bound the spend.
- */
-const DEFAULT_CYCLE_ITERATIONS = 24;
-
 /** A disposition is a small JSON object; this bounds a repair call that would ramble. */
 const REPAIR_MAX_OUTPUT_TOKENS = 1_600;
-
-function cappedBy(response: AgentResponse): Exclude<GoalLimit, "cycles"> | undefined {
-  if (response.tokenCapped === true) {
-    return "tokens";
-  }
-  if (response.durationCapped === true) {
-    return "duration";
-  }
-  if (response.costCapped === true) {
-    return "cost";
-  }
-  return undefined;
-}
 
 function endedRun(run: RunRecord | undefined): EndedRun | undefined {
   if (run === undefined) {
@@ -345,15 +320,11 @@ function claimCycle(goal: GoalRecord) {
   return Effect.gen(function* () {
     const agents = yield* AgentServiceTag;
     const limit = reachedLimit(goal);
-    const caps = remainingCaps(goal);
-    if (limit !== undefined || caps.kind === "limit") {
+    if (limit !== undefined) {
       yield* writeGoal(
         goal,
-        {
-          ...asInput(goal),
-          state: { kind: "budget-limited", limit: limit ?? (caps as { limit: GoalLimit }).limit },
-        },
-        "stop at its budget",
+        { ...asInput(goal), state: { kind: "budget-limited", limit } },
+        "stop at its cycle cap",
       );
       return undefined;
     }
@@ -383,11 +354,11 @@ function claimCycle(goal: GoalRecord) {
     if (claimed._tag === "Left") {
       return undefined;
     }
-    return { goal: claimed.right, agent: agent.right, runId, caps: caps.caps };
+    return { goal: claimed.right, agent: agent.right, runId };
   });
 }
 
-function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: SpendBudget) {
+function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
   return Effect.gen(function* () {
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const placed = yield* fileSystemContext
@@ -411,8 +382,6 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: SpendBudg
         runId,
         userInput: goalCyclePrompt(goal, runId),
         conversationId: goal.conversationId,
-        maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
-        ...caps,
         ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
         parkWhenUnattended: true,
         startedBy: "goal",
@@ -493,12 +462,7 @@ export function claimChatGoalTurn(goalId: string) {
       goal: claim.goal,
       runId: claim.runId,
       prompt: goalCyclePrompt(claim.goal, claim.runId, { attended: true }),
-      runOptions: {
-        runId: claim.runId,
-        maxIterations: claim.goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
-        ...claim.caps,
-        startedBy: "goal",
-      } satisfies Partial<AgentRunnerOptions>,
+      runOptions: { runId: claim.runId, startedBy: "goal" } satisfies Partial<AgentRunnerOptions>,
     };
   });
 }
@@ -564,12 +528,7 @@ function settleRunOutcome(
     if (transcript === "save") {
       yield* saveGoalTranscript(goal, messages);
     }
-    yield* finishCycle(
-      goal.goalId,
-      runId,
-      cycleMessages(messages, runId),
-      cappedBy(outcome.response),
-    );
+    yield* finishCycle(goal.goalId, runId, cycleMessages(messages, runId));
   });
 }
 
@@ -643,10 +602,7 @@ export function runDueGoals() {
           const claim = yield* claimCycle(goal);
           if (claim !== undefined) {
             started.push(
-              yield* inFlight(
-                claim.runId,
-                runCycle(claim.goal, claim.agent, claim.runId, claim.caps),
-              ).pipe(
+              yield* inFlight(claim.runId, runCycle(claim.goal, claim.agent, claim.runId)).pipe(
                 Effect.asVoid,
                 Effect.catchAllCause((cause) =>
                   logger.warn("Goal cycle failed to settle", {
@@ -720,7 +676,6 @@ export function runDueGoals() {
 export function resumeGoalRun(options: ResumeRunOptions) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
-    const runs = yield* RunStoreTag;
     const candidates = yield* goals.list({
       states: ["active", "awaiting-input", "paused", "stopping"],
     });
@@ -738,14 +693,6 @@ export function resumeGoalRun(options: ResumeRunOptions) {
       return {
         kind: "blocked",
         reason: `Goal ${goal.goalId} is stopping; wait for it to settle.`,
-      } as const;
-    }
-    const run = yield* runs.get(options.runId);
-    const caps = remainingCaps(goal, run === undefined ? undefined : runSpend(run));
-    if (caps.kind === "limit") {
-      return {
-        kind: "blocked",
-        reason: `Goal ${goal.goalId} reached its ${caps.limit} budget while waiting. Pause and resume the goal to extend its budget, or cancel it.`,
       } as const;
     }
     // The resuming process takes the cycle over, so a daemon tick while it works sees a live
@@ -768,9 +715,7 @@ export function resumeGoalRun(options: ResumeRunOptions) {
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(
-          resumeRun({ ...options, ...caps.caps, startedBy: "goal" }),
-        );
+        const settled = yield* runToOutcome(resumeRun({ ...options, startedBy: "goal" }));
         yield* settleRunOutcome(working.right, options.runId, settled);
         return settled;
       }),

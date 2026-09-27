@@ -10,7 +10,7 @@
  * 32% ink and was rejected as "very busy".
  */
 
-import { RGBA } from "@opentui/core";
+import { RGBA, TextAttributes } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
@@ -330,6 +330,72 @@ describe("transcript wheel and type-to-input", () => {
     expect(afterSubmit).toContain("line-39");
   });
 
+  function withExtraLines(count: number): ViewModel {
+    const base = tallTranscriptView();
+    const extra: Block[] = Array.from({ length: count }, (_, index) => ({
+      id: `extra${String(index)}`,
+      seq: base.blocks.length + index + 1,
+      kind: "notice",
+      text: `extra-${String(index).padStart(2, "0")} unique-marker`,
+      tone: "info",
+    }));
+    return { ...base, blocks: [...base.blocks, ...extra] };
+  }
+
+  const growTranscript: { current: (count: number) => void } = { current: () => undefined };
+
+  function GrowingApp(): React.ReactNode {
+    const [extraLines, setExtraLines] = useState(0);
+    growTranscript.current = setExtraLines;
+    return (
+      <App
+        view={withExtraLines(extraLines)}
+        onAction={() => undefined}
+      />
+    );
+  }
+
+  it("keeps following new output after the reader wheels back to the bottom", async () => {
+    const { renderer, flush, mockMouse, captureCharFrame } = await testRender(<GrowingApp />, {
+      width: 80,
+      height: 16,
+    });
+    await settle(flush);
+    for (let step = 0; step < 3; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
+    }
+    for (let step = 0; step < 10; step++) {
+      await mockMouse.scroll(20, 6, "down");
+      await settle(flush);
+    }
+    growTranscript.current(5);
+    await settle(flush, 100);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    expect(frame).toContain("extra-04");
+  });
+
+  it("holds the reader's place while output streams in above the live edge", async () => {
+    const { renderer, flush, mockMouse, captureCharFrame } = await testRender(<GrowingApp />, {
+      width: 80,
+      height: 16,
+    });
+    await settle(flush);
+    for (let step = 0; step < 40; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
+    }
+    const before = captureCharFrame();
+    expect(before).toContain("line-00");
+    growTranscript.current(5);
+    await settle(flush, 100);
+    const after = captureCharFrame();
+    renderer.destroy();
+    expect(after).toContain("line-00");
+    expect(after).not.toContain("extra-04");
+  });
+
   function TypeableApp(): React.ReactNode {
     const [draft, setDraft] = useState("");
     return (
@@ -604,5 +670,56 @@ describe("composer after a completed turn", () => {
     expect(typed).toContain(getGlyphs().promptCursor);
     expect(typed).toContain("x");
     expect(typed).toContain("enter to send");
+  });
+});
+
+describe("transcript links under the pointer", () => {
+  it("underlines every row of a wrapped link while hovered, and clears when the pointer leaves", async () => {
+    const label = Array.from({ length: 14 }, (_, index) => `word${String(index)}`).join(" ");
+    const view: ViewModel = {
+      ...sampleIdleView(),
+      blocks: [
+        {
+          id: "a",
+          seq: 1,
+          kind: "agent",
+          markdown: `see [${label}](https://example.com/guide) now`,
+        },
+      ],
+    };
+    const { renderer, renderOnce, flush, mockMouse, captureCharFrame, captureSpans } =
+      await testRender(
+        <App
+          view={view}
+          onAction={() => undefined}
+        />,
+        { width: 60, height: 16 },
+      );
+    await renderOnce();
+    const underlined = (): string[] =>
+      captureSpans()
+        .lines.flatMap((line) => line.spans)
+        .filter((span) => (span.attributes & TextAttributes.UNDERLINE) !== 0)
+        .map((span) => span.text.trim())
+        .filter((text) => text.length > 0);
+    const rows = captureCharFrame().split("\n");
+    const firstRow = rows.findIndex((row) => row.includes("word0"));
+    const pointAt = async (x: number, y: number): Promise<void> => {
+      await mockMouse.moveTo(x, y);
+      await settle(flush, 100);
+      await renderOnce();
+    };
+
+    expect(underlined()).toEqual([]);
+
+    await pointAt(rows[firstRow]!.indexOf("word0") + 1, firstRow);
+    const hovering = underlined();
+    expect(hovering.join(" ")).toContain("word0");
+    expect(hovering.join(" ")).toContain("word13");
+
+    await pointAt(rows[firstRow]!.indexOf("see"), firstRow);
+    const offLabel = underlined();
+    renderer.destroy();
+    expect(offLabel).toEqual([]);
   });
 });

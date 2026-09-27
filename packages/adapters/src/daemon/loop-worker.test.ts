@@ -91,7 +91,7 @@ async function createLoop(test: Harness, overrides: Partial<LoopRecord> = {}): P
         workingDirectory: "/work/site",
         firstRunAt: new Date(Date.now() - 1_000),
         approvalPolicy: "low-risk",
-        budget: { maxTokens: 100_000, maxIterationsPerRun: 12 },
+        budget: { maxTokens: 100_000 },
       }),
       ...overrides,
     }),
@@ -240,7 +240,7 @@ afterEach(() => {
 });
 
 describe("runDueLoops", () => {
-  it("runs a due loop in its directory, under its policy and budget, and schedules the next run", async () => {
+  it("runs a due loop in its directory, under its policy, budget, and the agent loop's own iteration cap", async () => {
     const test = harness();
     const loop = await createLoop(test);
     const runner = scriptRunner(test, "Still deploying.");
@@ -253,7 +253,7 @@ describe("runDueLoops", () => {
     expect(test.placedIn).toEqual(["/work/site"]);
     const options = runner.seen[0];
     expect(options?.autoApprovePolicy).toBe("low-risk");
-    expect(options?.maxIterations).toBe(12);
+    expect(options?.maxIterations).toBeUndefined();
     expect(options?.maxTokens).toBe(100_000);
     expect(options?.startedBy).toBe("loop");
     expect(options?.userInput).toContain("Check whether the deploy finished.");

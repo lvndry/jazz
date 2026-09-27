@@ -6,65 +6,30 @@
  * stays unknown for the rest of the goal once any run had no pricing.
  */
 
-import {
-  addRunSpend,
-  extendSpendBudget,
-  remainingSpendCaps,
-  spendLimitReached,
-  type RunSpend,
-} from "@/core/agent/run/run-spend";
+import { addRunSpend, type RunSpend } from "@/core/agent/run/run-spend";
 import type { GoalBudget, GoalLimit, GoalRecord, GoalUsage } from "./goal-record";
 
-/**
- * Every model call resends the conversation, so tokens grow with iterations rather than with
- * output: a single call with the default persona and tool set costs tens of thousands of
- * prompt tokens before the task adds anything. The token cap is sized for a dozen cycles of
- * that; the dollar cap is what stops a priced provider, and only binds when pricing is known.
- * There is no cycle cap by default: these spend caps are what stop a goal.
- */
-export const DEFAULT_GOAL_BUDGET: GoalBudget = {
-  maxTokens: 5_000_000,
-  maxDurationMs: 2 * 60 * 60 * 1000,
-  maxCostUSD: 5,
-};
+/** A goal has no cap beyond its runs' own until one is asked for. */
+export const DEFAULT_GOAL_BUDGET: GoalBudget = {};
 
 export function addSpend(usage: GoalUsage, spend: RunSpend): GoalUsage {
   return addRunSpend(usage, spend);
 }
 
-/** The first cap the goal has reached, or undefined while it may start another cycle. */
+/** The cap the goal has reached, or undefined while it may start another cycle. */
 export function reachedLimit(goal: Pick<GoalRecord, "budget" | "usage">): GoalLimit | undefined {
   return goal.budget.maxCycles !== undefined && goal.usage.cycles >= goal.budget.maxCycles
     ? "cycles"
-    : spendLimitReached(goal.budget, goal.usage);
+    : undefined;
 }
 
 /**
- * The caps for the next stretch of a cycle: what the goal has left after `inFlight`, the
- * spend of a parked run that is about to resume. A cap at or below zero is a reached limit.
- */
-export function remainingCaps(goal: Pick<GoalRecord, "budget" | "usage">, inFlight?: RunSpend) {
-  return remainingSpendCaps(goal.budget, goal.usage, inFlight);
-}
-
-/**
- * Raise every cap so the goal has one default budget's worth of room beyond what it has used,
- * counting a parked run's spend that is not folded into the goal yet: extending from recorded
- * usage alone would leave that run still over the cap. This is the explicit budget change a
+ * Give a goal at its cycle cap as many cycles again: the explicit budget change a
  * budget-limited goal waits for.
  */
-export function extendBudget(
-  goal: Pick<GoalRecord, "budget" | "usage">,
-  inFlight?: RunSpend,
-): GoalBudget {
+export function extendBudget(goal: Pick<GoalRecord, "budget" | "usage">): GoalBudget {
   const { budget, usage } = goal;
-  return {
-    ...(budget.maxCycles !== undefined
-      ? { maxCycles: Math.max(budget.maxCycles, usage.cycles + budget.maxCycles) }
-      : {}),
-    ...extendSpendBudget(budget, usage, DEFAULT_GOAL_BUDGET, inFlight),
-    ...(budget.maxIterationsPerCycle !== undefined
-      ? { maxIterationsPerCycle: budget.maxIterationsPerCycle }
-      : {}),
-  };
+  return budget.maxCycles === undefined
+    ? budget
+    : { maxCycles: Math.max(budget.maxCycles, usage.cycles + budget.maxCycles) };
 }

@@ -10,7 +10,7 @@
 
 import type { RunSpend } from "@/core/agent/run/run-spend";
 import type { GoalEvaluationResult } from "./goal-evaluation";
-import { withoutCycle, type GoalLimit, type GoalRecord, type GoalRecordInput } from "./goal-record";
+import { withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
 import { addSpend, reachedLimit } from "./goal-usage";
 
 export type EndedRun =
@@ -26,8 +26,6 @@ export interface CycleEnd {
   readonly run: EndedRun;
   /** The validated disposition; only a completed run has one. */
   readonly evaluation?: GoalEvaluationResult;
-  /** A run-level cap the cycle hit, which leaves the goal budget-limited. */
-  readonly cappedBy?: Exclude<GoalLimit, "cycles">;
   /** The cycle's outcome was not checked at all; it goes straight to review with this reason. */
   readonly unchecked?: string;
 }
@@ -156,9 +154,6 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
   }
   if (stopAfter === "pause") {
     return { ...progressed, state: { kind: "paused" } };
-  }
-  if (end.cappedBy !== undefined) {
-    return { ...progressed, state: { kind: "budget-limited", limit: end.cappedBy } };
   }
   if (evaluation === undefined) {
     return review(progressed, "The cycle ended without a disposition to check.");

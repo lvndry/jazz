@@ -34,10 +34,12 @@
  */
 
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
-import { TextAttributes } from "@opentui/core";
+import { TextAttributes, type MouseEvent as OTMouseEvent } from "@opentui/core";
 import {
+  createContext,
   forwardRef,
   memo,
+  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -53,6 +55,7 @@ import {
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { getThemeVariant, THEME } from "../theme";
+import { linkAtColumn, openLink } from "./open-link";
 import {
   fitTerminalSegments,
   sliceTerminalCells,
@@ -1406,12 +1409,77 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
 
 // ─── The region ──────────────────────────────────────────────────────────────
 
+interface LinkHover {
+  readonly hovered: string | undefined;
+  readonly setHovered: (target: string | undefined) => void;
+}
+
+/**
+ * Shared across rows so every row of a wrapped link underlines together, keyed
+ * by target because a wrapped label becomes one segment per row.
+ */
+const LinkHoverContext = createContext<LinkHover>({
+  hovered: undefined,
+  setHovered: () => undefined,
+});
+
+/**
+ * Opens the link under a click and reports the one under the pointer. The
+ * terminal cannot do either itself: mouse capture keeps clicks from reaching it,
+ * and OpenTUI drops OSC 8 targets on terminals it cannot confirm support them. A
+ * press and release on different cells is a selection drag, not a click.
+ */
+function useLinkPointer(segments: readonly Segment[]): {
+  readonly onMouseDown?: (event: OTMouseEvent) => void;
+  readonly onMouseUp?: (event: OTMouseEvent) => void;
+  readonly onMouseMove?: (event: OTMouseEvent) => void;
+  readonly onMouseOut?: (event: OTMouseEvent) => void;
+} {
+  const { setHovered } = useContext(LinkHoverContext);
+  const pressedAt = useRef<{ readonly x: number; readonly y: number } | undefined>(undefined);
+  if (!segments.some((segment) => segment.link !== undefined)) {
+    return {};
+  }
+  const linkUnder = (event: OTMouseEvent): string | undefined => {
+    const origin = event.currentTarget;
+    return origin === null ? undefined : linkAtColumn(segments, event.x - origin.x);
+  };
+  return {
+    onMouseDown: (event) => {
+      pressedAt.current = { x: event.x, y: event.y };
+    },
+    onMouseUp: (event) => {
+      const pressed = pressedAt.current;
+      pressedAt.current = undefined;
+      if (pressed === undefined || pressed.x !== event.x || pressed.y !== event.y) {
+        return;
+      }
+      const target = linkUnder(event);
+      if (target !== undefined) {
+        openLink(target);
+      }
+    },
+    onMouseMove: (event) => {
+      setHovered(linkUnder(event));
+    },
+    onMouseOut: () => {
+      setHovered(undefined);
+    },
+  };
+}
+
 function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
+  const linkPointer = useLinkPointer(segments);
+  const { hovered } = useContext(LinkHoverContext);
   if (segments.length === 0) return null;
   return (
-    <text style={{ wrapMode: "none", truncate: true }}>
+    <text
+      style={{ wrapMode: "none", truncate: true }}
+      {...linkPointer}
+    >
       {segments.map((segment, index) => {
-        const attributes = segmentAttributes(segment);
+        const isHovered = hovered !== undefined && segment.link === hovered;
+        const attributes = segmentAttributes(isHovered ? { ...segment, underline: true } : segment);
         const key = `${String(index)}:${segment.text}`;
         const style = {
           fg: segment.fg,
@@ -1502,6 +1570,11 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   const windowHeight =
     visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);
   const [, setScrollVersion] = useState(0);
+  const [hoveredLink, setHoveredLink] = useState<string | undefined>(undefined);
+  const linkHover = useMemo(
+    () => ({ hovered: hoveredLink, setHovered: setHoveredLink }),
+    [hoveredLink],
+  );
   const scrollFromBottomRef = useRef(0);
   const rowsRef = useRef(rows);
   const heightRef = useRef(windowHeight);
@@ -1561,33 +1634,35 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
       {/* OpenTUI only settles this region's layout when a scrollbox owns it.
           Sticky scroll is off: we window the rows ourselves so wheel and
           keyboard offsets are not snapped back to the live edge. */}
-      <scrollbox
-        focused={focus === "transcript"}
-        style={{
-          flexGrow: 1,
-          flexShrink: 1,
-          minHeight: 0,
-          height: windowHeight,
-          overflow: "hidden",
-        }}
-        stickyScroll={false}
-        scrollY={false}
-        scrollbarOptions={{ visible: false }}
-      >
-        {Array.from({ length: padCount }, (_, index) => (
-          <box
-            key={`pad:${String(index)}`}
-            style={{ width: page, height: 1, flexShrink: 0 }}
-          />
-        ))}
-        {visible.map((row) => (
-          <Row
-            key={row.key}
-            row={row}
-            width={page}
-          />
-        ))}
-      </scrollbox>
+      <LinkHoverContext.Provider value={linkHover}>
+        <scrollbox
+          focused={focus === "transcript"}
+          style={{
+            flexGrow: 1,
+            flexShrink: 1,
+            minHeight: 0,
+            height: windowHeight,
+            overflow: "hidden",
+          }}
+          stickyScroll={false}
+          scrollY={false}
+          scrollbarOptions={{ visible: false }}
+        >
+          {Array.from({ length: padCount }, (_, index) => (
+            <box
+              key={`pad:${String(index)}`}
+              style={{ width: page, height: 1, flexShrink: 0 }}
+            />
+          ))}
+          {visible.map((row) => (
+            <Row
+              key={row.key}
+              row={row}
+              width={page}
+            />
+          ))}
+        </scrollbox>
+      </LinkHoverContext.Provider>
 
       {/* Overlay rather than a layout row so the transcript does not shift
           under the reader when the count appears. */}

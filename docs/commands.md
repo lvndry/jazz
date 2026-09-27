@@ -301,7 +301,7 @@ goal launches `jazz daemon` in the background when none is serving this Jazz hom
 
 ```bash
 jazz goal draft --agent assistant "Get every recipe into the new format until ./check.sh passes"
-jazz goal start --agent assistant --yes --max-cycles 20 --cycle-iterations 12 "…"
+jazz goal start --agent assistant --yes --max-cycles 20 "…"
 jazz goal list
 jazz goal show <goal>
 jazz goal accept <goal> --approval-policy low-risk   # start a proposed goal; work begins now
@@ -321,10 +321,10 @@ wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in th
 daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.
-`start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it. Budget flags:
-`--max-cycles` (no limit by default), `--cycle-iterations` (how long a cycle runs before its
-progress is checked and saved), `--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced
-when pricing is known).
+`start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it.
+`--max-cycles` caps the cycles (no limit by default). Each cycle is an ordinary run, held to the agent loop's own
+limits (`maxIterations`, `maxTokens`, `maxCostUSD`, `maxDurationMs` in config); the goal adds
+no spend cap of its own.
 A read-only pass over the current directory informs the plan, as it would in chat; `--no-inspect`
 drafts from the request alone. With `--json` each command prints one JSON envelope.
 Exit codes: `0` done, `1` refused or failed, `2` the request needs answers before a plan.
@@ -337,7 +337,7 @@ approvals under the chat's safe or yolo mode, and questions asked inline. When a
 next one starts on its own, with a `↻ Goal <name> · turn n` line, until the agent reports
 the goal done. A done report is accepted only when it quotes the tool output that shows the
 objective holds; otherwise the goal goes on with the reason. If it stops for you (a question,
-a blocker, its token, time, or cost budget), the chat asks right there and carries on with your answer.
+a blocker), the chat asks right there and carries on with your answer.
 
 Esc pauses the goal. Anything you type meanwhile goes first and the goal picks up after it.
 `/goal` shows where it stands, `/goal pause`, `/goal resume [note]`, and `/goal clear` control
@@ -380,8 +380,9 @@ loop never overlaps itself, including while a run waits for an approval.
 A loop ends when its run calls `end_loop` (it gets that tool, and only loop runs do), when it
 reaches `--max-runs` or `--until`, or when you cancel it. Three failed runs in a row stop it
 for you to look at; `resume` starts it again. Budget flags cover all runs together:
-`--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pricing is known), plus
-`--run-iterations` for one run. A loop that hits one is budget-limited until you resume it.
+`--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pricing is known), and
+each run is held to the agent loop's own limits like any run. A loop that hits one of its
+budgets is budget-limited until you resume it.
 
 `--approval-policy` is what its runs may do without asking: `read-only`, `low-risk`, or
 `high-risk` (everything). Above it, the run waits; `approve`, `reject`, and `answer` finish that

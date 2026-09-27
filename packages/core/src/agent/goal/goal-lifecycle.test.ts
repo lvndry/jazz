@@ -10,7 +10,7 @@ import {
 import { settleCycle, type CycleEnd } from "./goal-reconcile";
 import { parseGoalRecord, type GoalRecord } from "./goal-record";
 import { canTransitionGoal, type GoalState } from "./goal-state";
-import { addSpend, extendBudget, reachedLimit, remainingCaps } from "./goal-usage";
+import { addSpend, extendBudget, reachedLimit } from "./goal-usage";
 import { testGoalPlan, testStoredGoal } from "./test-fixtures";
 
 const RUN_ID = "run-1";
@@ -30,7 +30,7 @@ function goal(overrides: Partial<GoalRecord> = {}): GoalRecord {
         },
       ],
     }),
-    budget: { maxCycles: 5, maxTokens: 10_000, maxDurationMs: 60_000, maxCostUSD: 1 },
+    budget: { maxCycles: 5 },
     usage: {
       cycles: 1,
       totalTokens: 1_000,
@@ -88,23 +88,17 @@ describe("goal usage", () => {
     expect(addSpend(unpriced, SPEND).costKnown).toBe(false);
   });
 
-  it("reports the first cap reached and what a resumed run may still spend", () => {
+  it("reaches a limit only at a cycle cap it was given", () => {
     expect(reachedLimit(goal())).toBeUndefined();
     expect(reachedLimit(goal({ usage: { ...goal().usage, cycles: 5 } }))).toBe("cycles");
-    expect(remainingCaps(goal(), SPEND)).toEqual({
-      kind: "caps",
-      caps: { maxTokens: 8_500, maxDurationMs: 57_000, maxCostUSD: 0.85 },
-    });
-    expect(remainingCaps(goal(), { ...SPEND, totalTokens: 9_000 })).toEqual({
-      kind: "limit",
-      limit: "tokens",
-    });
+    expect(
+      reachedLimit(goal({ budget: {}, usage: { ...goal().usage, cycles: 500, totalTokens: 9e9 } })),
+    ).toBeUndefined();
   });
 
-  it("extends a budget to one default budget of room past current usage", () => {
-    const extended = extendBudget(goal({ usage: { ...goal().usage, cycles: 5 } }));
-    expect(extended.maxCycles).toBeGreaterThan(5);
-    expect(extended.maxTokens).toBeGreaterThan(goal().usage.totalTokens);
+  it("gives a goal at its cycle cap as many cycles again, and leaves an uncapped one uncapped", () => {
+    expect(extendBudget(goal({ usage: { ...goal().usage, cycles: 5 } })).maxCycles).toBe(10);
+    expect(extendBudget(goal({ budget: {} }))).toEqual({});
   });
 });
 
@@ -194,20 +188,13 @@ describe("settleCycle", () => {
     expect(parseGoalRecord({ ...question, version: 4 }).ok).toBe(true);
   });
 
-  it("stops at a budget cap the cycle hit or the goal reached", () => {
+  it("stops at the cycle cap it was given", () => {
     const continued = valid({
       status: "continue",
       summary: "s",
       nextAction: "n",
       completedStepIds: [],
     });
-    expect(
-      settleCycle(goal(), {
-        run: { kind: "completed", spend: SPEND },
-        evaluation: continued,
-        cappedBy: "tokens",
-      }).state,
-    ).toEqual({ kind: "budget-limited", limit: "tokens" });
     expect(
       settleCycle(goal({ usage: { ...goal().usage, cycles: 5 } }), {
         run: { kind: "completed", spend: SPEND },
@@ -326,7 +313,6 @@ describe("settleCycle outcomes are writable from every cycle state", () => {
       }),
     },
     { run: { kind: "completed", spend: SPEND }, evaluation: continued },
-    { run: { kind: "completed", spend: SPEND }, evaluation: continued, cappedBy: "tokens" },
     {
       run: { kind: "completed", spend: SPEND },
       evaluation: valid({ status: "blocked", summary: "b" }),
@@ -344,7 +330,7 @@ describe("settleCycle outcomes are writable from every cycle state", () => {
 
   for (const { state, stopAfter } of states) {
     for (const end of ends) {
-      const label = `${state.kind}${stopAfter ? `/${stopAfter}` : ""} + ${end.run.kind}${end.evaluation ? `/${end.evaluation.kind === "valid" ? end.evaluation.evaluation.status : "invalid"}` : ""}${end.cappedBy ? "/capped" : ""}`;
+      const label = `${state.kind}${stopAfter ? `/${stopAfter}` : ""} + ${end.run.kind}${end.evaluation ? `/${end.evaluation.kind === "valid" ? end.evaluation.evaluation.status : "invalid"}` : ""}`;
       it(label, () => {
         const from = goal({
           state,
@@ -515,32 +501,6 @@ describe("resuming a goal that ran out of budget while paused", () => {
       expect(decision.next.state).toEqual({ kind: "active" });
       expect(decision.next.budget.maxCycles).toBeGreaterThan(5);
       expect(reachedLimit(decision.next)).toBeUndefined();
-    }
-  });
-});
-
-describe("resuming a paused goal whose parked run used up the budget", () => {
-  /**
-   * The regression: the extension measured from recorded usage, which excludes the parked
-   * run's spend, so a 5M-token goal whose parked run had spent 5M was "extended" to 5M.
-   */
-  it("extends past what the parked run has spent, so the answer can go through", () => {
-    const paused = goal({
-      state: { kind: "paused" },
-      budget: { maxCycles: 5, maxTokens: 5_000_000, maxDurationMs: 60_000_000 },
-      usage: { cycles: 1, totalTokens: 0, activeDurationMs: 0, costKnown: true, costUSD: 0 },
-    });
-    const parked: LatestRun = {
-      state: {
-        kind: "input-required",
-        pending: { kind: "question", toolCallId: "call-1", question: "Which folder?" },
-      } as never,
-      spend: { totalTokens: 5_000_000, activeDurationMs: 1_000 },
-    };
-    const decision = decideResume(paused, parked);
-    expect(decision.kind).toBe("write");
-    if (decision.kind === "write") {
-      expect(remainingCaps(decision.next, parked.spend).kind).toBe("caps");
     }
   });
 });

@@ -56,8 +56,6 @@ export interface LoopBudget {
   readonly maxDurationMs: number;
   /** A dollar limit is enforced only when pricing is known. */
   readonly maxCostUSD?: number;
-  /** Iterations one run may take. */
-  readonly maxIterationsPerRun: number;
   /** When the loop ends on its own, as an ISO time. */
   readonly expiresAt?: string;
 }
@@ -71,7 +69,6 @@ export const DEFAULT_LOOP_BUDGET: LoopBudget = {
   maxTokens: 2_000_000,
   maxDurationMs: 2 * 60 * 60 * 1000,
   maxCostUSD: 5,
-  maxIterationsPerRun: 24,
 };
 
 export interface LoopUsage extends SpendTotals {
@@ -183,7 +180,6 @@ export const loopRecordSchema = z
       maxTokens: positiveInteger,
       maxDurationMs: positiveInteger,
       maxCostUSD: z.number().finite().positive().optional(),
-      maxIterationsPerRun: positiveInteger,
       expiresAt: isoTime.optional(),
     }),
     usage: z.object({

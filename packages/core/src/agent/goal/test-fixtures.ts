@@ -33,7 +33,7 @@ export function testGoal(overrides: Partial<GoalRecordInput> = {}): GoalRecordIn
     plan: testGoalPlan(),
     approvedPlanRevision: 1,
     state: { kind: "active" },
-    budget: { maxCycles: 5, maxTokens: 100_000, maxDurationMs: 600_000 },
+    budget: { maxCycles: 5 },
     usage: { cycles: 0, totalTokens: 0, activeDurationMs: 0, costKnown: false },
     createdAt: "2026-09-26T00:00:00.000Z",
     updatedAt: "2026-09-26T00:00:00.000Z",
