@@ -1,5 +1,5 @@
 ---
-description: "Send Jazz's unattended results, reminders, parked approvals, failures and spend-ceiling alerts to Telegram, Discord, a signed webhook, or the desktop, with retry and approve-from-chat."
+description: "Send unattended results, reminders, parked approvals, failures and spend alerts to Telegram, Discord, a signed webhook, or the desktop, with retry and approve-from-chat."
 ---
 
 # Notifications

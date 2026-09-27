@@ -56,6 +56,41 @@ const RECORD_PLACEHOLDERS: Readonly<Record<string, string>> = {
  * row: the test fails either way, so a new schema key cannot ship undocumented.
  */
 export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  "logging.retentionDays":
+    "Days log files are kept after their last write. Defaults to 14; one-shot firing logs are kept for one day.",
+  "logging.maxTotalSizeMB":
+    "Size cap for the logs directory in megabytes. Oldest files are removed first. Defaults to 200.",
+  "notifications.channels.<name>.type":
+    "Delivery transport for this named notification channel. See [Notifications](./notifications.md).",
+  "notifications.channels.<name>.events":
+    "Event subscriptions. Unset receives every subscribable event; workflow results go to the channels named by the workflow’s `deliver` field.",
+  "notifications.channels.<name>.chatId": "Telegram chat id to receive notifications.",
+  "notifications.channels.<name>.botToken":
+    "Telegram or Discord bot token. Stored in the keyring; an environment variable can supply it on hosts without a keyring.",
+  "notifications.channels.<name>.apiBaseUrl":
+    "Override the Telegram or Discord API base URL for bot delivery.",
+  "notifications.channels.<name>.approveFromChat":
+    "Include chat approval commands in parked-run notifications. Requires a running bridge with operators and `JAZZ_APPROVALS_HOME` configured. Defaults to false.",
+  "notifications.channels.<name>.webhookUrl":
+    "Discord incoming webhook URL, used instead of a bot token and channel id.",
+  "notifications.channels.<name>.channelId": "Discord channel id for delivery using a bot token.",
+  "notifications.channels.<name>.url": "Webhook endpoint receiving JSON notification deliveries.",
+  "notifications.channels.<name>.secret":
+    "Shared secret used to sign webhook deliveries with HMAC-SHA256. Required to send.",
+  "history.maxConversationsPerAgent":
+    "Conversations kept in each agent’s live history. Older conversations are archived, not deleted; active goal, loop and run conversations are protected. Defaults to 100.",
+  "spend.dayUSD":
+    "Machine-wide spend ceiling per local day, in dollars. Unset is unlimited. See [Budgets](../concepts/budgets.md#day-and-month-ceilings).",
+  "spend.monthUSD":
+    "Machine-wide priced-spend ceiling per local month, in dollars. Unset is unlimited.",
+  "spend.goals.dayUSD":
+    "Combined goal-cycle and loop-run spend ceiling per local day, in dollars. Unset is unlimited.",
+  "spend.goals.monthUSD":
+    "Combined goal-cycle and loop-run priced-spend ceiling per local month, in dollars. Unset is unlimited.",
+  "spend.agents.<name>.dayUSD":
+    "Spend ceiling for this agent id per local day, in dollars. Unset is unlimited.",
+  "spend.agents.<name>.monthUSD":
+    "Priced-spend ceiling for this agent id per local month, in dollars. Unset is unlimited.",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":
