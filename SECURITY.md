@@ -70,9 +70,11 @@ triage a non-issue than miss a real one.
 
 ## How Jazz protects you
 
-**Approval gating is the primary control.** 15 of the built-in tools do not act when the model
-calls them; they describe what they would do (including a real diff for edits) and wait for
-approval: from you, or from the policy tier on an unattended run. Mechanism and risk tiers:
+**Approval gating is the primary control.** 27 of the 51 built-in agent-facing tools are gated.
+11 of them come in approval pairs: they do not act when the model calls them; they describe
+what they would do (including a real diff for edits) and wait for approval, from you or from
+the policy tier on an unattended run. The other 16 are plain tools above `read-only`, which the
+executor holds until the same approval. Counts: [tool inventory](docs/tools/index.md). Mechanism and risk tiers:
 [Tools & approval](docs/maintainers/tool-lifecycle.md).
 
 **A shell command denylist** blocks 56 patterns before execution: privilege escalation
@@ -151,14 +153,21 @@ on the gate.
 
 | Tier            | Auto-approves                                                                      |
 | --------------- | ---------------------------------------------------------------------------------- |
-| unset / `false` | Interactive: read-only and low-risk, prompts for the rest. Unattended: **nothing** |
+| unset / `false` | **Nothing.** Interactive: prompts for every gated call. Unattended: declines them  |
 | `read-only`     | Reads, search, web requests, shell classified inspect-only                         |
 | `low-risk`      | + `manage_todos`, `update_work_state`, `spawn_subagent`, shell classified low-risk |
 | `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                               |
 
-Leaving the tier unset is the safe default on a webhook or a cron precisely because it
-grants nothing there: skipping a prompt is a convenience where a prompt was the
-alternative, and a widening of unsupervised authority where it was not.
+Leaving the tier unset is the safe default everywhere because it grants nothing: a workflow
+without `autoApprove`, `jazz run` without `--approval-policy`, and the interactive safe mode all
+ask (or decline) every gated call. An `autoApprove` value Jazz does not recognize is an error,
+never a tier. Opting into `high-risk` is always explicit: see
+[Running fully unattended](docs/security/approvals.md#running-fully-unattended-yolo).
+
+Every tool above `read-only` is gated, including plain tools without a proposal half
+(`create_pdf`, custom command tools, a non-`GET` `http_request`). An approval request is honored
+only from the tool registered to make it, so a tool (or an MCP server) cannot forge one to run
+another tool's execute half.
 
 `low-risk` is narrower than it sounds. It adds three tools. Email, calendar, and
 Obsidian are skills that shell out via `execute_command` (`unknown`), so prefer allowlisting

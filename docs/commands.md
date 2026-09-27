@@ -130,19 +130,19 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 
 ### `jazz workflow run` flags
 
-| Flag                     | Purpose                                                                       |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `--auto-approve`         | Apply the workflow's own `autoApprove:` policy instead of prompting           |
-| `--agent <agentId>`      | Override the agent for this run                                               |
-| `--max-iterations <n>`   | Override the workflow's iteration cap                                         |
-| `--max-cost-usd <$>`     | Override the workflow's spend cap                                             |
-| `--max-tokens <n>`       | Override the workflow's token cap                                             |
-| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)   |
-| `--json`                 | One JSON envelope on stdout; all chatter suppressed                           |
-| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)           |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors         |
-| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)      |
-| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron) |
+| Flag                     | Purpose                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `--auto-approve`         | Run without the agent picker at the workflow's own `autoApprove:` policy (unset is `false`) |
+| `--agent <agentId>`      | Override the agent for this run                                                             |
+| `--max-iterations <n>`   | Override the workflow's iteration cap                                                       |
+| `--max-cost-usd <$>`     | Override the workflow's spend cap                                                           |
+| `--max-tokens <n>`       | Override the workflow's token cap                                                           |
+| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)                 |
+| `--json`                 | One JSON envelope on stdout; all chatter suppressed                                         |
+| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                         |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
+| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
+| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
 
 ### Several schedules for one workflow
 
@@ -316,8 +316,7 @@ jazz goal cancel <goal>
 
 `--approval-policy` on `accept` and `start` is what the goal may run while you are away without
 asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
-approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
-wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
+approval. Without the flag nothing runs unasked, so every gated call waits for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
 daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
 
 `draft` prints the plan, or the questions it needs answered first, without creating anything.

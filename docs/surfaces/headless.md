@@ -263,9 +263,9 @@ around, rather than hanging forever on a prompt nobody will answer.
 | `low-risk`  | + work-state/todo writes, subagents, low-risk classified commands |
 | `high-risk` | + file writes, shell commands, git commit and push                |
 
-Omitting the policy really does grant nothing here. The interactive default auto-approves
-read-only and low-risk tools, but that is a statement about prompts it is not worth showing
-a person: with nobody to show, an absent policy falls back to declining everything. Shell
+Omitting the policy grants nothing, here and in the interactive terminal alike: with nobody to
+ask, every gated call is declined. To run everything unasked, pass `--approval-policy high-risk`
+explicitly (see [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo)). Shell
 commands under `read-only` and `low-risk` are admitted per command by the
 [classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
 `git log` through without also unlocking `git push`.

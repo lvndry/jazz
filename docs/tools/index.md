@@ -22,9 +22,9 @@ and [Security](../../SECURITY.md) for the threat model.
 | **Agent-facing tools**                                                  | **51** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
 | Total registered                                                        | 62     |
-| `read-only`                                                             | 25     |
-| `low-risk`                                                              | 15     |
-| `high-risk`                                                             | 8      |
+| `read-only`                                                             | 24     |
+| `low-risk`                                                              | 14     |
+| `high-risk`                                                             | 10     |
 | `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
@@ -39,9 +39,20 @@ Plus, registered per agent rather than globally:
 
 ## How approval pairs work
 
-Nine tools are **gated**: calling them does not act. They return a description of the
-intended action (including a preview diff for edits), and only after approval: from a human
-or from `--approval-policy`: does Jazz invoke the hidden `execute_*` counterpart.
+Every tool above `read-only` is **gated**: under a policy that does not clear its level it
+asks first, or is declined (or parked) when nobody can answer. With no policy, or
+`false`, nothing clears. Of the 51 agent-facing tools, 27 are gated: 11 approval pairs and 16
+plain tools (every `low-risk` tool, plus `create_pdf` and `http_request`).
+
+The 11 approval pairs split proposing from acting: calling one does not act. It returns a
+description of the intended action (including a preview diff for edits), and only after
+approval, from a human or from the policy, does Jazz invoke the hidden `execute_*`
+counterpart. A plain gated tool has no proposal half: the executor asks with its name, risk
+level, and arguments, and runs the tool itself once approved.
+
+Only the tool registered for an `execute_*` counterpart can ask for it. Any other tool output
+shaped like an approval request (an MCP server's reply, a fetched JSON document) is refused
+and nothing runs.
 
 ```mermaid
 flowchart LR
@@ -101,13 +112,12 @@ the request is where your material would actually leave.
 | yes   | `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
 Two more, absent above only because they are registered per agent rather than globally:
-`ask_peer`, whose whole purpose is to put your model's words in front of somebody else's
+`ask_peer` (`high-risk`), whose whole purpose is to put your model's words in front of somebody else's
 agent, and every MCP tool, whatever its transport: where a server outside this codebase
 carries the model's arguments is not knowable from here.
 
 This changes nothing in the terminal: approval tiers read the risk column, and a `read-only`
-tool that fetches a URL is still auto-approved under `--approval-policy read-only`, as it
-always was. It matters at exactly one door: a tool listed here is **never** granted to another
+tool that fetches a URL is still auto-approved under `--approval-policy read-only`. It matters at exactly one door: a tool listed here is **never** granted to another
 person's agent by a disclosure tier. It has to be named in that peer's `allow`, the same as a
 tool that writes to disk. See
 [Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
@@ -170,9 +180,9 @@ available through `jazz run` or remote chat surfaces.
 
 ### HTTP
 
-| Tool           | Risk        | Approval pair | What it does                                                                       |
-| -------------- | ----------- | ------------- | ---------------------------------------------------------------------------------- |
-| `http_request` | `read-only` | none          | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
+| Tool           | Risk        | Approval pair | What it does                                                                                                                      |
+| -------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `http_request` | `high-risk` | none          | Send HTTP requests. Supports all methods, headers, query params, and body formats. `GET` and `HEAD` calls are judged `read-only`. |
 
 ### Todo
 
@@ -332,10 +342,10 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
 The companion `composition` skill supplies the visual-design and HTML/CSS playbook.
 
-| Tool                 | Risk       | Approval pair | What it does                                                                                                                                                 |
-| -------------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_composition` | `low-risk` | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
-| `create_pdf`         | `low-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
+| Tool                 | Risk        | Approval pair | What it does                                                                                                                                                 |
+| -------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create_composition` | `low-risk`  | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
+| `create_pdf`         | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
 
@@ -374,7 +384,7 @@ see
 - **Following a file that is still being written**: `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file. `sinceByte` cannot be combined with `startLine`/`endLine`: except at `0`, which means "from the start of the file" and so narrows to the line range instead of being refused; models that fill every optional number in a schema with `0` send exactly that shape, and rejecting it cost a round trip to learn nothing.
 - **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
 - **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
-- **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
+- **`http_request` is judged per call**: `GET` and `HEAD` are `read-only`; every other method is `high-risk` and gated. It reaches whatever URL the agent targets, private networks included. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts**: 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept: asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
 - **Concurrency**: up to 10 tools execute in parallel per iteration.
 - **`create_pdf` needs a browser too**: it uses the same `puppeteer-core` path as `create_composition`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike compositions, which live under `~/.jazz/compositions/<session-id>/`.

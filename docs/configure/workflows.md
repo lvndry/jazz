@@ -39,7 +39,7 @@ maxDurationMs: 1800000
 | `description`      | string      | ✅       | One-line summary shown in `jazz workflow list`                                                                                                            |
 | `agent`            | string      | no       | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
 | `schedule`         | cron string | no       | When to run. Default frequency for `jazz workflow schedule`; `--cron` installs another beside it                                                          |
-| `autoApprove`      | see below   | no       | Autonomy tier for unattended runs                                                                                                                         |
+| `autoApprove`      | see below   | no       | Approval policy for every run of this workflow. Unset means `false`                                                                                       |
 | `skills`           | string[]    | no       | Skills to make available to the agent for this workflow                                                                                                   |
 | `catchUpOnRestart` | boolean     | no       | Whether a recent missed run may be replayed after daemon restart                                                                                          |
 | `maxCatchUpAge`    | seconds     | no       | Past this age a missed run is skipped. Default 86400 (24 h)                                                                                               |
@@ -60,17 +60,39 @@ See [the note below](#the-low-risk-trap).
 
 ## `autoApprove`
 
-Accepts a boolean or a tier string.
+Accepts exactly one of `false`, `read-only`, `low-risk`, `high-risk` or `true`, with `true` and
+`false` unquoted. Leaving it out means `false`.
 
-| Value       | Auto-approves                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------- |
-| `false`     | Nothing. A gated tool is declined and the agent can continue or report the limitation       |
-| `read-only` | Reads, search, web requests, `git status`/`log`/`diff`/`blame`/`branch`                     |
-| `low-risk`  | + work-state/todo writes, subagents, and shell commands classified low-risk                 |
-| `high-risk` | + every gated tool: `write_file`, `edit_file`, `rm`, `mv`, `cp`, `mkdir`, `execute_command` |
-| `true`      | Same as `high-risk`                                                                         |
+Any other value (`readonly`, `Read-Only`, `low_risk`, a quoted `"false"`, `yolo`) is an error,
+not a guess. `jazz workflow list` and `jazz workflow show` print the reason, and the workflow
+refuses to run, to be scheduled, or to be installed from the library until it is fixed.
+
+The same policy applies to every way a workflow runs: its schedule, catch-up after a restart,
+`jazz workflow run --auto-approve`, and a plain `jazz workflow run`, where anything the policy
+does not clear asks you first.
+
+| Value       | Auto-approves                                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| `false`     | Nothing, and so does leaving it out. A gated tool is declined and the agent can continue or report the limitation |
+| `read-only` | Reads, search, web requests, `git status`/`log`/`diff`/`blame`/`branch`                                           |
+| `low-risk`  | + work-state/todo writes, subagents, and shell commands classified low-risk                                       |
+| `high-risk` | + every gated tool: `write_file`, `edit_file`, `rm`, `mv`, `cp`, `mkdir`, `execute_command`                       |
+| `true`      | Same as `high-risk`                                                                                               |
 
 Exact per-tool tiers: [tool inventory](../tools/index.md).
+
+### Running a workflow fully unattended (yolo)
+
+To let a workflow run every tool without asking, write it out:
+
+```yaml
+autoApprove: high-risk # or true
+```
+
+That is the whole opt-in; there is no default that grants it. Read
+[Running fully unattended](../security/approvals.md#running-fully-unattended-yolo) first, and
+prefer the narrower tier plus an `autoApprovedCommands` entry when one command is all the
+workflow needs.
 
 ---
 
@@ -106,8 +128,9 @@ Rarely what you want on a schedule.
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-Matching is on a parsed key (binary + first subcommand), never a raw prefix, so `himalaya`
-is allowed while `himalaya && rm -rf /` is not. See
+Matching is on a key parsed the way the shell reads the command (the binary, plus the next
+word when it is not a flag), never a raw prefix, so `himalaya` is allowed while
+`himalaya && rm -rf /` is not. See
 [Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
 
 ---
