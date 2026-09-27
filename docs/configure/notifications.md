@@ -1,5 +1,5 @@
 ---
-description: "Send what needs you, daemon pauses, unattended results and failures, reminders, and spend-cap alerts to the desktop, ntfy, a signed webhook, Telegram or Discord, with retry and approve-from-chat."
+description: "Send approvals, daemon pauses, results, failures, reminders and spend alerts to the desktop, ntfy, webhooks, Telegram or Discord, with retries and chat approvals."
 ---
 
 # Notifications
