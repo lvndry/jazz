@@ -24,6 +24,7 @@ import {
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
+import { inboundCommandProvenance } from "./inbound-commands";
 
 /**
  * Custom-tool registration module
@@ -265,7 +266,12 @@ function buildCommandTool(
             return { success: false, result: null, error: message };
           }
 
-          return { success: true, result: outcome.stdout };
+          const untrusted = inboundCommandProvenance(definition.name, commandArgv);
+          return {
+            success: true,
+            result: outcome.stdout,
+            ...(untrusted !== undefined ? { untrusted } : {}),
+          };
         }),
     }),
     sourceCustomToolDefinition: definition,

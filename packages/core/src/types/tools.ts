@@ -150,6 +150,32 @@ export interface ToolCallResult {
   content: string;
 }
 
+/**
+ * Where untrusted text in a tool result came from, as declared by the tool that produced it.
+ *
+ * `external` is content from off this machine or from another party (web pages, API responses,
+ * MCP servers, mail, peers). `local-file` is a file outside the run's working directory: framed
+ * because anybody may have written it, but it does not change what the run may send.
+ */
+export interface UntrustedProvenance {
+  readonly kind: "external" | "local-file";
+  /** Short, human-readable origin, e.g. `web_fetch https://example.com/post`. */
+  readonly source: string;
+  /** Replaces the default reminder after the content. */
+  readonly reminder?: string;
+}
+
+/**
+ * Whether a run has read external untrusted content. One object is shared by a run and every
+ * sub-agent it spawns, so taint flows both ways across the tree (see `egress-taint.ts`).
+ */
+export interface EgressTaint {
+  readonly isTainted: () => boolean;
+  /** The sources that marked the run, oldest first, for approval messages. */
+  readonly sources: () => readonly string[];
+  readonly mark: (source: string) => void;
+}
+
 export interface ToolExecutionResult {
   readonly success: boolean;
   readonly result: unknown;
@@ -163,6 +189,11 @@ export interface ToolExecutionResult {
   readonly artifacts?: readonly GeneratedArtifact[];
   /** A memory entry this call showed the model, declared by the producer for the same reason. */
   readonly memoryExposure?: MemoryExposure;
+  /**
+   * Set when the result carries text from a party other than the user. The agent loop wraps the
+   * result in the untrusted envelope, and `external` provenance marks the run's `EgressTaint`.
+   */
+  readonly untrusted?: UntrustedProvenance;
 }
 
 /**
@@ -340,6 +371,11 @@ export interface ToolExecutionContext {
   >;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
+  /**
+   * Whether this run has read external untrusted content. Egress tools stop auto-approving
+   * below `high-risk` once it is marked. Shared with sub-agents by reference.
+   */
+  readonly egressTaint?: EgressTaint;
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *

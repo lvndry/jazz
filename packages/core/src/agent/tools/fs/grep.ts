@@ -4,6 +4,12 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
+import {
+  createSecretResultFilter,
+  loadSecretPathRules,
+  secretPathReason,
+  secretPathRefusal,
+} from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES, type CollectedProcessOutput } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
@@ -372,6 +378,17 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return yield* Effect.fail(new Error(`Path does not exist: ${start}`));
         }
 
+        const secretRules = loadSecretPathRules();
+        const startSecretReason = secretPathReason(start, secretRules);
+        if (startSecretReason !== undefined) {
+          return {
+            success: false,
+            result: null,
+            error: secretPathRefusal(args.path ?? start, startSecretReason),
+          };
+        }
+        const isSecretResult = createSecretResultFilter(start, secretRules);
+
         const isFile = stat.type === "File";
         const isDirectory = stat.type === "Directory";
         let workingDir: string;
@@ -455,7 +472,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         // Handle output modes
         if (outputMode === "files") {
-          const files = parseFilesOutput(result.stdout, maxResults);
+          const files = parseFilesOutput(result.stdout, maxResults).filter(
+            (file) => !isSecretResult(file),
+          );
           return {
             success: true,
             result: {
@@ -477,7 +496,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         if (outputMode === "count") {
-          const counts = parseCountOutput(result.stdout, maxResults);
+          const counts = parseCountOutput(result.stdout, maxResults).filter(
+            (entry) => !isSecretResult(entry.file),
+          );
           return {
             success: true,
             result: {
@@ -503,7 +524,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           result.stdout,
           maxResults,
           typeof args.contextLines === "number" && args.contextLines > 0,
-        );
+        ).filter((match) => !isSecretResult(match.file));
         return {
           success: true,
           result: {

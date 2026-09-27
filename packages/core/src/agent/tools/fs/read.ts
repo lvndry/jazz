@@ -18,7 +18,7 @@ import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { attachMediaFile } from "./attach-media";
 import { fileSnapshot } from "./file-snapshot";
-import { resolveReadableFile, stripUtf8Bom } from "./read-common";
+import { localFileProvenance, resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 const DEFAULT_MAX_CHARS = 131_072;
 const HARD_MAX_CHARS = 524_288;
@@ -296,6 +296,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         const mediaOutcome = yield* Effect.promise(() => attachMediaFile(filePathResult, context));
         if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
+        const untrusted = yield* localFileProvenance(filePathResult, "read_file", context);
+        const provenance = untrusted !== undefined ? { untrusted } : {};
+
         try {
           if (isIncrementalRead(args)) {
             const incremental = yield* Effect.promise(() =>
@@ -325,6 +328,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
                 inode: incremental.inode,
                 ...(incremental.reset !== undefined ? { reset: incremental.reset } : {}),
               },
+              ...provenance,
             };
           }
 
@@ -365,6 +369,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
                   ? undefined
                   : { startLine: range.startLine, endLine: Math.max(range.startLine, rangeEnd) },
             },
+            ...provenance,
           };
         } catch (error) {
           return {

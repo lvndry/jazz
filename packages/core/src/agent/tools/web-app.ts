@@ -11,6 +11,8 @@ import { getUserDataDirectory } from "@/core/utils/paths";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
+import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
+import { guardPageRequests } from "./guarded-page";
 
 /**
  * Lets the agent compose a polished visual artifact — not just charts, any
@@ -161,6 +163,7 @@ async function renderStaticScreenshot(
   width: number,
   height: number,
   executablePath: string,
+  policy: EgressPolicy,
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -173,6 +176,7 @@ async function renderStaticScreenshot(
   try {
     const page = await browser.newPage();
     await page.setViewport({ width, height });
+    await guardPageRequests(page, htmlPath, policy);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.screenshot({ path: pngPath, fullPage: true });
   } finally {
@@ -251,7 +255,15 @@ export function createCompositionTool(
         }
 
         yield* Effect.tryPromise({
-          try: () => renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath),
+          try: () =>
+            renderStaticScreenshot(
+              htmlPath,
+              pngPath,
+              width,
+              height,
+              executablePath,
+              egressPolicyForContext(context),
+            ),
           catch: (error) => new Error(`Failed to render static web app: ${toError(error).message}`),
         });
 

@@ -250,6 +250,7 @@ function executeMCPTool(
     return {
       success: true,
       result: result.structuredContent ?? result.content ?? null,
+      untrusted: { kind: "external", source: `MCP server ${serverName}, tool ${toolName}` },
     };
   });
 }
@@ -415,6 +416,7 @@ export function buildResourceTools(
                 }
               : {}),
           },
+          untrusted: { kind: "external", source: `MCP server ${serverName} resource list` },
         };
       }),
   });
@@ -456,6 +458,7 @@ export function buildResourceTools(
             rendered.length > RESOURCE_READ_CHAR_LIMIT
               ? `${rendered.slice(0, RESOURCE_READ_CHAR_LIMIT)}\n\n[truncated — resource is ${rendered.length} characters, showing the first ${RESOURCE_READ_CHAR_LIMIT}]`
               : rendered,
+          untrusted: { kind: "external", source: `MCP server ${serverName} resource ${uri}` },
         };
       }),
   });

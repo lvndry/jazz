@@ -1,11 +1,13 @@
 /**
  * Shared path resolution and PDF loading for filesystem read tools.
  */
+import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
+import type { ToolExecutionContext, ToolExecutionResult, UntrustedProvenance } from "@/core/types";
 import { toError } from "@/core/utils/errors";
+import { secretPathReason, secretPathRefusal } from "@/core/utils/secret-paths";
 import { buildKeyFromContext } from "../context-utils";
 
 export type FsToolDeps = FileSystem.FileSystem | FileSystemContextService;
@@ -62,6 +64,18 @@ export function resolveReadableFile(
       };
     }
 
+    const secretReason = secretPathReason(filePath);
+    if (secretReason !== undefined) {
+      return {
+        kind: "failure",
+        result: {
+          success: false,
+          result: null,
+          error: secretPathRefusal(requestedPath, secretReason),
+        },
+      };
+    }
+
     if (stat.right.type === "Directory") {
       return {
         kind: "failure",
@@ -75,6 +89,32 @@ export function resolveReadableFile(
 
     return { kind: "file", path: filePath };
   });
+}
+
+/**
+ * `local-file` provenance for a file outside the run's working directory, so the loop frames
+ * it as content somebody else may have written. Undefined for a file inside it.
+ */
+export function localFileProvenance(
+  filePath: string,
+  toolName: string,
+  context: ToolExecutionContext,
+): Effect.Effect<UntrustedProvenance | undefined, never, FileSystemContextService> {
+  return Effect.gen(function* () {
+    const shell = yield* FileSystemContextServiceTag;
+    const workingDirectory = yield* shell
+      .getCwd(buildKeyFromContext(context))
+      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (workingDirectory !== undefined && isWithinDirectory(filePath, workingDirectory)) {
+      return undefined;
+    }
+    return { kind: "local-file", source: `${toolName} ${filePath}` };
+  });
+}
+
+function isWithinDirectory(candidate: string, directory: string): boolean {
+  const relative = path.relative(path.resolve(directory), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function stripUtf8Bom(content: string): string {

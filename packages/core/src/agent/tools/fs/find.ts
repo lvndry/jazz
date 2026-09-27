@@ -6,6 +6,11 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
+import {
+  loadSecretPathRules,
+  secretPathReason,
+  secretPathRefusal,
+} from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
@@ -536,8 +541,17 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         const searchPaths: string[] = [];
 
+        const secretRules = loadSecretPathRules();
         if (args.path) {
           const start = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+          const startSecretReason = secretPathReason(start, secretRules);
+          if (startSecretReason !== undefined) {
+            return {
+              success: false,
+              result: null,
+              error: secretPathRefusal(args.path, startSecretReason),
+            };
+          }
           searchPaths.push(start);
         } else if (useSmart) {
           const home = process.env["HOME"] || "";
@@ -604,11 +618,14 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             return true;
           });
 
-          const finalResults = allExtResults.slice(0, maxResults).map(({ path, name, type }) => ({
-            path,
-            name,
-            type,
-          }));
+          const finalResults = allExtResults
+            .filter((entry) => secretRules.reasonFor(entry.path) === undefined)
+            .slice(0, maxResults)
+            .map(({ path, name, type }) => ({
+              path,
+              name,
+              type,
+            }));
 
           return {
             success: true,
@@ -621,11 +638,14 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         // -----------------------------------------------------------------
         const allResults = yield* searchWithGlob(args, searchPaths, maxResults, maxDepth, fs);
 
-        const finalResults = allResults.slice(0, maxResults).map(({ path, name, type }) => ({
-          path,
-          name,
-          type,
-        }));
+        const finalResults = allResults
+          .filter((entry) => secretRules.reasonFor(entry.path) === undefined)
+          .slice(0, maxResults)
+          .map(({ path, name, type }) => ({
+            path,
+            name,
+            type,
+          }));
 
         return {
           success: true,

@@ -356,6 +356,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               ? { toolAllowlist: [...context.effectiveToolNames] }
               : {}),
             subagentDepth: currentDepth + 1,
+            ...(context.egressTaint ? { egressTaint: context.egressTaint } : {}),
             ...(context.getAutoApprovePolicy
               ? { autoApprovePolicy: context.getAutoApprovePolicy }
               : {}),

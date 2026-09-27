@@ -6,7 +6,7 @@ import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
-import type { ToolProgressEvent } from "@/core/types/tools";
+import type { EgressTaint, ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
   AutoApprovePolicy,
@@ -228,6 +228,11 @@ export interface AgentRunnerOptions {
   readonly pendingToolCalls?: readonly ToolCall[];
   /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
+  /**
+   * The parent run's taint, handed to a sub-agent so both share one verdict on whether
+   * external untrusted content has entered the run. Unset starts a fresh one from history.
+   */
+  readonly egressTaint?: EgressTaint;
   /**
    * Callback invoked when the user chooses "always approve" for a specific tool
    * from the approval prompt.

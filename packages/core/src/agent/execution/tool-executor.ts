@@ -24,17 +24,21 @@ import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types
 import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
+  type ApprovalOutcome,
   isApprovalRequiredResult,
   shouldAutoApprove,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
   type ToolRiskLevel,
+  type UntrustedProvenance,
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
+import { taintedEgressApprovalMessage, taintedEgressNeedsApproval } from "./egress-taint";
 import {
   emitToolInvocation,
   recordToolError,
@@ -187,6 +191,79 @@ export class ToolExecutor {
   }
 
   /**
+   * Put a tool without an approval half to a person when the run is tainted and the tool is
+   * egress (see `egress-taint.ts`).
+   *
+   * Undefined when the call needs no one. Otherwise the outcome: an answer given before a park
+   * when resuming, or whatever the presentation returns (a prompt where somebody can answer, a
+   * decline where nobody can; parking was already decided for the whole batch before anything
+   * ran).
+   */
+  static confirmTaintedEgress(
+    toolCallId: string,
+    name: string,
+    args: Record<string, unknown>,
+    toolMeta: { readonly egress: boolean; readonly riskLevel: ToolRiskLevel },
+    context: ToolExecutionContext,
+    renderer: StreamingRenderer | null,
+  ): Effect.Effect<ApprovalOutcome | undefined, never, PresentationService | LoggerService> {
+    return Effect.gen(function* () {
+      const taint = context.egressTaint;
+      if (
+        taint === undefined ||
+        !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context)
+      ) {
+        return undefined;
+      }
+      const presentationService = yield* PresentationServiceTag;
+      const logger = yield* LoggerServiceTag;
+      const message = taintedEgressApprovalMessage(name, args, taint);
+      const policy = context.getAutoApprovePolicy?.();
+
+      yield* logger.info("Egress tool needs approval: the run has read untrusted content", {
+        toolCallId,
+        autoApprovePolicy: policy,
+      });
+      context.onToolEvent?.({ kind: "approval-required", toolName: name, toolCallId });
+      if (renderer) {
+        yield* renderer.handleEvent({
+          type: "approval_required",
+          toolCallId,
+          toolName: name,
+          message,
+          riskLevel: toolMeta.riskLevel,
+          ...(policy !== undefined ? { autoApprovePolicy: String(policy) } : {}),
+        });
+      }
+
+      const outcome =
+        context.resolvedApprovals?.get(toolCallId) ??
+        (yield* presentationService.requestApproval({
+          toolCallId,
+          toolName: name,
+          message,
+          executeToolName: name,
+          executeArgs: args,
+          isAutoApproved: () => !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context),
+        }));
+
+      if (renderer) {
+        yield* renderer.handleEvent({
+          type: "approval_resolved",
+          toolCallId,
+          toolName: name,
+          approved: outcome.approved,
+          auto: false,
+        });
+      }
+      if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
+        context.onAutoApproveTool(outcome.alwaysApproveTool);
+      }
+      return outcome;
+    });
+  }
+
+  /**
    * Execute a single tool call and return result
    */
   static executeToolCall(
@@ -306,13 +383,28 @@ export class ToolExecutor {
           }
         }
 
+        const taintVerdict =
+          toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
+            ? yield* ToolExecutor.confirmTaintedEgress(
+                toolCall.id,
+                name,
+                args,
+                toolMeta,
+                context,
+                renderer,
+              )
+            : undefined;
+
         // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
-        let result = yield* ToolExecutor.executeTool(
-          name,
-          args,
-          { ...context, toolCallId: toolCall.id },
-          toolMeta?.timeoutMs,
-        );
+        let result =
+          taintVerdict !== undefined && !taintVerdict.approved
+            ? rejectedToolResult(taintVerdict.userMessage)
+            : yield* ToolExecutor.executeTool(
+                name,
+                args,
+                { ...context, toolCallId: toolCall.id },
+                toolMeta?.timeoutMs,
+              );
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
         let classifiedRisk: ToolRiskLevel | undefined;
@@ -376,10 +468,20 @@ export class ToolExecutor {
             riskLevel = classifiedRisk;
           }
 
+          const taintGated = () =>
+            taintedEgressNeedsApproval({
+              toolName: name,
+              egress: "egress" in toolInfo && toolInfo.egress,
+              args: approvalResult.executeArgs,
+              policy: getCurrentPolicy(),
+              taint: context.egressTaint,
+              messages: context.conversationMessages,
+            });
+
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
+            (shouldAutoApprove(riskLevel, getCurrentPolicy()) && !taintGated()) ||
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
@@ -439,10 +541,14 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
+          const approvalMessage =
+            !isAutoApproved && context.egressTaint !== undefined && taintGated()
+              ? `${approvalResult.message}\n\n${taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)}`
+              : approvalResult.message;
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
-            message: approvalResult.message,
+            message: approvalMessage,
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
@@ -563,18 +669,9 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
             });
 
-            const rejectionMessage =
-              (outcome as { approved: false; userMessage?: string }).userMessage?.trim() ||
-              "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.";
-
-            result = {
-              success: false,
-              result: {
-                rejected: true,
-                message: rejectionMessage,
-              },
-              error: "User rejected the operation",
-            };
+            result = rejectedToolResult(
+              (outcome as { approved: false; userMessage?: string }).userMessage,
+            );
           }
         }
 
@@ -638,6 +735,9 @@ export class ToolExecutor {
         const finalResult = result.success
           ? result.result
           : { error: result.error ?? "Tool execution failed", result: result.result };
+        if (result.untrusted?.kind === "external") {
+          context.egressTaint?.mark(result.untrusted.source);
+        }
         return {
           toolCallId: toolCall.id,
           result: finalResult,
@@ -646,6 +746,7 @@ export class ToolExecutor {
           ...(result.success && result.memoryExposure !== undefined
             ? { memoryExposure: result.memoryExposure }
             : {}),
+          ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -810,7 +911,6 @@ export class ToolExecutor {
         let firstRequest: Parameters<typeof presentationService.requestApproval>[0] | undefined;
         for (const toolCall of toolCalls) {
           const name = toolCall.function.name;
-          if (!approvalSet.has(name)) continue;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
           let args: Record<string, unknown> = {};
@@ -821,6 +921,31 @@ export class ToolExecutor {
             }
           } catch {
             // Unparseable arguments are the per-call path's error to report, not this one's.
+            continue;
+          }
+
+          if (!approvalSet.has(name)) {
+            const plainTool = yield* registry
+              .getTool(name)
+              .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            if (
+              plainTool === undefined ||
+              context.egressTaint === undefined ||
+              !plainToolNeedsTaintApproval(name, args, plainTool.egress, context)
+            ) {
+              continue;
+            }
+            needsAnswering.push(toolCall);
+            if (needsAnswering.length === 1) {
+              firstRequest = {
+                toolCallId: toolCall.id,
+                toolName: name,
+                message: taintedEgressApprovalMessage(name, args, context.egressTaint),
+                executeToolName: name,
+                executeArgs: args,
+                isAutoApproved: () => false,
+              };
+            }
             continue;
           }
           // Side-effect free for an approval tool: this is the call that builds the request.
@@ -855,7 +980,15 @@ export class ToolExecutor {
             preclassifiedRisk.set(toolCall.id, riskLevel);
           }
 
-          if (shouldAutoApprove(riskLevel, policy) || allowlisted) {
+          const taintGated = taintedEgressNeedsApproval({
+            toolName: name,
+            egress: "egress" in toolInfo && toolInfo.egress,
+            args: request.executeArgs,
+            policy,
+            taint: context.egressTaint,
+            messages: context.conversationMessages,
+          });
+          if ((shouldAutoApprove(riskLevel, policy) && !taintGated) || allowlisted) {
             continue;
           }
 
@@ -1031,6 +1164,8 @@ export interface ToolCallOutcome {
   readonly name: string;
   /** Carried from the tool's own result so the loop never re-derives it by tool name. */
   readonly memoryExposure?: MemoryExposure;
+  /** Carried from the tool's own result; the loop frames the result it appends. */
+  readonly untrusted?: UntrustedProvenance;
 }
 
 /**
@@ -1112,7 +1247,9 @@ function detachInFlightToolCalls(
 function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
   const body = typeof outcome.result === "string" ? outcome.result : JSON.stringify(outcome.result);
   const truncated = body.length > 800 ? `${body.slice(0, 800)}…` : body;
-  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${truncated}`;
+  const shown =
+    outcome.untrusted === undefined ? truncated : frameUntrusted(truncated, outcome.untrusted);
+  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${shown}`;
 }
 
 /**
@@ -1149,4 +1286,41 @@ function isToolNameAutoApproved(
 ): boolean {
   if (!approvedTools?.length) return false;
   return approvedTools.includes(toolName);
+}
+
+/** What a declined call returns to the model, with the person's own words when they gave some. */
+function rejectedToolResult(userMessage: string | undefined): ToolExecutionResult {
+  return {
+    success: false,
+    result: {
+      rejected: true,
+      message:
+        userMessage?.trim() ||
+        "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.",
+    },
+    error: "User rejected the operation",
+  };
+}
+
+/**
+ * Whether a tool without an approval half must be put to a person before it runs, because the
+ * run is tainted and it is egress. An explicit per-tool allowlist entry still approves it.
+ */
+function plainToolNeedsTaintApproval(
+  name: string,
+  args: Record<string, unknown>,
+  egress: boolean,
+  context: ToolExecutionContext,
+): boolean {
+  return (
+    !isToolNameAutoApproved(name, context.autoApprovedTools) &&
+    taintedEgressNeedsApproval({
+      toolName: name,
+      egress,
+      args,
+      policy: context.getAutoApprovePolicy?.(),
+      taint: context.egressTaint,
+      messages: context.conversationMessages,
+    })
+  );
 }

@@ -24,6 +24,7 @@ import {
   formatCappedStream,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
+import { inboundCommandProvenance } from "./inbound-commands";
 
 /**
  * Format a timeout duration for the approval prompt. Unlike `formatDuration`
@@ -692,7 +693,8 @@ This command will be executed on your system. Only approve commands you trust.`;
         const shell = yield* FileSystemContextServiceTag;
         const logger = yield* LoggerServiceTag;
 
-        // Resolve and validate working directory (prevents path traversal attacks)
+        // Resolve the working directory against this conversation's cwd. Any existing
+        // directory is accepted, absolute paths included: this is not a confinement boundary.
         const key = buildKeyFromContext(context);
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
@@ -764,6 +766,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             stderrChars: result.stderr.length,
           });
 
+          const untrusted = inboundCommandProvenance("execute_command", command);
           return {
             success: true,
             result: {
@@ -774,6 +777,7 @@ This command will be executed on your system. Only approve commands you trust.`;
               stderr: result.stderr,
               success: result.exitCode === 0,
             },
+            ...(untrusted !== undefined ? { untrusted } : {}),
           };
         } catch (error) {
           const errorMessage = toError(error).message;

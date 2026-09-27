@@ -10,6 +10,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { egressPolicyForContext, guardedFetch, readBodyWithinBudget } from "./guarded-fetch";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 
@@ -71,11 +72,16 @@ interface HttpRequestResult {
     readonly responseType: ResponseType;
   };
   readonly response: {
+    /** Where the response came from, when redirects led somewhere other than `request.url`. */
+    readonly url?: string;
     readonly status: number;
     readonly statusText: string;
     readonly headers: Record<string, string>;
+    /** Until response headers arrived. */
     readonly elapsedMs: number;
+    /** Body bytes read, at most `maxResponseBytes`. */
     readonly size: number;
+    /** The body was longer than `maxResponseBytes`; the rest was never read. */
     readonly truncated: boolean;
     readonly body: HttpResponseBody;
   };
@@ -237,7 +243,7 @@ function prepareRequestBody(
   headerMap: Map<string, HeaderEntry>,
 ):
   | {
-      readonly initBody?: BodyInit | null;
+      readonly initBody?: string;
       readonly summary?: { readonly type: HttpBody["type"]; readonly value: unknown };
     }
   | { readonly error: string } {
@@ -317,19 +323,6 @@ function formatQuery(
   return formatted;
 }
 
-function truncateBytes(
-  buffer: Uint8Array,
-  maxBytes: number,
-): { bytes: Uint8Array; truncated: boolean } {
-  if (buffer.byteLength <= maxBytes) {
-    return { bytes: buffer, truncated: false };
-  }
-  return {
-    bytes: buffer.subarray(0, maxBytes),
-    truncated: true,
-  };
-}
-
 function parseJsonBody(text: string): { data: unknown; error?: string } {
   if (text.trim().length === 0) {
     return { data: null };
@@ -351,11 +344,11 @@ export function createHttpRequestTool(): Tool<never> {
     // tool from a disclosure tier alone.
     egress: true,
     description:
-      "Call an HTTP API. JSON responses are parsed, media comes back as base64, anything else as text. It can reach private networks. To read an article, use web_fetch.",
+      "Call an HTTP API on a public host, or on a private host listed in the agent's network.allowPrivateHosts. JSON responses are parsed, media comes back as base64, anything else as text. To read an article, use web_fetch.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: makeZodValidator(HttpRequestSchema),
-    handler: (args: HttpRequestArgs, _context: ToolExecutionContext) =>
+    handler: (args: HttpRequestArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const method = args.method;
 
@@ -419,44 +412,46 @@ export function createHttpRequestTool(): Tool<never> {
         const followRedirects = args.followRedirects ?? true;
         const maxResponseBytes = args.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
 
+        const requestHeaders = mapToRecord(headerMap);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
           controller.abort();
         }, timeoutMs);
-
-        const requestHeaders = mapToRecord(headerMap);
-        const requestInit: RequestInit = {
-          method,
-          headers: requestHeaders,
-          body: preparedBody.initBody ?? null,
-          redirect: followRedirects ? "follow" : "manual",
-          signal: controller.signal,
-        };
-
         const start = Date.now();
 
-        const response = yield* Effect.tryPromise({
-          try: () => fetch(urlInstance.toString(), requestInit),
+        const exchange = yield* Effect.tryPromise({
+          try: async () => {
+            const guarded = await guardedFetch(urlInstance.toString(), {
+              ...egressPolicyForContext(context),
+              method,
+              headers: requestHeaders,
+              body: preparedBody.initBody ?? null,
+              followRedirects,
+              signal: controller.signal,
+            });
+            const headersReceivedMs = Date.now() - start;
+            const read = await readBodyWithinBudget(guarded.response, maxResponseBytes);
+            return { ...guarded, read, headersReceivedMs };
+          },
           catch: (error) =>
             error instanceof Error ? error : new Error(`HTTP request failed: ${String(error)}`),
-        }).pipe(
-          Effect.catchAll((error: Error) =>
-            Effect.succeed({
-              success: false,
-              result: null,
-              error:
-                error.name === "AbortError"
-                  ? `Request timed out after ${timeoutMs}ms.`
-                  : error.message,
-            } satisfies ToolExecutionResult),
-          ),
-        );
+        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeoutId))), Effect.either);
 
-        clearTimeout(timeoutId);
-
-        if ("success" in response) {
-          return response;
+        if (exchange._tag === "Left") {
+          const error = exchange.left;
+          return {
+            success: false,
+            result: null,
+            error:
+              error.name === "AbortError"
+                ? `Request timed out after ${timeoutMs}ms.`
+                : error.message,
+          } satisfies ToolExecutionResult;
         }
+
+        const { response, read } = exchange.right;
+        const finalUrl = exchange.right.url;
+        const elapsedMs = exchange.right.headersReceivedMs;
 
         const effectiveResponseType: ResponseType = (() => {
           const contentType = response.headers.get("content-type")?.toLowerCase() || "";
@@ -473,31 +468,8 @@ export function createHttpRequestTool(): Tool<never> {
           return "text";
         })();
 
-        const elapsedMs = Date.now() - start;
-
-        const rawArrayBuffer = yield* Effect.tryPromise({
-          try: () => response.arrayBuffer(),
-          catch: (error) =>
-            error instanceof Error
-              ? error
-              : new Error(`Failed to read response body: ${String(error)}`),
-        }).pipe(
-          Effect.catchAll((error: Error) =>
-            Effect.succeed({
-              success: false,
-              result: null,
-              error: error.message,
-            } satisfies ToolExecutionResult),
-          ),
-        );
-
-        if ("success" in rawArrayBuffer) {
-          return rawArrayBuffer;
-        }
-
-        const fullBytes = new Uint8Array(rawArrayBuffer);
-        const { bytes, truncated } = truncateBytes(fullBytes, maxResponseBytes);
-        const byteLength = fullBytes.byteLength;
+        const { bytes, truncated } = read;
+        const byteLength = bytes.byteLength;
         const decoder = new TextDecoder("utf-8", { fatal: false });
         const bodyText = decoder.decode(bytes);
 
@@ -573,6 +545,7 @@ export function createHttpRequestTool(): Tool<never> {
             responseType: effectiveResponseType,
           },
           response: {
+            ...(finalUrl !== urlInstance.toString() ? { url: finalUrl } : {}),
             status: response.status,
             statusText: response.statusText,
             headers: responseHeadersRecord,
@@ -586,6 +559,7 @@ export function createHttpRequestTool(): Tool<never> {
         return {
           success: true,
           result,
+          untrusted: { kind: "external", source: `http_request ${method} ${finalUrl}` },
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {
