@@ -9,6 +9,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { getUserDataDirectory } from "@/core/utils/paths";
 import { isOfflineMode } from "@/core/utils/runtime";
@@ -329,6 +330,33 @@ export function getMetadataFromMap(
   modelId: string,
   providerId?: string,
   options: { readonly anyProvider?: boolean } = {},
+): ModelsDevMetadata | undefined {
+  const meta = findMetadata(map, modelId, providerId, options);
+  return meta !== undefined && providerId !== undefined && isZeroCostLocalModel(providerId, modelId)
+    ? freeToRun(meta)
+    : meta;
+}
+
+/**
+ * A model served on this machine costs nothing, whatever a hosted listing of the same model
+ * charges: its entry keeps its context window and capabilities, but its prices are zero.
+ * Matching `gemma4:12b` served by Ollama against a cloud host's `gemma4` otherwise billed
+ * local runs at the host's rate.
+ */
+function freeToRun(meta: ModelsDevMetadata): ModelsDevMetadata {
+  return {
+    ...meta,
+    inputPricePerMillion: 0,
+    outputPricePerMillion: 0,
+    cacheReadPricePerMillion: 0,
+  };
+}
+
+function findMetadata(
+  map: Map<string, ModelsDevMetadata> | null,
+  modelId: string,
+  providerId: string | undefined,
+  options: { readonly anyProvider?: boolean },
 ): ModelsDevMetadata | undefined {
   if (!map) return undefined;
   const normalizedModel = modelId.toLowerCase().trim();
