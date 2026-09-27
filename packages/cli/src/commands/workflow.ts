@@ -24,7 +24,8 @@ import {
   loadRunHistory,
   MANUAL_RUN_LABEL,
   runScheduleLabel,
-  updateLatestRunRecord,
+  updateRunRecord,
+  type WorkflowRunUpdate,
 } from "@jazz/core/workflows/run-history";
 import {
   DEFAULT_SCHEDULE_LABEL,
@@ -40,7 +41,7 @@ import {
   groupWorkflows,
   renderWorkflowPrompt,
 } from "@jazz/core/workflows/workflow-utils";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Option } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { formatOneShotError, formatOneShotResult } from "./run/envelope";
@@ -295,23 +296,27 @@ export function runWorkflowCommand(
     // logic kept treating the slot as a missed run.
     const startedAt = new Date().toISOString();
     const triggeredBy = isSchedulerTriggered ? ("scheduled" as const) : ("manual" as const);
-    yield* addRunRecord({
+    const runRecord = yield* addRunRecord({
       workflowName,
       scheduleLabel,
       startedAt,
       status: "running",
       triggeredBy,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.option);
+    const updateThisRun = (update: WorkflowRunUpdate): Effect.Effect<void> =>
+      Option.isSome(runRecord)
+        ? updateRunRecord(runRecord.value.id, update).pipe(Effect.catchAll(() => Effect.void))
+        : Effect.void;
 
     // Helper: mark the just-opened "running" record as failed. Called on
     // every early-exit error path so failures show up in `jazz workflow
     // history` and the next-startup warning surfaces them to the user.
     const markFailed = (errorMessage: string) =>
-      updateLatestRunRecord(workflowName, {
+      updateThisRun({
         completedAt: new Date().toISOString(),
         status: "failed",
         error: errorMessage,
-      }).pipe(Effect.catchAll(() => Effect.void));
+      });
 
     // Load the workflow
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
@@ -377,10 +382,10 @@ export function runWorkflowCommand(
       if (!selectedAgent) {
         // User cancelled the picker. Mark the record skipped so it doesn't
         // sit as a stale "running" entry forever.
-        yield* updateLatestRunRecord(workflowName, {
+        yield* updateThisRun({
           completedAt: new Date().toISOString(),
           status: "skipped",
-        }).pipe(Effect.catchAll(() => Effect.void));
+        });
         yield* terminal.info("Workflow cancelled.");
         return;
       }
@@ -450,18 +455,18 @@ export function runWorkflowCommand(
         : runEffect
     ).pipe(
       Effect.tap((result) =>
-        updateLatestRunRecord(workflowName, {
+        updateThisRun({
           completedAt: new Date().toISOString(),
           status: "completed",
           ...runCostFields(result),
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        }),
       ),
       Effect.tapError((error) =>
-        updateLatestRunRecord(workflowName, {
+        updateThisRun({
           completedAt: new Date().toISOString(),
           status: "failed",
           error: toError(error).message,
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        }),
       ),
       // The generic top-level error handler renders this failure (e.g. an
       // LLMRateLimitError after retries are exhausted) but never sets the

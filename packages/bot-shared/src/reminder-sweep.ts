@@ -12,8 +12,8 @@
  */
 
 import { join } from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { sweepDueReminders } from "@jazz/adapters/reminder-service";
+import { claimDueReminders, settleReminder } from "@jazz/adapters/reminder-service";
+import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { Effect } from "effect";
 import { listChatSandboxes } from "./chat-sandbox";
 import { bold, type ChatId, line, plainLine, type RichText, text } from "./surface";
@@ -28,7 +28,7 @@ export const REMINDER_SWEEP_MS = 20_000;
  * restart or a stall, which is worth telling the person about because it
  * changes whether the reminder still makes sense.
  */
-const DELAYED_THRESHOLD_MS = 90_000;
+export const DELAYED_THRESHOLD_MS = 90_000;
 
 export interface ReminderSweepOptions {
   readonly dataDir: string;
@@ -40,6 +40,65 @@ export interface ReminderSweepOptions {
    */
   readonly decodeScope: (agentId: string) => ChatId | undefined;
   readonly send: (chatId: ChatId, body: RichText) => Promise<unknown>;
+}
+
+/**
+ * One surface's side of delivering a reminder: which of the agent ids it owns, and how a
+ * reminder reaches the conversation behind one.
+ */
+export interface ReminderDelivery<Scope> {
+  readonly dataDir: string;
+  /** The conversation an agent id belongs to, or undefined when the id is not this surface's. */
+  readonly decodeScope: (agentId: string) => Scope | undefined;
+  /** Send one reminder; `late` says it is past {@link DELAYED_THRESHOLD_MS}. Throws on failure. */
+  readonly deliver: (scope: Scope, reminderText: string, late: boolean) => Promise<unknown>;
+}
+
+/**
+ * Deliver every due reminder this surface owns, once.
+ *
+ * Each reminder is claimed under its agent's lock before it is sent and removed only after the
+ * send succeeded. A failed send keeps it on disk with the error, to be retried with backoff,
+ * and does not stop the rest of the sweep. A reminder whose agent id this surface cannot map to
+ * a conversation (right now) is never claimed, so it waits instead of being dropped: a surface
+ * that rebuilds its id map after a restart delivers it on a later sweep.
+ */
+export async function deliverDueReminders<Scope>(options: ReminderDelivery<Scope>): Promise<void> {
+  const now = Date.now();
+  for (const root of remindersRootDirs(options.dataDir)) {
+    const claims = await Effect.runPromise(
+      claimDueReminders(root, now, {
+        includeAgent: (agentId) => options.decodeScope(agentId) !== undefined,
+      }),
+    );
+    for (const { agentId, item } of claims) {
+      const scope = options.decodeScope(agentId);
+      let outcome: DeliveryOutcome;
+      if (scope === undefined) {
+        outcome = {
+          delivered: false,
+          error: "The conversation for this reminder is unknown.",
+          retryable: true,
+        };
+      } else {
+        try {
+          await options.deliver(scope, item.text, now - item.fireAt > DELAYED_THRESHOLD_MS);
+          outcome = { delivered: true };
+        } catch (error) {
+          outcome = { delivered: false, error: String(error), retryable: true };
+        }
+      }
+      await Effect.runPromise(
+        settleReminder(root, agentId, item.id, outcome).pipe(
+          Effect.catchAll((error) =>
+            Effect.sync(() =>
+              console.error(`Reminder ${item.id} could not be settled: ${error.message}`),
+            ),
+          ),
+        ),
+      );
+    }
+  }
 }
 
 let sweepRunning = false;
@@ -67,20 +126,12 @@ async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
-    const now = Date.now();
-    for (const root of remindersRootDirs(options.dataDir)) {
-      const fired = await Effect.runPromise(
-        sweepDueReminders(root, now).pipe(Effect.provide(NodeFileSystem.layer)),
-      );
-      for (const { agentId, reminder } of fired) {
-        const chatId = options.decodeScope(agentId);
-        if (chatId === undefined) continue;
-        await options.send(
-          chatId,
-          reminderBody(reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS),
-        );
-      }
-    }
+    await deliverDueReminders({
+      dataDir: options.dataDir,
+      decodeScope: options.decodeScope,
+      deliver: (chatId, reminderText, late) =>
+        options.send(chatId, reminderBody(reminderText, late)),
+    });
   } finally {
     sweepRunning = false;
   }

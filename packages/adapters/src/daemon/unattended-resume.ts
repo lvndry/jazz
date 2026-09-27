@@ -13,6 +13,7 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import {
@@ -114,7 +115,31 @@ export function approvalNotification(
   };
 }
 
-/** A missing agent is logged and dropped rather than retried — there is nothing to resume into. */
+/**
+ * What a turn's outcome means for the item that caused it (a wake trigger, a batch's fan-in):
+ * finishing and parking both delivered it (a park is persisted and the person is told), while
+ * a failure keeps the item for a retry, with the error text.
+ */
+export function turnDeliveryOutcome(outcome: TurnOutcome): DeliveryOutcome {
+  switch (outcome.kind) {
+    case "finished":
+    case "parked":
+      return { delivered: true };
+    case "unresumable":
+      return {
+        delivered: false,
+        error: "The run stopped for an approval, but its state could not be saved to resume it.",
+        retryable: true,
+      };
+    case "failed":
+      return { delivered: false, error: outcome.error, retryable: true };
+  }
+}
+
+/**
+ * Run one unattended turn and report whether it delivered the item that caused it. A missing
+ * agent fails without retrying, since there is nothing to resume into.
+ */
 export function runUnattendedTurn(turn: UnattendedTurn) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -124,7 +149,12 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         source: logSource(turn.source),
         errorType: "agent_not_found",
       });
-      return;
+      const missingAgent: DeliveryOutcome = {
+        delivered: false,
+        error: `Agent "${turn.agentId}" was not found.`,
+        retryable: false,
+      };
+      return missingAgent;
     }
     const agent = agentResult.right;
 
@@ -151,15 +181,16 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         yield* logger.warn("Unattended run failed", {
           source: logSource(turn.source),
           errorType: "run_failed",
+          error: outcome.error,
         });
-        return;
+        break;
 
       case "unresumable":
         yield* logger.warn("Unattended run could not save required approval", {
           source: logSource(turn.source),
           errorType: "approval_save_failed",
         });
-        return;
+        break;
 
       case "parked": {
         yield* logger.info("Unattended run parked waiting for approval", {
@@ -171,7 +202,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         }
         const notification = approvalNotification(turn, outcome);
         yield* sendDesktopNotification(notification.title, notification.body);
-        return;
+        break;
       }
 
       case "finished":
@@ -180,7 +211,8 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
           priorRecord,
           outcome.messages.length > 0 ? outcome.messages : (priorRecord?.messages ?? []),
         );
-        return;
+        break;
     }
+    return turnDeliveryOutcome(outcome);
   });
 }

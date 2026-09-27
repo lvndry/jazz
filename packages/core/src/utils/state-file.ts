@@ -157,6 +157,16 @@ export function writeStateFile<Content>(
   return writeFileStringAtomic(filePath, `${JSON.stringify(document, null, 2)}\n`);
 }
 
+export interface RecordListOptions {
+  /** The version this build writes; older versions are read through `migrate`. */
+  readonly schemaVersion: number;
+  /**
+   * Bring one entry stored at `fromVersion` (0 for a file written before versioning) up to the
+   * current shape before it is validated. Omitted when older entries already fit.
+   */
+  readonly migrate?: (entry: unknown, fromVersion: number) => unknown;
+}
+
 /**
  * A state file holding one list of records under `field` (`{ schemaVersion, triggers: [...] }`).
  * A file written before versioning is a bare array of the same records. Every record is
@@ -167,10 +177,11 @@ export function recordListKind<Rec>(
   noun: string,
   field: string,
   recordSchema: z.ZodType<Rec>,
+  options: RecordListOptions = { schemaVersion: 1 },
 ): StateFileKind<Rec[]> {
   return {
     noun,
-    schemaVersion: 1,
+    schemaVersion: options.schemaVersion,
     parse: (document, schemaVersion) => {
       const list =
         schemaVersion === undefined && Array.isArray(document)
@@ -181,8 +192,13 @@ export function recordListKind<Rec>(
       if (!Array.isArray(list)) {
         return { ok: false, error: `expected a list of ${noun}` };
       }
+      const fromVersion = schemaVersion ?? 0;
       const records: Rec[] = [];
-      for (const [index, entry] of list.entries()) {
+      for (const [index, stored] of (list as readonly unknown[]).entries()) {
+        const entry: unknown =
+          fromVersion < options.schemaVersion && options.migrate !== undefined
+            ? options.migrate(stored, fromVersion)
+            : stored;
         const parsed = recordSchema.safeParse(entry);
         if (!parsed.success) {
           return { ok: false, error: `entry ${index}: ${parsed.error.message}` };

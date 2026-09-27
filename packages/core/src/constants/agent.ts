@@ -33,9 +33,6 @@ export const WAIT_FOR_MIN_INTERVAL_MS = 250;
 
 export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
 
-/** Maximum number of workflow run history records to keep */
-export const MAX_RUN_HISTORY_RECORDS = 100;
-
 /**
  * Maximum number of conversation history records to keep per agent.
  *

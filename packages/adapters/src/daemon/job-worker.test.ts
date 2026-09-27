@@ -30,6 +30,7 @@ function batch(jobs: readonly JobRecord[]): JobBatchRecord {
     reason: "watch the worktree",
     createdAt: 0,
     completedAt: 1,
+    deliveredAt: null,
     jobs,
   };
 }

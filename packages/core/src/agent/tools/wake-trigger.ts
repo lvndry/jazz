@@ -5,6 +5,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WakeTriggerRecord, WakeTriggerService } from "@/core/interfaces/wake-trigger-service";
 import { WakeTriggerServiceTag } from "@/core/interfaces/wake-trigger-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { describeDelivery } from "@/core/utils/delivery";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -115,7 +116,8 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
   return defineTool<WakeTriggerToolDeps, ListTriggersArgs>({
     name: "list_triggers",
     disclosure: "internal",
-    description: "List this agent's pending self-scheduled wake triggers.",
+    description:
+      "List this agent's self-scheduled wake triggers, with each one's delivery status (pending, delivering, retrying with the last error, or failed with the error).",
     parameters: listTriggersParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -134,6 +136,7 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
               fireAt: formatFireAt(trigger),
               prompt: trigger.prompt,
               reason: trigger.reason,
+              delivery: describeDelivery(trigger.delivery),
             })),
           },
         } satisfies ToolExecutionResult;

@@ -155,3 +155,18 @@ describe("zonedWeekday", () => {
     expect(zonedWeekday(Date.UTC(2026, 7, 25, 1, 0, 0), "America/Los_Angeles")).toBe(1);
   });
 });
+
+describe("parseWhen calendar validation", () => {
+  const now = Date.UTC(2026, 0, 1, 0, 0);
+
+  test("rejects a day the month does not have instead of rolling into the next month", () => {
+    expect(parseWhen("2026-02-31 10:00", now, "UTC")).toBeNull();
+    expect(parseWhen("2026-04-31 10:00", now, "UTC")).toBeNull();
+    expect(parseWhen("2026-02-29 10:00", now, "UTC")).toBeNull();
+  });
+
+  test("accepts the last day of a month, including a leap day", () => {
+    expect(parseWhen("2028-02-29 10:00", now, "UTC")).toBe(Date.UTC(2028, 1, 29, 10, 0));
+    expect(parseWhen("2026-01-31 10:00", now, "UTC")).toBe(Date.UTC(2026, 0, 31, 10, 0));
+  });
+});

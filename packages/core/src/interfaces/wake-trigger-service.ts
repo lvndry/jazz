@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import { z } from "zod";
+import { type DeliveryState, DeliveryStateSchema } from "@/core/utils/delivery";
 
 export interface WakeTriggerRecord {
   readonly id: string;
@@ -19,6 +20,11 @@ export interface WakeTriggerRecord {
    * from agentId+id alone.
    */
   readonly osSchedulerJobId?: string;
+  /**
+   * Where delivery stands: absent while pending, `firing` while one process runs it, `failed`
+   * with the error and attempts after a failed delivery. See `delivery.ts`.
+   */
+  readonly delivery?: DeliveryState;
 }
 
 /** On-disk shape of one {@link WakeTriggerRecord}, checked on every read. */
@@ -30,6 +36,7 @@ export const WakeTriggerRecordSchema: z.ZodType<WakeTriggerRecord> = z.object({
   reason: z.string(),
   createdAt: z.number().finite(),
   osSchedulerJobId: z.string().exactOptional(),
+  delivery: DeliveryStateSchema.exactOptional(),
 });
 
 export type AddWakeTriggerOutcome =

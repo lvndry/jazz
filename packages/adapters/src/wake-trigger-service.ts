@@ -23,15 +23,11 @@ import {
   WakeTriggerRecordSchema,
   WakeTriggerServiceTag,
 } from "@jazz/core/interfaces/wake-trigger-service";
+import { type DeliveryOutcome, hasStoppedRetrying } from "@jazz/core/utils/delivery";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
-import {
-  CorruptStateFileError,
-  readStateFile,
-  recordListKind,
-  writeStateFile,
-} from "@jazz/core/utils/state-file";
+import { recordListKind, writeStateFile } from "@jazz/core/utils/state-file";
 import { requireValidAgentId, withLock } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
 import {
@@ -39,6 +35,15 @@ import {
   type WakeTriggerOsScheduler,
 } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { Effect, Layer } from "effect";
+import {
+  claimDueItems,
+  claimItem,
+  finishClaim,
+  readItemsLocked,
+  type ScheduledItemClaim,
+  type ScheduledItemStore,
+  settleItem,
+} from "@/adapters/storage/scheduled-items";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
 export class WakeTriggerGuardrailViolation extends Error {}
@@ -55,13 +60,31 @@ function wakeTriggerLockPath(baseDirectory: string, agentId: string): string {
   return path.join(baseDirectory, `${agentId}.lock`);
 }
 
-const WAKE_TRIGGER_FILE_KIND = recordListKind("wake triggers", "triggers", WakeTriggerRecordSchema);
+/**
+ * Version 2 added `delivery`. An older Jazz must refuse these files rather than read them
+ * without it and fire a trigger that already failed for good.
+ */
+const WAKE_TRIGGER_SCHEMA_VERSION = 2;
 
-/** Read an agent's triggers under its lock: a corrupt file is quarantined and reads as empty. */
+const WAKE_TRIGGER_FILE_KIND = recordListKind(
+  "wake triggers",
+  "triggers",
+  WakeTriggerRecordSchema,
+  {
+    schemaVersion: WAKE_TRIGGER_SCHEMA_VERSION,
+  },
+);
+
+/** Where wake triggers live, for the shared claim and settle logic in `scheduled-items.ts`. */
+export const WAKE_TRIGGER_STORE: ScheduledItemStore<WakeTriggerRecord> = {
+  noun: "wake trigger",
+  kind: WAKE_TRIGGER_FILE_KIND,
+  filePath: wakeTriggerFilePath,
+  lockPath: wakeTriggerLockPath,
+};
+
 function readWakeTriggerFile(filePath: string): Effect.Effect<WakeTriggerRecord[], Error> {
-  return readStateFile(filePath, WAKE_TRIGGER_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
-    Effect.map((triggers) => triggers ?? []),
-  );
+  return readItemsLocked(WAKE_TRIGGER_STORE, filePath);
 }
 
 function writeWakeTriggerFile(
@@ -139,10 +162,11 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
               ),
             );
           }
-          if (existing.length >= MAX_WAKE_TRIGGERS_PER_AGENT) {
+          const pending = existing.filter((trigger) => !hasStoppedRetrying(trigger.delivery));
+          if (pending.length >= MAX_WAKE_TRIGGERS_PER_AGENT) {
             return yield* Effect.fail(
               new WakeTriggerGuardrailViolation(
-                `You already have ${existing.length} pending wake triggers, the maximum of ${MAX_WAKE_TRIGGERS_PER_AGENT}. Cancel one with cancel_trigger before registering another.`,
+                `You already have ${pending.length} pending wake triggers, the maximum of ${MAX_WAKE_TRIGGERS_PER_AGENT}. Cancel one with cancel_trigger before registering another.`,
               ),
             );
           }
@@ -239,78 +263,50 @@ export function createWakeTriggerServiceLayer(
 }
 
 /**
- * The unlocked look a sweep takes before locking an agent's file. A corrupt file counts as due,
- * so the locked pass quarantines it; a file from a newer Jazz is left alone.
+ * Claim every due wake trigger under `baseWakeTriggerDirectory`, across agents, for delivery
+ * (see `scheduled-items.ts`). The caller runs each claimed turn and settles it with
+ * {@link settleWakeTrigger}. When `osScheduler` is given, the host scheduler's one-shot job for
+ * each claimed trigger is removed, since the trigger is now being fired from here.
  */
-function hasDueTrigger(filePath: string, now: number): Effect.Effect<boolean> {
-  return readStateFile(filePath, WAKE_TRIGGER_FILE_KIND, { onCorrupt: "fail" }).pipe(
-    Effect.map((triggers) => (triggers ?? []).some((trigger) => trigger.fireAt <= now)),
-    Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
-  );
+export function claimDueWakeTriggers(
+  baseWakeTriggerDirectory: string,
+  now: number,
+  options: { readonly osScheduler?: WakeTriggerOsScheduler } = {},
+): Effect.Effect<ReadonlyArray<ScheduledItemClaim<WakeTriggerRecord>>, Error> {
+  return Effect.gen(function* () {
+    const claims = yield* claimDueItems(WAKE_TRIGGER_STORE, baseWakeTriggerDirectory, now);
+    const osScheduler = options.osScheduler;
+    if (osScheduler !== undefined) {
+      for (const { agentId, item } of claims) {
+        yield* osScheduler
+          .cancelFire(agentId, item.id, item.osSchedulerJobId)
+          .pipe(Effect.catchAll(() => Effect.void));
+      }
+    }
+    return claims;
+  });
+}
+
+/** Claim one wake trigger by id; undefined when it is gone or already being fired. */
+export function claimWakeTrigger(
+  baseWakeTriggerDirectory: string,
+  agentId: string,
+  triggerId: string,
+): Effect.Effect<WakeTriggerRecord | undefined, Error> {
+  return claimItem(WAKE_TRIGGER_STORE, baseWakeTriggerDirectory, agentId, triggerId, Date.now());
 }
 
 /**
- * Scan every `<agentId>.json` file under `baseWakeTriggerDirectory`, remove triggers whose
- * `fireAt` has passed, and return them grouped by agentId — the same shape and locking
- * discipline as `sweepDueReminders`, so the daemon's ticker and the tool handlers never race
- * on the same file.
+ * Record how a claimed trigger's turn ended and release the claim: delivered triggers are
+ * removed; failed ones keep the error and retry with backoff while attempts remain.
  */
-export function sweepDueWakeTriggers(
+export function settleWakeTrigger(
   baseWakeTriggerDirectory: string,
-  now: number,
-): Effect.Effect<
-  ReadonlyArray<{ agentId: string; trigger: WakeTriggerRecord }>,
-  Error,
-  FileSystem.FileSystem
-> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const directoryExists = yield* fs
-      .exists(baseWakeTriggerDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!directoryExists) return [];
-
-    const names = yield* fs
-      .readDirectory(baseWakeTriggerDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-    const agentIds = names
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => name.slice(0, -".json".length));
-
-    const fired: Array<{ agentId: string; trigger: WakeTriggerRecord }> = [];
-
-    for (const agentId of agentIds) {
-      const filePath = wakeTriggerFilePath(baseWakeTriggerDirectory, agentId);
-      const lockPath = wakeTriggerLockPath(baseWakeTriggerDirectory, agentId);
-
-      // Look before locking. Taking the write lock first meant every tick created and removed a
-      // lock directory for every agent, whether or not anything was due — at a one-second tick
-      // that is tens of thousands of pointless lock cycles a day, each one contending with an
-      // agent trying to register a trigger of its own. Nothing is lost by reading unlocked: the
-      // decision is re-made under the lock below, so a trigger that arrives between the two
-      // reads is seen by the lock-held pass, and one that leaves is skipped there.
-      if (!(yield* hasDueTrigger(filePath, now))) continue;
-
-      const dueForAgent = yield* withLock(
-        lockPath,
-        Effect.gen(function* () {
-          const triggers = yield* readWakeTriggerFile(filePath);
-          const due = triggers.filter((trigger) => trigger.fireAt <= now);
-          if (due.length === 0) return [] as WakeTriggerRecord[];
-
-          const remaining = triggers.filter((trigger) => trigger.fireAt > now);
-          yield* writeWakeTriggerFile(filePath, remaining);
-          return due;
-        }),
-        // A file whose lock can't be acquired this sweep is retried next tick — one stuck
-        // agent never blocks the rest.
-      ).pipe(Effect.catchAll(() => Effect.succeed([] as WakeTriggerRecord[])));
-
-      for (const trigger of dueForAgent) {
-        fired.push({ agentId, trigger });
-      }
-    }
-
-    return fired;
-  });
+  agentId: string,
+  triggerId: string,
+  outcome: DeliveryOutcome,
+): Effect.Effect<WakeTriggerRecord | undefined, Error> {
+  return settleItem(WAKE_TRIGGER_STORE, baseWakeTriggerDirectory, agentId, triggerId, outcome).pipe(
+    Effect.ensuring(Effect.sync(() => finishClaim(WAKE_TRIGGER_STORE, agentId, triggerId))),
+  );
 }
