@@ -126,9 +126,10 @@ const activeRuns = new Map<
 >();
 // Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
 // find the run to write the decision back to and the message to clear.
-// `commandKey` (set only for execute_command approvals) is the binary name an
-// "Always allow" tap persists to autoApprovedCommands — present only when we
-// could parse one out, since not every approval is a shell command.
+// `commandKey` (set only for execute_command approvals) is the approval key
+// (binary plus subcommand) an "Always allow" tap persists to
+// autoApprovedCommands. It is present only for a plain command that
+// `extractCommandApprovalKey` can key.
 /**
  * Questions the agent is blocked on, keyed by the id it minted. The run is
  * parked on stdin until one of these buttons is tapped, so an entry left behind
@@ -608,15 +609,26 @@ async function refreshApprovalKeyboards(config: BridgeConfig, runToken: string):
   }
 }
 
-/** Extract the binary from an execute_command approval's "Command: ..." line, if present. */
+const APPROVAL_COMMAND_PATTERN = /^Command: ([\s\S]*?)\nDescription: /m;
+
+/**
+ * The "always allow" key for an execute_command approval, read from the full
+ * command in its message (everything between `Command: ` and the
+ * `Description:` line, so a multi-line command is read whole). `undefined`
+ * when the command cannot be allowlisted, which hides the button.
+ */
 function commandKeyFromApprovalMessage(
   toolName: string | undefined,
   message: string,
 ): string | undefined {
-  if (toolName !== "execute_command") return undefined;
-  const match = /^Command: (.+)$/m.exec(message);
-  if (!match?.[1]) return undefined;
-  return extractCommandApprovalKey(match[1]).split(" ")[0];
+  if (toolName !== "execute_command") {
+    return undefined;
+  }
+  const command = APPROVAL_COMMAND_PATTERN.exec(message)?.[1];
+  if (command === undefined) {
+    return undefined;
+  }
+  return extractCommandApprovalKey(command);
 }
 
 /**
