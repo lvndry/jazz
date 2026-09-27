@@ -192,7 +192,7 @@ function configureLLMProviders() {
           const serverKey = yield* terminal.password(
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
           );
-          if (serverKey.trim()) {
+          if (serverKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, serverKey);
             yield* terminal.success(`${providerDisplay} API key updated.`);
           }
@@ -201,7 +201,7 @@ function configureLLMProviders() {
           const cloudKey = yield* terminal.password(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
           );
-          if (cloudKey.trim()) {
+          if (cloudKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, cloudKey);
             yield* terminal.success("Ollama Cloud API key updated.");
           }
@@ -239,7 +239,7 @@ function configureLLMProviders() {
         `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
       );
 
-      if (apiKey.trim()) {
+      if (apiKey?.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
         yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
       } else {
@@ -326,7 +326,7 @@ function configureWebSearchProviders() {
           `Enter API Key for ${provider} (leave empty to keep current):`,
         );
 
-        if (apiKey.trim()) {
+        if (apiKey?.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
           yield* terminal.success(`Configuration for ${provider} updated.`);
         } else {

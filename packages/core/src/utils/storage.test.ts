@@ -1,9 +1,14 @@
+/**
+ * Regression coverage for durable writes, cancellation, cross-process locks and quarantine.
+ * Run with `bun test packages/core/src/utils/storage.test.ts`.
+ */
 import * as fs from "node:fs";
+import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { describe, expect, spyOn, test } from "bun:test";
+import { Effect, Fiber } from "effect";
 import {
   abbreviateHomePath,
   quarantineCorruptFile,
@@ -53,6 +58,47 @@ describe("requireValidAgentId", () => {
 });
 
 describe("writeFileStringAtomic", () => {
+  test("holds the lock until a cancelled durable write settles", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-cancel-write-"));
+    const target = path.join(root, "state.txt");
+    const lock = path.join(root, "state.lock");
+    const syncing = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const originalOpen = nodeFs.open;
+    let paused = false;
+    const open = spyOn(nodeFs, "open").mockImplementation(async (...args) => {
+      const handle = await originalOpen(...args);
+      if (!paused && args[1] === "wx" && String(args[0]).startsWith(root)) {
+        paused = true;
+        const sync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          syncing.resolve();
+          await resume.promise;
+          await sync();
+        };
+      }
+      return handle;
+    });
+    const first = Effect.runFork(withLock(lock, writeFileStringAtomic(target, "old")));
+    try {
+      await syncing.promise;
+      const interrupted = Effect.runPromise(Fiber.interrupt(first));
+      await Bun.sleep(20);
+      expect(fs.existsSync(lock)).toBe(true);
+      const second = Effect.runPromise(withLock(lock, writeFileStringAtomic(target, "new")));
+      resume.resolve();
+      await interrupted;
+      await second;
+      expect(fs.readFileSync(target, "utf8")).toBe("new");
+      expect(fs.existsSync(lock)).toBe(false);
+    } finally {
+      resume.resolve();
+      await Effect.runPromise(Fiber.await(first));
+      open.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("creates parent directories and replaces the complete file", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-storage-"));
     const target = path.join(root, "nested", "state.txt");

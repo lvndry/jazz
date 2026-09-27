@@ -11,7 +11,9 @@
  *
  * Owner bits (including execute, which skill and plugin scripts need) are never touched, nor
  * are symbolic links or entries another account owns. In a group-shared home (setgid, as the
- * chat bridges provision) only the "other" bits are cleared.
+ * chat bridges provision) only the "other" bits are cleared. A setgid home with traversal-only
+ * access for other accounts is an operator-managed bridge root: its entrypoint owns permission
+ * repair, including access through `chats/` and to shared personas, so this repair leaves it alone.
  */
 
 import * as nodeFs from "node:fs";
@@ -78,6 +80,10 @@ export interface PrivateHomeReport {
 export function securePrivateHome(home: string = getJazzHomeDirectory()): PrivateHomeReport {
   const uid = process.getuid?.();
   nodeFs.mkdirSync(home, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  const mode = nodeFs.statSync(home).mode;
+  if ((mode & 0o2007) === 0o2001) {
+    return { repaired: false, failures: 0 };
+  }
   const bits = nonOwnerBitsToClear(home);
   clearBits(home, bits, uid);
 

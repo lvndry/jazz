@@ -38,6 +38,13 @@ cannot drift from what agents are actually told. On a short terminal the environ
 first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
 setting, tool, workflow, or example task available in Jazz.
 
+Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
+home needs a terminal to ask its questions. Without one (stdin or stdout piped, cron, CI), or with
+`--no-tui`, it prints what to run instead and exits `2` without touching your configuration. On a
+terminal that is too limited for the full-screen interface (`TERM=dumb`, `CI` set, a screen reader
+via `JAZZ_A11Y=1` or `INK_SCREEN_READER=1`, or a window under 32 columns by 10 rows), Jazz uses the
+classic inline interface, which prompts the same way.
+
 ---
 
 ## `jazz run`: headless, one-shot
@@ -49,9 +56,9 @@ agent turn, prints a clean payload. **stdout is the answer; all chatter goes to 
 jazz run --agent <id> [prompt]
 ```
 
-The prompt comes from the positional argument, or from piped stdin when the argument is
-absent and stdin is not a TTY. Only a positional prompt may back a memory write; piped stdin is
-treated as untrusted text.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or from piped
+stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
+memory write; plain piped stdin is treated as untrusted text.
 
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -73,7 +80,7 @@ treated as untrusted text.
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                                         |
+| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                  |
 | `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
 | `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
@@ -103,6 +110,21 @@ Full contract, examples, and a complete bridge implementation:
 | `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name                                       |
 
 `agent chat` accepts `--stream` / `--no-stream`, `--max-iterations <n>`, and `--ephemeral`.
+
+Without a terminal, `agent chat` reads messages from stdin, one per line, and ends when stdin does:
+
+```bash
+echo "What is on my calendar today?" | jazz agent chat assistant
+```
+
+Slash commands work the same way (`/exit` ends early). Tool calls that need approval are declined,
+since nobody can answer the prompt. If stdin ends before any message arrives, `agent chat` says so
+and exits `2`. For one scripted turn with a parseable result, use [`jazz run`](#jazz-run-headless-one-shot).
+
+`agent create` and `agent edit` need a terminal. Without one they exit `2` and point at the agent's
+JSON file under `$JAZZ_HOME/agents/`, which you can write by hand (see
+[Configure → Agents](./configure/agents.md)). `persona create`, `persona edit`, and
+`workflow create` behave the same way.
 
 ---
 
@@ -572,12 +594,12 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 
 ## `jazz config`
 
-| Command                         | Purpose                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them    |
-| `jazz config validate`          | Check config files without starting the application                        |
-| `jazz config get <key>`         | Get one value, redacted when it is or holds a secret; `--reveal` prints it |
-| `jazz config set <key> [value]` | Set one value                                                              |
+| Command                         | Purpose                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them                                           |
+| `jazz config validate`          | Check config files without starting the application                                                               |
+| `jazz config get <key>`         | Print one value and nothing else, redacted when it is or holds a secret; `--reveal` prints it. Exits `1` if unset |
+| `jazz config set <key> [value]` | Set one value                                                                                                     |
 
 See [Configuration](./configure/jazz.md).
 

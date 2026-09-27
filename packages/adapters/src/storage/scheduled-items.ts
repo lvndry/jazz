@@ -87,6 +87,69 @@ export function readItemsLocked<Item extends ScheduledItem>(
 }
 
 /**
+ * Stamp the claim on every item that passes `select` and is claimable now, without I/O: for a
+ * store that reads and writes the file itself (a chat bridge's pinned directory). The caller
+ * writes `next` under the agent's lock, then calls {@link markClaimed}.
+ */
+export function claimInList<Item extends ScheduledItem>(
+  store: ScheduledItemStore<Item>,
+  agentId: string,
+  items: readonly Item[],
+  now: number,
+  select: (item: Item) => boolean,
+): { readonly next: Item[]; readonly claimed: Item[] } {
+  const owner = currentProcessOwner();
+  const claimed: Item[] = [];
+  const next = items.map((item) => {
+    if (!select(item) || !claimableNow(store, agentId, item, now)) {
+      return item;
+    }
+    const claimedItem = { ...item, delivery: claimDelivery(item.delivery, owner, now) };
+    claimed.push(claimedItem);
+    return claimedItem;
+  });
+  return { next, claimed };
+}
+
+/** Record in this process's in-flight set that `claimed` items were just written as claimed. */
+export function markClaimed<Item extends ScheduledItem>(
+  store: ScheduledItemStore<Item>,
+  agentId: string,
+  claimed: readonly Item[],
+): void {
+  for (const item of claimed) {
+    markInFlight(claimKey(store, agentId, item.id));
+  }
+}
+
+/**
+ * Apply how a claimed item's effect ended, without I/O: a delivered item leaves the list, a
+ * failed one keeps its error and attempts. `found` is false when the item is gone (cancelled
+ * while firing), in which case nothing changes.
+ */
+export function settleInList<Item extends ScheduledItem>(
+  items: readonly Item[],
+  itemId: string,
+  outcome: DeliveryOutcome,
+  now: number,
+): { readonly next: Item[]; readonly settled: Item | undefined; readonly found: boolean } {
+  const current = items.find((item) => item.id === itemId);
+  if (current === undefined) {
+    return { next: [...items], settled: undefined, found: false };
+  }
+  const delivery = settleDelivery(current.delivery, outcome, now);
+  if (delivery === undefined) {
+    return { next: items.filter((item) => item.id !== itemId), settled: undefined, found: true };
+  }
+  const settled = { ...current, delivery };
+  return {
+    next: items.map((item) => (item.id === itemId ? settled : item)),
+    settled,
+    found: true,
+  };
+}
+
+/**
  * Take the claim on `items` that pass `select`, stamp them firing, and write the file once.
  * Runs under the agent's lock.
  */
@@ -102,23 +165,12 @@ function claimInFile<Item extends ScheduledItem>(
     store.lockPath(baseDirectory, agentId),
     Effect.gen(function* () {
       const items = yield* readItemsLocked(store, filePath);
-      const owner = currentProcessOwner();
-      const claimed: Item[] = [];
-      const next = items.map((item) => {
-        if (!select(item) || !claimableNow(store, agentId, item, now)) {
-          return item;
-        }
-        const claimedItem = { ...item, delivery: claimDelivery(item.delivery, owner, now) };
-        claimed.push(claimedItem);
-        return claimedItem;
-      });
+      const { next, claimed } = claimInList(store, agentId, items, now, select);
       if (claimed.length === 0) {
         return claimed;
       }
       yield* writeStateFile(filePath, store.kind, next);
-      for (const item of claimed) {
-        markInFlight(claimKey(store, agentId, item.id));
-      }
+      markClaimed(store, agentId, claimed);
       return claimed;
     }),
   );
@@ -222,25 +274,10 @@ export function settleItem<Item extends ScheduledItem>(
     store.lockPath(baseDirectory, agentId),
     Effect.gen(function* () {
       const items = yield* readItemsLocked(store, filePath);
-      const current = items.find((item) => item.id === itemId);
-      if (current === undefined) {
-        return undefined;
+      const { next, settled, found } = settleInList(items, itemId, outcome, now);
+      if (found) {
+        yield* writeStateFile(filePath, store.kind, next);
       }
-      const delivery = settleDelivery(current.delivery, outcome, now);
-      if (delivery === undefined) {
-        yield* writeStateFile(
-          filePath,
-          store.kind,
-          items.filter((item) => item.id !== itemId),
-        );
-        return undefined;
-      }
-      const settled = { ...current, delivery };
-      yield* writeStateFile(
-        filePath,
-        store.kind,
-        items.map((item) => (item.id === itemId ? settled : item)),
-      );
       return settled;
     }),
   );

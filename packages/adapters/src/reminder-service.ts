@@ -42,16 +42,21 @@ import {
 const REMINDER_SCHEMA_VERSION = 2;
 
 /**
- * Telegram (`tg_...`) and Discord (`dc_...`) agents already sweep and deliver their own
- * reminders in-process (see `packages/telegram-bot/src/reminders.ts`,
- * `packages/discord-bot/src/reminders.ts`), running a private interval inside their own
+ * The agent id prefixes of the chat bridges: Telegram, Discord, iMessage, WhatsApp (direct
+ * and group) and Photon.
+ */
+const BOT_AGENT_ID_PREFIXES = ["tg_", "dc_", "im_", "wa_", "wag_", "ph_"] as const;
+
+/**
+ * Chat bridge agents already sweep and deliver their own reminders in-process (see
+ * `packages/bot-shared/src/reminder-sweep.ts`), running a private interval inside their own
  * long-lived bot process. Installing an OS job for those too would double-deliver: once as the
  * bot's own chat message, once as a spurious desktop notification on whatever host happens to
- * run the bot container — usually headless, with no GUI session, and often a shared service
- * account under which writing LaunchAgents would be unwanted or fail outright.
+ * run the bot. Worse, the OS job removes the reminder when it fires, so a bridge that has not
+ * swept it yet never tells the chat at all.
  */
 export function isBotHostedAgentId(agentId: string): boolean {
-  return agentId.startsWith("tg_") || agentId.startsWith("dc_");
+  return BOT_AGENT_ID_PREFIXES.some((prefix) => agentId.startsWith(prefix));
 }
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
@@ -61,15 +66,26 @@ function newReminderId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/** An agent's reminder file name. Shared with the bot bridges, which sweep these files. */
+export function reminderFileName(agentId: string): string {
+  return `${agentId}.json`;
+}
+
+/** The lock directory guarding an agent's reminder file, beside it. */
+export function reminderLockName(agentId: string): string {
+  return `${agentId}.lock`;
+}
+
 function reminderFilePath(baseReminderDirectory: string, agentId: string): string {
-  return path.join(baseReminderDirectory, `${agentId}.json`);
+  return path.join(baseReminderDirectory, reminderFileName(agentId));
 }
 
 function reminderLockPath(baseReminderDirectory: string, agentId: string): string {
-  return path.join(baseReminderDirectory, `${agentId}.lock`);
+  return path.join(baseReminderDirectory, reminderLockName(agentId));
 }
 
-const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema, {
+/** The on-disk format of an agent's reminder file, shared with the chat bridges. */
+export const REMINDER_FILE_KIND = recordListKind("reminders", "reminders", ReminderRecordSchema, {
   schemaVersion: REMINDER_SCHEMA_VERSION,
 });
 

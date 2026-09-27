@@ -348,6 +348,20 @@ describe("osScheduler integration", () => {
     expect(calls).toEqual([]);
   });
 
+  test("never calls the os scheduler for an iMessage, WhatsApp or Photon agent id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
+    const service = makeService(scheduler);
+
+    for (const agentId of ["im_7", "wa_15551234567", "wag_120363", "ph_space"]) {
+      const added = await runEffect(service.add(agentId, "30m", "chat reminder", "UTC"));
+      expect(added.success).toBe(true);
+      if (!added.success) return;
+      expect(added.reminder.osSchedulerJobId).toBeUndefined();
+    }
+
+    expect(calls).toEqual([]);
+  });
+
   test("never calls the os scheduler for a Discord-hosted agent id", async () => {
     const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
     const service = makeService(scheduler);
