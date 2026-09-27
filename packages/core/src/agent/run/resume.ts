@@ -63,6 +63,15 @@ export interface ResumeRunOptions {
   readonly providerApiKeys?: Partial<Record<ProviderName, string>>;
 }
 
+/**
+ * Whether answering a parked run with `outcome` grants it anything. Only a rejected approval
+ * grants nothing: approving runs the tool, and answering or declining a question or a file
+ * picker lets the run carry on past the point it stopped to ask about.
+ */
+export function answerGrantsSomething(outcome: ResumeRunOptions["outcome"]): boolean {
+  return outcome.kind !== "approval" || outcome.value.approved;
+}
+
 /** The smaller of two optional caps, or whichever one is set. */
 function tighterCap(recorded: number | undefined, requested: number | undefined) {
   if (recorded === undefined) {

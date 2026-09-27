@@ -1641,6 +1641,28 @@ function registerDaemonCommand(program: Command): void {
     );
 
   daemonCommand
+    .command("operator-token")
+    .description(
+      "Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve a run), store it in the OS keyring, and print it once",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-operator-token")
+    .description("Remove the operator token, so the daemon grants nothing over HTTP")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
     .command("stop")
     .description("Stop a background jazz daemon for this port (SIGTERM via pidfile / listener)")
     .action(() => {

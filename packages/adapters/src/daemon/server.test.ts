@@ -40,6 +40,14 @@ import {
 
 const LOOPBACK = { port: 0, host: "127.0.0.1" };
 
+/** A daemon that grants over HTTP, and the headers of a request that may ask it to. */
+const OPERATED = { ...LOOPBACK, token: "s3cret", operatorToken: "operator-only" };
+const OPERATOR_HEADERS = {
+  authorization: "Bearer s3cret",
+  "content-type": "application/json",
+  "x-jazz-operator-token": "operator-only",
+};
+
 /**
  * Runs a handler effect against a store, with no agent stack behind it.
  *
@@ -161,10 +169,10 @@ describe("the daemon's routes", () => {
   });
 
   it("refuses to accept a goal without the plan revision being accepted", async () => {
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
     const response = await handle(
       request("POST", "/goals/goal-1/accept", {
-        headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+        headers: OPERATOR_HEADERS,
         body: JSON.stringify({ version: 1 }),
       }),
     );
@@ -172,11 +180,11 @@ describe("the daemon's routes", () => {
   });
 
   it("refuses an approval policy outside the known tiers or off an accept", async () => {
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
     const post = (path: string, body: unknown) =>
       handle(
         request("POST", path, {
-          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          headers: OPERATOR_HEADERS,
           body: JSON.stringify(body),
         }),
       );
@@ -199,7 +207,7 @@ describe("the daemon's routes", () => {
     const agents = {
       getAgent: () => Effect.succeed(agentFixture()),
     } as unknown as AgentService;
-    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+    const handle = makeHandler(OPERATED, (effect) =>
       Effect.runPromise(
         effect.pipe(
           Effect.provideService(LoopStoreTag, loops),
@@ -210,7 +218,7 @@ describe("the daemon's routes", () => {
     const post = (path: string, body: unknown) =>
       handle(
         request("POST", path, {
-          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          headers: OPERATOR_HEADERS,
           body: JSON.stringify(body),
         }),
       );

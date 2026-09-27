@@ -31,7 +31,7 @@ import { parseGoalDraft } from "@jazz/core/agent/goal/goal-planning";
 import { newProposedGoal } from "@jazz/core/agent/goal/goal-record";
 import { parseLoopSchedule, type LoopControl } from "@jazz/core/agent/loop/loop-lifecycle";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import type { ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import { answerGrantsSomething, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
@@ -104,6 +104,7 @@ import { servePeerRequest } from "@/adapters/peers/serve";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { claimDelivery, type DeliveryClaim } from "@/adapters/webhooks/deliveries";
 import { resolveWebhookSecret } from "@/adapters/webhooks/token";
+import { OPERATOR_TOKEN_HEADER } from "@jazz/adapters/daemon/operator-token";
 import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   controlGoal,
@@ -164,6 +165,14 @@ export interface DaemonOptions {
    * anybody holding a peer token.
    */
   readonly peerAgent?: string | undefined;
+  /**
+   * Needed, on top of `token`, by every request that grants authority: accepting a goal,
+   * starting or resuming a loop, and approving or answering a parked run. Absent means this
+   * daemon grants nothing over HTTP. See `daemon/operator-token` for where it lives and why.
+   */
+  readonly operatorToken?: string | undefined;
+  /** True when a Jazz agent started this daemon. Such a daemon grants nothing over HTTP. */
+  readonly startedByAgent?: boolean | undefined;
 }
 
 export function isLoopback(host: string): boolean {
@@ -211,6 +220,45 @@ function authorized(request: Request, token: string | undefined): boolean {
   const header = request.headers.get("authorization") ?? "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   return tokenMatches(token, presented);
+}
+
+/**
+ * Why this request may not grant authority, or `undefined` when it may.
+ *
+ * The daemon token proves the caller is a client of this daemon, not that it is the operator:
+ * an agent that can read the token's file or environment could replay it. So a grant also needs
+ * the operator token (see `daemon/operator-token`), and a daemon an agent started grants
+ * nothing, whatever it is sent. The CLI on this machine is always the other way to decide.
+ */
+function operatorGrantRefusal(request: Request, options: DaemonOptions): Response | undefined {
+  if (options.startedByAgent === true) {
+    return json(
+      {
+        ok: false,
+        error:
+          "this daemon was started by a Jazz agent, so it grants nothing; decide from the CLI on this machine",
+      },
+      403,
+    );
+  }
+  if (options.operatorToken === undefined || options.operatorToken.length === 0) {
+    return json(
+      {
+        ok: false,
+        error:
+          "this daemon has no operator token, so it grants nothing over HTTP; decide from the CLI on this machine, or run `jazz daemon operator-token` and restart the daemon",
+      },
+      403,
+    );
+  }
+  const presented = request.headers.get(OPERATOR_TOKEN_HEADER) ?? "";
+  if (presented.length === 0 || !tokenMatches(options.operatorToken, presented)) {
+    return json(
+      { ok: false, error: `this decision needs the operator token in ${OPERATOR_TOKEN_HEADER}` },
+      403,
+    );
+  }
+  return undefined;
 }
 
 interface StartRunBody {
@@ -356,31 +404,31 @@ export function makeHandler(
   app.get("/runs", () => runEffect(listRuns()));
   app.get("/runs/:runId", (context) => runEffect(describeRun(context.req.param("runId"))));
   app.post("/runs/:runId/answer", (context) =>
-    answerRunRoute(context.req.raw, context.req.param("runId"), runEffect),
+    answerRunRoute(context.req.raw, context.req.param("runId"), options, runEffect),
   );
 
   app.post("/goals", (context) => createGoalRoute(context.req.raw, runEffect));
   app.get("/goals", () => runEffect(listGoals()));
   app.get("/goals/:goalId", (context) => runEffect(showGoal(context.req.param("goalId"))));
   app.post("/goals/:goalId/accept", (context) =>
-    goalControlRoute(context.req.raw, context.req.param("goalId"), "accept", runEffect),
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "accept", options, runEffect),
   );
   app.post("/goals/:goalId/pause", (context) =>
-    goalControlRoute(context.req.raw, context.req.param("goalId"), "pause", runEffect),
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "pause", options, runEffect),
   );
   app.post("/goals/:goalId/resume", (context) =>
-    goalControlRoute(context.req.raw, context.req.param("goalId"), "resume", runEffect),
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "resume", options, runEffect),
   );
   app.post("/goals/:goalId/cancel", (context) =>
-    goalControlRoute(context.req.raw, context.req.param("goalId"), "cancel", runEffect),
+    goalControlRoute(context.req.raw, context.req.param("goalId"), "cancel", options, runEffect),
   );
 
-  app.post("/loops", (context) => createLoopRoute(context.req.raw, runEffect));
+  app.post("/loops", (context) => createLoopRoute(context.req.raw, options, runEffect));
   app.get("/loops", () => runEffect(listLoops()));
   app.get("/loops/:loop", (context) => runEffect(showLoop(context.req.param("loop"))));
   for (const control of ["pause", "resume", "cancel"] as const) {
     app.post(`/loops/:loop/${control}`, (context) =>
-      loopControlRoute(context.req.raw, context.req.param("loop"), control, runEffect),
+      loopControlRoute(context.req.raw, context.req.param("loop"), control, options, runEffect),
     );
   }
 
@@ -544,8 +592,16 @@ async function goalControlRoute(
   request: Request,
   goalId: string,
   action: Exclude<GoalAction, "decline">,
+  options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
+  // Accepting starts the goal's cycles, and may grant them a policy: the operator's decision.
+  if (action === "accept") {
+    const refusal = operatorGrantRefusal(request, options);
+    if (refusal !== undefined) {
+      return refusal;
+    }
+  }
   const body = await readJsonBody(request, MAX_GOAL_CONTROL_PAYLOAD_LENGTH);
   if (body instanceof Response) {
     return body;
@@ -607,13 +663,18 @@ async function goalControlRoute(
 const MAX_LOOP_PROMPT_LENGTH = 4000;
 
 /**
- * Start a loop for an HTTP client. The client holds the daemon token, which already lets it run
- * any agent, so it may grant the loop an approval policy the way `jazz loop start` does.
+ * Start a loop for an HTTP client. Starting a loop commits the agent to repeated runs and may
+ * grant them an approval policy, the way `jazz loop start` does, so it needs the operator token.
  */
 async function createLoopRoute(
   request: Request,
+  options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
+  const refusal = operatorGrantRefusal(request, options);
+  if (refusal !== undefined) {
+    return refusal;
+  }
   const body = await readJsonBody(request);
   if (body instanceof Response) {
     return body;
@@ -712,8 +773,16 @@ async function loopControlRoute(
   request: Request,
   handle: string,
   control: LoopControl,
+  options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
+  // Resuming restarts runs under the policy the loop was granted, as `jazz loop resume` does.
+  if (control === "resume") {
+    const refusal = operatorGrantRefusal(request, options);
+    if (refusal !== undefined) {
+      return refusal;
+    }
+  }
   const body = await readJsonBody(request, MAX_LOOP_CONTROL_PAYLOAD_LENGTH);
   if (body instanceof Response) {
     return body;
@@ -738,24 +807,54 @@ async function loopControlRoute(
 async function answerRunRoute(
   request: Request,
   runId: string,
+  options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
-  let body: { approved?: unknown; note?: unknown; response?: unknown; filePath?: unknown };
-  try {
-    body = (await request.json()) as {
-      approved?: unknown;
-      note?: unknown;
-      response?: unknown;
-      filePath?: unknown;
-    };
-  } catch {
-    return json({ ok: false, error: "body must be JSON" }, 400);
+  const body = await readJsonBody(request, MAX_RUN_ANSWER_PAYLOAD_LENGTH);
+  if (body instanceof Response) {
+    return body;
   }
-  const approved = body.approved === true;
-  const note = typeof body.note === "string" ? body.note : undefined;
-  const response = typeof body.response === "string" ? body.response.trim() : undefined;
-  const filePath = typeof body.filePath === "string" ? body.filePath.trim() : undefined;
-  return runEffect(answerRun(runId, approved, note, response, filePath));
+  const outcome = runAnswerFromBody(body);
+  // A rejection grants nothing, so the daemon token alone is enough for it.
+  if (answerGrantsSomething(outcome)) {
+    const refusal = operatorGrantRefusal(request, options);
+    if (refusal !== undefined) {
+      return refusal;
+    }
+  }
+  return runEffect(answerRun(runId, outcome));
+}
+
+/**
+ * The outcome an answer body asks for: a question's `response`, a file picker's `filePath`, or
+ * otherwise an approval that is `approved` only when it says so exactly.
+ */
+function runAnswerFromBody(body: Record<string, unknown>): ResumeRunOptions["outcome"] {
+  const note = typeof body["note"] === "string" ? body["note"] : undefined;
+  const response = typeof body["response"] === "string" ? body["response"].trim() : undefined;
+  const filePath = typeof body["filePath"] === "string" ? body["filePath"].trim() : undefined;
+  if (response !== undefined) {
+    return {
+      kind: "question",
+      value: response.length > 0 ? { kind: "answered", response } : { kind: "declined" },
+    };
+  }
+  if (filePath !== undefined) {
+    return {
+      kind: "file-picker",
+      value: filePath.length > 0 ? { kind: "selected", path: filePath } : { kind: "cancelled" },
+    };
+  }
+  return {
+    kind: "approval",
+    value:
+      body["approved"] === true
+        ? { approved: true }
+        : {
+            approved: false,
+            ...(note !== undefined && note.length > 0 ? { userMessage: note } : {}),
+          },
+  };
 }
 
 /**
@@ -1072,6 +1171,9 @@ const MAX_ANONYMOUS_PAYLOAD_LENGTH = 20_000;
  * leaves room for that without letting a token holder make the daemon buffer without bound.
  */
 const MAX_OPERATOR_PAYLOAD_LENGTH = 64_000;
+
+/** Largest answer body: a free-text answer to a question, or a note on a rejection. */
+const MAX_RUN_ANSWER_PAYLOAD_LENGTH = MAX_OPERATOR_PAYLOAD_LENGTH;
 
 /**
  * Cap on a peer's body: a question over `/peer/ask`, or a JSON-RPC envelope carrying one over
@@ -2346,31 +2448,7 @@ function describePendingInput(pending: PendingInput) {
  * and a claim carries the pid of whoever made it. A remote client claiming a run it cannot
  * be seen to abandon would leave it stranded in `working` if that client died.
  */
-function answerRun(
-  runId: string,
-  approved: boolean,
-  note: string | undefined,
-  response: string | undefined,
-  filePath: string | undefined,
-) {
-  const outcome: ResumeRunOptions["outcome"] =
-    response !== undefined
-      ? {
-          kind: "question",
-          value: response.length > 0 ? { kind: "answered", response } : { kind: "declined" },
-        }
-      : filePath !== undefined
-        ? {
-            kind: "file-picker",
-            value:
-              filePath.length > 0 ? { kind: "selected", path: filePath } : { kind: "cancelled" },
-          }
-        : {
-            kind: "approval",
-            value: approved
-              ? { approved: true }
-              : { approved: false, ...(note ? { userMessage: note } : {}) },
-          };
+function answerRun(runId: string, outcome: ResumeRunOptions["outcome"]) {
   return Effect.gen(function* () {
     const result = yield* resumeOwnedRun({ runId, outcome });
     if (result.kind === "blocked") {

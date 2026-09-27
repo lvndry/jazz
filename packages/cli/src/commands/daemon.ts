@@ -15,6 +15,12 @@ import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache"
 import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
 import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
 import {
+  forgetOperatorToken,
+  OPERATOR_TOKEN_HEADER,
+  provisionOperatorToken,
+  resolveOperatorToken,
+} from "@jazz/adapters/daemon/operator-token";
+import {
   isLoopback,
   makeA2AHandler,
   makeHandler,
@@ -57,6 +63,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
@@ -280,11 +287,14 @@ export function daemonCommand(options: DaemonCommandOptions) {
       }
     }
 
+    const operatorToken = yield* resolveOperatorToken();
     const daemonOptions = {
       port: options.port,
       host: options.host,
       ...(token !== undefined ? { token } : {}),
       ...(options.peerAgent !== undefined ? { peerAgent: options.peerAgent } : {}),
+      ...(operatorToken !== undefined ? { operatorToken } : {}),
+      startedByAgent: isAgentStartedProcess(),
     };
 
     const refusal = refuseReason(daemonOptions);
@@ -583,6 +593,49 @@ export function setDaemonTokenCommand() {
         ? `Generated and stored a daemon token in ${describeKeyringBackend(backend)}: ${token}\n` +
             `Restart the daemon for it to take effect, then send it as a bearer token.\n`
         : `Stored the daemon token in ${describeKeyringBackend(backend)}.\n`,
+    );
+  });
+}
+
+/**
+ * Mint the operator token the daemon asks for on every HTTP grant (see
+ * `@jazz/adapters/daemon/operator-token`), and print it once.
+ *
+ * Refused inside a process a Jazz agent started, since minting it is the operator's decision
+ * about who may grant authority, and refused where there is no OS keyring to keep it out of an
+ * agent's read tools.
+ */
+export function setOperatorTokenCommand() {
+  return Effect.gen(function* () {
+    if (isAgentStartedProcess()) {
+      process.stderr.write(
+        "Minting the operator token is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const provisioned = yield* provisionOperatorToken();
+    if (!provisioned.ok) {
+      process.stderr.write(
+        provisioned.reason === "no-os-keyring"
+          ? "The operator token lives only in the OS keyring (the macOS keychain or the Linux Secret Service), and there is none here. Without it the daemon grants nothing over HTTP; approve runs and accept goals with the CLI on this machine instead.\n"
+          : "Could not write the operator token to the OS keyring.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(
+      `Generated an operator token and stored it in ${describeKeyringBackend(provisioned.backend)}: ${provisioned.token}\n` +
+        `Restart the daemon for it to take effect. Send it as ${OPERATOR_TOKEN_HEADER}, alongside the daemon token, to accept goals, start or resume loops, and approve or answer parked runs over HTTP.\n`,
+    );
+  });
+}
+
+export function forgetOperatorTokenCommand() {
+  return Effect.gen(function* () {
+    yield* forgetOperatorToken();
+    process.stdout.write(
+      "Removed the operator token. After a restart the daemon grants nothing over HTTP.\n",
     );
   });
 }
