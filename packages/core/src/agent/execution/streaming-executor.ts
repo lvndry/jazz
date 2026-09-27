@@ -13,12 +13,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { StreamEvent, StreamingConfig } from "@/core/types";
 import { type ChatCompletionResponse } from "@/core/types/chat";
-import {
-  type LLMError,
-  LLMAuthenticationError,
-  LLMRateLimitError,
-  LLMRequestError,
-} from "@/core/types/errors";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
@@ -186,44 +181,7 @@ export function executeWithStreaming(
               ),
             );
 
-            const streamExit = yield* Fiber.await(streamFiber).pipe(
-              Effect.raceFirst(Deferred.await(interruptDeferred)),
-            );
-            const isInterrupted = yield* Deferred.isDone(interruptDeferred);
-
-            if (isInterrupted) {
-              yield* streamingResult.cancel.pipe(
-                Effect.catchAll(() =>
-                  logger.debug("Stream cancellation failed", { errorType: "cancel_failed" }),
-                ),
-              );
-              yield* Fiber.interrupt(streamFiber).pipe(
-                Effect.catchAll(() =>
-                  logger.debug("Stream fiber interruption failed", {
-                    errorType: "interrupt_failed",
-                  }),
-                ),
-              );
-
-              const accumulatedText = yield* Ref.get(textAccumulatorRef);
-              yield* renderer
-                .flush()
-                .pipe(
-                  Effect.catchAll(() =>
-                    logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
-                  ),
-                );
-
-              const fromRef = yield* Ref.get(completionRef);
-              const partialCompletion: ChatCompletionResponse = fromRef ?? {
-                id: "interrupted",
-                model,
-                content: accumulatedText,
-              };
-              return { completion: partialCompletion, interrupted: true };
-            }
-
-            const exit = streamExit as Exit.Exit<void, LLMError>;
+            const exit = yield* Fiber.await(streamFiber);
             if (Exit.isFailure(exit)) {
               yield* streamingResult.cancel;
               const errorOption = Cause.failureOption(exit.cause);
@@ -275,7 +233,7 @@ export function executeWithStreaming(
             ),
           );
 
-          return yield* Effect.retry(
+          const completionWithRetries = Effect.retry(
             withLongRunningLlmNotice(agent.name, showAgentStatus, streamingAttempt),
             streamingRetrySchedule,
           ).pipe(
@@ -325,6 +283,35 @@ export function executeWithStreaming(
                   return { completion, interrupted: false };
                 }),
             ),
+          );
+
+          /**
+           * What the model had produced when Esc landed. The losing completion is
+           * interrupted by the race, which aborts its provider request through the
+           * stream's finalizer, whether it was streaming, sleeping between retries, or
+           * waiting on the non-streaming fallback.
+           */
+          const interruptedCompletion = Effect.gen(function* () {
+            yield* renderer
+              .flush()
+              .pipe(
+                Effect.catchAll(() =>
+                  logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
+                ),
+              );
+            const accumulatedText = yield* Ref.get(textAccumulatorRef);
+            const fromRef = yield* Ref.get(completionRef);
+            const partialCompletion: ChatCompletionResponse = fromRef ?? {
+              id: "interrupted",
+              model,
+              content: accumulatedText,
+            };
+            return { completion: partialCompletion, interrupted: true };
+          });
+
+          return yield* Effect.raceFirst(
+            completionWithRetries,
+            Deferred.await(interruptDeferred).pipe(Effect.zipRight(interruptedCompletion)),
           );
         });
       },

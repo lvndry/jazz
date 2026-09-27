@@ -444,7 +444,12 @@ export function runAgentOnceCommand(
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
 
-    const runResult = yield* (deadline ? Effect.race(runEffect, deadline.watch) : runEffect).pipe(
+    // `raceFirst`, not `race`: `race` waits for the first success, so a deadline that fails
+    // would leave the run going. This stops at whichever settles first and interrupts the
+    // other, which kills running tools and aborts the provider request.
+    const runResult = yield* (
+      deadline ? Effect.raceFirst(runEffect, deadline.watch) : runEffect
+    ).pipe(
       Effect.tap((response) =>
         emitLifecycle("run-complete", {
           prompt: prompt.slice(0, 2000),

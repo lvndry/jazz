@@ -1736,9 +1736,9 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     modelId: string,
   ): Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never> =>
-    Effect.promise(async () => {
+    Effect.promise(async (signal) => {
       await this.refreshRuntimeConfigIfChanged();
-      const modelInfo = await this.resolveModelInfo(providerName, modelId);
+      const modelInfo = await this.resolveModelInfo(providerName, modelId, signal);
       return this.resolveCapabilities(providerName, modelId, modelInfo).reasoning;
     });
 
@@ -1766,9 +1766,15 @@ class AISDKService implements LLMService {
     );
   }
 
+  /**
+   * The listing entry for one model, or undefined when the provider cannot be listed in time.
+   * `signal` is the caller's: aborting it (an interrupted run) abandons the listing request
+   * instead of leaving it open until its own timeout.
+   */
   private async resolveModelInfo(
     providerName: ProviderName,
     modelId: ModelName,
+    signal?: AbortSignal,
   ): Promise<ModelInfo | undefined> {
     const models = await Effect.runPromise(
       this.getProviderModels(providerName).pipe(
@@ -1777,7 +1783,8 @@ class AISDKService implements LLMService {
         ),
         Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
       ),
-    );
+      signal === undefined ? undefined : { signal },
+    ).catch((): readonly ModelInfo[] => []);
     return models.find((model) => model.id === modelId);
   }
 
@@ -1964,7 +1971,7 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
@@ -2190,7 +2197,7 @@ class AISDKService implements LLMService {
     model: string,
   ): Effect.Effect<OllamaShowExtras, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchOllamaModelDetails(baseUrl, model),
+      try: (signal) => fetchOllamaModelDetails(baseUrl, model, signal),
       catch: (error) => error,
     });
   };
@@ -2200,7 +2207,8 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp")),
+      try: (signal) =>
+        fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp"), signal),
       catch: (error) => error,
     });
   };
@@ -2211,8 +2219,13 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () =>
-        fetchVllmServerModel(baseUrl, preferredModelId, apiKey ?? resolveProviderApiKey("vllm")),
+      try: (signal) =>
+        fetchVllmServerModel(
+          baseUrl,
+          preferredModelId,
+          apiKey ?? resolveProviderApiKey("vllm"),
+          signal,
+        ),
       catch: (error) => error,
     });
   };
@@ -2223,11 +2236,12 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () =>
+      try: (signal) =>
         fetchSglangServerModel(
           baseUrl,
           preferredModelId,
           apiKey ?? resolveProviderApiKey("sglang"),
+          signal,
         ),
       catch: (error) => error,
     });
@@ -2245,7 +2259,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     return Effect.tryPromise({
-      try: async () => {
+      try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
         const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
           this.config.llmConfig,
@@ -2262,7 +2276,7 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
@@ -2320,6 +2334,7 @@ class AISDKService implements LLMService {
           const responseDeferred = createDeferred<ChatCompletionResponse>();
 
           let processorRef: StreamProcessor | null = null;
+          let streamSettled = false;
           const stream = Stream.async<StreamEvent, LLMError>(
             (
               emit: (
@@ -2480,11 +2495,23 @@ class AISDKService implements LLMService {
 
                   responseDeferred.reject(llmError);
                 } finally {
+                  streamSettled = true;
                   if (processorRef && !abortController.signal.aborted) {
                     processorRef.cancel();
                   }
                 }
               })();
+
+              // Runs when the consumer stops pulling: an interrupt (Esc, `--timeout`,
+              // SIGTERM, an LLM wait timeout) aborts the provider request instead of leaving
+              // it streaming tokens nobody reads.
+              return Effect.sync(() => {
+                if (streamSettled) {
+                  return;
+                }
+                processorRef?.cancel();
+                abortController.abort();
+              });
             },
           );
 
