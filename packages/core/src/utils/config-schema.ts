@@ -575,7 +575,7 @@ function alternatives(schema: z.ZodType): string[] {
 }
 
 /** What a value at this schema must look like, in words: "a whole number of 0 or more". */
-function describeExpected(schema: z.ZodType | undefined): string {
+export function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
 }
 

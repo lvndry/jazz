@@ -19,6 +19,11 @@ Use these pages to answer two questions: where does a change belong, and which i
 9. [Design decisions](./design-decisions.md): why each choice is the way it is, and what it gives up.
 10. [Documentation quality](./documentation.md): writing code-backed concepts, lookup pages, and tutorials without filler or false completeness.
 
+## Reference
+
+- [Interface design](./interface-design.md): the terminal's visual language, and the rules for any case it does not cover.
+- [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
+
 ## Extend Jazz
 
 - [Add a service](./add-a-service.md)

@@ -21,7 +21,9 @@ The first run opens a home menu; choose **Create agent** to pick a model provide
 - **Evaluating Jazz:** [browse its features](./features/index.md) and [compare where it runs](./surfaces/index.md).
 - **Building an agent:** understand the [core concepts](./concepts/index.md), then [configure Jazz](./configure/index.md).
 - **Solving a real job:** copy a maintained [guide](./guides/index.md).
-- **Operating it safely:** read the [security model](./security/index.md).
+- **Operating it safely:** read the [security model](./security/index.md), and [what Jazz sends over the network on its own](./security/privacy.md).
+- **Finding what Jazz keeps on disk:** the [runtime data](./runtime-data/index.md) reference lists every file and directory it writes.
+- **Fixing something that went wrong:** start with [troubleshooting](./troubleshooting.md). [Uninstalling](./getting-started/uninstall.md) removes everything Jazz put on the machine.
 - **Contributing:** trace the implementation in the [maintainer guide](./maintainers/index.md).
 
 ## What makes Jazz different

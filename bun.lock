@@ -34,6 +34,7 @@
         "@effect/workflow": "^0.19.1",
         "@eslint/js": "^10.0.1",
         "@jazz/adapters": "workspace:*",
+        "@jazz/core": "workspace:*",
         "@modelcontextprotocol/client": "^2.0.0",
         "@openrouter/ai-sdk-provider": "^3.0.0",
         "@opentui/core": "^0.5.11",
