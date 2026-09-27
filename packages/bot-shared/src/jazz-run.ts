@@ -16,6 +16,7 @@
  */
 
 import { type ChatSandbox, sandboxCommand, sandboxEnv } from "./chat-sandbox";
+import { runSpendFromEvent, spendFields, type RunSpend } from "./usage-store";
 
 /** A subset of Jazz's NDJSON stream events (`jazz run --events`); other fields ignored. */
 export interface JazzEvent {
@@ -31,7 +32,17 @@ export interface JazzEvent {
   readonly requestId?: string;
   readonly question?: string;
   readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
+  /** `run_spend`: what the run has spent so far. */
+  readonly costUSD?: number;
+  readonly costIncomplete?: boolean;
+  readonly totalTokens?: number;
 }
+
+/**
+ * The `--events` categories every bridge asks `jazz run` for. `spend` streams `run_spend`
+ * events, so a run the bridge cancels, which leaves no envelope, is still paid for.
+ */
+export const JAZZ_RUN_EVENT_CATEGORIES = "tools,reasoning,text,approval,subagent,spend";
 
 export interface JazzComposition {
   readonly id: string;
@@ -66,6 +77,10 @@ export interface JazzSuccessEnvelope {
 export interface JazzErrorEnvelope {
   readonly ok: false;
   readonly error: string;
+  /** Present once the run reached the model: a failed run still spent money. */
+  readonly costUSD?: number;
+  readonly costKnown?: boolean;
+  readonly tokenUsage?: { readonly totalTokens?: number };
 }
 
 export type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
@@ -108,6 +123,8 @@ export interface JazzRun {
   readonly result: Promise<JazzEnvelope>;
   /** True once `cancel()` was called, so the caller can report it as a cancel. */
   cancelled(): boolean;
+  /** The spend the last `run_spend` event reported, for a run that leaves no envelope. */
+  lastSpend(): RunSpend | undefined;
   approve(decisions: readonly { toolCallId: string; approved: boolean }[]): Promise<void>;
   answerQuestion(requestId: string, response: string): Promise<void>;
   cancel(): void;
@@ -143,7 +160,7 @@ function buildArgs(options: JazzRunOptions): string[] {
     "--no-tui",
     "--json",
     "--events",
-    "tools,reasoning,text,approval,subagent",
+    JAZZ_RUN_EVENT_CATEGORIES,
     "--interactive-stdin",
     "--agent",
     options.agentId,
@@ -222,6 +239,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
   });
 
   let cancelled = false;
+  let lastSpend: RunSpend | undefined;
   const timeout = setTimeout(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
 
   const stderrTail: string[] = [];
@@ -237,6 +255,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       return;
     }
     if (typeof event.type !== "string") return;
+    lastSpend = runSpendFromEvent(event) ?? lastSpend;
     handlers.onEvent?.(event);
     if (event.type === "approval_required" && event.toolCallId) {
       handlers.onApprovalRequired?.(event);
@@ -273,7 +292,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       console.error(
         `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
       );
-      return { ok: false, error: "Jazz did not return a response." };
+      return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
     }
     return envelope;
   })();
@@ -281,6 +300,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
   return {
     result,
     cancelled: () => cancelled,
+    lastSpend: () => lastSpend,
     approve: async (decisions) => {
       for (const { toolCallId, approved } of decisions) {
         await writeStdin({ type: "approval_decision", toolCallId, approved });

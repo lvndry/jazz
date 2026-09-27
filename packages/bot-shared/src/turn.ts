@@ -61,7 +61,13 @@ import {
   type Surface,
 } from "./surface";
 import { isValidTimeZone, setTzForChat, tzForChat } from "./timezone-store";
-import { capBlockMessage, dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
+import {
+  capBlockMessage,
+  dailyCostCapBlockReason,
+  recordRunUsage,
+  runSpend,
+  todayUsage,
+} from "./usage-store";
 
 /** The per-bridge store files, so two bridges sharing a data directory do not collide. */
 export interface TurnStoreFiles {
@@ -423,6 +429,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     state.pending.clear();
     notifyPendingChange(chatId);
     runLog.finish(envelope);
+    recordRunUsage(config.jazzHome, config.files.usage, runSpend(envelope, run.lastSpend()));
 
     if (!envelope.ok) {
       const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
@@ -434,14 +441,6 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // touches disk, so a run that errored just means the next turn starts
     // context-free rather than resurrecting a stale transcript.
     if (incognito) incognitoHistory.set(chatId, envelope.messages ?? []);
-
-    recordUsage(
-      config.jazzHome,
-      config.files.usage,
-      envelope.costUSD,
-      envelope.tokenUsage?.totalTokens ?? 0,
-      envelope.costKnown !== false,
-    );
 
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);
