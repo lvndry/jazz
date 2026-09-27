@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { JazzEnvelope, JazzEvent, JazzRun } from "./jazz-run";
 import {
@@ -14,6 +15,7 @@ import {
   ALWAYS_ALLOW_CHOICE_ID,
   APPROVE_ALL_CHOICE_ID,
   APPROVE_CHOICE_ID,
+  commandKeyFromApproval,
   createTurnRunner,
   type PendingSummary,
   type TurnConfig,
@@ -469,7 +471,7 @@ describe("turn runner", () => {
     const saved = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")) as {
       autoApprovedCommands?: string[];
     };
-    expect(saved.autoApprovedCommands).toEqual(["ls"]);
+    expect(saved.autoApprovedCommands).toEqual([extractCommandApprovalKey("ls -la")]);
     running()?.finish();
     await operatorTurn;
   });
@@ -525,5 +527,29 @@ describe("turn runner", () => {
     // Tightening back to safe is anyone's call.
     await runner.handle(message("/mode safe", OTHER_MEMBER));
     expect(sent.at(-1)?.text).toContain("Mode →");
+  });
+});
+
+describe("commandKeyFromApproval", () => {
+  const approval = (command: string) => ({
+    type: "approval_required",
+    toolName: "execute_command",
+    message: `Command: ${command}\nDescription: run it`,
+  });
+
+  test("uses the executor's own approval key, not just the binary", () => {
+    const command = "git status --short";
+    expect(commandKeyFromApproval(approval(command))).toEqual({
+      kind: "key",
+      key: extractCommandApprovalKey(command),
+    });
+    expect(extractCommandApprovalKey(command)).toContain("git status");
+  });
+
+  test("a command with no key is unallowable, and anything else is not a command", () => {
+    expect(commandKeyFromApproval(approval("   "))).toBeUndefined();
+    expect(
+      commandKeyFromApproval({ type: "approval_required", toolName: "web_search", message: "x" }),
+    ).toBeUndefined();
   });
 });

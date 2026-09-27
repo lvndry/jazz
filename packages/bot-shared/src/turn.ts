@@ -283,18 +283,32 @@ const APPROVAL_COMMAND_PATTERN = /^Command: ([\s\S]*?)\nDescription: /m;
 const APPROVAL_COMMAND_LINE = /^Command: (.+)$/m;
 
 /**
- * The key "Always allow" persists for an execute_command approval, read from the command
- * in its message, or undefined when there is nothing to allowlist.
+ * What "Always allow" can persist for an approval.
+ *
+ * `key` is the approval key the executor's allowlist matches against, from the same
+ * `extractCommandApprovalKey`, so what is saved is exactly what a later run compares.
+ * `unallowable` is a shell command with no key (one that chains or redirects), which must
+ * never be allowlisted. Undefined is an approval that is not a shell command at all.
  */
-export function commandKeyFromApproval(event: JazzEvent): string | undefined {
+export type AlwaysAllowKey =
+  { readonly kind: "key"; readonly key: string } | { readonly kind: "unallowable" };
+
+export function commandKeyFromApproval(event: JazzEvent): AlwaysAllowKey | undefined {
   if (event.toolName !== "execute_command" || event.message === undefined) return undefined;
   const command =
     APPROVAL_COMMAND_PATTERN.exec(event.message)?.[1] ??
     APPROVAL_COMMAND_LINE.exec(event.message)?.[1];
   if (command === undefined || command.trim().length === 0) return undefined;
-  const key = extractCommandApprovalKey(command).split(" ")[0];
-  return key === undefined || key.length === 0 ? undefined : key;
+  // Typed wider than today's signature: the tokenizer version returns undefined for a
+  // command it refuses to key.
+  const key: string | undefined = extractCommandApprovalKey(command);
+  return key === undefined || key.trim().length === 0
+    ? { kind: "unallowable" }
+    : { kind: "key", key };
 }
+
+/** Said under an approval whose command cannot be always-allowed. */
+const UNALLOWABLE_COMMAND_NOTE = "This command can't be always-allowed: it chains or redirects.";
 
 export interface TurnRunner {
   /**
@@ -442,7 +456,8 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     if (toolCallId === undefined) return;
 
     // Offered only where somebody can use it: "Always allow" is operator-only.
-    const commandKey = config.operators.size > 0 ? commandKeyFromApproval(event) : undefined;
+    const alwaysAllow = config.operators.size > 0 ? commandKeyFromApproval(event) : undefined;
+    const commandKey = alwaysAllow?.kind === "key" ? alwaysAllow.key : undefined;
     const choices: readonly Choice[] = [
       { id: APPROVE_CHOICE_ID, label: "✅ Approve", intent: "primary" },
       { id: REJECT_CHOICE_ID, label: "❌ Reject", intent: "danger" },
@@ -455,6 +470,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       line(code(event.toolName ?? "tool")),
       ...(event.message ? [plainLine(event.message)] : []),
       ...(event.previewDiff ? [codeBlock(event.previewDiff, "diff")] : []),
+      ...(alwaysAllow?.kind === "unallowable" ? [plainLine(UNALLOWABLE_COMMAND_NOTE)] : []),
     ];
 
     const state = stateFor(chatId);
