@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { ChatSandbox } from "./chat-sandbox";
-import { buildJazzRunArgs, type JazzRunOptions, startJazzRun, stdinFrame } from "./jazz-run";
+import {
+  buildJazzRunArgs,
+  createKillTimer,
+  type JazzRunOptions,
+  startJazzRun,
+  stdinFrame,
+} from "./jazz-run";
 
 const sandbox: ChatSandbox = { home: "/data", uid: null, gid: null, isolated: false };
 
@@ -116,5 +122,31 @@ describe("a started run", () => {
       approved: true,
     });
     expect(seen.argv.join(" ")).not.toContain("buy milk");
+  });
+});
+
+describe("createKillTimer", () => {
+  test("does not count time spent waiting on a person", async () => {
+    let killed = false;
+    const timer = createKillTimer(() => {
+      killed = true;
+    }, 40);
+    timer.pause();
+    await Bun.sleep(80);
+    expect(killed).toBe(false);
+    timer.resume();
+    await Bun.sleep(70);
+    expect(killed).toBe(true);
+  });
+
+  test("stop means it never fires, even after a resume", async () => {
+    let killed = false;
+    const timer = createKillTimer(() => {
+      killed = true;
+    }, 20);
+    timer.stop();
+    timer.resume();
+    await Bun.sleep(40);
+    expect(killed).toBe(false);
   });
 });

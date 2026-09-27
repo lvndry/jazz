@@ -513,6 +513,99 @@ describe("turn runner", () => {
     await turn;
   });
 
+  test("a failure answers that message and the queue behind it still runs", async () => {
+    // The shape of the stranded-queue repro: sending the progress message throws.
+    let failWorking = true;
+    const flakySurface: Surface = {
+      ...surface,
+      send: (chatId, outgoing) => {
+        if (failWorking && renderPlain(outgoing.body).includes("Working")) {
+          return Promise.reject(new Error("socket down"));
+        }
+        return surface.send(chatId, outgoing);
+      },
+    };
+    runner = createTurnRunner({ ...baseConfig, surface: flakySurface });
+    const first = runner.handle(message("first"));
+    const second = runner.handle(message("second"));
+    await first;
+    await second;
+    expect(sent.filter((entry) => entry.text.includes("Something went wrong"))).toHaveLength(2);
+    failWorking = false;
+    const { turn } = await startTurn("third");
+    expect(runsStarted).toEqual(["third"]);
+    current?.finish();
+    await turn;
+  });
+
+  test("/status is answered at once while a run is in flight, and /stop stops it", async () => {
+    const { turn } = await startTurn();
+    await runner.handle(message("/status"));
+    expect(sent.at(-1)?.text).toContain("Status");
+    await runner.handle(message("/stop"));
+    expect(sent.some((entry) => entry.text.includes("Stopping"))).toBe(true);
+    await turn;
+    expect(current?.cancelled()).toBe(true);
+  });
+
+  test("a free-text question does not swallow a command", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "user_input_required", requestId: "q1", question: "which file?" });
+    await Bun.sleep(5);
+    await runner.handle(message("/status"));
+    expect(current?.answers).toEqual([]);
+    await runner.handle(message("notes.md"));
+    expect(current?.answers).toEqual([{ requestId: "q1", response: "notes.md" }]);
+    current?.finish();
+    await turn;
+  });
+
+  test("messages past the queue bound are dropped with a reply", async () => {
+    runner = createTurnRunner({
+      ...baseConfig,
+      limits: { maxConcurrentRuns: 4, maxQueuedMessages: 1 },
+    });
+    const { turn } = await startTurn();
+    await runner.handle(message("queued"));
+    await runner.handle(message("one too many"));
+    expect(sent.at(-1)?.text).toContain("was dropped");
+    runner.cancel("c1", undefined);
+    await turn;
+  });
+
+  test("the process-wide cap makes a second conversation wait for a slot", async () => {
+    runner = createTurnRunner({
+      ...baseConfig,
+      limits: { maxConcurrentRuns: 1, maxQueuedMessages: 5 },
+    });
+    const { turn } = await startTurn();
+    const firstRun = current;
+    current = undefined;
+    const other = runner.handle(message("other chat", REQUESTER, "c2"));
+    await Bun.sleep(20);
+    expect(runsStarted).toEqual(["hello"]);
+    expect(sent.some((entry) => entry.text.includes("Busy with 1"))).toBe(true);
+    firstRun?.finish();
+    await turn;
+    const running = (): FakeRun | undefined => current;
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+      await Bun.sleep(1);
+    expect(runsStarted).toEqual(["hello", "other chat"]);
+    running()?.finish();
+    await other;
+  });
+
+  test("shutdown tells whoever is waiting, cancels, and refuses new messages", async () => {
+    const { turn } = await startTurn();
+    await runner.shutdown(1_000);
+    await turn;
+    expect(current?.cancelled()).toBe(true);
+    expect(sent.some((entry) => entry.text.includes("restarting"))).toBe(true);
+    const before = runsStarted.length;
+    await runner.handle(message("anyone there?"));
+    expect(runsStarted).toHaveLength(before);
+  });
+
   test("/mode yolo is refused for anyone but an operator", async () => {
     await runner.handle(message("/mode yolo", OTHER_MEMBER));
     expect(sent.at(-1)?.text).toContain("Operator only");

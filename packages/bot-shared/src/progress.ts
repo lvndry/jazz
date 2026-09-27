@@ -48,6 +48,16 @@ const EDIT_MIN_INTERVAL_MS = 2_000;
 const QUIET_FIRST_UPDATE_MS = 45_000;
 const QUIET_UPDATE_INTERVAL_MS = 60_000;
 
+/**
+ * How often the display is looked at without an event. A slow model loading into memory
+ * sends nothing for minutes, and the display must still move: the elapsed time on an edited
+ * bubble, the "still working" line on an append-only surface.
+ */
+const PROGRESS_TICK_MS = 5_000;
+
+/** The bubble shows how long the run has taken once it is past this. */
+const ELAPSED_SHOWN_AFTER_MS = QUIET_FIRST_UPDATE_MS;
+
 /** Tools and sub-agents past this are dropped from the display, oldest first. */
 const MAX_TOOLS_SHOWN = 8;
 
@@ -70,6 +80,8 @@ export interface ProgressReporterOptions {
    * different rates, and a test needs a cadence it can reach without sleeping.
    */
   readonly editIntervalMs?: number;
+  /** How often the display is looked at without an event; a test shortens it. */
+  readonly tickMs?: number;
 }
 
 export interface ProgressReporter {
@@ -95,6 +107,13 @@ export interface ProgressReporter {
 }
 
 const WORKING_HEADER = "🤔 Working…";
+
+function formatElapsed(milliseconds: number): string {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
+}
 
 export function createProgressReporter(options: ProgressReporterOptions): ProgressReporter {
   const { surface, chatId, runLog } = options;
@@ -132,6 +151,8 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     // the count is what makes a loop visible without reading logs.
     if (rounds > 1) body.push(plainLine(`↻ round ${rounds}`));
     if (writing) body.push(plainLine("✍️ writing the answer…"));
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= ELAPSED_SHOWN_AFTER_MS) body.push(plainLine(`⏱ ${formatElapsed(elapsedMs)}`));
     return body;
   };
 
@@ -150,6 +171,39 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   };
 
   const choices = options.cancelChoice ? [options.cancelChoice] : undefined;
+  let ticker: ReturnType<typeof setInterval> | undefined;
+  let trailing: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
+
+  /**
+   * Redraw now if the throttle allows, and otherwise once it does: an event that arrives
+   * inside the edit interval would otherwise never be shown when it is the last one.
+   */
+  const refresh = (): void => {
+    if (finished) return;
+    const waitMs = editIntervalMs - (Date.now() - lastSentAt);
+    if (waitMs <= 0) {
+      void update(render(), choices);
+      return;
+    }
+    trailing ??= setTimeout(() => {
+      trailing = undefined;
+      if (!finished) void update(render(), choices);
+    }, waitMs);
+  };
+
+  const maybeQuietTick = (): void => {
+    const due = quietUpdates === 0 ? QUIET_FIRST_UPDATE_MS : QUIET_UPDATE_INTERVAL_MS;
+    if (Date.now() - lastSentAt >= due) void quietTick();
+  };
+
+  const stopTimers = (): void => {
+    finished = true;
+    if (ticker !== undefined) clearInterval(ticker);
+    if (trailing !== undefined) clearTimeout(trailing);
+    ticker = undefined;
+    trailing = undefined;
+  };
 
   /**
    * Rewrite the bubble, skipping a no-op edit.
@@ -209,6 +263,11 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
       });
       lastRendered = JSON.stringify([line(bold(WORKING_HEADER))]);
       lastSentAt = Date.now();
+      ticker = setInterval(
+        () => (editable ? refresh() : maybeQuietTick()),
+        options.tickMs ?? PROGRESS_TICK_MS,
+      );
+      ticker.unref?.();
     },
 
     onEvent(event: JazzEvent): void {
@@ -241,15 +300,14 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
       }
 
       if (editable) {
-        if (Date.now() - lastSentAt >= editIntervalMs) void update(render(), choices);
+        refresh();
         return;
       }
-
-      const due = quietUpdates === 0 ? QUIET_FIRST_UPDATE_MS : QUIET_UPDATE_INTERVAL_MS;
-      if (Date.now() - lastSentAt >= due) void quietTick();
+      maybeQuietTick();
     },
 
     async finish(summary: RichText): Promise<boolean> {
+      stopTimers();
       if (!editable || messageRef === undefined) return false;
       // An empty choice list is what drops the Cancel button from the closed bubble.
       await update(summary, [], true);

@@ -131,15 +131,22 @@ export async function cancelReminder(
   return removed.length > 0;
 }
 
-/** Remove and return every reminder due at `now`. */
-export function takeDueReminders(
+/** The reminders due at `now`, left in place until `acknowledgeReminders` removes them. */
+export function dueReminders(home: string, agentId: string, now: number): ReminderRecord[] {
+  return readReminders(home, agentId).filter((reminder) => reminder.fireAt <= now);
+}
+
+/** Remove reminders that were delivered. Resolves how many were still there to remove. */
+export async function acknowledgeReminders(
   home: string,
   agentId: string,
-  now: number,
+  reminderIds: readonly string[],
   ownership: Ownership | undefined,
-): Promise<readonly ReminderRecord[]> {
-  return rewriteReminders(home, agentId, ownership, (reminders) => ({
-    kept: reminders.filter((reminder) => reminder.fireAt > now),
-    removed: reminders.filter((reminder) => reminder.fireAt <= now),
+): Promise<number> {
+  const delivered = new Set(reminderIds);
+  const removed = await rewriteReminders(home, agentId, ownership, (reminders) => ({
+    kept: reminders.filter((reminder) => !delivered.has(reminder.id)),
+    removed: reminders.filter((reminder) => delivered.has(reminder.id)),
   }));
+  return removed.length;
 }
