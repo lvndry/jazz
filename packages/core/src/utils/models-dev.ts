@@ -339,9 +339,7 @@ export function getMetadataFromMap(
 
 /**
  * A model served on this machine costs nothing, whatever a hosted listing of the same model
- * charges: its entry keeps its context window and capabilities, but its prices are zero.
- * Matching `gemma4:12b` served by Ollama against a cloud host's `gemma4` otherwise billed
- * local runs at the host's rate.
+ * charges.
  */
 function freeToRun(meta: ModelsDevMetadata): ModelsDevMetadata {
   return {
