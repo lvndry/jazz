@@ -1,8 +1,11 @@
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { deliverWorkflowResult, notifyWorkflowNotRun } from "@jazz/core/notify/workflow-delivery";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@jazz/core/types/agent";
@@ -349,6 +352,15 @@ export function runWorkflowCommand(
       if (isNonInteractive) {
         const errorMessage = `Agent '${agentIdentifier}' not found. Scheduled workflows require a valid agent — update the workflow or re-schedule with an existing agent.`;
         yield* markFailed(errorMessage);
+        if (isSchedulerTriggered) {
+          yield* notifyWorkflowNotRun({
+            notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+            workflow: workflowName,
+            deliver: workflow.metadata.deliver,
+            agentId: agentIdentifier,
+            error: errorMessage,
+          });
+        }
         yield* say(() => terminal.error(`Agent '${agentIdentifier}' not found.`));
         yield* say(() =>
           terminal.info(
@@ -445,6 +457,13 @@ export function runWorkflowCommand(
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+      origin: {
+        source: "workflow",
+        name: workflowName,
+        ...(workflow.metadata.deliver !== undefined
+          ? { deliverTo: workflow.metadata.deliver }
+          : {}),
+      },
     });
     const runResult = yield* (
       options?.timeoutMs != null
@@ -481,6 +500,14 @@ export function runWorkflowCommand(
         }),
       ),
     );
+
+    yield* deliverWorkflowResult({
+      notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+      workflow: workflowName,
+      deliver: workflow.metadata.deliver,
+      agentId: agent.id,
+      answer: runResult.content,
+    });
 
     if (jsonMode) {
       const promptTokens = runResult.usage?.promptTokens ?? 0;
@@ -526,7 +553,7 @@ export function runWorkflowCommand(
       const summary = { workflow: workflowName, ...runCostFields(runResult) };
       yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
     }
-  });
+  }).pipe(Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)));
 
   if (!jsonMode) {
     return command;

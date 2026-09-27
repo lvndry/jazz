@@ -12,7 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
-import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -42,6 +42,12 @@ import type { ActivePreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import {
+  guardRunStart,
+  type RunAccountingInput,
+  settleRunAccounting,
+} from "@/core/spend/run-accounting";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
@@ -73,6 +79,7 @@ import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
+  computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
   telemetryErrorCategory,
@@ -887,6 +894,9 @@ function initializeAgentRun(
   });
 }
 
+/** A run whose caller named no entry point is treated as an unattended `jazz run`. */
+const DEFAULT_RUN_ORIGIN: RunOrigin = { source: "run" };
+
 /** Preserve the active trace when compaction or memory extraction starts a recursive run. */
 export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
   return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
@@ -951,6 +961,18 @@ export class AgentRunner {
         // Get services
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
+
+        const accounting: RunAccountingInput = {
+          agentId: options.agent.id,
+          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          internal: options.internal === true,
+          appConfig,
+          freeLocalModel: isZeroCostLocalModel(
+            options.agent.config.llmProvider,
+            options.agent.config.llmModel,
+          ),
+        };
+        yield* guardRunStart(accounting);
 
         // Initialize run context
         const runContext = yield* initializeAgentRun(options);
@@ -1031,6 +1053,20 @@ export class AgentRunner {
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
           },
           execute,
+        ).pipe(
+          Effect.onExit((exit) =>
+            settleRunAccounting(
+              accounting,
+              {
+                ...computeRunCost(runContext.runMetrics, pricing),
+                totalTokens:
+                  runContext.runMetrics.totalPromptTokens +
+                  runContext.runMetrics.totalCompletionTokens,
+              },
+              exit,
+              options.runId ?? runContext.runMetrics.runId,
+            ),
+          ),
         );
       }),
     );

@@ -2397,6 +2397,132 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     );
 }
 
+function registerSpendCommand(program: Command): void {
+  program
+    .command("spend")
+    .description("What runs on this machine cost today and this month, by agent and source")
+    .option("--json", "Emit a single JSON envelope { ok, today, thisMonth, ceilings }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/spend").then((mod) =>
+            mod.spendCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+function registerNotifyCommands(program: Command): void {
+  const notifyCommand = program
+    .command("notify")
+    .description("Notify channels: where results, reminders, approvals and failures reach you");
+
+  notifyCommand
+    .command("list")
+    .alias("ls")
+    .description("List the configured notify channels")
+    .option("--json", "Emit a single JSON envelope { ok, channels }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.listNotifyChannelsCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("add <name>")
+    .description("Add or replace a notify channel; asks for its secret on a terminal")
+    .requiredOption("--type <type>", "telegram, discord, webhook or desktop")
+    .option("--chat-id <id>", "Telegram chat id to post in")
+    .option("--channel-id <id>", "Discord channel id, when posting as a bot instead of a webhook")
+    .option("--url <url>", "Webhook endpoint that receives signed JSON")
+    .option("--api-base-url <url>", "Self-hosted Telegram Bot API or Discord API base URL")
+    .option(
+      "--events <list>",
+      "Comma-separated: reminder, approval-needed, unattended-failed, spend-ceiling (default: all)",
+    )
+    .option(
+      "--approve-from-chat",
+      "A running Jazz bridge serves this chat, so approval requests offer /approve",
+    )
+    .action(
+      (
+        name: string,
+        options: {
+          type: string;
+          chatId?: string;
+          channelId?: string;
+          url?: string;
+          apiBaseUrl?: string;
+          events?: string;
+          approveFromChat?: boolean;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/notify").then((mod) =>
+              mod.addNotifyChannelCommand({
+                name,
+                type: options.type,
+                ...(options.chatId !== undefined ? { chatId: options.chatId } : {}),
+                ...(options.channelId !== undefined ? { channelId: options.channelId } : {}),
+                ...(options.url !== undefined ? { url: options.url } : {}),
+                ...(options.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
+                ...(options.events !== undefined ? { events: options.events } : {}),
+                ...(options.approveFromChat === true ? { approveFromChat: true } : {}),
+              }),
+            ),
+          cliRuntimeOptions(program),
+        ),
+    );
+
+  notifyCommand
+    .command("test <name>")
+    .description("Send a test message through one channel and report what it answered")
+    .option("--json", "Emit a single JSON envelope { ok, channel }")
+    .action((name: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.testNotifyChannelCommand({ channel: name, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("outbox")
+    .description("Show notifications waiting to be delivered, and why the failed ones failed")
+    .option("--json", "Emit a single JSON envelope { ok, notifications }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.notifyOutboxCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  notifyCommand
+    .command("retry")
+    .description("Retry notifications that stopped retrying, and deliver the outbox now")
+    .option("--json", "Emit a single JSON envelope { ok, rearmed, delivered, failed }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/notify").then((mod) =>
+            mod.retryNotifyOutboxCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 function registerRunsCommands(program: Command): void {
   const runsCommand = program
     .command("runs")
@@ -2917,6 +3043,8 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   registerReminderCommand(program);
   registerPeersCommands(program);
   registerRunsCommands(program);
+  registerSpendCommand(program);
+  registerNotifyCommands(program);
   registerWorkflowCommands(program);
 
   if (firstOperand(program, argv.slice(2)) === undefined) {

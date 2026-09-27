@@ -79,8 +79,9 @@ delivered at least once, never silently dropped:
    retrying cannot help (the agent no longer exists), it stays on disk as failed, and
    `list_reminders` and `list_triggers` show the error.
 
-A desktop reminder on a host with no desktop session (a headless server, a system service) is
-kept as failed with that reason rather than consumed unseen. A chat bridge only marks a reminder
+A desktop reminder on a host with no desktop session (a headless server, a system service) goes
+to every [notify channel](../configure/notifications.md) that takes reminders instead; with none
+configured it is kept as failed with that reason rather than consumed unseen. A chat bridge only marks a reminder
 delivered after the send succeeded, and a reminder whose chat it cannot resolve yet waits instead
 of being dropped.
 
@@ -98,7 +99,7 @@ Nobody typed anything to start a resumed run, so nobody is necessarily watching 
 gated tool.
 
 It parks rather than dying or hanging. The run saves itself, sends a desktop notification naming
-what it wants, and waits. `jazz runs approve <id>` finishes it; `jazz runs reject <id> --note
+what it wants, tells your [notify channels](../configure/notifications.md), and waits. `jazz runs approve <id>` finishes it; `jazz runs reject <id> --note
 "why"` turns it down. Same mechanism a `--park` headless run uses.
 
 ## Related

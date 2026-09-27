@@ -216,6 +216,7 @@ export function resumeRun(options: ResumeRunOptions) {
         ? { withholdInteractiveTools: options.withholdInteractiveTools }
         : {}),
       ...(options.startedBy !== undefined ? { startedBy: options.startedBy } : {}),
+      origin: { source: options.startedBy ?? "resume" },
       ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
         ? {
             autoApprovedTools: [

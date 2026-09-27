@@ -1,5 +1,5 @@
 ---
-description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to disk or delivered to chat while you are away."
+description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to a log, and delivered to your phone or chat through a notify channel."
 ---
 
 # Scheduled runs on a clock

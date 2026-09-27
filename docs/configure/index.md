@@ -9,6 +9,7 @@ Jazz separates application configuration from agent definitions and workflow fil
 - [Jazz configuration](./jazz.md) controls runtime defaults, limits, output, telemetry, schedulers, peers, and webhooks.
 - [Agent configuration](./agents.md) selects primary and companion models, personas, context limits, capabilities, and per-agent restrictions.
 - [Workflows](./workflows.md) combine a prompt with scheduling and run overrides.
+- [Notifications](./notifications.md) send results, reminders, parked approvals and failures to Telegram, Discord, a signed webhook, or the desktop.
 - [Providers](./providers.md) explains cloud and local model credentials.
 - [MCP](./mcp.md), [web search](./web-search.md), and [email and calendar](./email-calendar.md) add external capabilities.
 - [Plugins](./plugins.md) covers optional trusted code, per-agent enablement, secrets, and authoring.

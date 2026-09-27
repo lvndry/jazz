@@ -3,6 +3,7 @@ import {
   saveConversation,
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
@@ -441,6 +442,7 @@ export function runAgentOnceCommand(
       userInput: prompt,
       trustUserInputAsMemorySource: promptFromArgument || options.inputStdin === true,
       conversationId,
+      origin: { source: "run" },
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
         : resumedHistory !== null
@@ -569,6 +571,8 @@ export function runAgentOnceCommand(
         }),
     ),
     Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    // A run that parked, failed or hit a spend ceiling may have queued a notification.
+    Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),

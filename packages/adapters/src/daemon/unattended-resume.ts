@@ -3,7 +3,7 @@
  * two reasons to start one being a job batch finishing and a wake trigger firing.
  *
  * `AgentRunner.run` signals a park by *failing* with `RunParkRequested`, which is not an error:
- * the run stopped on an approval, was persisted, and finishes later via `jazz runs resume <id>`.
+ * the run stopped on an approval, was persisted, and finishes later via `jazz runs approve <id>` or `jazz runs reject <id>`.
  * Both callers used to catch it as a failure, which logged an empty message, skipped the save so
  * the transcript was lost, and told nobody a run was waiting. A park is its own outcome here.
  */
@@ -12,6 +12,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { Effect } from "effect";
@@ -21,13 +22,21 @@ import {
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
 
+export type UnattendedTurnSource = "job batch" | "wake trigger";
+
+/** Where a turn's spend lands in the ledger, and how the notify channel names it. */
+const TURN_SPEND_SOURCES: Readonly<Record<UnattendedTurnSource, SpendSource>> = {
+  "job batch": "job",
+  "wake trigger": "wake-trigger",
+};
+
 export interface UnattendedTurn {
   readonly agentId: string;
   readonly conversationId: string;
   readonly prompt: string;
   readonly fallbackTitle: string;
-  /** Human-readable, for logs and the notification: `"job batch"`, `"wake trigger"`. */
-  readonly source: string;
+  /** Human-readable, for logs and the notification. */
+  readonly source: UnattendedTurnSource;
   readonly sourceId: string;
 }
 
@@ -154,6 +163,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
       userInput: turn.prompt,
       conversationId: turn.conversationId,
       parkWhenUnattended: true,
+      origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     }).pipe(
       Effect.map((response) =>

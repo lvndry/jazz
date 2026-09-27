@@ -7,7 +7,9 @@ import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { deliverWorkflowResult, notifyWorkflowNotRun } from "@/core/notify/workflow-delivery";
 import { normalizeCronExpression } from "@/core/utils/cron";
 import { toError } from "@/core/utils/errors";
 import {
@@ -302,7 +304,16 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
+    const notifications = (yield* (yield* AgentConfigServiceTag).appConfig).notifications;
     const { entry, workflow, record } = claim;
+    const notifyNotRun = (error: string) =>
+      notifyWorkflowNotRun({
+        notifications,
+        workflow: entry.workflowName,
+        deliver: workflow.deliver,
+        agentId: entry.agent,
+        error,
+      });
     const finish = (update: Parameters<typeof updateRunRecord>[1]) =>
       updateRunRecord(record.id, { completedAt: new Date().toISOString(), ...update }).pipe(
         Effect.catchAll((error) =>
@@ -320,6 +331,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
         agent: entry.agent,
       });
       yield* finish({ status: "failed", error: `Agent '${entry.agent}' not found.` });
+      yield* notifyNotRun(`Agent '${entry.agent}' not found.`);
       return;
     }
 
@@ -331,6 +343,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
         workflow: entry.workflowName,
       });
       yield* finish({ status: "failed", error: "Workflow content is not available." });
+      yield* notifyNotRun("Workflow content is not available.");
       return;
     }
 
@@ -357,8 +370,22 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
       ...(workflow.maxTokens != null ? { maxTokens: workflow.maxTokens } : {}),
       ...(workflow.maxDurationMs != null ? { maxDurationMs: workflow.maxDurationMs } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      origin: {
+        source: "workflow",
+        name: entry.workflowName,
+        ...(workflow.deliver !== undefined ? { deliverTo: workflow.deliver } : {}),
+      },
     }).pipe(
       Effect.tap(() => finish({ status: "completed" })),
+      Effect.tap((response) =>
+        deliverWorkflowResult({
+          notifications,
+          workflow: entry.workflowName,
+          deliver: workflow.deliver,
+          agentId: agentResult.right.id,
+          answer: response.content,
+        }),
+      ),
       Effect.tapError((error) => finish({ status: "failed", error: toError(error).message })),
       Effect.catchAll((error) =>
         logger.warn("Catch-up run failed", {

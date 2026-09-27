@@ -1487,6 +1487,7 @@ export function webhookRunOptions(fire: WebhookFire) {
       conversationId: fire.conversationId,
       toolAllowlist,
       parkWhenUnattended: true,
+      origin: { source: "webhook", name: webhook.name },
       ...(fire.onToolEvent !== undefined ? { onToolEvent: fire.onToolEvent } : {}),
       ...(fire.history !== undefined ? { conversationHistory: fire.history } : {}),
     } satisfies AgentRunnerOptions;
@@ -1685,6 +1686,7 @@ function startRun(
       userInput: prompt,
       conversationId,
       parkWhenUnattended: true,
+      origin: { source: "daemon" },
     });
 
     return json({ ok: true, answer: response.content, conversationId });

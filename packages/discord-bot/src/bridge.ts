@@ -21,6 +21,7 @@ import {
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
 import {
+  bridgeRunEnv,
   type ChatSandbox,
   ensureChatSandbox,
   listChatSandboxes,
@@ -42,6 +43,7 @@ import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
+import { answerRunFromChat, isRunAnswerCommand } from "@jazz/bot-shared/run-answer";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -58,7 +60,12 @@ import {
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
 import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
+import {
+  capBlockMessage,
+  dailyCostCapBlockReason,
+  recordUsage,
+  todayUsage,
+} from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
@@ -128,8 +135,9 @@ import {
 } from "./discord-md";
 
 const TZ_FILE = "dc-tz.json";
+/** Names this bridge's runs in the spend ledger; its daily cap counts only these. */
+const SPEND_ORIGIN = "discord";
 const COMPOSITIONS_FILE = "dc-compositions.json";
-const USAGE_FILE = "dc-usage.json";
 const EPOCHS_FILE = "dc-sessions.json";
 const INCOGNITO_FILE = "dc-incognito.json";
 const MODE_FILE = "dc-mode.json";
@@ -186,9 +194,9 @@ const channelCache = new Map<string, ChannelMeta>();
 interface BridgeConfig extends AccessConfig {
   readonly botToken: string;
   /**
-   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`). Being
-   * allowed to talk to the bot is not enough: with a guild allowlist that is the whole
-   * server.
+   * Discord user ids allowed to widen a conversation's authority (`/mode yolo`) and to answer
+   * parked runs with /approve and /deny. Being allowed to talk to the bot is not enough: with a
+   * guild allowlist that is the whole server.
    */
   readonly operatorIds: ReadonlySet<string>;
   readonly createThreads: boolean;
@@ -737,7 +745,7 @@ async function runJazz(
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env, "discord"),
+      env: bridgeRunEnv(sandbox, process.env, "discord"),
     },
   );
   activeRuns.set(runToken, { child, cancelled: false, channelId, requesterId });
@@ -863,23 +871,15 @@ async function handleMessage(
   const replyReference =
     replyToMessageId !== undefined ? { message_reference: { message_id: replyToMessageId } } : {};
 
-  const usage = todayUsage(config.jazzHome, USAGE_FILE);
-  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
-  if (capBlockReason === "unpriced") {
+  const capBlockReason = dailyCostCapBlockReason(
+    await todayUsage(config.jazzHome, SPEND_ORIGIN),
+    config.dailyCostCapUsd,
+  );
+  if (capBlockReason !== undefined) {
     await sendReply(
       config,
       channelId,
-      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
-      replyReference,
-    );
-    return;
-  }
-
-  if (capBlockReason === "reached") {
-    await sendReply(
-      config,
-      channelId,
-      `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
+      capBlockMessage(capBlockReason, config.dailyCostCapUsd),
       replyReference,
     );
     return;
@@ -948,13 +948,12 @@ async function handleMessage(
         );
       }
       const costKnown = envelope.costKnown !== false;
-      recordUsage(
-        config.jazzHome,
-        USAGE_FILE,
-        envelope.costUSD,
-        envelope.tokenUsage?.totalTokens ?? 0,
+      await recordUsage(config.jazzHome, SPEND_ORIGIN, {
+        agentId: agentIdForChannel(channelId),
+        costUSD: envelope.costUSD,
+        tokens: envelope.tokenUsage?.totalTokens ?? 0,
         costKnown,
-      );
+      });
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ **Done**"];
       if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));
@@ -1222,6 +1221,7 @@ const HELP_TEXT = [
   "`/reminders` — list and cancel your reminders",
   "`/tz` — set your timezone so reminder times are local (e.g. `/tz zone:Europe/Paris`)",
   "`/status` — model, today's usage, uptime",
+  "`/approve <runId>`, `/deny <runId> [why]`: answer a parked run a notification told you about (operator only)",
   "`/help` — show this",
   "",
   "In a server I only reply when mentioned, when you reply to me, or in a thread I already joined.",
@@ -1397,7 +1397,7 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config.jazzHome, USAGE_FILE);
+    const day = await todayUsage(config.jazzHome, SPEND_ORIGIN);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 **Status**",
@@ -1630,6 +1630,20 @@ async function dispatchMessage(
   if (stripped.length === 0) return;
 
   const parsed = parseCommand(stripped);
+  if (parsed !== undefined && isRunAnswerCommand(parsed.command)) {
+    const reply = await answerRunFromChat({
+      command: parsed.command,
+      args: parsed.args,
+      senderId: message.author.id,
+      operatorIds: config.operatorIds,
+      operatorSettingName: "DISCORD_OPERATOR_IDS",
+      jazzBinary: config.jazzBinary,
+      onAccepted: (runId) =>
+        sendReply(config, message.channel_id, `⏳ Answering run \`${runId}\`…`),
+    });
+    await sendReply(config, message.channel_id, reply);
+    return;
+  }
   const known = new Set([
     "help",
     "status",

@@ -1,5 +1,5 @@
 ---
-description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery targets: verified against the parser source."
+description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery to notify channels: verified against the parser source."
 ---
 
 # Workflow frontmatter
@@ -30,6 +30,7 @@ maxIterations: 40
 maxCostUSD: 0.20
 maxTokens: 200000
 maxDurationMs: 1800000
+deliver: phone
 ---
 ```
 
@@ -47,6 +48,7 @@ maxDurationMs: 1800000
 | `maxCostUSD`       | number      | no       | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
 | `maxTokens`        | number      | no       | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
 | `maxDurationMs`    | ms          | no       | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
+| `deliver`          | string(s)   | no       | [Notify channel](./notifications.md) name, or a list, that receives each run's answer. Its failures and approval requests go there too                    |
 
 `maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between
 iterations, not preemptive interrupts. See
