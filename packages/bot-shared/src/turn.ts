@@ -35,7 +35,8 @@ import {
   setApprovalMode,
 } from "./approval-mode-store";
 import { type ChatSandbox, ensureChatSandbox, sandboxOwnership } from "./chat-sandbox";
-import { type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
+import { compositionLinkPath, type CompositionLinks } from "./compositions";
+import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { listPersonaNames } from "./personas";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
@@ -92,12 +93,16 @@ export interface TurnConfig {
   /** The setting that names operators, for the refusal a non-operator sees. */
   readonly operatorSettingName: string;
   /**
-   * Public origin an interactive `create_composition` result is served from.
+   * Where interactive `create_composition` results are published: the public origin the
+   * bridge serves them from and the store of opaque ids its links carry.
    *
    * Undefined disables the interactive mode; the static one is an image and
    * needs no origin.
    */
-  readonly publicBaseUrl?: string;
+  readonly compositionServer?: {
+    readonly publicBaseUrl: string;
+    readonly links: CompositionLinks;
+  };
   /** The setting to name when an interactive web app has nowhere to be served from. */
   readonly publicUrlSettingName?: string;
   /** Extra help lines describing anything the bridge adds on top. */
@@ -288,6 +293,16 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   const writeAgent = (sandbox: ChatSandbox, agent: AgentFile): void => {
     writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
+  };
+
+  /** Publish a conversation's interactive app, when this bridge serves them. */
+  const publishFor = (chatId: ChatId) => {
+    const server = config.compositionServer;
+    if (server === undefined) return undefined;
+    return (composition: JazzComposition): string | undefined => {
+      const id = server.links.publish(config.agentIdFor(chatId), composition);
+      return id === undefined ? undefined : `${server.publicBaseUrl}${compositionLinkPath(id)}`;
+    };
   };
 
   // --- Prompts the person answers -----------------------------------------
@@ -530,11 +545,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       await deliverComposition(
         surface,
         chatId,
-        planCompositionDelivery(
-          envelope.composition,
-          config.publicBaseUrl,
-          config.publicUrlSettingName ?? "the public URL setting",
-        ),
+        planCompositionDelivery(envelope.composition, {
+          home: sandbox.home,
+          publish: publishFor(chatId),
+          publicUrlSettingName: config.publicUrlSettingName ?? "the public URL setting",
+        }),
       );
     }
   };

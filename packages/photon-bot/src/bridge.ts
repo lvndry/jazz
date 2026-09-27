@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { normalizeHandle, parseHandleList } from "@jazz/bot-shared/handles";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
+import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
@@ -312,14 +313,6 @@ function readableContent(content: unknown): ReadableContent | undefined {
   return typeof candidate.read === "function" ? (candidate as ReadableContent) : undefined;
 }
 
-/** Extension for a saved file, from its name first and its MIME type second. */
-function extensionFor(media: ReadableContent): string {
-  const fromName = media.name?.split(".").at(-1);
-  if (fromName !== undefined && fromName.length > 0 && fromName !== media.name) return fromName;
-  const subtype = media.mimeType?.split("/").at(-1)?.split(";").at(0);
-  return subtype !== undefined && subtype.length > 0 ? subtype : "bin";
-}
-
 /**
  * Turn one inbound message into the prompt the agent sees.
  *
@@ -342,7 +335,7 @@ export async function promptFrom(
     try {
       const directory = join(jazzHome, MEDIA_DIR);
       mkdirSync(directory, { recursive: true });
-      const path = join(directory, `${message.id}.${extensionFor(media)}`);
+      const path = join(directory, inboundMediaFileName(message.id, media.name, media.mimeType));
       writeFileSync(path, await media.read());
       parts.push(path);
     } catch (error) {

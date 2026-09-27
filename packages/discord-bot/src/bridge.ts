@@ -22,7 +22,6 @@ import {
 } from "@jazz/bot-shared/approval-mode-store";
 import {
   type ChatSandbox,
-  chatIsolationEnabled,
   ensureChatSandbox,
   listChatSandboxes,
   SANDBOX_UMASK,
@@ -30,6 +29,13 @@ import {
   sandboxEnv,
   sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
+import {
+  compositionIdFromPath,
+  compositionLinkPath,
+  type CompositionLinks,
+  createCompositionLinks,
+  readCompositionImage,
+} from "@jazz/bot-shared/compositions";
 import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
@@ -122,6 +128,7 @@ import {
 } from "./discord-md";
 
 const TZ_FILE = "dc-tz.json";
+const COMPOSITIONS_FILE = "dc-compositions.json";
 const USAGE_FILE = "dc-usage.json";
 const EPOCHS_FILE = "dc-sessions.json";
 const INCOGNITO_FILE = "dc-incognito.json";
@@ -316,23 +323,12 @@ function sandboxForChannel(config: BridgeConfig, channelId: string): ChatSandbox
   return ensureChatSandbox(config.jazzHome, agentIdForChannel(channelId));
 }
 
-/**
- * Every file a `/compositions/<session>/<name>.html` request could be asking for.
- *
- * The URL carries only the app's id, and with one Jazz home per conversation
- * there is no channel to key that on, so each home is a candidate. The health
- * server runs in the bridge process, which is the one identity allowed to read
- * across sandboxes.
- */
-function compositionCandidatePaths(
-  config: BridgeConfig,
-  sessionId: string,
-  filename: string,
-): string[] {
-  const homes = chatIsolationEnabled()
-    ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
-    : [config.jazzHome];
-  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
+let publishedCompositions: CompositionLinks | undefined;
+
+/** The web apps this bridge has handed out links to, served by opaque id. */
+function compositionLinks(config: BridgeConfig): CompositionLinks {
+  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  return publishedCompositions;
 }
 
 function formatUptime(ms: number): string {
@@ -810,18 +806,21 @@ async function deliverComposition(
   channelId: string,
   composition: JazzComposition,
 ): Promise<void> {
+  const home = sandboxForChannel(config, channelId).home;
   if (composition.mode === "static") {
-    if (composition.imagePath === undefined) {
+    // Read from this conversation's own compositions, whatever path the envelope claims.
+    const image = readCompositionImage(home, composition);
+    if (image === undefined) {
       console.error(
-        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
       );
       return;
     }
     await sendAttachment(
       config.botToken,
       channelId,
-      composition.imagePath,
-      "composition.png",
+      new Blob([image.bytes], { type: "image/png" }),
+      image.filename,
       composition.title,
     );
     return;
@@ -837,7 +836,12 @@ async function deliverComposition(
     return;
   }
 
-  const url = `${config.publicBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  const linkId = compositionLinks(config).publish(agentIdForChannel(channelId), composition);
+  if (linkId === undefined) {
+    console.error(`create_composition returned unusable names (id=${composition.id})`);
+    return;
+  }
+  const url = `${config.publicBaseUrl}${compositionLinkPath(linkId)}`;
   await sendReply(config, channelId, `Open **${composition.title}**: ${url}`);
 }
 
@@ -2025,24 +2029,18 @@ async function dispatchInteraction(
 function startHealthServer(config: BridgeConfig): void {
   Bun.serve({
     port: config.port,
-    async fetch(request) {
+    fetch(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         return new Response("ok", { status: 200 });
       }
-      const compositionMatch =
-        request.method === "GET"
-          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
-          : null;
-      if (compositionMatch) {
-        const [, sessionId, filename] = compositionMatch;
-        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
-          const file = Bun.file(path);
-          if (await file.exists()) {
-            return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
-          }
-        }
-        return new Response("not found", { status: 404 });
+      const compositionId =
+        request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
+      if (compositionId !== undefined) {
+        const page = compositionLinks(config).page(compositionId);
+        return page === undefined
+          ? new Response("not found", { status: 404 })
+          : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
       return new Response("not found", { status: 404 });
     },

@@ -154,6 +154,8 @@ export interface PinnedDirectory {
   list(): string[];
   /** A regular file's contents, or undefined when it is absent, a link, or anything else. */
   readText(name: string): string | undefined;
+  /** The same, as bytes. */
+  readBytes(name: string): Buffer | undefined;
   /** Replace `name` atomically. A link at that name is replaced, never written through. */
   writeBytes(name: string, content: string | Uint8Array, options: WriteOptions): void;
   /**
@@ -279,23 +281,27 @@ function pinnedFromDescriptor(
     return fileDescriptor;
   };
 
+  const readBytes = (name: string): Buffer | undefined => {
+    const fileDescriptor = openRegular(name, READ_FLAGS);
+    if (fileDescriptor === undefined) {
+      return undefined;
+    }
+    try {
+      return readFileSync(fileDescriptor);
+    } finally {
+      closeSync(fileDescriptor);
+    }
+  };
+
   return {
     path: displayPath,
     entry,
 
     list: () => readdirSync(base),
 
-    readText(name: string): string | undefined {
-      const fileDescriptor = openRegular(name, READ_FLAGS);
-      if (fileDescriptor === undefined) {
-        return undefined;
-      }
-      try {
-        return readFileSync(fileDescriptor, "utf8");
-      } finally {
-        closeSync(fileDescriptor);
-      }
-    },
+    readBytes,
+
+    readText: (name: string): string | undefined => readBytes(name)?.toString("utf8"),
 
     writeBytes(name: string, content: string | Uint8Array, options: WriteOptions): void {
       assertEntryName(name);

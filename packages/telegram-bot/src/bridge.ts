@@ -30,7 +30,6 @@ import {
 import {
   addAutoApprovedCommand,
   type ChatSandbox,
-  chatIsolationEnabled,
   ensureChatSandbox,
   listChatSandboxes,
   SANDBOX_UMASK,
@@ -38,6 +37,13 @@ import {
   sandboxEnv,
   sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
+import {
+  compositionIdFromPath,
+  compositionLinkPath,
+  type CompositionLinks,
+  createCompositionLinks,
+  readCompositionImage,
+} from "@jazz/bot-shared/compositions";
 import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
@@ -45,6 +51,7 @@ import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
   conversationKey,
@@ -93,6 +100,7 @@ import {
 } from "./telegram-html";
 
 const TZ_FILE = "tg-tz.json";
+const COMPOSITIONS_FILE = "tg-compositions.json";
 const USAGE_FILE = "tg-usage.json";
 const EPOCHS_FILE = "tg-sessions.json";
 const INCOGNITO_FILE = "tg-incognito.json";
@@ -329,25 +337,6 @@ function sandboxForChat(config: BridgeConfig, chatId: number): ChatSandbox {
   return ensureChatSandbox(config.jazzHome, agentIdForChat(chatId));
 }
 
-/**
- * Every file a `/compositions/<session>/<name>.html` request could be asking for.
- *
- * The URL carries only the app's id, and with one Jazz home per chat there is
- * no chat to key that on, so each home is a candidate. The health server runs
- * in the bridge process, which is the one identity allowed to read across
- * sandboxes.
- */
-function compositionCandidatePaths(
-  config: BridgeConfig,
-  sessionId: string,
-  filename: string,
-): string[] {
-  const homes = chatIsolationEnabled()
-    ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
-    : [config.jazzHome];
-  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
-}
-
 async function callTelegram(
   config: BridgeConfig,
   method: string,
@@ -368,16 +357,16 @@ async function callTelegram(
   });
 }
 
-/** Upload a local image file as a Telegram photo message (multipart, not JSON). */
-async function sendPhotoFile(
+/** Upload image bytes as a Telegram photo message (multipart, not JSON). */
+async function sendPhotoBytes(
   config: BridgeConfig,
   chatId: number,
-  filePath: string,
+  image: { readonly bytes: Uint8Array<ArrayBuffer>; readonly filename: string },
   caption?: string,
 ): Promise<unknown> {
   const form = new FormData();
   form.append("chat_id", String(chatId));
-  form.append("photo", Bun.file(filePath), "chart.png");
+  form.append("photo", new Blob([image.bytes], { type: "image/png" }), image.filename);
   if (caption) form.append("caption", caption);
 
   return dispatchTelegramRequest({
@@ -389,6 +378,14 @@ async function sendPhotoFile(
         body: form,
       }),
   });
+}
+
+let publishedCompositions: CompositionLinks | undefined;
+
+/** The web apps this bridge has handed out links to, served by opaque id. */
+function compositionLinks(config: BridgeConfig): CompositionLinks {
+  publishedCompositions ??= createCompositionLinks(config.jazzHome, COMPOSITIONS_FILE);
+  return publishedCompositions;
 }
 
 function isOkResponse(response: unknown): boolean {
@@ -1117,14 +1114,17 @@ async function deliverComposition(
   chatId: number,
   composition: JazzComposition,
 ): Promise<void> {
+  const home = sandboxForChat(config, chatId).home;
   if (composition.mode === "static") {
-    if (composition.imagePath === undefined) {
+    // Read from this chat's own compositions, whatever path the envelope claims.
+    const image = readCompositionImage(home, composition);
+    if (image === undefined) {
       console.error(
-        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+        `create_composition returned static mode with no usable imagePath (id=${composition.id})`,
       );
       return;
     }
-    await sendPhotoFile(config, chatId, composition.imagePath, composition.title);
+    await sendPhotoBytes(config, chatId, image, composition.title);
     return;
   }
 
@@ -1138,7 +1138,12 @@ async function deliverComposition(
     return;
   }
 
-  const url = `${config.webAppBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  const linkId = compositionLinks(config).publish(agentIdForChat(chatId), composition);
+  if (linkId === undefined) {
+    console.error(`create_composition returned unusable names (id=${composition.id})`);
+    return;
+  }
+  const url = `${config.webAppBaseUrl}${compositionLinkPath(linkId)}`;
   await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(composition.title)}</b>`, {
     markup: webAppKeyboard(url, composition.title),
   });
@@ -2317,19 +2322,13 @@ function startHealthServer(config: BridgeConfig): void {
         return new Response("ok", { status: 200 });
       }
 
-      const compositionMatch =
-        request.method === "GET"
-          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
-          : null;
-      if (compositionMatch) {
-        const [, sessionId, filename] = compositionMatch;
-        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
-          const file = Bun.file(path);
-          if (await file.exists()) {
-            return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
-          }
-        }
-        return new Response("not found", { status: 404 });
+      const compositionId =
+        request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
+      if (compositionId !== undefined) {
+        const page = compositionLinks(config).page(compositionId);
+        return page === undefined
+          ? new Response("not found", { status: 404 })
+          : new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
       }
 
       if (
@@ -2338,7 +2337,7 @@ function startHealthServer(config: BridgeConfig): void {
         url.pathname === "/telegram/webhook"
       ) {
         const providedSecret = request.headers.get("x-telegram-bot-api-secret-token");
-        if (providedSecret !== config.webhookSecret) {
+        if (!secretsMatch(config.webhookSecret, providedSecret)) {
           return new Response("forbidden", { status: 403 });
         }
         let update: TelegramUpdate;
