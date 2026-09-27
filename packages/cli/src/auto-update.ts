@@ -7,6 +7,7 @@ import { FileSystem } from "@effect/platform";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect } from "effect";
 import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
@@ -33,7 +34,9 @@ export function autoCheckForUpdate(): Effect.Effect<
     const checkFilePath = `${dataDir}/${UPDATE_CHECK_FILE}`;
 
     // Ensure data directory exists
-    yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs
+      .makeDirectory(dataDir, { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.catchAll(() => Effect.void));
 
     // Read last check timestamp
     const lastCheckStr = yield* fs
@@ -63,7 +66,7 @@ export function autoCheckForUpdate(): Effect.Effect<
     );
 
     // Update the last check timestamp regardless of result to avoid blocking startup repeatedly on failures
-    yield* fs.writeFileString(checkFilePath, now.toString()).pipe(
+    yield* fs.writeFileString(checkFilePath, now.toString(), { mode: stateFileMode() }).pipe(
       Effect.catchAll(() =>
         Effect.gen(function* () {
           yield* logger.warn("Failed to write update check timestamp", {

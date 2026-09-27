@@ -14,6 +14,7 @@ import {
 import type { Agent, AgentConfig } from "@jazz/core/types/index";
 import { toError } from "@jazz/core/utils/errors";
 import { parseJson } from "@jazz/core/utils/json";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
@@ -98,7 +99,7 @@ export class FileStorageService implements StorageService {
   private ensureDirectoryExists(path: string): Effect.Effect<void, StorageError> {
     return Effect.gen(
       function* (this: FileStorageService) {
-        yield* this.fs.makeDirectory(path, { recursive: true }).pipe(
+        yield* this.fs.makeDirectory(path, { recursive: true, mode: stateDirectoryMode() }).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({

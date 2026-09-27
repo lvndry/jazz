@@ -25,6 +25,7 @@ import type {
 import { WorkspaceServiceTag } from "@jazz/core/interfaces/workspace-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getWorkspaceDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   abbreviateHomePath,
   requireValidAgentId,
@@ -146,7 +147,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseWorkspaceDirectory, agentId);
       yield* fs
-        .makeDirectory(rawRoot, { recursive: true })
+        .makeDirectory(rawRoot, { recursive: true, mode: stateDirectoryMode() })
         .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
@@ -473,7 +474,10 @@ export class WorkspaceServiceImpl implements WorkspaceService {
           }
 
           yield* fs
-            .makeDirectory(path.dirname(destination), { recursive: true })
+            .makeDirectory(path.dirname(destination), {
+              recursive: true,
+              mode: stateDirectoryMode(),
+            })
             .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
           yield* fs
             .rename(source, destination)

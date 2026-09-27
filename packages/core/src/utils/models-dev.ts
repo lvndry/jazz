@@ -11,6 +11,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { isOfflineMode } from "@/core/utils/runtime";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
@@ -207,8 +208,8 @@ function diskCachePath(): string {
 async function writeDiskCache(rawJson: string): Promise<void> {
   try {
     const path = diskCachePath();
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, rawJson, "utf8");
+    await mkdir(dirname(path), { recursive: true, mode: stateDirectoryMode() });
+    await writeFile(path, rawJson, { encoding: "utf-8", mode: stateFileMode() });
   } catch (error) {
     // Best-effort mirror — an unwritable cache dir must never break model listing,
     // but a silent failure here would leave operators unable to diagnose why

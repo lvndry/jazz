@@ -9,10 +9,10 @@
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@/core/utils/private-mode";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 
 export interface DurableWriteOptions {
-  /** Mode of the new file. Jazz state is private to its owner unless a caller says otherwise. */
+  /** Mode of the new file; defaults to `stateFileMode()` (owner-only in a private home). */
   readonly mode?: number;
 }
 
@@ -52,9 +52,9 @@ async function syncDirectory(directory: string): Promise<void> {
 
 /**
  * Write `content` to an exclusively created sibling temporary file, flush it, rename it over
- * `destination`, and flush the directory so the rename itself survives a crash. The parent
- * directory is created (mode 0700) when missing. The file is created with `options.mode`
- * (default 0600).
+ * `destination`, and flush the directory so the rename itself survives a crash. A missing parent
+ * directory is created with `stateDirectoryMode()`, and the file with `options.mode` or
+ * `stateFileMode()` (see `private-mode.ts`).
  */
 export async function writeFileDurably(
   destination: string,
@@ -62,8 +62,8 @@ export async function writeFileDurably(
   options: DurableWriteOptions = {},
 ): Promise<void> {
   const directory = path.dirname(destination);
-  const mode = options.mode ?? PRIVATE_FILE_MODE;
-  await nodeFs.mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  const mode = options.mode ?? stateFileMode();
+  await nodeFs.mkdir(directory, { recursive: true, mode: stateDirectoryMode() });
   const temporary = path.join(
     directory,
     `.${path.basename(destination)}-${process.pid}-${randomUUID()}.tmp`,

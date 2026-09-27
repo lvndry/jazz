@@ -120,9 +120,9 @@ export function withLock<A, E, R>(
 
 /**
  * Atomically and durably replace a text file (see `writeFileDurably`): a crash
- * leaves the old content or the new, never a torn file. The file is private to
- * its owner (0600) unless `options.mode` says otherwise, and a missing parent
- * directory is created with mode 0700.
+ * leaves the old content or the new, never a torn file. The file and any missing
+ * parent directory get Jazz's state modes (owner-only in a private home, see
+ * `private-mode.ts`) unless `options.mode` says otherwise.
  */
 export function writeFileStringAtomic(
   targetPath: string,

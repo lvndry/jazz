@@ -31,7 +31,7 @@ import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interf
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
-import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@jazz/core/utils/private-mode";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 
@@ -545,7 +545,7 @@ export function recordConversationTranscript(
     const messages = input.messages.filter((message) => message.role !== "system");
 
     yield* fs
-      .makeDirectory(path.dirname(logPath), { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
+      .makeDirectory(path.dirname(logPath), { recursive: true, mode: stateDirectoryMode() })
       .pipe(Effect.mapError(toError));
 
     const loaded = yield* loadAppendState(fs, logPath);
@@ -611,7 +611,7 @@ export function recordConversationTranscript(
 
     if (chunks.length > 0) {
       yield* fs
-        .writeFileString(logPath, chunks.join(""), { flag: "a", mode: PRIVATE_FILE_MODE })
+        .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
         .pipe(Effect.mapError(toError));
     }
   });

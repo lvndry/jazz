@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { writeFileDurably } from "@/core/utils/durable-file";
 import { withFileLock } from "@/core/utils/file-lock";
 import { getWorkStateDirectory } from "@/core/utils/paths";
-import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "@/core/utils/private-mode";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 
 /**
  * An append-only record of what each compaction summarized away.
@@ -58,11 +58,11 @@ export function appendJournalEntry(
   return Effect.tryPromise({
     try: async () => {
       const directory = getWorkStateDirectory(agentId, conversationId);
-      await nodeFs.mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+      await nodeFs.mkdir(directory, { recursive: true, mode: stateDirectoryMode() });
       await withJournalLock(agentId, conversationId, () =>
         nodeFs.appendFile(path.join(directory, JOURNAL_FILENAME), `${JSON.stringify(entry)}\n`, {
           encoding: "utf-8",
-          mode: PRIVATE_FILE_MODE,
+          mode: stateFileMode(),
         }),
       );
       return true;

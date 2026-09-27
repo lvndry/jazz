@@ -15,7 +15,7 @@ import type {
 import { ReminderRecordSchema, ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { PRIVATE_DIRECTORY_MODE } from "@jazz/core/utils/private-mode";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   CorruptStateFileError,
   readStateFile,
@@ -118,7 +118,7 @@ export class ReminderServiceImpl implements ReminderService {
       yield* requireValidAgentId(agentId, ReminderGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(baseReminderDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
+        .makeDirectory(baseReminderDirectory, { recursive: true, mode: stateDirectoryMode() })
         .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });

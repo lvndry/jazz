@@ -47,6 +47,7 @@ import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memo
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   abbreviateHomePath,
   isValidStorageKey,
@@ -699,7 +700,9 @@ export class MemoryServiceImpl implements MemoryService {
       yield* requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseMemoryDirectory, scope);
-      yield* fs.makeDirectory(rawRoot, { recursive: true }).pipe(Effect.mapError(toError));
+      yield* fs
+        .makeDirectory(rawRoot, { recursive: true, mode: stateDirectoryMode() })
+        .pipe(Effect.mapError(toError));
       const rootInfo = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(rawRoot),
         catch: toError,
@@ -1399,7 +1402,10 @@ export class MemoryServiceImpl implements MemoryService {
               }
 
               yield* fs
-                .makeDirectory(path.dirname(destination), { recursive: true })
+                .makeDirectory(path.dirname(destination), {
+                  recursive: true,
+                  mode: stateDirectoryMode(),
+                })
                 .pipe(Effect.mapError(toError));
               yield* fs.rename(source, destination).pipe(Effect.mapError(toError));
               yield* moveClaimSentences(

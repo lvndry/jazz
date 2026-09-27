@@ -41,6 +41,7 @@ import {
   getJazzHomeDirectory,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
@@ -1147,7 +1148,9 @@ export function writeAgentsMcpServer(
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
 
     // Ensure ~/.agents directory exists
-    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs
+      .makeDirectory(dir, { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.catchAll(() => Effect.void));
 
     // Read existing content
     let existing: Record<string, unknown> = {};

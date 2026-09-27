@@ -25,7 +25,7 @@ import {
 } from "@jazz/core/interfaces/wake-trigger-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { PRIVATE_DIRECTORY_MODE } from "@jazz/core/utils/private-mode";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   CorruptStateFileError,
   readStateFile,
@@ -104,7 +104,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       yield* requireValidAgentId(agentId, WakeTriggerGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(baseWakeTriggerDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
+        .makeDirectory(baseWakeTriggerDirectory, { recursive: true, mode: stateDirectoryMode() })
         .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });

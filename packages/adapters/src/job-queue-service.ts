@@ -40,6 +40,7 @@ import type {
 import { JobBatchRecordSchema, JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   CorruptStateFileError,
   readStateFile,
@@ -200,7 +201,10 @@ export class JobQueueServiceImpl implements JobQueueService {
 
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), { recursive: true })
+        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), {
+          recursive: true,
+          mode: stateDirectoryMode(),
+        })
         .pipe(Effect.mapError(toError));
 
       const outcome = yield* withLock(

@@ -1,13 +1,14 @@
 /**
  * Versioned JSON records, one file per id, for controller-owned state (goals, loops).
  *
- * Each record is an atomic, fsynced JSON file with mode 0600 under a mode 0700 directory. Every
- * change is a compare-and-set against the version the caller read, taken under a per-record
- * cross-process lock, so two writers cannot both advance the same version. What a record may
- * become is the kind's decision (`nextRecord`); what every kind shares — the same id, the same
- * creation time, a version that moves by exactly one — is enforced here. Reading a record by id
- * fails loudly on corruption, so a damaged record is never mistaken for an absent one, while a
- * listing reports and skips it so one bad file cannot hide all the others.
+ * Each record is an atomic, fsynced JSON file with Jazz's state modes (owner-only in a private
+ * home, see `private-mode.ts`). Every change is a compare-and-set against the version the
+ * caller read, taken under a per-record cross-process lock, so two writers cannot both advance
+ * the same version. What a record may become is the kind's decision (`nextRecord`); what every
+ * kind shares (the same id, the same creation time, a version that moves by exactly one) is
+ * enforced here. Reading a record by id fails loudly on corruption, so a damaged record is never
+ * mistaken for an absent one, while a listing reports and skips it so one bad file cannot hide
+ * all the others.
  */
 
 import * as nodeFs from "node:fs/promises";
@@ -15,6 +16,7 @@ import * as path from "node:path";
 import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
 import { toError } from "@jazz/core/utils/errors";
 import { withFileLock } from "@jazz/core/utils/file-lock";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 
 export interface VersionedRecord {
   readonly version: number;
@@ -191,8 +193,8 @@ export class FileRecords<Rec extends VersionedRecord> {
   }
 
   private async ensureDirectory(): Promise<void> {
-    await nodeFs.mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await nodeFs.chmod(this.directory, 0o700);
+    await nodeFs.mkdir(this.directory, { recursive: true, mode: stateDirectoryMode() });
+    await nodeFs.chmod(this.directory, stateDirectoryMode());
   }
 
   private async withLock<A>(id: string, operation: () => Promise<A>): Promise<A> {
