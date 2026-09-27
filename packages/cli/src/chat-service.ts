@@ -67,11 +67,11 @@ import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
 import {
   handleSpecialCommand,
-  isExitCommand,
   parseSpecialCommand,
   setPluginCommands,
   setSkillCommands,
 } from "./chat/commands";
+import { isExitCommand } from "./chat/commands/constants";
 import {
   announceGoalTurn,
   announceWaitingGoals,
@@ -324,13 +324,13 @@ export class ChatServiceImpl implements ChatService {
       // editing (error path).
       let lastTurnErrored = false;
 
+      /** A mistyped command, put back in the composer at the next prompt. */
+      let draftToRestore: string | undefined;
+
       // The goal this chat is working toward, and whether its next turn is due. A goal turn is
       // an ordinary turn whose prompt comes from the goal instead of the user.
       let attendedGoalId: string | undefined;
       let goalContinues = false;
-
-      /** A mistyped command, put back in the composer at the next prompt. */
-      let draftToRestore: string | undefined;
 
       while (chatActive) {
         let userMessage: string | undefined;
