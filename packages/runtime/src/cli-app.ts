@@ -133,7 +133,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-cost-usd <dollars>",
-      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively. See docs/concepts/budgets.md.",
+      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively — see docs/reference/configuration.md.",
       parsePositiveFloat("--max-cost-usd"),
     )
     .option(
