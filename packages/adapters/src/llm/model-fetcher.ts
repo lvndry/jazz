@@ -8,6 +8,7 @@ import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
 import type { ModelInfo } from "@jazz/core/types";
 import type { LLMConfig } from "@jazz/core/types/config";
 import { LLMConfigurationError } from "@jazz/core/types/errors";
+import { toError } from "@jazz/core/utils/errors";
 import { isConnectionError, localServerUnreachableMessage } from "@jazz/core/utils/llm-error";
 import {
   getMetadataFromMap,
@@ -850,7 +851,7 @@ export function createModelFetcher(): ModelFetcherService {
           }
           return new LLMConfigurationError({
             provider: providerName,
-            message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Model discovery failed: ${toError(error).message}`,
           });
         },
       }),
@@ -876,7 +877,7 @@ export function listModelsForProvider(
       catch: (error) =>
         new LLMConfigurationError({
           provider,
-          message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to list models from models.dev: ${toError(error).message}`,
         }),
     });
   }

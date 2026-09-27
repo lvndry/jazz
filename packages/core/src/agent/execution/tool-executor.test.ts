@@ -6,6 +6,7 @@ import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import type { FileSystemContextService } from "../../interfaces/fs";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GoalStoreTag } from "../../interfaces/goal-store";
 import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
@@ -111,6 +112,7 @@ function makeTestLayer(services: {
     Layer.succeed(WakeTriggerServiceTag, {} as any),
     Layer.succeed(JobQueueServiceTag, {} as any),
     Layer.succeed(ReminderServiceTag, emptyReminders),
+    Layer.succeed(GoalStoreTag, {} as any),
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),
   );

@@ -113,7 +113,7 @@ export function executeWithStreaming(
     const strategy: CompletionStrategy = {
       shouldShowReasoning,
 
-      getCompletion(currentMessages, _iteration) {
+      getCompletion(currentMessages, _iteration, toolsAllowed) {
         return Effect.gen(function* () {
           // Reset for this iteration
           yield* Ref.set(completionRef, undefined);
@@ -123,7 +123,7 @@ export function executeWithStreaming(
             model,
             messages: currentMessages,
             tools: runContext.tools,
-            toolChoice: "auto" as const,
+            toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
             ...(typeof agent.config.temperature === "number"
               ? { temperature: agent.config.temperature }

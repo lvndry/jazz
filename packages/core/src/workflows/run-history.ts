@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { MAX_RUN_HISTORY_RECORDS } from "@/core/constants/agent";
+import { toError } from "@/core/utils/errors";
 import { getGlobalUserDataDirectory } from "@/core/utils/paths";
 import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
 
@@ -101,7 +102,7 @@ export function loadRunHistory(): Effect.Effect<WorkflowRunRecord[], Error, File
           (e as { _tag: string })._tag === "SystemError" &&
           (e as { reason?: string }).reason === "NotFound"
             ? Effect.succeed("")
-            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+            : Effect.fail(toError(e)),
         ),
       );
 

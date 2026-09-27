@@ -38,6 +38,7 @@ import {
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { toError } from "@jazz/core/utils/errors";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -288,7 +289,7 @@ export function editAgentCommand(
                 Effect.catchAll((error) =>
                   Effect.gen(function* () {
                     // Log detailed error information
-                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    const errorMessage = toError(error).message;
                     const errorString = String(error);
                     const errorStack = error instanceof Error ? error.stack : undefined;
                     const isAuthRequired = isAuthenticationRequired(error);
@@ -424,7 +425,7 @@ export function editAgentCommand(
         catch: (error) =>
           new ValidationError({
             field: "agent",
-            message: `Agent edit wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Agent edit wizard failed: ${toError(error).message}`,
           }),
       });
 
@@ -778,7 +779,7 @@ async function promptForAgentUpdates(
     const providerInfo =
       currentProviderInfo ||
       (await Effect.runPromise(llmService.getProvider(providerToUse)).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toError(error).message;
         throw new Error(`Failed to get provider info: ${message}`);
       }));
 

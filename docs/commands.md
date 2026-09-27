@@ -60,6 +60,7 @@ treated as untrusted text.
 | `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                                 |
 | `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                                        |
 | `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                          |
+| `--propose-goals`              | off          | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                 |
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
 | `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
@@ -290,6 +291,112 @@ by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wa
 
 ---
 
+## `jazz goal`
+
+Goals are objectives Jazz keeps working toward across runs until verified evidence shows they
+are done. Each goal has a short name, like `detach-to-prod`, that every command accepts in place
+of its id. In chat, a goal you accept runs in the chat, asking its approvals there; see
+[Goals in chat](#goals-in-chat). From a shell, the daemon does the work: accepting or starting a
+goal launches `jazz daemon` in the background when none is serving this Jazz home.
+
+```bash
+jazz goal draft --agent assistant "Get every recipe into the new format until ./check.sh passes"
+jazz goal start --agent assistant --yes --max-cycles 20 "…"
+jazz goal list
+jazz goal show <goal>
+jazz goal accept <goal> --approval-policy low-risk   # start a proposed goal; work begins now
+jazz goal decline <goal>
+jazz goal approve <goal>             # allow the step it waits on
+jazz goal reject <goal> [why]        # refuse that step; the reason goes to the agent
+jazz goal answer <goal> <answer>     # answer its question
+jazz goal pause <goal>
+jazz goal resume <goal> [note]       # the note steers the next cycle
+jazz goal cancel <goal>
+```
+
+`--approval-policy` on `accept` and `start` is what the goal may run while you are away without
+asking: `read-only`, `low-risk`, or `high-risk` (everything). Above it, a cycle waits for your
+approval. Without the flag, only read-only and low-risk tools run unasked, so writes and edits
+wait for you. `approve`, `reject`, and `answer` run the rest of that cycle in the shell; the
+daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.
+
+`draft` prints the plan, or the questions it needs answered first, without creating anything.
+`start` drafts and, with `--yes`, starts the plan; without `--yes` it only shows it.
+`--max-cycles` caps the cycles (no limit by default). Each cycle is an ordinary run, held to the agent loop's own
+limits (`maxIterations`, `maxTokens`, `maxCostUSD`, `maxDurationMs` in config); the goal adds
+no spend cap of its own.
+A read-only pass over the current directory informs the plan, as it would in chat; `--no-inspect`
+drafts from the request alone. With `--json` each command prints one JSON envelope.
+Exit codes: `0` done, `1` refused or failed, `2` the request needs answers before a plan.
+
+### Goals in chat
+
+`/goal <objective>` starts working toward the objective right away, in the same conversation.
+Nothing is drafted or confirmed first, and the turns look like any other: the same streaming,
+approvals under the chat's safe or yolo mode, and questions asked inline. When a turn ends, the
+next one starts on its own, with a `↻ Goal <name> · turn n` line, until the agent reports
+the goal done. A done report is accepted only when it quotes the tool output that shows the
+objective holds; otherwise the goal goes on with the reason. If it stops for you (a question,
+a blocker), the chat asks right there and carries on with your answer.
+
+Esc pauses the goal. Anything you type meanwhile goes first and the goal picks up after it.
+`/goal` shows where it stands, `/goal pause`, `/goal resume [note]`, and `/goal clear` control
+it, and `/goal help` lists the rest, including `approve`, `reject`, and `answer` for a goal left
+waiting in the background. A conversation has one goal at a time; setting another offers to
+drop the current one.
+
+Leaving a chat with a goal unfinished asks whether Jazz should finish it in the background, and
+what it may do there without asking: reading only, low-risk changes, or everything. It carries
+on in the same conversation, and anything above that authority waits for you. The next `jazz`
+then lists the conversation first under **Resume conversation (N waiting for you)**, marked
+with what it waits on.
+
+## `jazz loop`
+
+A loop reruns a prompt for an agent on a schedule, on one conversation of its own, until it ends:
+"every 10 minutes, check whether the deploy finished and tell me". Each loop has a short name,
+taken from `--name` or the start of its prompt, that every command accepts in place of its id.
+Loops run in the daemon, never in the terminal that started them: starting or resuming one
+launches `jazz daemon` in the background when none is serving this Jazz home.
+
+```bash
+jazz loop start --agent assistant --every 10m "Check whether the deploy finished and tell me"
+jazz loop start --agent assistant --every "0 9 * * mon-fri" --until 2026-10-31 --name standup "Summarize yesterday's PRs"
+jazz loop list
+jazz loop show <loop>
+jazz loop approve <loop>             # allow the step its run waits on
+jazz loop reject <loop> [why]        # refuse that step; the reason goes to the agent
+jazz loop answer <loop> <answer>     # answer its run's question
+jazz loop pause <loop>
+jazz loop resume <loop>              # a budget-limited loop gets one more default budget
+jazz loop cancel <loop>
+```
+
+`--every` takes a duration (`10m`, `1h30m`, at least a minute) or a five-field cron expression,
+read in `--tz` (default: this machine's timezone). An interval loop runs right away; a cron loop
+waits for its first scheduled time. Runs missed while the daemon was down collapse into one, and a
+loop never overlaps itself, including while a run waits for an approval.
+
+A loop ends when its run calls `end_loop` (it gets that tool, and only loop runs do), when it
+reaches `--max-runs` or `--until`, or when you cancel it. Three failed runs in a row stop it
+for you to look at; `resume` starts it again. Budget flags cover all runs together:
+`--max-tokens`, `--max-minutes`, and `--max-cost-usd` (enforced when pricing is known), and
+each run is held to the agent loop's own limits like any run. A loop that hits one of its
+budgets is budget-limited until you resume it.
+
+`--approval-policy` is what its runs may do without asking: `read-only`, `low-risk`, or
+`high-risk` (everything). Above it, the run waits; `approve`, `reject`, and `answer` finish that
+run in the shell, under what the loop's budget has left. Pausing or canceling a loop whose run is
+waiting drops that run. A Jazz agent cannot start, resume, approve, or answer a loop. With
+`--json` each command prints one JSON envelope. Exit codes: `0` done, `1` refused or failed.
+
+### Loops in chat
+
+`/loop 10m <prompt>` (or `/loop every 10m <prompt>`, or `/loop cron 0 9 * * mon-fri <prompt>`)
+starts a loop for the chat's agent in its current directory, after asking what its runs may do
+without asking. `/loop help` lists the commands; they mirror `jazz loop`. Opening a conversation
+shows its loops that wait for you, and the next `jazz` counts them under **Resume conversation**.
+
 ## `jazz imessage`
 
 Reach the agent from Messages. The bare command uses a hosted Photon line and can run on any
@@ -484,21 +591,23 @@ Webhook definitions live in Jazz configuration. See [Webhooks](./concepts/webhoo
 
 Available inside an interactive session. Type `/help` for the current list.
 
-| Command      | Purpose                                                                                        |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| `/help`      | List commands                                                                                  |
-| `/tools`     | Show available tools                                                                           |
-| `/skills`    | Search installed skills by name, source, or description; Enter opens details, Escape goes back |
-| `/workflows` | Browse workflows                                                                               |
-| `/mode`      | Change approval mode (also Shift+Tab)                                                          |
-| `/cost`      | Tokens and USD for this session, including sub-agents                                          |
-| `/context`   | Context window usage and the biggest consumers                                                 |
-| `/compact`   | Force context compaction now                                                                   |
-| `/switch`    | Switch agent                                                                                   |
-| `/peers`     | List configured peers and what each may learn or do                                            |
-| `/new`       | Start a fresh conversation                                                                     |
-| `/fork`      | Branch to a new conversation, keeping the full history; the original is preserved              |
-| `/detach`    | Hand this conversation to a registered SSH host after reviewing its snapshot                   |
+| Command                  | Purpose                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/help`                  | List commands                                                                                                                                                                                                                                                                                                                                  |
+| `/tools`                 | Show available tools                                                                                                                                                                                                                                                                                                                           |
+| `/skills`                | Search installed skills by name, source, or description; Enter opens details, Escape goes back                                                                                                                                                                                                                                                 |
+| `/workflows`             | Browse workflows                                                                                                                                                                                                                                                                                                                               |
+| `/mode`                  | Change approval mode (also Shift+Tab)                                                                                                                                                                                                                                                                                                          |
+| `/goal <objective>`      | Keep working toward an objective, turn after turn, in this conversation; the agent reports it done with evidence from tool output. `/goal` shows where it stands; `/goal pause`, `/goal resume [note]`, and `/goal clear` control it. Jazz also proposes goals on its own and asks before working on one. See [Goals in chat](#goals-in-chat). |
+| `/loop <every> <prompt>` | Rerun a prompt on a schedule in the background, like `/loop 10m check the deploy`; see [Loops in chat](#loops-in-chat)                                                                                                                                                                                                                         |
+| `/cost`                  | Tokens and USD for this session, including sub-agents                                                                                                                                                                                                                                                                                          |
+| `/context`               | Context window usage and the biggest consumers                                                                                                                                                                                                                                                                                                 |
+| `/compact`               | Force context compaction now                                                                                                                                                                                                                                                                                                                   |
+| `/switch`                | Switch agent                                                                                                                                                                                                                                                                                                                                   |
+| `/peers`                 | List configured peers and what each may learn or do                                                                                                                                                                                                                                                                                            |
+| `/new`                   | Start a fresh conversation                                                                                                                                                                                                                                                                                                                     |
+| `/fork`                  | Branch to a new conversation, keeping the full history; the original is preserved                                                                                                                                                                                                                                                              |
+| `/detach`                | Hand this conversation to a registered SSH host after reviewing its snapshot                                                                                                                                                                                                                                                                   |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.

@@ -91,6 +91,11 @@ export function allocateRegions(args: {
   readonly input: InputModel;
   readonly inputFocused: boolean;
   readonly subagentRows?: number;
+  /**
+   * Rows an open overlay card takes at the bottom of the screen. The transcript ends above it,
+   * so the card never hides the lines it is about and every line stays reachable by scrolling.
+   */
+  readonly overlayRows?: number;
 }): RegionHeights {
   const available = Math.max(
     0,
@@ -108,17 +113,15 @@ export function allocateRegions(args: {
     Math.max(0, available - input - 1),
   );
   const live = reservedHeight(args.live, Math.max(0, available - input - subagents - 1));
-  const transcript = Math.max(0, available - input - subagents - live);
+  const aboveOverlay =
+    args.overlayRows === undefined
+      ? Number.POSITIVE_INFINITY
+      : args.viewport.height - TRANSCRIPT_CHROME_ABOVE - args.overlayRows;
+  const transcript = Math.max(0, Math.min(available - input - subagents - live, aboveOverlay));
   return { transcript, live, input, subagents };
 }
 
-export function transcriptVisibleCount(args: {
-  readonly viewport: Viewport;
-  readonly live: LiveModel;
-  readonly input: InputModel;
-  readonly inputFocused: boolean;
-  readonly subagentRows?: number;
-}): number {
+export function transcriptVisibleCount(args: Parameters<typeof allocateRegions>[0]): number {
   return allocateRegions(args).transcript;
 }
 

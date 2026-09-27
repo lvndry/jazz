@@ -7,6 +7,7 @@ import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GoalStoreTag } from "../../interfaces/goal-store";
 import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
@@ -237,6 +238,7 @@ describe("executeWithStreaming", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -436,6 +438,7 @@ describe("executeWithStreaming", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -582,6 +585,7 @@ describe("executeWithStreaming", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );

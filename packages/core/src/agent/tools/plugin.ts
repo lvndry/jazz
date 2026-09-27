@@ -16,6 +16,7 @@ import type {
   PluginToolPreparation,
   PluginToolResult,
 } from "@/core/types/plugin";
+import { isRecord } from "@/core/utils/is-record";
 import { defineTool, type ToolValidator } from "./base-tool";
 
 /** How the host runs a plugin tool by name; supplied by the caller (a plugin session). */
@@ -59,7 +60,7 @@ function typeMatches(value: unknown, type: string): boolean {
     case "boolean":
       return typeof value === "boolean";
     case "object":
-      return typeof value === "object" && value !== null && !Array.isArray(value);
+      return isRecord(value);
     case "array":
       return Array.isArray(value);
     case "null":
@@ -136,11 +137,11 @@ function collectSchemaErrors(
  * the handler runs. A non-object schema (nothing to enforce) passes through unchanged.
  */
 function makeArgumentValidator(schema: JsonValue): ToolValidator<Record<string, unknown>> {
-  const isObjectSchema = typeof schema === "object" && schema !== null && !Array.isArray(schema);
+  const isObjectSchema = isRecord(schema);
   return (args) => {
     if (!isObjectSchema) return { valid: true, value: args };
     const errors: string[] = [];
-    collectSchemaErrors(args, schema as JsonSchema, "", errors);
+    collectSchemaErrors(args, schema, "", errors);
     return errors.length === 0 ? { valid: true, value: args } : { valid: false, errors };
   };
 }

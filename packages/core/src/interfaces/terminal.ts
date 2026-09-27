@@ -152,6 +152,9 @@ export interface TerminalService {
   /**
    * Prompt the user to select from a list of options.
    * Returns undefined if cancelled (e.g., Escape key).
+   *
+   * With `customAnswer`, text typed into the filter is also offered as an answer; submitting it
+   * returns `customAnswer(text)`. Leave it unset when only the listed values are valid.
    */
   readonly select: <T = string>(
     message: string,
@@ -160,6 +163,7 @@ export interface TerminalService {
         string | { name: string; value: T; description?: string; disabled?: boolean }
       )[];
       default?: T;
+      customAnswer?: (text: string) => T;
     },
   ) => Effect.Effect<T | undefined, never>;
 

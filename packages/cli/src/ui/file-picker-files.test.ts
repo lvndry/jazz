@@ -138,6 +138,28 @@ describe("scanFilePickerEntries matching", () => {
     expect(path.isAbsolute(entries[0]?.path ?? "")).toBe(true);
   });
 
+  test("ignores the base path's own ancestors when matching", async () => {
+    // The temp root's name contains "picker", so an absolute-path match would
+    // return every file under it.
+    const entries = await scan({ query: "picker" });
+    expect(entries).toEqual([]);
+  });
+
+  test("scans an absolute query outside the base path despite its .gitignore", async () => {
+    const project = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-picker-project-"));
+    try {
+      await fs.writeFile(path.join(project, ".gitignore"), "dist\n");
+      const entries = await scanFilePickerEntries({
+        basePath: project,
+        query: path.join(root, "alp"),
+        includeDirectories: false,
+      });
+      expect(entries.map((entry) => entry.path)).toEqual([path.join(root, "alpha.ts")]);
+    } finally {
+      await fs.rm(project, { recursive: true, force: true });
+    }
+  });
+
   test("returns nothing for an unreadable base path", async () => {
     const entries = await scanFilePickerEntries({
       basePath: path.join(root, "does-not-exist"),

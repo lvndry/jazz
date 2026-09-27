@@ -32,7 +32,19 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
     description: "Continue this conversation on a remote SSH host after this turn",
     usage: "<host>",
   },
+  {
+    name: "goal",
+    description: "Draft and manage persistent multi-run goals",
+    usage:
+      "<objective>|list|accept <id> [tier]|decline <id>|pause <id>|resume <id> [note]|cancel <id>",
+  },
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
+  {
+    name: "loop",
+    description: "Rerun a prompt on a schedule in the background",
+    usage:
+      "<every> <prompt>|cron <m h dom mon dow> <prompt>|list|approve|reject|answer|pause|resume|cancel <loop>",
+  },
   {
     name: "memory",
     description: "Show what this agent has remembered about you, or forget one file",

@@ -11,8 +11,11 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
 import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
+import { createProposeGoalTool } from "./goal";
+import { createReportGoalCycleTool } from "./goal-report";
 import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
+import { createEndLoopTool } from "./loop";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
@@ -29,6 +32,7 @@ import { createListTodosTool, createManageTodosTool } from "./todo";
 import {
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
+  GOALS_CATEGORY,
   HTTP_CATEGORY,
   JOB_QUEUE_CATEGORY,
   MEMORY_CATEGORY,
@@ -77,6 +81,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerMemoryTools();
     yield* registerWorkspaceTools();
     yield* registerReminderTools();
+    yield* registerGoalTools();
     yield* registerWakeTriggerTools();
     yield* registerJobQueueTools();
     yield* registerContextTools();
@@ -249,6 +254,15 @@ export function registerPeerTools(): Effect.Effect<void, Error, ToolRegistry | A
     if (askPeerTool !== undefined) yield* registerTool(askPeerTool);
 
     if (peers.length > 0) yield* registerTool(createRequestClarificationTool());
+  });
+}
+
+export function registerGoalTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createProposeGoalTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createEndLoopTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createReportGoalCycleTool());
   });
 }
 

@@ -1,6 +1,7 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { requiredAndForbiddenPatternCheck } from "../../checks";
+import { updateAgentConfig } from "../../files";
 import { runJazzOnce } from "../../run-jazz";
 import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
 
@@ -30,12 +31,7 @@ const PROMPT =
  * entry the agent has no scope for must not shape the answer.
  */
 function seedMemory(jazzHome: string, agentId: string): void {
-  const agentPath = join(jazzHome, "agents", `${agentId}.json`);
-  const agent = JSON.parse(readFileSync(agentPath, "utf-8")) as {
-    config: Record<string, unknown>;
-  };
-  agent.config["memoryScopes"] = ["personal", "work"];
-  writeFileSync(agentPath, `${JSON.stringify(agent, null, 2)}\n`);
+  updateAgentConfig(jazzHome, agentId, { memoryScopes: ["personal", "work"] });
 
   const entries: readonly { scope: string; fileName: string; content: string }[] = [
     {
@@ -81,6 +77,7 @@ export const tasks: EvalTask[] = [
         timeoutMs: context.timeoutMs,
         runId: context.runId,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       });
     },
     check(result) {

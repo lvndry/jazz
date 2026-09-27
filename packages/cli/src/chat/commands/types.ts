@@ -38,6 +38,8 @@ export type CommandType =
   | "retry"
   | "shell"
   | "limit"
+  | "goal"
+  | "loop"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"
@@ -81,6 +83,8 @@ export interface CommandResult {
   messageForAgent?: string;
   /** New session-wide limits set by /limit (a full replacement, not a patch — an absent field means "no limit"). */
   newSessionLimits?: SessionLimits;
+  /** A goal the chat now works toward: its next turn starts right after the command. */
+  attendGoal?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */

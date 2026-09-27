@@ -20,6 +20,7 @@ import type {
   WakeTriggerService,
 } from "@jazz/core/interfaces/wake-trigger-service";
 import { WakeTriggerServiceTag } from "@jazz/core/interfaces/wake-trigger-service";
+import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { requireValidAgentId, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
@@ -54,7 +55,7 @@ function readWakeTriggerFile(
 
     const content = yield* fs
       .readFileString(filePath)
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+      .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
     try {
       const parsed = JSON.parse(content) as unknown;
@@ -99,7 +100,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       const fs = yield* FileSystem.FileSystem;
       yield* fs
         .makeDirectory(baseWakeTriggerDirectory, { recursive: true })
-        .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });
   }

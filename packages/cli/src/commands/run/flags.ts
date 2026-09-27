@@ -8,13 +8,6 @@
 
 import type { StreamEvent } from "@jazz/core/types/streaming";
 
-const VALID_APPROVAL_POLICIES = ["read-only", "low-risk", "high-risk"] as const;
-export type ApprovalPolicyFlag = (typeof VALID_APPROVAL_POLICIES)[number];
-
-export function isApprovalPolicyFlag(value: string): value is ApprovalPolicyFlag {
-  return (VALID_APPROVAL_POLICIES as readonly string[]).includes(value);
-}
-
 const VALID_REASONING_EFFORTS = [
   "disable",
   "minimal",

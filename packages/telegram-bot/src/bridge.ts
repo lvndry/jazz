@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
@@ -730,15 +731,6 @@ async function streamLines(
 }
 
 /**
- * Live-updates one Telegram message ("🤔 Working…") from Jazz stream events:
- * current thinking, tools being called, and the writing phase. Edits are
- * throttled and serialized so we never spam or race Telegram's edit API.
- */
-function formatTokenCount(tokens: number): string {
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
-}
-
-/**
  * Input and output split out, since a single total hides that the input is
  * the whole conversation plus tool schemas re-sent on every loop iteration.
  */
@@ -754,6 +746,11 @@ function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | un
   ].join("\n");
 }
 
+/**
+ * Live-updates one Telegram message ("🤔 Working…") from Jazz stream events:
+ * current thinking, tools being called, and the writing phase. Edits are
+ * throttled and serialized so we never spam or race Telegram's edit API.
+ */
 function createProgressReporter(
   config: BridgeConfig,
   chatId: number,

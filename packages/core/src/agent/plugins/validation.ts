@@ -22,6 +22,7 @@ import {
   type SkillRouteDistribution,
   type SkillRouteInput,
 } from "@/core/types/plugin";
+import { isRecord } from "@/core/utils/is-record";
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -155,7 +156,7 @@ export function validateCommandRiskInput(input: CommandRiskInput): CommandRiskIn
 }
 
 export function validateCompactToolsInput(input: CompactToolsInput): CompactToolsInput {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+  if (!isRecord(input)) {
     fail("compact tools input must be an object");
   }
   if (typeof input.goal !== "string" || input.goal.length > MAX_PLUGIN_STATE_BYTES) {
@@ -241,8 +242,7 @@ export function validateCompactToolsOutcome(
 }
 
 export function validateCommandRiskOutcome(outcome: CommandRiskOutcome): CommandRiskOutcome {
-  if (outcome === null || typeof outcome !== "object" || Array.isArray(outcome))
-    fail("policy hook returned no outcome");
+  if (!isRecord(outcome)) fail("policy hook returned no outcome");
   if (outcome.status === "abstained") {
     if (
       Object.keys(outcome).length !== 2 ||

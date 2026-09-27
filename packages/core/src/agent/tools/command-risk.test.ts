@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
-import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { Agent } from "@/core/types/agent";
 import { LLMRequestError } from "@/core/types/errors";
@@ -97,12 +97,7 @@ describe("plugin command-risk policy", () => {
             throw new Error("fallback must not run");
           },
         } as unknown as LLMService),
-        Effect.provideService(LoggerServiceTag, {
-          debug: () => Effect.void,
-          info: () => Effect.void,
-          warn: () => Effect.void,
-          error: () => Effect.void,
-        } as unknown as LoggerService),
+        Effect.provideService(LoggerServiceTag, silentLogger),
       ),
     );
     expect(risk).toBe("read-only");
@@ -123,18 +118,11 @@ describe("plugin command-risk policy", () => {
         return Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "low-risk" });
       },
     } as unknown as LLMService;
-    const logger = {
-      debug: () => Effect.void,
-      info: () => Effect.void,
-      warn: () => Effect.void,
-      error: () => Effect.void,
-    } as unknown as LoggerService;
-
     const run = (policyHook: Parameters<typeof resolveCommandRisk>[4]) =>
       Effect.runPromise(
         resolveCommandRisk("git add README.md", agent, undefined, undefined, policyHook).pipe(
           Effect.provideService(LLMServiceTag, llm),
-          Effect.provideService(LoggerServiceTag, logger),
+          Effect.provideService(LoggerServiceTag, silentLogger),
         ),
       );
 
@@ -209,19 +197,6 @@ describe("classifyCommandRisk", () => {
     createdAt: new Date(),
     updatedAt: new Date(),
   };
-
-  const silentLogger = {
-    debug: () => Effect.void,
-    info: () => Effect.void,
-    warn: () => Effect.void,
-    error: () => Effect.void,
-    setLogGroup: () => Effect.void,
-    clearLogGroup: () => Effect.void,
-    pushLogGroup: () => Effect.void,
-    popLogGroup: () => Effect.void,
-    writeToFile: () => Effect.void,
-    logToolCall: () => Effect.void,
-  } as unknown as LoggerService;
 
   function makeLlm(createChatCompletion: LLMService["createChatCompletion"]): LLMService {
     return { createChatCompletion } as LLMService;

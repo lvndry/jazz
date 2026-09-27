@@ -475,13 +475,14 @@ export function hintsFor(
   hasQueued = false,
 ): readonly string[] {
   if (overlay === "approval") {
-    return overlayArmed ? ["enter to accept", "esc to reject"] : ["esc to reject"];
+    return overlayArmed
+      ? ["enter to accept", "esc to reject", "pgup to read above"]
+      : ["esc to reject", "pgup to read above"];
   }
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
-  if (overlay === "text") return ["enter to confirm", "esc to go back"];
-  if (overlay === "question" || overlay === "filepicker") {
-    return ["enter to confirm", "esc to cancel"];
-  }
+  if (overlay === "text") return ["enter to confirm", "esc to go back", "pgup to read above"];
+  if (overlay === "question") return ["enter to confirm", "esc to cancel", "pgup to read above"];
+  if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
     return ["up down to scroll", "pgup to page", "type to input", "^f to search"];

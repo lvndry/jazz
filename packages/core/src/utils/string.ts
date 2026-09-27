@@ -184,3 +184,32 @@ export function toPascalCase(str: string): string {
   // Capitalize first letter of each word and join
   return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join("");
 }
+
+const COMPACT_SUFFIXES = ["k", "M", "B"] as const;
+
+/**
+ * Compact count for display: 100, 1k, 10k, 1M, 1B.
+ * One decimal only below 10 of the current unit (`1.5k`, `1.5M`).
+ */
+export function formatCompactCount(value: number): string {
+  let scaled = value;
+  let unitIndex = -1;
+  while (Math.abs(scaled) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    scaled /= 1_000;
+    unitIndex += 1;
+  }
+  if (unitIndex < 0) return `${Math.round(value)}`;
+
+  const rounded = Math.abs(scaled) < 10 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
+  if (Math.abs(rounded) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    const promoted = rounded / 1_000;
+    unitIndex += 1;
+    const suffix = COMPACT_SUFFIXES[unitIndex];
+    const body = Number.isInteger(promoted) ? `${promoted}` : promoted.toFixed(1);
+    return `${body}${suffix}`;
+  }
+
+  const suffix = COMPACT_SUFFIXES[unitIndex];
+  const body = Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  return `${body}${suffix}`;
+}

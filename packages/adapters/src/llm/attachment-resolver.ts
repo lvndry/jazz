@@ -40,6 +40,7 @@ import {
 } from "@jazz/core/types/attachment";
 import type { LLMConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { toError } from "@jazz/core/utils/errors";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { uploadFile } from "ai";
 import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
@@ -172,7 +173,7 @@ async function resolveOne(
       const bytes = await readFile(attachment.path);
       return { kind: "inline", base64: bytes.toString("base64") };
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = toError(error).message;
       return { kind: "unavailable", reason: `${attachment.path} could not be read: ${detail}` };
     }
   }
@@ -214,7 +215,7 @@ async function resolveOne(
     });
     return { kind: "reference", reference: uploaded.providerReference };
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = toError(error).message;
     return {
       kind: "unavailable",
       reason: `${attachment.path} is ${sizeMb} MB and uploading it to ${providerName} failed: ${detail}`,

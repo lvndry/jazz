@@ -10,14 +10,15 @@
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import {
-  loadConversation,
-  saveConversation,
+  loadConversationOrNull,
+  saveRunTranscript,
+  type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
 
 export interface UnattendedTurn {
@@ -42,19 +43,17 @@ function logSource(source: string): "job_batch" | "wake_trigger" | "other" {
  */
 function persist(
   turn: UnattendedTurn,
-  startedAt: string | undefined,
+  prior: Conversation | null,
   messages: readonly ChatMessage[],
 ) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const now = new Date().toISOString();
-    yield* saveConversation({
+    yield* saveRunTranscript({
       agentId: turn.agentId,
       conversationId: turn.conversationId,
-      title: turn.fallbackTitle.slice(0, 80),
-      startedAt: startedAt ?? now,
-      endedAt: now,
-      messages: [...messages],
+      prior,
+      fallbackTitle: turn.fallbackTitle,
+      messages,
     }).pipe(
       Effect.catchAll(() =>
         logger.warn("Unattended conversation save failed", {
@@ -89,13 +88,11 @@ export function classifyTurnOutcome(
     | { readonly ok: false; readonly error: unknown },
 ): TurnOutcome {
   if (result.ok) return { kind: "finished", messages: result.messages ?? [] };
-  if (!isRunParkRequested(result.error)) {
-    return {
-      kind: "failed",
-      error: result.error instanceof Error ? result.error.message : String(result.error),
-    };
+  const ending = classifyRunError(result.error);
+  if (ending.kind === "failed") {
+    return ending;
   }
-  const park = result.error;
+  const { park } = ending;
   if (park.runId === undefined) return { kind: "unresumable" };
   return {
     kind: "parked",
@@ -131,11 +128,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
     }
     const agent = agentResult.right;
 
-    const priorRecord = yield* loadConversation(turn.agentId, turn.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
-    const named = { ...turn, fallbackTitle: priorRecord?.title ?? turn.fallbackTitle };
-    const startedAt = priorRecord?.startedAt;
+    const priorRecord = yield* loadConversationOrNull(turn.agentId, turn.conversationId);
 
     const outcome = yield* AgentRunner.run({
       agent,
@@ -174,7 +167,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
           status: "awaiting_approval",
         });
         if (outcome.messages !== undefined) {
-          yield* persist(named, startedAt, outcome.messages);
+          yield* persist(turn, priorRecord, outcome.messages);
         }
         const notification = approvalNotification(turn, outcome);
         yield* sendDesktopNotification(notification.title, notification.body);
@@ -183,8 +176,8 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
 
       case "finished":
         yield* persist(
-          named,
-          startedAt,
+          turn,
+          priorRecord,
           outcome.messages.length > 0 ? outcome.messages : (priorRecord?.messages ?? []),
         );
         return;

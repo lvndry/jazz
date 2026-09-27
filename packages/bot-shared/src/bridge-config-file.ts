@@ -8,6 +8,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { type JsonObject, mergeBridgeConfig } from "./bridge-config";
 
 function readExistingConfig(path: string): JsonObject {
@@ -27,8 +28,8 @@ function readExistingConfig(path: string): JsonObject {
   }
   // An array or scalar is not a config; treat it as absent rather than
   // spreading it into one.
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
-  return parsed as JsonObject;
+  if (!isRecord(parsed)) return {};
+  return parsed;
 }
 
 /**

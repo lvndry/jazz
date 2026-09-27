@@ -496,6 +496,36 @@ describe("fullscreen bridge", () => {
     expect(opened).toContain("all conversations");
   });
 
+  /**
+   * The regression: while a slash command ran (the composer is not available then) or one of
+   * its prompts was open, Shift+Tab was dropped before it reached the mode toggle, so the
+   * safe/yolo switch seemed broken during /goal.
+   */
+  it("toggles the approval mode while a command's prompt is open or a command runs", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setModeIsYolo(false);
+
+    store.setPrompt({
+      type: "confirm",
+      message: "Start this goal?",
+      options: { defaultValue: false },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(true);
+
+    store.setPrompt(null);
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(false);
+
+    rendered.renderer.destroy();
+  });
+
   it("lists slash commands on / and runs the highlighted one with enter", async () => {
     let submitted: string | undefined;
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
@@ -1553,6 +1583,95 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
     rendered.renderer.destroy();
     expect(selected).toEqual(["provider-3"]);
+  });
+
+  it("submits typed filter text on a select that accepts a typed answer", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).not.toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    const partial = rendered.captureCharFrame();
+    expect(partial).toContain("main");
+    expect(partial).toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ster");
+    const noMatch = rendered.captureCharFrame();
+    expect(noMatch).toContain("master");
+    expect(noMatch).not.toContain("No matching options");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["master"]);
+    expect(selected).toEqual([]);
+  });
+
+  it("still resolves the matching choice first when a typed answer is offered", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(selected).toEqual(["main"]);
+    expect(typed).toEqual([]);
+  });
+
+  it("moves onto the typed answer row with the arrow keys", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [{ label: "main", value: "main" }],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["ma"]);
   });
 
   it("navigates the wizard menu with arrows and selects with enter", async () => {

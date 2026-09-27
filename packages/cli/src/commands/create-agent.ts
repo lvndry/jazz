@@ -40,6 +40,7 @@ import type { AgentConfig } from "@jazz/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@jazz/core/types/llm";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { toError } from "@jazz/core/utils/errors";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
@@ -172,7 +173,7 @@ export function createAgentCommand(): Effect.Effect<
       catch: (error) =>
         new ValidationError({
           field: "agent",
-          message: `Agent creation wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Agent creation wizard failed: ${toError(error).message}`,
         }),
     });
 
@@ -231,7 +232,7 @@ export function createAgentCommand(): Effect.Effect<
             Effect.timeout("45 seconds"),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                const errorMessage = error instanceof Error ? error.message : String(error);
+                const errorMessage = toError(error).message;
                 const isAuthRequired = isAuthenticationRequired(error);
 
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
@@ -551,7 +552,7 @@ export async function promptForAgentInfo(
         // Cache provider info for next step
         state.providerInfo = await Effect.runPromise(llmService.getProvider(result)).catch(
           (error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = toError(error).message;
             throw new Error(`Failed to get provider info: ${message}`);
           },
         );

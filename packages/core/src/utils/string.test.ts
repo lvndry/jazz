@@ -3,6 +3,7 @@ import {
   buildLineOffsets,
   coerceBoolean,
   findAllOccurrenceLineNumbers,
+  formatCompactCount,
   offsetToLine,
 } from "./string";
 
@@ -39,5 +40,22 @@ describe("line offsets", () => {
 
   test("returns no occurrences for an empty search", () => {
     expect(findAllOccurrenceLineNumbers("content", "")).toEqual([]);
+  });
+});
+
+describe("formatCompactCount", () => {
+  test("steps through 100, 1k, 10k, 1M, 1B", () => {
+    expect(formatCompactCount(100)).toBe("100");
+    expect(formatCompactCount(999)).toBe("999");
+    expect(formatCompactCount(1_000)).toBe("1k");
+    expect(formatCompactCount(1_500)).toBe("1.5k");
+    expect(formatCompactCount(10_000)).toBe("10k");
+    expect(formatCompactCount(20_000)).toBe("20k");
+    expect(formatCompactCount(1_000_000)).toBe("1M");
+    expect(formatCompactCount(1_500_000)).toBe("1.5M");
+    expect(formatCompactCount(10_000_000)).toBe("10M");
+    expect(formatCompactCount(1_000_000_000)).toBe("1B");
+    expect(formatCompactCount(2_300_000_000)).toBe("2.3B");
+    expect(formatCompactCount(999_500)).toBe("1M");
   });
 });

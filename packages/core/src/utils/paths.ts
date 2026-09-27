@@ -86,6 +86,18 @@ export function getRunsDirectory(): string {
 }
 
 /**
+ * Returns the directory holding one JSON file per durable goal controller record.
+ * Goal records are separate from run records because one goal can span many runs.
+ */
+export function getGoalsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "goals");
+}
+
+export function getLoopsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "loops");
+}
+
+/**
  * Returns the directory for per-agent memory shared across invocation surfaces.
  */
 export function getMemoryDirectory(): string {

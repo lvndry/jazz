@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig } from "@/core/types";
-import { resolveAgentToolNames, toolDenials } from "./agent-tool-resolution";
+import { resolveAgentToolNames, runToolDenials, toolDenials } from "./agent-tool-resolution";
 
 function agentWith(config: Partial<AgentConfig>): Agent {
   return {
@@ -97,5 +97,40 @@ describe("resolving what an agent can actually reach", () => {
       "read_file",
       "execute_command",
     ]);
+  });
+});
+
+describe("runToolDenials", () => {
+  /**
+   * The regression: every surface got `propose_goal`, so a webhook or workflow run that called
+   * it left an unseen proposal and lost its tools for the rest of the run.
+   */
+  it("withholds propose_goal unless the surface shows proposals to a person", () => {
+    const agent = agentWith({ deniedTools: ["rm"] });
+    expect([...runToolDenials(agent, undefined, {})].sort()).toEqual([
+      "end_loop",
+      "propose_goal",
+      "report_goal_cycle",
+      "rm",
+    ]);
+    expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })].sort()).toEqual([
+      "end_loop",
+      "report_goal_cycle",
+      "rm",
+    ]);
+  });
+
+  it("gives end_loop only to loop runs and report_goal_cycle only to goal cycles", () => {
+    const agent = agentWith({});
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("end_loop")).toBe(false);
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("propose_goal")).toBe(true);
+    expect(runToolDenials(agent, undefined, { startedBy: "loop" }).has("report_goal_cycle")).toBe(
+      true,
+    );
+    expect(runToolDenials(agent, undefined, { startedBy: "goal" }).has("report_goal_cycle")).toBe(
+      false,
+    );
+    expect(runToolDenials(agent, undefined, { startedBy: "goal" }).has("end_loop")).toBe(true);
+    expect(runToolDenials(agent, undefined, {}).has("report_goal_cycle")).toBe(true);
   });
 });

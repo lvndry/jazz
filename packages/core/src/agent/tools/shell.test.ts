@@ -5,7 +5,11 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
-import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell";
+import {
+  createShellCommandTools,
+  EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+  matchForbiddenCommand,
+} from "./shell";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -552,4 +556,40 @@ describe("Shell Tools", () => {
       rmSync(pidFile, { force: true });
     }
   }, 30_000);
+});
+
+describe("accepting a goal from a shell command", () => {
+  it("is blocked, since accepting grants the goal lasting authority", () => {
+    expect(matchForbiddenCommand("jazz goal accept 1234")).not.toBeNull();
+    expect(
+      matchForbiddenCommand("cd x && jazz goal start --agent me --yes 'do it'"),
+    ).not.toBeNull();
+    expect(matchForbiddenCommand("jazz goal start --agent me 'just draft it'")).toBeNull();
+    expect(matchForbiddenCommand("jazz goal list")).toBeNull();
+  });
+});
+
+describe("starting a loop from a shell command", () => {
+  it("is blocked for start and resume, which grant the loop lasting authority", () => {
+    expect(
+      matchForbiddenCommand("jazz loop start --agent me --every 10m 'check the deploy'"),
+    ).not.toBeNull();
+    expect(matchForbiddenCommand("cd x && jazz loop resume deploy-watch")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop pause deploy-watch")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop cancel deploy-watch")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop list")).toBeNull();
+  });
+});
+
+describe("answering a parked run from a shell command", () => {
+  it("is blocked for approvals and answers, which would grant the agent its own step", () => {
+    expect(matchForbiddenCommand("jazz runs approve fe995143")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz goal approve detach-to-prod")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz goal answer detach-to-prod yes")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop approve deploy-watch")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz loop answer deploy-watch yes")).not.toBeNull();
+    expect(matchForbiddenCommand("jazz goal reject detach-to-prod too risky")).toBeNull();
+    expect(matchForbiddenCommand("jazz loop reject deploy-watch")).toBeNull();
+    expect(matchForbiddenCommand("jazz runs show fe995143")).toBeNull();
+  });
 });

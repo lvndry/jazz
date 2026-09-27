@@ -2,24 +2,10 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import { describe, expect, it } from "bun:test";
 import {
   eventsRequireStreaming,
-  isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
 } from "./flags";
-
-describe("isApprovalPolicyFlag", () => {
-  it("accepts the three risk levels", () => {
-    expect(isApprovalPolicyFlag("read-only")).toBe(true);
-    expect(isApprovalPolicyFlag("low-risk")).toBe(true);
-    expect(isApprovalPolicyFlag("high-risk")).toBe(true);
-  });
-
-  it("rejects anything else", () => {
-    expect(isApprovalPolicyFlag("all")).toBe(false);
-    expect(isApprovalPolicyFlag("")).toBe(false);
-  });
-});
 
 describe("parseEventCategories", () => {
   it("maps 'tools' to the four tool event types plus error", () => {

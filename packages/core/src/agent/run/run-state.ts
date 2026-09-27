@@ -25,6 +25,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalOutcome } from "@/core/types/tools";
 import type { ApprovalRequest } from "@/core/types/tools";
+import { isLocalOwnerGone, type ProcessOwner } from "@/core/utils/process";
 
 /**
  * Identifier for a single run.
@@ -40,7 +41,9 @@ export type RunFailureCause =
   | "timeout"
   | "max-iterations"
   /** Parked waiting for a person, and nobody answered before the run's park deadline. */
-  | "abandoned";
+  | "abandoned"
+  /** The process running it stopped (a crash or restart) before the run finished. */
+  | "interrupted";
 
 /** What a parked run is waiting for. */
 export type PendingInput =
@@ -101,6 +104,8 @@ export type RunState =
   | {
       readonly kind: "working";
       readonly iteration: number;
+      /** Process holding the current execution claim, used to detect a dead controller. */
+      readonly owner?: ProcessOwner;
       /**
        * Carried by a resumed run so a crash cannot swallow it.
        *
@@ -123,6 +128,7 @@ export type RunState =
          */
         readonly pid: number;
         readonly host: string;
+        readonly startedAt?: number;
       };
     }
   | {
@@ -203,4 +209,27 @@ export function transition(from: RunState, to: RunState): RunState {
     throw new InvalidRunTransitionError(from.kind, to.kind);
   }
   return to;
+}
+
+type RunRecovery = NonNullable<Extract<RunState, { kind: "working" }>["recovery"]>;
+
+/**
+ * A resumed run whose process died goes back to waiting for the answer it was parked on, not
+ * to failed: the approval is still unanswered and the snapshot is still intact.
+ */
+export function reparkedState(recovery: RunRecovery): RunState {
+  return {
+    kind: "input-required",
+    pending: recovery.pending,
+    snapshot: recovery.snapshot,
+    expiresAt: recovery.expiresAt,
+  };
+}
+
+/** The re-parked state for a `working` run whose resuming process is known to be dead. */
+export function recoveredState(state: RunState): RunState | undefined {
+  if (state.kind !== "working" || state.recovery === undefined) {
+    return undefined;
+  }
+  return isLocalOwnerGone(state.recovery) ? reparkedState(state.recovery) : undefined;
 }

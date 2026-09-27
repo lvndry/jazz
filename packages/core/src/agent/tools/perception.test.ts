@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
-import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -71,13 +71,6 @@ function makeContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecuti
     ...overrides,
   } as ToolExecutionContext;
 }
-
-const logger = {
-  info: () => Effect.void,
-  debug: () => Effect.void,
-  warn: () => Effect.void,
-  error: () => Effect.void,
-} as unknown as LoggerService;
 
 function makePresentation(canPrompt: boolean): PresentationService {
   return {
@@ -157,7 +150,7 @@ function runProposal(args: Record<string, unknown>, context: ToolExecutionContex
   const tools = createPerceptionTools();
   const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
   const layer = Layer.mergeAll(
-    Layer.succeed(LoggerServiceTag, logger),
+    Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, makePresentation(true)),
     Layer.succeed(LLMServiceTag, makeLlmService()),
   );
@@ -217,7 +210,7 @@ describe("analyze_media empty state", () => {
     const tools = createPerceptionTools();
     const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
     const layer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, logger),
+      Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
       Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
@@ -267,7 +260,7 @@ describe("analyze_media empty state", () => {
     const tools = createPerceptionTools();
     const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
     const layer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, logger),
+      Layer.succeed(LoggerServiceTag, silentLogger),
       Layer.succeed(PresentationServiceTag, makePresentation(true)),
       Layer.succeed(LLMServiceTag, llmService),
       Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
@@ -343,7 +336,7 @@ describe("analyze_media proposal", () => {
 function runTool(name: string, args: Record<string, unknown>, context: ToolExecutionContext) {
   const tool = createPerceptionTools().find((candidate) => candidate.name === name)!;
   const layer = Layer.mergeAll(
-    Layer.succeed(LoggerServiceTag, logger),
+    Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, makePresentation(true)),
     Layer.succeed(LLMServiceTag, makeLlmService()),
   );

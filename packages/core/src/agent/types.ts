@@ -26,6 +26,27 @@ import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
  * including the agent configuration, user input, conversation context, and execution settings.
  *
  */
+/**
+ * What a run takes from the chat it runs in: the live approval mode, the approvals remembered
+ * this session and how new ones are remembered, messages typed while it works, and the stream
+ * setting. A chat builds these once, fresh per run, for its own turns and for a goal's cycles run
+ * in front of the user, so a cycle behaves like any other turn of that chat.
+ */
+export type ChatTurnOptions = Pick<
+  AgentRunnerOptions,
+  | "stream"
+  | "autoApprovePolicy"
+  | "autoApprovedCommands"
+  | "autoApprovedTools"
+  | "onAutoApproveCommand"
+  | "onAutoApproveTool"
+  | "checkQueuedMessage"
+  | "onDetachedToolComplete"
+>;
+
+/** A durable controller that starts runs on its own: a loop or a goal. */
+export type RunStarter = "loop" | "goal";
+
 export interface AgentRunnerOptions {
   /**
    * The agent to execute.
@@ -142,6 +163,17 @@ export interface AgentRunnerOptions {
    * When a tool name appears in this list, it will be auto-approved without prompting.
    */
   readonly autoApprovedTools?: readonly string[];
+  /**
+   * Whether a person on this surface is shown the goals the agent proposes and can accept them.
+   * Only then does the run get `propose_goal`; anywhere else a proposal would sit unseen while
+   * the rest of the run lost its tools.
+   */
+  readonly offersGoalProposals?: boolean;
+  /**
+   * What started this run when it is not a person: a loop's runs get `end_loop`, a goal's
+   * cycles get `report_goal_cycle`, and no other run gets either.
+   */
+  readonly startedBy?: RunStarter;
   /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.
@@ -310,6 +342,8 @@ export interface AgentResponse {
    * Indicates tools were provided but disabled for the selected model.
    */
   readonly toolsDisabled?: boolean;
+  /** Set when the user stopped the run (Esc, Ctrl+C) before it finished. */
+  readonly interrupted?: boolean;
   /**
    * The full message list used for this turn, including system, user, assistant, and tool messages.
    * Pass this back on the next turn to retain context across approvals and multi-step tasks.

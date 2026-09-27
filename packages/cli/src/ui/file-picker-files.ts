@@ -34,6 +34,16 @@ async function loadGitignore(basePath: string): Promise<Ignore> {
   return ig;
 }
 
+/** `.gitignore` rules only apply to, and only accept, paths inside `basePath`. */
+function isInside(relativePath: string): boolean {
+  return (
+    relativePath.length > 0 &&
+    !path.isAbsolute(relativePath) &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`)
+  );
+}
+
 async function scanDirectory(
   rootPath: string,
   query: string,
@@ -84,10 +94,10 @@ async function scanDirectory(
 
       const fullPath = path.join(current.path, entry.name);
       const relativePath = path.relative(basePath, fullPath);
-      if (relativePath.length > 0 && gitignore.ignores(relativePath)) continue;
-      const matches =
-        relativePath.toLowerCase().includes(normalizedQuery) ||
-        fullPath.toLowerCase().includes(normalizedQuery);
+      if (isInside(relativePath) && gitignore.ignores(relativePath)) continue;
+      // Matched below the scan root only: the root's own ancestors (the user's
+      // home, the repo's name) would otherwise match every entry.
+      const matches = path.relative(rootPath, fullPath).toLowerCase().includes(normalizedQuery);
 
       if (entry.isDirectory()) {
         if (includeDirectories && matches) {

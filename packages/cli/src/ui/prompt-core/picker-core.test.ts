@@ -5,6 +5,7 @@ import {
   filterAndRank,
   reducePicker,
   resolvePicker,
+  typedAnswer,
   type PickerChoice,
 } from "./picker-core";
 
@@ -123,7 +124,7 @@ describe("resolvePicker", () => {
 
   it("falls back to the custom value when allowed and nothing is active", () => {
     const state = createPickerState({
-      type: "select",
+      type: "questionnaire",
       choices: CHOICES,
       allowCustom: true,
       customValue: "typed",
@@ -137,5 +138,57 @@ describe("resolvePicker", () => {
     const state = createPickerState({ type: "select", choices: CHOICES, initialCursor: 1 });
     // Cursor on a disabled row with no custom fallback.
     expect(resolvePicker(state).kind).toBe("none");
+  });
+});
+
+describe("typed answer", () => {
+  const typing = (query: string) =>
+    reducePicker(createPickerState({ type: "select", choices: CHOICES, allowCustom: true }), {
+      kind: "setQuery",
+      query,
+    });
+
+  it("offers nothing when the picker does not accept typed answers", () => {
+    const state = reducePicker(createPickerState({ type: "select", choices: CHOICES }), {
+      kind: "setQuery",
+      query: "zzz",
+    });
+    expect(typedAnswer(state)).toBeUndefined();
+    expect(derivePickerView(state).typedAnswer).toBeUndefined();
+    expect(resolvePicker(state).kind).toBe("none");
+  });
+
+  it("offers nothing for whitespace-only input", () => {
+    expect(typedAnswer(typing("   "))).toBeUndefined();
+  });
+
+  it("resolves the trimmed query when nothing matches", () => {
+    const state = typing("  only src/  ");
+    expect(derivePickerView(state).typedAnswer).toEqual({ text: "only src/", active: true });
+    expect(resolvePicker(state)).toEqual({ kind: "custom", value: "only src/" });
+  });
+
+  it("keeps a match ahead of the typed row until the cursor moves past it", () => {
+    const onMatch = typing("alp");
+    expect(resolvePicker(onMatch)).toEqual({ kind: "single", value: "a" });
+    expect(derivePickerView(onMatch).typedAnswer?.active).toBe(false);
+
+    const onTyped = reducePicker(onMatch, { kind: "move", delta: 1 });
+    expect(derivePickerView(onTyped).typedAnswer?.active).toBe(true);
+    expect(resolvePicker(onTyped)).toEqual({ kind: "custom", value: "alp" });
+
+    const last = reducePicker(onMatch, { kind: "last" });
+    expect(resolvePicker(last)).toEqual({ kind: "custom", value: "alp" });
+  });
+
+  it("ignores customValue on a select: the query is the answer", () => {
+    const state = createPickerState({
+      type: "select",
+      choices: CHOICES,
+      allowCustom: true,
+      customValue: "stale",
+      query: "zzz",
+    });
+    expect(resolvePicker(state)).toEqual({ kind: "custom", value: "zzz" });
   });
 });

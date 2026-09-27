@@ -28,6 +28,7 @@ import { makeDefaultObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GoalStoreTag } from "../../interfaces/goal-store";
 import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
@@ -131,6 +132,7 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(WakeTriggerServiceTag, {} as any),
   Layer.succeed(JobQueueServiceTag, {} as any),
   Layer.succeed(ReminderServiceTag, {} as any),
+  Layer.succeed(GoalStoreTag, {} as any),
   Layer.succeed(PeerLedgerServiceTag, {} as any),
   Layer.succeed(PeerTokenServiceTag, {} as any),
 );
@@ -280,6 +282,143 @@ describe("executeAgentLoop", () => {
     expect(result.content).toBe("Hello world");
     expect(result.conversationId).toBe("conv-123");
     expect(requests).toEqual([[{ role: "user", content: "hello" }]]);
+  });
+
+  /**
+   * The regression: the text-only fence went up after the whole batch ran, so a write asked
+   * for alongside the proposal executed before the user accepted anything.
+   */
+  it("runs nothing proposed in the same batch as a goal proposal", async () => {
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed({
+          completion:
+            calls === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [
+                    {
+                      id: "call_1",
+                      type: "function" as const,
+                      function: { name: "propose_goal", arguments: "{}" },
+                    },
+                    {
+                      id: "call_2",
+                      type: "function" as const,
+                      function: { name: "write_file", arguments: "{}" },
+                    },
+                  ],
+                }
+              : { id: "c2", model: "gpt-4", content: "Proposed; accept it to start." },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const executed: string[] = [];
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(
+      (toolCalls: readonly { id: string; function: { name: string } }[]) => {
+        executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
+        return Effect.succeed(
+          toolCalls.map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            result: { state: "proposed" },
+            success: true,
+          })),
+        );
+      },
+    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(executed).toEqual(["propose_goal"]);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("after a goal proposal is saved, asks for text only and drops tool calls returned anyway", async () => {
+    const toolsAllowedPerCall: boolean[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, _iteration, toolsAllowed) => {
+        toolsAllowedPerCall.push(toolsAllowed);
+        const toolCall = (id: string, name: string) => ({
+          id,
+          type: "function" as const,
+          function: { name, arguments: "{}" },
+        });
+        return Effect.succeed({
+          completion:
+            toolsAllowedPerCall.length === 1
+              ? {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [toolCall("call_1", "propose_goal")],
+                }
+              : {
+                  id: "c2",
+                  model: "gpt-4",
+                  content: "I proposed a plan; accept it to start.",
+                  toolCalls: [toolCall("call_2", "write_file")],
+                },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const executed: string[] = [];
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(
+      (toolCalls: readonly { id: string; function: { name: string } }[]) => {
+        executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
+        return Effect.succeed(
+          toolCalls.map((toolCall) => ({
+            toolCallId: toolCall.id,
+            name: toolCall.function.name,
+            result: { state: "proposed" },
+            success: true,
+          })),
+        );
+      },
+    ) as unknown as typeof ToolExecutor.executeToolCalls;
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(toolsAllowedPerCall).toEqual([true, false]);
+      expect(executed).toEqual(["propose_goal"]);
+      expect(result.content).toBe("I proposed a plan; accept it to start.");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
   });
 
   it("requests ephemeral workspace context before the first model call and after a file read", async () => {
@@ -842,6 +981,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -1160,6 +1300,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
@@ -1226,6 +1367,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(WakeTriggerServiceTag, {} as any),
       Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, {} as any),
+      Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );

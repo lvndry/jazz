@@ -1,7 +1,7 @@
 import { type FileSystem } from "@effect/platform/FileSystem";
 import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { FileStorageService } from "./file";
 
 // Mock FileSystem
@@ -29,7 +29,7 @@ const mockFS = {
   realpath: mock(() => Effect.succeed("")),
   rename: mock(() => Effect.void),
   removeFile: mock(() => Effect.void),
-  stat: mock(() => Effect.succeed({})),
+  stat: mock(() => Effect.succeed({ birthtime: Option.none(), mtime: Option.none() })),
   symlink: mock(() => Effect.void),
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
@@ -167,14 +167,19 @@ describe("FileStorageService", () => {
       ),
     );
 
+    const born = new Date("2026-01-02T03:04:05.000Z");
+    const modified = new Date("2026-02-03T04:05:06.000Z");
+    // @ts-expect-error - mocking
+    mockFS.stat.mockReturnValueOnce(
+      Effect.succeed({ birthtime: Option.some(born), mtime: Option.some(modified) }),
+    );
+
     const program = service.listAgents();
     const result = await Effect.runPromise(program);
 
     expect(result.length).toBe(1);
-    expect(result[0]!.createdAt).toBeInstanceOf(Date);
-    expect(result[0]!.updatedAt).toBeInstanceOf(Date);
-    expect(Number.isNaN(result[0]!.createdAt.getTime())).toBe(false);
-    expect(Number.isNaN(result[0]!.updatedAt.getTime())).toBe(false);
+    expect(result[0]!.createdAt).toEqual(born);
+    expect(result[0]!.updatedAt).toEqual(modified);
   });
 
   it("should handle missing file as StorageNotFoundError", async () => {

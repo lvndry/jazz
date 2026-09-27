@@ -58,6 +58,8 @@ Useful optional fields:
 | `envAllowlist`    | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
 | `deniedTools`     | Remove named tools from this agent after every other capability source is applied                                                                                                   |
 
+`createdAt` and `updatedAt` are optional in a file you write by hand. Jazz stamps them when it creates or saves the agent, and falls back to the file's own created and modified times when they are absent.
+
 Full field reference: [Agent configuration](../configure/agents.md).
 
 ---

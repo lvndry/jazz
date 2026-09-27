@@ -27,10 +27,8 @@ import {
 } from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
+import { overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue } from "./TextPrompt";
-
-const MAX_WIDTH = 96;
-const MIN_WINDOWED_HEIGHT = 20;
 
 /** Windowed height, fixed: the overlay does not grow with the result count. */
 const WINDOWED_HEIGHT = 19;
@@ -135,21 +133,22 @@ export interface SearchProps {
   readonly viewport: Viewport;
 }
 
+/** The card's size and placement; `height` is what the layout reserves. */
+export function searchLayout(viewport: Viewport) {
+  const frame = overlayWidth(viewport);
+  const placement = placeOverlay(viewport, frame, WINDOWED_HEIGHT);
+  const cardHeight = Math.max(1, placement.height - HINT_ROWS);
+  return {
+    ...placement,
+    inner: Math.max(8, frame.width - 2 - CARD_PAD * 2),
+    cardHeight,
+    listRows: Math.max(HIT_ROWS, cardHeight - FIXED_CARD_ROWS),
+  };
+}
+
 export function Search({ model, viewport }: SearchProps): ReactNode {
   const glyphs = getGlyphs();
-
-  const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
-  const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
-  const inner = Math.max(8, width - 2 - CARD_PAD * 2);
-
-  const height = fullscreen
-    ? viewport.height
-    : Math.min(WINDOWED_HEIGHT, viewport.height - HINT_ROWS);
-  const cardHeight = Math.max(1, height - HINT_ROWS);
-  const listRows = Math.max(HIT_ROWS, cardHeight - FIXED_CARD_ROWS);
-
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
+  const { width, inner, height, cardHeight, listRows, left, top } = searchLayout(viewport);
 
   const scopeLabel = model.scope === "conversation" ? "this conversation" : "all conversations";
   const pillWidth = displayWidth(scopeLabel) + 4;

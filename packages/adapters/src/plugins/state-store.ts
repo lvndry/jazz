@@ -9,16 +9,21 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { PluginConsentGrant } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
+import { writeJsonFileDurably } from "@/adapters/storage/durable-file";
+import { withFileLock } from "@/adapters/storage/file-lock";
 import { parsePluginManifest, type PluginManifest } from "./manifest-schema";
 
 export const PLUGIN_STATE_SCHEMA_VERSION = 1;
 
 /** Sentinel enablement entry meaning "every agent" — a plugin enabled globally rather than per-agent. */
 export const ALL_AGENTS = "*";
-const LOCK_RETRIES = 4_800;
 const LOCK_RETRY_MS = 20;
-// HTTPS acquisition can legitimately span several bounded redirect requests.
-// Do not steal a live installer lock merely because one upstream is slow.
+const LOCK_MAX_WAIT_MS = 4_800 * LOCK_RETRY_MS;
+/**
+ * HTTPS acquisition can legitimately span several bounded redirect requests, so an unstamped
+ * lock is trusted this long before it is treated as abandoned.
+ */
 const STALE_LOCK_MS = 2 * 60_000;
 
 export interface PluginLockRecord {
@@ -71,8 +76,8 @@ function isConsentGrantArray(value: unknown): value is readonly PluginConsentGra
   return (
     Array.isArray(value) &&
     value.every((grant) => {
-      if (grant === null || typeof grant !== "object" || Array.isArray(grant)) return false;
-      const item = grant as Record<string, unknown>;
+      if (!isRecord(grant)) return false;
+      const item = grant;
       return (
         Object.keys(item).length === 2 &&
         typeof item["digest"] === "string" &&
@@ -95,8 +100,10 @@ function parseLockRecord(
       `Plugin state record ${id} has an invalid ${slot} lock or manifest; retained for recovery`,
       "corrupt",
     );
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const item = value as Record<string, unknown>;
+  if (!isRecord(value)) {
+    throw invalid();
+  }
+  const item = value;
   if (
     typeof item["source"] !== "string" ||
     typeof item["artifactPath"] !== "string" ||
@@ -121,10 +128,10 @@ function parseLockRecord(
 }
 
 function parseState(value: unknown): PluginStateDocument {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new PluginStateError("Plugin state is not a JSON object", "corrupt");
   }
-  const root = value as Record<string, unknown>;
+  const root = value;
   if (root["schemaVersion"] !== PLUGIN_STATE_SCHEMA_VERSION) {
     throw new PluginStateError(
       `Unsupported plugin state schemaVersion: ${String(root["schemaVersion"])}`,
@@ -135,15 +142,15 @@ function parseState(value: unknown): PluginStateDocument {
     throw new PluginStateError("Plugin state has an invalid revision", "corrupt");
   }
   const rawPlugins = root["plugins"];
-  if (rawPlugins === null || typeof rawPlugins !== "object" || Array.isArray(rawPlugins)) {
+  if (!isRecord(rawPlugins)) {
     throw new PluginStateError("Plugin state has an invalid plugins map", "corrupt");
   }
   const plugins: Record<string, PluginStateRecord> = {};
-  for (const [id, value] of Object.entries(rawPlugins as Record<string, unknown>)) {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  for (const [id, value] of Object.entries(rawPlugins)) {
+    if (!isRecord(value)) {
       throw new PluginStateError(`Plugin state record ${id} is invalid`, "corrupt");
     }
-    const item = value as Record<string, unknown>;
+    const item = value;
     if (
       !isStringArray(item["trustedDigests"]) ||
       !isConsentGrantArray(item["consentGrants"]) ||
@@ -183,7 +190,7 @@ export class PluginStateStore {
 
   constructor(options: PluginStateStoreOptions) {
     this.statePath = path.join(options.pluginDirectory, "state.json");
-    this.lockPath = path.join(options.pluginDirectory, ".state.lock");
+    this.lockPath = path.join(options.pluginDirectory, ".state.lock.d");
   }
 
   async read(): Promise<PluginStateDocument> {
@@ -239,58 +246,18 @@ export class PluginStateStore {
     }
   }
 
-  private async writeLocked(state: PluginStateDocument): Promise<void> {
-    const directory = path.dirname(this.statePath);
-    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-    const temporary = path.join(directory, `.state-${process.pid}-${Date.now()}.tmp`);
-    try {
-      const handle = await fs.open(temporary, "wx", 0o600);
-      try {
-        await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await fs.rename(temporary, this.statePath);
-      await fs.chmod(this.statePath, 0o600);
-      const directoryHandle = await fs.open(directory, "r");
-      try {
-        await directoryHandle.sync();
-      } finally {
-        await directoryHandle.close();
-      }
-    } finally {
-      await fs.rm(temporary, { force: true }).catch(() => undefined);
-    }
+  private writeLocked(state: PluginStateDocument): Promise<void> {
+    return writeJsonFileDurably(this.statePath, state);
   }
 
-  private async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    await fs.mkdir(path.dirname(this.lockPath), { recursive: true, mode: 0o700 });
-    for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
-      try {
-        await fs.mkdir(this.lockPath, { mode: 0o700 });
-        try {
-          return await operation();
-        } finally {
-          await fs.rm(this.lockPath, { recursive: true, force: true });
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        try {
-          const stat = await fs.stat(this.lockPath);
-          if (Date.now() - stat.mtimeMs > STALE_LOCK_MS) {
-            await fs.rm(this.lockPath, { recursive: true, force: true });
-            continue;
-          }
-        } catch {
-          continue;
-        }
-        await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS + Math.random() * 10));
-      }
-    }
-    throw new PluginStateError(
-      `Timed out acquiring plugin state lock ${this.lockPath}`,
-      "lock-timeout",
-    );
+  private withLock<T>(operation: () => Promise<T>): Promise<T> {
+    return withFileLock(this.lockPath, operation, {
+      staleMs: STALE_LOCK_MS,
+      maxHoldMs: STALE_LOCK_MS,
+      maxWaitMs: LOCK_MAX_WAIT_MS,
+      retryDelayMs: LOCK_RETRY_MS,
+      timeoutError: (lockPath) =>
+        new PluginStateError(`Timed out acquiring plugin state lock ${lockPath}`, "lock-timeout"),
+    });
   }
 }

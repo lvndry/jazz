@@ -31,7 +31,7 @@ import {
   scanFilePickerEntries,
 } from "../file-picker-files";
 import { wrapIndex } from "../picker-window";
-import { filterAndRank, type PickerChoice } from "../prompt-core";
+import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
@@ -209,6 +209,18 @@ function firstEnabledChoice(choices: readonly { readonly disabled?: boolean }[])
 
 function promptIsFilterable(prompt: PromptState): boolean {
   return prompt.type === "search" || prompt.type === "select";
+}
+
+/**
+ * The filter text a `select` would submit as its own answer: set only when the prompt accepts typed
+ * answers and something has been typed. Its row sits just past the last match.
+ */
+function typedAnswerFor(prompt: PromptState, filter: string): string | undefined {
+  if (prompt.type !== "select" || prompt.options?.resolveTypedAnswer === undefined) {
+    return undefined;
+  }
+  const text = filter.trim();
+  return text.length > 0 ? text : undefined;
 }
 
 function matchingChoiceIndices(choices: readonly Choice[], filter: string): number[] {
@@ -469,14 +481,26 @@ function overlayFromPrompt(
       const indices = filterable
         ? matchingChoiceIndices(choices, question.filter)
         : choices.map((_choice, index) => index);
+      const typedAnswer = typedAnswerFor(prompt, question.filter);
+      const matches = choiceModel(
+        indices.map((index) => choices[index] as Choice),
+        indices,
+      );
       return {
         kind: "question",
         mode: prompt.type === "checkbox" ? "checkbox" : "select",
         message: prompt.message,
-        choices: choiceModel(
-          indices.map((index) => choices[index] as Choice),
-          indices,
-        ),
+        choices:
+          typedAnswer === undefined
+            ? matches
+            : [
+                ...matches,
+                {
+                  label: typedAnswer,
+                  value: "typed-answer",
+                  description: TYPED_ANSWER_DESCRIPTION,
+                },
+              ],
         selected: question.selected,
         ...(filterable
           ? { filterable: true, filter: question.filter, filterCaret: question.filterCaret }
@@ -1850,6 +1874,14 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
+      // The approval mode belongs to the session, not the composer: it toggles while a slash
+      // command runs or one of its prompts is open, which both leave the composer unavailable.
+      // It stays behind the approval card above, so a pending decision cannot be flipped.
+      if (name === "tab" && shift) {
+        store.toggleMode();
+        return true;
+      }
+
       if (active !== null && active.type !== "chat") {
         if (name === "pageup" || name === "pagedown") return false;
         if (name === "escape") {
@@ -1973,6 +2005,7 @@ export function FullscreenBridge(): React.ReactNode {
         const visibleChoices = choicesAtIndices(sourceChoices, filteredIndices);
         const allowCustom = allowsCustomAnswer(active, suggestions);
         const allowMultiple = allowsMultipleAnswers(active);
+        const typedAnswer = typedAnswerFor(active, questionState.filter);
 
         if (name === "up" || name === "down") {
           updatePromptQuestion((state) => ({
@@ -1981,7 +2014,7 @@ export function FullscreenBridge(): React.ReactNode {
               visibleChoices,
               state.selected,
               name === "up" ? -1 : 1,
-              allowCustom,
+              allowCustom || typedAnswer !== undefined,
             ),
           }));
           return true;
@@ -2028,6 +2061,10 @@ export function FullscreenBridge(): React.ReactNode {
         }
 
         if (name === "return" || name === "enter") {
+          if (typedAnswer !== undefined && questionState.selected === visibleChoices.length) {
+            active.options?.resolveTypedAnswer?.(typedAnswer);
+            return true;
+          }
           if (selectedCustom) {
             const value = questionState.custom.value.trim();
             if (value.length > 0) active.resolve(value);
@@ -2122,10 +2159,6 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      if (name === "tab" && shift) {
-        store.toggleMode();
-        return true;
-      }
       if (isCtrlLetter({ name, ctrl }, "f")) {
         setSearchQuery("");
         setSearchCaret(0);

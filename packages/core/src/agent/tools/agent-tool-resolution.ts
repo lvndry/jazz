@@ -24,11 +24,15 @@
  */
 
 import { Effect, Option } from "effect";
+import type { RunStarter } from "@/core/agent/types";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { PersonaToolProfile } from "@/core/types/persona";
+import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
+import { REPORT_GOAL_CYCLE_TOOL_NAME } from "./goal-report";
+import { END_LOOP_TOOL_NAME } from "./loop";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
 /**
@@ -50,6 +54,31 @@ export function toolDenials(
   toolProfile: PersonaToolProfile | undefined,
 ): ReadonlySet<string> {
   return new Set([...(toolProfile?.deny ?? []), ...(agent.config.deniedTools ?? [])]);
+}
+
+/**
+ * Everything a run may not use: the agent's and persona's denials, plus `propose_goal` unless
+ * the surface shows proposals to a person who can accept them, and `end_loop` unless a loop
+ * started the run (anywhere else there is no loop for it to end). Elsewhere (a workflow, a
+ * webhook, a bot, a goal's own cycles) a proposal would sit unseen, and the rest of the run
+ * would lose its tools, since a saved proposal ends the agent's work for the turn.
+ */
+export function runToolDenials(
+  agent: Agent,
+  toolProfile: PersonaToolProfile | undefined,
+  surface: { readonly offersGoalProposals?: boolean; readonly startedBy?: RunStarter },
+): ReadonlySet<string> {
+  const denied = new Set(toolDenials(agent, toolProfile));
+  if (surface.offersGoalProposals !== true) {
+    denied.add(PROPOSE_GOAL_TOOL_NAME);
+  }
+  if (surface.startedBy !== "loop") {
+    denied.add(END_LOOP_TOOL_NAME);
+  }
+  if (surface.startedBy !== "goal") {
+    denied.add(REPORT_GOAL_CYCLE_TOOL_NAME);
+  }
+  return denied;
 }
 
 export function resolveAgentToolNames(

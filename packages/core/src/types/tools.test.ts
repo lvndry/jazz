@@ -1,5 +1,23 @@
 import { describe, expect, it } from "bun:test";
-import { shouldAutoApprove, type AutoApprovePolicy, type ToolRiskLevel } from "./tools";
+import {
+  isApprovalPolicyLevel,
+  shouldAutoApprove,
+  type AutoApprovePolicy,
+  type ToolRiskLevel,
+} from "./tools";
+
+describe("isApprovalPolicyLevel", () => {
+  it("accepts the three risk levels", () => {
+    expect(isApprovalPolicyLevel("read-only")).toBe(true);
+    expect(isApprovalPolicyLevel("low-risk")).toBe(true);
+    expect(isApprovalPolicyLevel("high-risk")).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    expect(isApprovalPolicyLevel("all")).toBe(false);
+    expect(isApprovalPolicyLevel("")).toBe(false);
+  });
+});
 
 describe("shouldAutoApprove", () => {
   describe("no policy (undefined)", () => {

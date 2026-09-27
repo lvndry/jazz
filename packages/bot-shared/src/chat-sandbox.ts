@@ -42,6 +42,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { applyBridgeConfigFile } from "./bridge-config-file";
 
 /** Directory under the data dir holding one Jazz home per conversation. */
@@ -166,9 +167,9 @@ function readUidMap(dataDir: string): UidMap {
   if (!existsSync(path)) return {};
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    if (!isRecord(parsed)) return {};
     const map: UidMap = {};
-    for (const [agentId, uid] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [agentId, uid] of Object.entries(parsed)) {
       if (typeof uid === "number" && Number.isInteger(uid)) map[agentId] = uid;
     }
     return map;

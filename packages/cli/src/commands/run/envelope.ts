@@ -11,7 +11,6 @@
  * command's job; saying what they look like on the wire is this file's.
  */
 
-import { isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
 import type { ChatMessage } from "@jazz/core/types/message";
 
@@ -81,22 +80,6 @@ export interface OneShotSuccess {
 
 export interface OneShotOutputOptions {
   readonly json: boolean;
-}
-
-/**
- * Distinguish unavailable remote pricing from providers that run on the user's
- * machine. `costIncomplete` comes from the run itself and wins over a defined
- * costUSD: a total that omits unpriced parent or sub-agent spend is not known.
- */
-export function isRunCostKnown(
-  costUSD: number | undefined,
-  provider: string,
-  modelId: string,
-  costIncomplete = false,
-): boolean {
-  if (costIncomplete) return false;
-  if (costUSD !== undefined) return true;
-  return isZeroCostLocalModel(provider, modelId);
 }
 
 /**

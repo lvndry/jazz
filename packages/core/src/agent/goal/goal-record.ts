@@ -1,0 +1,453 @@
+/**
+ * @fileoverview Durable user objective and its approved execution plan.
+ *
+ * GoalRecord is the controller-owned source of truth for a multi-run task. Plan steps and
+ * evidence are metadata for orchestration; they do not grant tool permissions. The only
+ * authority a goal carries is `approvalPolicy`, granted by the user when accepting. Each run
+ * keeps its own RunRecord and transcript, while this record preserves objective, plan,
+ * ownership, aggregate budgets, and completion state across runs and client disconnects.
+ */
+
+import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
+import { z } from "zod";
+import { APPROVAL_POLICY_LEVELS, type ApprovalPolicyLevel } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
+import { HANDLE_PATTERN, MAX_HANDLE_CHARS } from "@/core/utils/handle";
+import { getJazzInstanceId } from "@/core/utils/instance-id";
+import type { ProcessOwner } from "@/core/utils/process";
+import type { GoalState } from "./goal-state";
+import { DEFAULT_GOAL_BUDGET } from "./goal-usage";
+
+export type GoalId = string;
+
+/** Goal ids become file names, so they are limited to a path-safe alphabet. */
+export const GOAL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+export type GoalStepState = "pending" | "active" | "completed" | "blocked";
+
+export interface GoalPlanStep {
+  readonly id: string;
+  readonly objective: string;
+  readonly successCriteria: readonly string[];
+  readonly state: GoalStepState;
+}
+
+export const feasibilityAssessmentSchema = z.enum(["plausible", "uncertain", "unlikely"]);
+
+export const goalLimitSchema = z.enum(["cycles"]);
+
+/** The cap a budget-limited goal reached. */
+export type GoalLimit = z.infer<typeof goalLimitSchema>;
+
+export interface GoalPlan {
+  readonly revision: number;
+  readonly objective: string;
+  readonly successCriteria: readonly string[];
+  readonly constraints: readonly string[];
+  readonly assumptions: readonly string[];
+  readonly feasibility: {
+    readonly assessment: z.infer<typeof feasibilityAssessmentSchema>;
+    readonly rationale: string;
+  };
+  readonly steps: readonly GoalPlanStep[];
+  readonly verification: readonly string[];
+}
+
+/**
+ * What bounds a goal beyond its cycles. Each cycle is an ordinary run, held to the agent
+ * loop's own limits (iterations, tokens, cost, time) like any other; the goal adds only an
+ * optional cycle count, and is otherwise unbounded.
+ */
+export interface GoalBudget {
+  /** Cycles the goal may run; unbounded when absent. */
+  readonly maxCycles?: number;
+}
+
+export interface GoalUsage {
+  readonly cycles: number;
+  readonly totalTokens: number;
+  /** Omitted while any contributing run has unknown pricing. */
+  readonly costUSD?: number;
+  readonly costKnown: boolean;
+  readonly activeDurationMs: number;
+}
+
+/**
+ * The cycle whose run has been claimed but whose outcome and usage are not yet folded into
+ * the goal. Present exactly while that is true, so reconciling a cycle is one field cleared
+ * rather than several kept in step.
+ */
+export interface GoalCycle {
+  readonly runId: string;
+  /** Process that started the run, for telling a crashed worker from a live one. */
+  readonly owner: ProcessOwner;
+  /** A pause or cancel requested while the run was in flight, applied once it settles. */
+  readonly stopAfter?: "pause" | "cancel";
+}
+
+export interface GoalEvidenceItem {
+  readonly criterion: string;
+  readonly quote: string;
+}
+
+export interface GoalRecord {
+  readonly goalId: GoalId;
+  /**
+   * The handle people use for it (`detach-to-prod`), unique among this installation's goals.
+   * Absent only on goals created before goals had names; those show their short id.
+   */
+  readonly name?: string;
+  /** Stable owner identity for the Jazz installation that schedules this goal. */
+  readonly ownerInstanceId: string;
+  readonly agentId: string;
+  /** Chat surface that proposed the goal; execution uses its own isolated conversation. */
+  readonly sourceConversationId?: string;
+  /** Private conversation owned by the goal controller, avoiding races with user chat turns. */
+  readonly conversationId: string;
+  /**
+   * Absolute directory the goal works in: where it was proposed or started. Every cycle runs
+   * there, never in whatever directory the daemon happened to start from.
+   */
+  readonly workingDirectory: string;
+  /** The user's request, preserved verbatim as the root intent. */
+  readonly request: string;
+  /** The current plan proposal; editing it creates a new revision. */
+  readonly plan: GoalPlan;
+  /** Set only when the user approves this exact plan revision. */
+  readonly approvedPlanRevision?: number;
+  /**
+   * The tools a cycle may run without asking, granted by the user when accepting the plan.
+   * Anything above it parks for approval; absent means read-only and low-risk tools only.
+   * Only an approved goal can carry one, so no proposal arrives with authority attached.
+   */
+  readonly approvalPolicy?: ApprovalPolicyLevel;
+  readonly state: GoalState;
+  readonly budget: GoalBudget;
+  readonly usage: GoalUsage;
+  readonly cycle?: GoalCycle;
+  /**
+   * The chat process running this goal's cycles in front of the user, asking its approvals
+   * inline. While it lives the daemon leaves the goal alone; when it dies without handing the
+   * goal off, the daemon pauses the goal rather than run it with authority nobody granted.
+   * Meaningless once the goal has finished, which can no longer be written to clear it.
+   */
+  readonly attendedBy?: ProcessOwner;
+  /** The most recent cycle's run, kept after it is reconciled so it can be inspected. */
+  readonly latestRunId?: string;
+  /** Evidence that completed the goal, bound to the run and plan revision that produced it. */
+  readonly evidence?: {
+    readonly runId: string;
+    readonly planRevision: number;
+    readonly items: readonly GoalEvidenceItem[];
+  };
+  readonly lastProgress?: string;
+  /**
+   * Consecutive cycles whose completion claim failed its evidence check. Each gets another
+   * cycle told what was missing; past a small limit the goal stops for review.
+   */
+  readonly unverifiedClaims?: number;
+  /**
+   * Cycles in a row cut off by the process stopping. Each one is continued by a fresh cycle
+   * told to check the state first; past a small limit the goal stops for review.
+   */
+  readonly interruptedCycles?: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** Compare-and-set version for competing controls and continuation workers. */
+  readonly version: number;
+}
+
+export type GoalRecordInput = Omit<GoalRecord, "version">;
+
+/** The record with its open cycle folded away, for any transition that settles the cycle. */
+export function withoutCycle(goal: GoalRecord | GoalRecordInput): GoalRecordInput {
+  const { version: _version, cycle: _cycle, ...rest } = goal as GoalRecord;
+  return rest;
+}
+
+/** The record ready for a compare-and-set write, keeping its open cycle. */
+export function asInput(goal: GoalRecord): GoalRecordInput {
+  const { version: _version, ...rest } = goal;
+  return rest;
+}
+
+/** What a goal has spent before any cycle runs. */
+export const NO_GOAL_USAGE: GoalUsage = {
+  cycles: 0,
+  totalTokens: 0,
+  costUSD: 0,
+  costKnown: true,
+  activeDurationMs: 0,
+};
+
+/**
+ * A new goal awaiting the user's acceptance, owned by this installation and running in its
+ * own private conversation. `sourceConversationId` is the chat that proposed it, which scopes
+ * the one-active-goal-per-conversation rule.
+ */
+export function newProposedGoal(options: {
+  readonly agentId: string;
+  /** Already unique; see `chooseGoalName`. */
+  readonly name: string;
+  readonly workingDirectory: string;
+  readonly sourceConversationId: string | undefined;
+  /**
+   * The conversation its work continues; a goal set in a chat continues that chat, so a
+   * handoff to the daemon picks up where the chat left off. A private one when absent.
+   */
+  readonly conversationId?: string;
+  readonly request: string;
+  readonly plan: GoalPlan;
+  readonly budget?: GoalBudget;
+  readonly usage?: GoalUsage;
+}): GoalRecordInput {
+  const now = new Date().toISOString();
+  return {
+    goalId: randomUUID(),
+    name: options.name,
+    ownerInstanceId: getJazzInstanceId(),
+    agentId: options.agentId,
+    ...(options.sourceConversationId !== undefined
+      ? { sourceConversationId: options.sourceConversationId }
+      : {}),
+    conversationId: options.conversationId ?? generateConversationId("goal"),
+    workingDirectory: options.workingDirectory,
+    request: options.request,
+    plan: options.plan,
+    state: { kind: "proposed" },
+    budget: options.budget ?? DEFAULT_GOAL_BUDGET,
+    usage: options.usage ?? NO_GOAL_USAGE,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * The plan of a goal the user set directly with `/goal <objective>`: no planning step, the
+ * objective is its one success criterion and its one step, so a completion claim still has to
+ * show with tool output that the objective holds.
+ */
+export function directGoalPlan(objective: string): GoalPlan {
+  return {
+    revision: 1,
+    objective,
+    successCriteria: [objective],
+    constraints: [],
+    assumptions: [],
+    feasibility: { assessment: "plausible", rationale: "Set directly by the user." },
+    steps: [{ id: "objective", objective, successCriteria: [objective], state: "pending" }],
+    verification: ["Show with tool output that the objective holds."],
+  };
+}
+
+/** A drafted plan's text: non-empty and bounded, so a runaway draft is rejected, not stored. */
+export function boundedText(maxChars: number) {
+  return z.string().min(1).max(maxChars);
+}
+
+/** Longest criterion, constraint, or step a draft may carry. */
+export const DRAFT_ITEM_CHARS = 500;
+const DRAFT_PARAGRAPH_CHARS = 1000;
+/** Most criteria, constraints, or steps a draft may carry. */
+export const DRAFT_MAX_LIST_ITEMS = 8;
+
+/**
+ * The plan fields every draft shares, whether the planner or the agent's `propose_goal`
+ * wrote it. Each is described because a tool's parameters are advertised to the model.
+ */
+export const planDraftFields = {
+  name: z
+    .string()
+    .min(1)
+    .max(MAX_HANDLE_CHARS)
+    .describe(
+      "A short handle for the goal, 2 to 4 lowercase words joined by hyphens, like detach-to-prod.",
+    ),
+  objective: boundedText(DRAFT_PARAGRAPH_CHARS).describe(
+    "The outcome the user wants, in one sentence.",
+  ),
+  successCriteria: z
+    .array(boundedText(DRAFT_ITEM_CHARS).describe("One criterion."))
+    .min(1)
+    .max(DRAFT_MAX_LIST_ITEMS)
+    .describe(
+      "Checks that together mean the goal is done, each one something a command or tool can print when it holds (a test run, a checker's report, a file's content).",
+    ),
+  constraints: z
+    .array(boundedText(DRAFT_ITEM_CHARS).describe("One constraint."))
+    .max(DRAFT_MAX_LIST_ITEMS)
+    .describe("Rules the work must follow once accepted, such as what must not change or be done."),
+};
+
+export const feasibilityDraftFields = {
+  assessment: feasibilityAssessmentSchema.describe("plausible, uncertain, or unlikely."),
+  rationale: boundedText(DRAFT_PARAGRAPH_CHARS).describe("Why, from what you have seen."),
+};
+
+export const FEASIBILITY_DESCRIPTION =
+  "Whether the objective looks achievable from what you have seen, and why.";
+
+const nonEmpty = z.string().min(1);
+const nonNegativeInteger = z.number().int().nonnegative();
+const positiveInteger = z.number().int().positive();
+
+const goalStateSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("proposed") }),
+  z.object({ kind: z.literal("active") }),
+  z.object({ kind: z.literal("awaiting-input"), reason: z.enum(["question", "approval"]) }),
+  z.object({ kind: z.literal("paused") }),
+  z.object({ kind: z.literal("stopping") }),
+  z.object({ kind: z.literal("budget-limited"), limit: goalLimitSchema }),
+  z.object({
+    kind: z.literal("review-required"),
+    reason: z.string(),
+    question: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("completed"), summary: z.string() }),
+  z.object({ kind: z.literal("failed"), error: z.string() }),
+  z.object({ kind: z.literal("canceled") }),
+]);
+
+const planSchema = z.object({
+  revision: positiveInteger,
+  objective: z.string(),
+  successCriteria: z.array(z.string()),
+  constraints: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  feasibility: z.object({ assessment: feasibilityAssessmentSchema, rationale: z.string() }),
+  steps: z.array(
+    z.object({
+      id: nonEmpty,
+      objective: z.string(),
+      successCriteria: z.array(z.string()),
+      state: z.enum(["pending", "active", "completed", "blocked"]),
+    }),
+  ),
+  verification: z.array(z.string()),
+});
+
+const usageSchema = z
+  .object({
+    cycles: nonNegativeInteger,
+    totalTokens: nonNegativeInteger,
+    costUSD: z.number().finite().nonnegative().optional(),
+    costKnown: z.boolean(),
+    activeDurationMs: nonNegativeInteger,
+  })
+  .refine((usage) => usage.costKnown === (usage.costUSD !== undefined), {
+    message: "costUSD is present exactly when costKnown is true",
+  });
+
+/** States in which a goal has a claimed cycle that has not been reconciled yet. */
+const CYCLE_STATES = new Set(["active", "awaiting-input", "stopping", "paused"]);
+/** States that cannot exist without such a cycle. */
+const CYCLE_REQUIRED_STATES = new Set(["awaiting-input", "stopping"]);
+/** States that act on an accepted plan, so they need that exact revision approved. */
+const APPROVAL_REQUIRED_STATES = new Set([
+  "active",
+  "awaiting-input",
+  "paused",
+  "stopping",
+  "budget-limited",
+  "review-required",
+  "completed",
+  "failed",
+]);
+
+const processOwnerSchema = z.object({
+  pid: positiveInteger,
+  host: z.string(),
+  startedAt: z.number().int().nonnegative().optional(),
+});
+
+export const goalRecordSchema = z
+  .object({
+    goalId: z.string().regex(GOAL_ID_PATTERN),
+    name: z.string().regex(HANDLE_PATTERN).max(MAX_HANDLE_CHARS).optional(),
+    ownerInstanceId: nonEmpty,
+    agentId: nonEmpty,
+    sourceConversationId: z.string().optional(),
+    conversationId: nonEmpty,
+    workingDirectory: z.string().refine(isAbsolute, "must be an absolute path"),
+    request: z.string(),
+    plan: planSchema,
+    approvedPlanRevision: positiveInteger.optional(),
+    approvalPolicy: z.enum(APPROVAL_POLICY_LEVELS).optional(),
+    state: goalStateSchema,
+    budget: z.object({ maxCycles: positiveInteger.optional() }),
+    usage: usageSchema,
+    cycle: z
+      .object({
+        runId: nonEmpty,
+        owner: processOwnerSchema,
+        stopAfter: z.enum(["pause", "cancel"]).optional(),
+      })
+      .optional(),
+    attendedBy: processOwnerSchema.optional(),
+    latestRunId: z.string().optional(),
+    evidence: z
+      .object({
+        runId: nonEmpty,
+        planRevision: positiveInteger,
+        items: z.array(z.object({ criterion: z.string(), quote: z.string() })),
+      })
+      .optional(),
+    lastProgress: z.string().optional(),
+    unverifiedClaims: positiveInteger.optional(),
+    interruptedCycles: positiveInteger.optional(),
+    createdAt: nonEmpty,
+    updatedAt: nonEmpty,
+    version: positiveInteger,
+  })
+  .superRefine((goal, context) => {
+    const kind = goal.state.kind;
+    if (goal.cycle !== undefined && !CYCLE_STATES.has(kind)) {
+      context.addIssue({ code: "custom", message: `a ${kind} goal cannot have an open cycle` });
+    }
+    if (goal.cycle === undefined && CYCLE_REQUIRED_STATES.has(kind)) {
+      context.addIssue({ code: "custom", message: `a ${kind} goal needs an open cycle` });
+    }
+    if (goal.cycle !== undefined && goal.cycle.runId !== goal.latestRunId) {
+      context.addIssue({ code: "custom", message: "the open cycle must be the latest run" });
+    }
+    if (kind === "stopping" && goal.cycle?.stopAfter === undefined) {
+      context.addIssue({ code: "custom", message: "a stopping goal must say what it stops into" });
+    }
+    if (APPROVAL_REQUIRED_STATES.has(kind) && goal.approvedPlanRevision !== goal.plan.revision) {
+      context.addIssue({ code: "custom", message: `a ${kind} goal needs its plan approved` });
+    }
+    if (goal.approvalPolicy !== undefined && goal.approvedPlanRevision === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "only an accepted goal carries an approval policy",
+      });
+    }
+    if (goal.approvedPlanRevision !== undefined && goal.approvedPlanRevision > goal.plan.revision) {
+      context.addIssue({ code: "custom", message: "approval cannot be ahead of the plan" });
+    }
+    if (goal.evidence !== undefined && goal.evidence.planRevision !== goal.plan.revision) {
+      context.addIssue({ code: "custom", message: "evidence must match the current plan" });
+    }
+    if (goal.evidence !== undefined && kind !== "completed") {
+      context.addIssue({ code: "custom", message: "only a completed goal carries evidence" });
+    }
+  });
+
+/** Validates a stored or about-to-be-stored record; the message names the broken invariant. */
+export function parseGoalRecord(
+  value: unknown,
+):
+  | { readonly ok: true; readonly goal: GoalRecord }
+  | { readonly ok: false; readonly error: string } {
+  const result = goalRecordSchema.safeParse(value);
+  if (result.success) {
+    return { ok: true, goal: result.data as GoalRecord };
+  }
+  return {
+    ok: false,
+    error: result.error.issues
+      .map((issue) => `${issue.path.join(".") || "record"}: ${issue.message}`)
+      .join("; "),
+  };
+}

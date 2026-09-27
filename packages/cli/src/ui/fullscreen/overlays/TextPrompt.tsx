@@ -24,6 +24,7 @@
 import { TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
+import { overlayWidth, placeOverlay } from "./overlay-frame";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { maskSecret, maskSecretCaret } from "../../mask-secret";
 import { THEME } from "../../theme";
@@ -35,9 +36,6 @@ import {
   terminalGraphemes,
 } from "../terminal-cells";
 import type { Viewport } from "../types";
-
-const MAX_WIDTH = 96;
-const MIN_WINDOWED_HEIGHT = 20;
 
 const CARD_PAD = 1;
 
@@ -326,21 +324,28 @@ export interface TextPromptProps {
   readonly viewport: Viewport;
 }
 
+/** The card's size and placement; `height` is what the layout reserves. */
+export function textPromptLayout(model: TextPromptModel, viewport: Viewport) {
+  const frame = overlayWidth(viewport);
+  const inner = Math.max(8, frame.width - 2 - CARD_PAD * 2);
+  const valueWidth = Math.max(4, inner - MARKER_COLUMN);
+  const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
+  const placement = placeOverlay(viewport, frame, FIXED_CARD_ROWS + message.length + HINT_ROWS);
+  return {
+    ...placement,
+    inner,
+    valueWidth,
+    message,
+    cardHeight: Math.max(1, placement.height - HINT_ROWS),
+  };
+}
+
 export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
   const glyphs = getGlyphs();
-
-  const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
-  const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
-  const inner = Math.max(8, width - 2 - CARD_PAD * 2);
-  const valueWidth = Math.max(4, inner - MARKER_COLUMN);
-
-  const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
-  const windowedHeight = FIXED_CARD_ROWS + message.length + HINT_ROWS;
-  const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
-  const cardHeight = Math.max(1, height - HINT_ROWS);
-
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
+  const { width, inner, valueWidth, message, height, cardHeight, left, top } = textPromptLayout(
+    model,
+    viewport,
+  );
 
   const error = oneLine(model.error ?? "");
 

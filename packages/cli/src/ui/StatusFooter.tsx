@@ -2,6 +2,7 @@
  * Bottom status bar: working directory, model, and running cost/token stats.
  */
 
+import { formatCompactCount } from "@jazz/core/utils/string";
 import { Box, Text } from "ink";
 import React from "react";
 import { ActivityIndicator } from "./components/ActivityIndicator";
@@ -20,15 +21,6 @@ function formatCost(cost: number): string {
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   if (cost < 10) return `$${cost.toFixed(3)}`;
   return `$${cost.toFixed(2)}`;
-}
-
-/**
- * Format a token count compactly (e.g. "1.2k", "47k", "184k").
- */
-function formatTokens(n: number): string {
-  if (n < 1000) return `${n}`;
-  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n / 1000)}k`;
 }
 
 /**
@@ -97,10 +89,10 @@ function StatusFooter({
   if (runStats.tokensInContext !== undefined) {
     if (runStats.maxContextTokens) {
       statParts.push(
-        `${formatTokens(runStats.tokensInContext)}/${formatTokens(runStats.maxContextTokens)}`,
+        `${formatCompactCount(runStats.tokensInContext)}/${formatCompactCount(runStats.maxContextTokens)}`,
       );
     } else {
-      statParts.push(formatTokens(runStats.tokensInContext));
+      statParts.push(formatCompactCount(runStats.tokensInContext));
     }
   }
   if (runStats.costUSD !== undefined) statParts.push(formatCost(runStats.costUSD));

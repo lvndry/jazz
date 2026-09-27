@@ -31,7 +31,15 @@ export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
  * - `unknown` risk resolves through the command classifier first; an unresolved
  *   `unknown` is never auto-approved except under `true` / `"high-risk"`
  */
-export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk";
+export type AutoApprovePolicy = boolean | ApprovalPolicyLevel;
+
+/** The named approval tiers, lowest authority first; every surface validates against this. */
+export const APPROVAL_POLICY_LEVELS = ["read-only", "low-risk", "high-risk"] as const;
+export type ApprovalPolicyLevel = (typeof APPROVAL_POLICY_LEVELS)[number];
+
+export function isApprovalPolicyLevel(value: string): value is ApprovalPolicyLevel {
+  return (APPROVAL_POLICY_LEVELS as readonly string[]).includes(value);
+}
 
 /**
  * Check if a tool's risk level should be auto-approved given a policy.

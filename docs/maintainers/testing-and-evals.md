@@ -114,11 +114,13 @@ means a drifting judge surfaces as a failed precondition rather than as quietly 
 ## Running it
 
 ```bash
-cp evals/agents/*.json ~/.jazz/agents/      # install sut / ceiling / judge
-
 bun run evals --agent eval-sut --samples 3 --stamp sut-baseline
 bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 ```
+
+Each sample runs in a private Jazz home with the checked-in agents from `evals/agents/` and
+only your provider settings, so one sample's memory or conversations cannot help or hurt
+another, and nothing is written to your own `~/.jazz`.
 
 **The A/B is the point.** Same tasks, two configs, so a harness change's lift is attributable
 rather than asserted:
@@ -127,7 +129,9 @@ rather than asserted:
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
-Reports land in `evals/report/` (gitignored). Full flags and task-authoring guide:
+To pair a change against a baseline on the same samples, run the baseline once and pass it to
+the later run with `--baseline <report>`; the report then includes per-sample pairs and the
+adversarial targets. Reports land in `evals/report/` (gitignored). Full flags and task-authoring guide:
 [`evals/README.md`](../../evals/README.md).
 
 ---

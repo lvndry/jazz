@@ -22,7 +22,15 @@ export interface RunStore {
    * that can tell a lifecycle bug from a legitimate state, and a record that claims a run
    * went straight from `completed` back to `working` is worse than no record.
    */
-  readonly transition: (runId: RunId, next: RunState) => Effect.Effect<RunRecord, Error>;
+  readonly transition: (
+    runId: RunId,
+    next: RunState,
+    /**
+     * Applied to the moved record in the same write, so fields that describe the new state
+     * (a finished run's spend) are never seen apart from it.
+     */
+    alongside?: (record: RunRecord) => RunRecord,
+  ) => Effect.Effect<RunRecord, Error>;
   /**
    * Records newest first, unfinished ones only unless asked otherwise.
    *

@@ -6,7 +6,7 @@ import { Effect } from "effect";
 /**
  * Internal command invoked by the host scheduler (launchd/`at`), not meant for interactive use:
  * fire one specific reminder, one-shot, by sending a native OS desktop notification. A reminder
- * is "notify a person," never "resume the agent" — see `wake-trigger-tools.ts`'s file comment
+ * is "notify a person," never "resume the agent" — see `wake-trigger.ts`'s file comment
  * for that distinction, and `wake-trigger.ts`'s `fireWakeTriggerCommand` for the sibling that
  * does resume a conversation.
  *

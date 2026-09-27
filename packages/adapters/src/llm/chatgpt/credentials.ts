@@ -5,6 +5,7 @@
 import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { FILE_LOCK_TIMEOUT_MS } from "@jazz/core/constants/agent";
+import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect, Either } from "effect";
@@ -157,8 +158,7 @@ export function createChatGPTCredentialStore(dependencies: {
   async function locked<A>(operation: () => Promise<A>): Promise<A> {
     const guarded = Effect.tryPromise({
       try: operation,
-      catch: (error) =>
-        new LockedOperationError(error instanceof Error ? error : new Error(String(error))),
+      catch: (error) => new LockedOperationError(toError(error)),
     });
     const deadline = Date.now() + LOCK_WAIT_DEADLINE_MS;
     for (;;) {

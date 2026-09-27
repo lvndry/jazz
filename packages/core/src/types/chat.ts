@@ -52,6 +52,8 @@ export interface ChatCompletionOptions {
   maxTokens?: number;
   tools?: ToolDefinition[];
   toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
+  /** Request schema-constrained object output where the selected provider supports it. */
+  outputSchema?: import("zod").ZodTypeAny;
   stream?: boolean;
   /** Provider-neutral reasoning request, validated against the resolved model profile by the adapter. */
   reasoning?: ReasoningSelection;

@@ -3,6 +3,7 @@ import { createRunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -20,10 +21,12 @@ import { COMPANION_ROLES } from "@jazz/core/types/llm";
 import { CAPABILITY_REASONING_EFFORTS } from "@jazz/core/types/model-capabilities";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Context, Effect } from "effect";
 import { AgentServiceImpl } from "@/adapters/agent-service";
+import { InMemoryLoopStore } from "@/adapters/storage/loop-store";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
   makeA2AHandler,
@@ -154,6 +157,93 @@ describe("the daemon's routes", () => {
 
     const response = await handle(request("GET", "/health"));
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, owner: getJazzInstanceId() });
+  });
+
+  it("refuses to accept a goal without the plan revision being accepted", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const response = await handle(
+      request("POST", "/goals/goal-1/accept", {
+        headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("refuses an approval policy outside the known tiers or off an accept", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(new InMemoryRunStore()));
+    const post = (path: string, body: unknown) =>
+      handle(
+        request("POST", path, {
+          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    expect(
+      (
+        await post("/goals/goal-1/accept", {
+          version: 1,
+          planRevision: 1,
+          approvalPolicy: "everything",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await post("/goals/goal-1/resume", { version: 1, approvalPolicy: "high-risk" })).status,
+    ).toBe(400);
+  });
+
+  it("starts a loop, then applies a control only against the version the client read", async () => {
+    const loops = new InMemoryLoopStore();
+    const agents = {
+      getAgent: () => Effect.succeed(agentFixture()),
+    } as unknown as AgentService;
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+      Effect.runPromise(
+        effect.pipe(
+          Effect.provideService(LoopStoreTag, loops),
+          Effect.provideService(AgentServiceTag, agents),
+        ) as Effect.Effect<never, never, never>,
+      ),
+    );
+    const post = (path: string, body: unknown) =>
+      handle(
+        request("POST", path, {
+          headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const start = {
+      agentId: "sonnet",
+      prompt: "Check whether the deploy finished",
+      every: "10m",
+      workingDirectory: "/work/site",
+      approvalPolicy: "low-risk",
+    };
+
+    expect((await post("/loops", { ...start, every: "30s" })).status).toBe(400);
+    expect((await post("/loops", { ...start, approvalPolicy: "everything" })).status).toBe(400);
+    expect((await post("/loops", { ...start, workingDirectory: "site" })).status).toBe(400);
+
+    const created = await post("/loops", start);
+    expect(created.status).toBe(201);
+    const { loop } = (await created.json()) as {
+      loop: { name: string; version: number; approvalPolicy: string };
+    };
+    expect(loop.name).toBe("check-deploy-finished");
+    expect(loop.approvalPolicy).toBe("low-risk");
+
+    expect((await post(`/loops/${loop.name}/pause`, {})).status).toBe(400);
+    expect((await post(`/loops/${loop.name}/pause`, { version: loop.version + 1 })).status).toBe(
+      409,
+    );
+    const paused = await post(`/loops/${loop.name}/pause`, { version: loop.version });
+    expect(paused.status).toBe(200);
+    expect(((await paused.json()) as { loop: { state: unknown } }).loop.state).toEqual({
+      kind: "paused",
+    });
+    expect((await post("/loops/no-such-loop/pause", { version: 1 })).status).toBe(404);
   });
 
   it("rejects an unauthenticated request when a token is configured", async () => {

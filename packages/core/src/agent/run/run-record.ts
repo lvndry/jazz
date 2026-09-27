@@ -13,6 +13,7 @@
  */
 
 import type { TokenUsage } from "@/core/interfaces/telemetry";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { RunId, RunState } from "./run-state";
 
 export interface RunRecord {
@@ -27,6 +28,20 @@ export interface RunRecord {
   readonly updatedAt: string;
   readonly costUSD?: number;
   readonly tokenUsage?: TokenUsage;
+  /** Prompt plus completion tokens, retained for aggregate goal budget reconciliation. */
+  readonly totalTokens?: number;
+  /** Active execution time across resumes; waiting for approval is excluded. */
+  readonly activeDurationMs?: number;
+  /**
+   * The authority the run started with. A resumed run gets exactly this back, so answering
+   * one approval neither drops a granted tier nor widens a narrower one to the default.
+   */
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
+  /** The run's iteration cap, which a resumed run keeps rather than falling back to the default. */
+  readonly maxIterations?: number;
+  /** Where the run worked, restored on resume instead of the resuming process's directory. */
+  readonly workingDirectory?: string;
 }
 
 /**
@@ -45,6 +60,10 @@ export function createRunRecord(input: {
   readonly conversationId: string;
   readonly input: string;
   readonly now: Date;
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
+  readonly maxIterations?: number;
+  readonly workingDirectory?: string;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -55,5 +74,11 @@ export function createRunRecord(input: {
     input: input.input,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...(input.approvalPolicy !== undefined ? { approvalPolicy: input.approvalPolicy } : {}),
+    ...(input.autoApprovedTools !== undefined && input.autoApprovedTools.length > 0
+      ? { autoApprovedTools: input.autoApprovedTools }
+      : {}),
+    ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+    ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
   };
 }

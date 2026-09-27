@@ -8,6 +8,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
+import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -20,7 +21,7 @@ import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { StreamEvent } from "@jazz/core/types/streaming";
-import type { AutoApprovePolicy } from "@jazz/core/types/tools";
+import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
@@ -30,11 +31,10 @@ import {
   formatOneShotError,
   formatOneShotParked,
   formatOneShotResult,
-  isRunCostKnown,
   type OneShotOutputOptions,
   type OneShotComposition,
 } from "./envelope";
-import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
+import type { ReasoningEffort } from "./flags";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -110,7 +110,9 @@ export function extractCompositionResult(
 
 export interface RunAgentOnceOptions {
   readonly json: boolean;
-  readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
+  readonly approvalPolicy?: ApprovalPolicyLevel | undefined;
+  /** Give the agent `propose_goal`; a proposal waits for `jazz goal accept`. */
+  readonly proposeGoals?: boolean;
   /**
    * Tool names to auto-approve without prompting, regardless of `approvalPolicy`.
    * Narrower than raising the whole risk tier — e.g. `["execute_command"]` unblocks
@@ -430,6 +432,7 @@ export function runAgentOnceCommand(
       ...(options.autoApprovedTools?.length
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),
+      ...(options.proposeGoals === true ? { offersGoalProposals: true } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.maxCostUSD != null ? { maxCostUSD: options.maxCostUSD } : {}),
