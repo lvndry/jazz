@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { WorkflowMetadata } from "./workflow-service";
+import { parseWorkflowDefinition, type WorkflowMetadata } from "./workflow-service";
 
 describe("WorkflowService", () => {
   describe("workflow metadata parsing", () => {
@@ -91,6 +91,30 @@ describe("WorkflowService", () => {
 
       const result = workflowMap.get("test");
       expect(result?.description).toBe("Local");
+    });
+  });
+
+  describe("autoApprovedCommands frontmatter", () => {
+    it("keeps trimmed, non-empty string prefixes", () => {
+      const definition = parseWorkflowDefinition({
+        name: "review",
+        description: "Review a diff",
+        autoApprovedCommands: [" git diff ", "git log", "", 42, "  "],
+      });
+
+      expect(definition?.autoApprovedCommands).toEqual(["git diff", "git log"]);
+    });
+
+    it("grants nothing when the field is missing or is not a list", () => {
+      const missing = parseWorkflowDefinition({ name: "review", description: "Review" });
+      const scalar = parseWorkflowDefinition({
+        name: "review",
+        description: "Review",
+        autoApprovedCommands: "git diff",
+      });
+
+      expect(missing?.autoApprovedCommands).toBeUndefined();
+      expect(scalar?.autoApprovedCommands).toBeUndefined();
     });
   });
 });

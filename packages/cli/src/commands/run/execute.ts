@@ -9,6 +9,7 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -418,6 +419,9 @@ export function runAgentOnceCommand(
 
     yield* emitLifecycle("user-prompt", { prompt: prompt.slice(0, 2000) });
 
+    const configuredCommands = (yield* (yield* AgentConfigServiceTag).appConfig)
+      .autoApprovedCommands;
+
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
@@ -432,6 +436,7 @@ export function runAgentOnceCommand(
       ...(options.autoApprovedTools?.length
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),
+      ...(configuredCommands?.length ? { autoApprovedCommands: [...configuredCommands] } : {}),
       ...(options.proposeGoals === true ? { offersGoalProposals: true } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),

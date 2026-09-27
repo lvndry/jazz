@@ -31,6 +31,12 @@ export interface WorkflowMetadata {
   readonly schedule?: string;
   /** Auto-approve policy for unattended execution */
   readonly autoApprove?: AutoApprovePolicy;
+  /**
+   * Shell command prefixes that run without approval in addition to what `autoApprove` allows,
+   * matched the same way as the config-level `autoApprovedCommands` ("git diff" approves
+   * "git diff --stat" but not "git push").
+   */
+  readonly autoApprovedCommands?: readonly string[];
   /** Skills to load for this workflow */
   readonly skills?: readonly string[];
   /** Whether a missed slot may be replayed after the daemon restarts. */
@@ -120,6 +126,8 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ? data["skills"].filter((s): s is string => typeof s === "string")
     : undefined;
 
+  const autoApprovedCommands = parseCommandPrefixes(data["autoApprovedCommands"]);
+
   // Build the metadata object using conditional spreading
   return {
     name,
@@ -127,6 +135,7 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ...(typeof data["agent"] === "string" && { agent: data["agent"] }),
     ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
     ...(autoApprove !== undefined && { autoApprove }),
+    ...(autoApprovedCommands.length > 0 && { autoApprovedCommands }),
     ...(skills && skills.length > 0 && { skills }),
     ...(typeof data["catchUpOnRestart"] === "boolean" && {
       catchUpOnRestart: data["catchUpOnRestart"],
@@ -137,6 +146,20 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ...(typeof data["maxTokens"] === "number" && { maxTokens: data["maxTokens"] }),
     ...(typeof data["maxDurationMs"] === "number" && { maxDurationMs: data["maxDurationMs"] }),
   };
+}
+
+/**
+ * Parse the `autoApprovedCommands` frontmatter list into trimmed, non-empty command prefixes.
+ * Anything other than a list of strings yields no prefixes, so a malformed field grants nothing.
+ */
+export function parseCommandPrefixes(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 /**
