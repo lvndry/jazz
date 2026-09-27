@@ -7,8 +7,8 @@
  */
 
 import { listModelsForProvider as listModelsForProviderShared } from "@jazz/adapters/llm/model-fetcher";
-import { llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
 import type { ProviderName } from "@jazz/core/constants/models";
+import { llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import { Effect } from "effect";
 
 export interface ProviderModelChoice {

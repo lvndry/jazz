@@ -15,8 +15,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { isSecretPath } from "@jazz/adapters/secrets/registry";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { isSecretPath } from "@jazz/core/secrets/registry";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import { ConfigFileSchema, describeExpected } from "@jazz/core/utils/config-schema";
 import * as prettier from "prettier";

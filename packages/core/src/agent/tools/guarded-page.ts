@@ -12,7 +12,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HTTPRequest, Page } from "puppeteer-core";
-import { secretPathReason } from "@/core/utils/secret-paths";
 import { checkEgressDestination, type EgressPolicy } from "./guarded-fetch";
 
 const IN_PAGE_PROTOCOLS: ReadonlySet<string> = new Set(["data:", "blob:", "about:"]);
@@ -22,11 +21,11 @@ function isInsideDirectory(candidate: string, directory: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-/** Whether a `file:` request stays inside `pageDirectory` and off the secret-path list. */
+/** Whether a `file:` request stays inside `pageDirectory`. */
 function fileRequestAllowed(url: URL, pageDirectory: string): boolean {
   try {
     const requested = fileURLToPath(url);
-    return isInsideDirectory(requested, pageDirectory) && secretPathReason(requested) === undefined;
+    return isInsideDirectory(requested, pageDirectory);
   } catch {
     return false;
   }

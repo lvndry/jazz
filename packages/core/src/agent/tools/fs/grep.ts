@@ -1,9 +1,8 @@
 /**
  * Search using ripgrep JSON or system grep with NUL-terminated filenames. Filename framing is
- * independent of matching content, so credentials containing delimiter-like text cannot
- * forge an unprotected path. Only complete records are returned when output is capped.
+ * independent of matching content, so a line holding `file:12:`-like text cannot pass for another
+ * file's match. Only complete records are returned when output is capped.
  */
-import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -11,12 +10,6 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { isRecord } from "@/core/utils/is-record";
-import {
-  createSecretResultFilter,
-  loadSecretPathRules,
-  secretPathReason,
-  protectedFileResult,
-} from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES, type CollectedProcessOutput } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
@@ -425,16 +418,6 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return yield* Effect.fail(new Error(`Path does not exist: ${start}`));
         }
 
-        const secretRules = loadSecretPathRules();
-        const startSecretReason = secretPathReason(start, secretRules);
-        if (startSecretReason !== undefined) {
-          return protectedFileResult(args.path ?? start, startSecretReason);
-        }
-        const isSecretPath = createSecretResultFilter(start, secretRules);
-        const isSecretResult = (candidate: string): boolean =>
-          isSecretPath(candidate) ||
-          secretPathReason(path.resolve(start, candidate), secretRules) !== undefined;
-
         const isFile = stat.type === "File";
         const isDirectory = stat.type === "Directory";
         let workingDir: string;
@@ -523,17 +506,15 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         // Handle output modes
         if (outputMode === "files") {
-          const files = (
-            useRipgrep
-              ? [
-                  ...new Set(
-                    records.flatMap((record) =>
-                      record !== null && /^\d+:/.test(record.payload) ? [record.file] : [],
-                    ),
+          const files = useRipgrep
+            ? [
+                ...new Set(
+                  records.flatMap((record) =>
+                    record !== null && /^\d+:/.test(record.payload) ? [record.file] : [],
                   ),
-                ].slice(0, maxResults)
-              : parseFilesOutput(result.stdout, maxResults)
-          ).filter((file) => !isSecretResult(file));
+                ),
+              ].slice(0, maxResults)
+            : parseFilesOutput(result.stdout, maxResults);
           return {
             success: true,
             result: {
@@ -555,7 +536,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         if (outputMode === "count") {
-          const parsedCounts = [
+          const counts = [
             ...records.reduce((counts, record) => {
               if (record !== null && /^\d+:/.test(record.payload)) {
                 counts.set(record.file, (counts.get(record.file) ?? 0) + 1);
@@ -565,7 +546,6 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           ]
             .map(([file, count]) => ({ file, count }))
             .slice(0, maxResults);
-          const counts = parsedCounts.filter((entry) => !isSecretResult(entry.file));
           return {
             success: true,
             result: {
@@ -591,7 +571,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           records,
           maxResults,
           typeof args.contextLines === "number" && args.contextLines > 0,
-        ).filter((match) => !isSecretResult(match.file));
+        );
         return {
           success: true,
           result: {

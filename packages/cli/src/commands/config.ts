@@ -1,12 +1,8 @@
-import {
-  envVarForSecretPath,
-  isSecretPath,
-  redactSecretValues,
-} from "@jazz/adapters/secrets/registry";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { envVarForSecretPath, isSecretPath, redactSecretValues } from "@jazz/core/secrets/registry";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { splitConfigPath } from "@jazz/core/utils/config-path";

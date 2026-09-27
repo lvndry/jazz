@@ -1,13 +1,11 @@
-/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { redactedWriteProblem } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
-import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
-import { secretPathReason } from "@/core/utils/secret-paths";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -55,17 +53,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        yield* Effect.try({
-          try: () => {
-            assertNotProtectionStateMutation(target);
-            if (secretPathReason(target) !== undefined) {
-              throw new Error(
-                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
-              );
-            }
-          },
-          catch: toError,
-        });
+        const redactedWrite = redactedWriteProblem("content", args.content);
+        if (redactedWrite !== undefined) {
+          return yield* Effect.fail(new Error(redactedWrite));
+        }
 
         // Check if file exists and read original content for preview diff
         const fileExists = yield* fs
@@ -111,17 +102,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        yield* Effect.try({
-          try: () => {
-            assertNotProtectionStateMutation(target);
-            if (secretPathReason(target) !== undefined) {
-              throw new Error(
-                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
-              );
-            }
-          },
-          catch: toError,
-        });
+        const redactedWrite = redactedWriteProblem("content", args.content);
+        if (redactedWrite !== undefined) {
+          return yield* Effect.fail(new Error(redactedWrite));
+        }
 
         try {
           const parentDir = target.substring(0, target.lastIndexOf("/"));

@@ -82,39 +82,37 @@ To let an agent reach a service on your own network, list it in the agent's
 A hostname entry allows whatever that name resolves to, so list names you control. An address or
 CIDR entry allows those addresses behind any name.
 
-## Read tools and Jazz's secret files
+## Secret values in tool output
 
-Jazz can discover and copy credential files without putting their values in the model context.
-`ls` and `find` include their paths with `protected: true`; `stat` provides metadata. Direct
-`read_file`, `read_pdf`, `pdf_page_count` and `grep` calls return a successful metadata-only result
-with `contentOmitted: true` and guidance to use `cp`. Searches spanning protected files omit their
-contents. `write_file` and `edit_file` decline protected files before building a preview diff.
+Files read normally, whatever they hold: `read_file`, `grep`, `find`, `ls`, `cp` and `mv` treat
+`.env`, `secrets.json`, `~/.zshrc` and `~/.jazz/config.json` like any other file. What Jazz holds
+back is the secret values inside them. Every tool result passes through one redaction step before
+anything logs it or shows it to the model, the transcript or an approver, so file contents, command
+output, MCP and HTTP responses, errors, and approval previews are all covered.
 
-Protection covers:
+Two passes replace secrets with `[redacted:<name>]`:
 
-- files named `.env`, `.env.*` (including examples) and `secrets.json`;
-- the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which can hold a daemon token;
-- Jazz's credential locks, temporary writes and corrupt-file quarantines;
-- destinations previously copied or moved from protected files, including ordinary filenames;
-- internal copy and replacement staging directories and their descendants.
+- **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
+  keys, the daemon, peer and webhook tokens, MCP credentials, OTLP headers), as resolved from the
+  keyring, the environment or the config file, and every environment variable of the Jazz process
+  whose name marks it as a secret (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, ...). The
+  placeholder names the setting or variable, for example `[redacted:llm.openai.api_key]`.
+- **Secrets Jazz never saw**, recognized by their shape: `NAME=value` lines whose name marks a secret
+  (`.env` files, shell profiles, `env` output, diff lines), quoted secret-named literals in JSON,
+  YAML and source (`"apiKey": "..."`), private key blocks, `Bearer`/`Basic` credentials, passwords
+  in URLs, and the key formats of OpenAI, Anthropic, GitHub, Slack, AWS, Google, Stripe, npm and
+  Telegram. `$VAR` references, paths and values shorter than 8 characters (for known values) are
+  left alone.
 
-Use `cp` with the source and final destination path for a whole-file transfer. The approval shows
-paths, and the executor copies bytes internally; neither the proposal nor the result contains
-values. Protected copies have mode `0600` for a file or `0700` for the containing directory.
-Copying a directory with a protected descendant protects the entire destination tree. `mv`
-preserves protection too. Individual secret-value reads and edits are not part of this workflow.
+`write_file` and `edit_file` refuse text that contains a `[redacted:` placeholder, so an edit copied
+from redacted output cannot overwrite the real value. The agent can still change a `.env` file: it
+edits the lines around a secret, or replaces a secret line with a new value you asked for.
 
-Before copying, Jazz records destination paths and their canonical aliases in the private
-`$JAZZ_HOME/.protected-files.json` registry. Protection survives process restarts and subsequent
-copies or moves through these tools. Records are append-only, including after a failed transfer
-or deletion. Filesystem mutation tools prevent replacing or deleting the registry or its ancestors.
-An unreadable or corrupt registry makes reads metadata-only and stops transfers until repaired.
-
-This is a contract of Jazz's filesystem tools using the same `JAZZ_HOME`, not an OS sandbox.
-Shell commands, external programs, hard-link aliases and runs using another home do not inherit
-this registry. Credentials with other names, such as `~/.ssh` or a cloud CLI's token cache, are
-not automatically recognized. Use a dedicated OS user or container where host isolation is needed
-(see [unattended runs](./unattended-runs.md)).
+Recognition by shape is best-effort. A secret with an unrecognized name and format, or one a shell
+pipeline transforms before it reaches a tool result (base64, splitting it across lines), is not
+caught. Shell children also lose credential-named environment variables (see below), and host
+isolation remains the job of a dedicated OS user or container (see
+[unattended runs](./unattended-runs.md)).
 
 ## Content from outside is labelled
 

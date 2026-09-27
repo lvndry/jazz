@@ -1,6 +1,6 @@
 /**
  * Implements `AgentConfigService`: reads/writes `~/.jazz/config.json`, resolving secrets from
- * env vars, the OS keyring, or the file itself (see `secrets/registry`) without ever
+ * env vars, the OS keyring, or the file itself (see `core/secrets/registry`) without ever
  * persisting a secret that came from somewhere other than the file back into it.
  *
  * Loading checks the global file and any project `./.jazz/config.json` against
@@ -17,6 +17,13 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/interfaces/mcp-server";
+import {
+  SECRET_PATHS,
+  isSecretPath,
+  mcpServerSecretPath,
+  type McpServerSecretField,
+  secretValueFromEnv,
+} from "@jazz/core/secrets/registry";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
 import type {
   AppConfig,
@@ -57,13 +64,6 @@ import {
   keyringSet,
   type KeyringBackend,
 } from "./secrets/keyring";
-import {
-  SECRET_PATHS,
-  isSecretPath,
-  mcpServerSecretPath,
-  type McpServerSecretField,
-  secretValueFromEnv,
-} from "./secrets/registry";
 
 /**
  * ~/.jazz/config.json can hold API keys, so it is created private to the user

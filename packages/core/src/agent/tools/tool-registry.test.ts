@@ -1,9 +1,16 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { z } from "zod";
+import { misfireLogPath } from "./misfire-log";
 import { createToolRegistryLayer } from "./tool-registry";
+import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { type Tool, type ToolRequirements } from "../../interfaces/tool-registry";
+import type { ToolExecutionResult } from "../../types/tools";
 
 describe("ToolRegistry", () => {
   const testLayer = createToolRegistryLayer();
@@ -245,6 +252,105 @@ describe("ToolRegistry", () => {
 
       const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
       expect(result.map((d) => d.function.name)).toEqual(["wanted"]);
+    });
+  });
+});
+
+describe("ToolRegistry.executeTool redacts secrets", () => {
+  const apiKey = "sk-proj-configured0123456789abcdef";
+  const quietLogger = {
+    debug: () => Effect.void,
+    info: () => Effect.void,
+    warn: () => Effect.void,
+    error: () => Effect.void,
+  } as unknown as LoggerService;
+  const config = {
+    appConfig: Effect.succeed({ llm: { openai: { api_key: apiKey } } }),
+  } as unknown as AgentConfigService;
+
+  function execute(output: Effect.Effect<ToolExecutionResult, Error>) {
+    const tool: Tool<ToolRequirements> = {
+      name: "reader",
+      description: "Reads",
+      parameters: z.object({}),
+      hidden: false,
+      riskLevel: "read-only",
+      disclosure: "public",
+      egress: false,
+      execute: () => output,
+      createSummary: undefined,
+    };
+    const program = Effect.gen(function* () {
+      const registry = yield* ToolRegistryTag;
+      yield* registry.registerTool(tool);
+      return yield* registry.executeTool("reader", {}, { agentId: "agent", conversationId: "c" });
+    });
+    return Effect.runPromise(
+      program.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            createToolRegistryLayer(),
+            Layer.succeed(LoggerServiceTag, quietLogger),
+            Layer.succeed(AgentConfigServiceTag, config),
+          ),
+        ),
+      ) as Effect.Effect<ToolExecutionResult, never, never>,
+    );
+  }
+
+  it("replaces a configured key and .env assignments in a result", async () => {
+    const result = await execute(
+      Effect.succeed({
+        success: true,
+        result: { content: `1|OPENAI_API_KEY=${apiKey}\n2|DB_PASSWORD=hunter2\n3|DEBUG=1` },
+      }),
+    );
+    expect(result.result).toEqual({
+      content:
+        "1|OPENAI_API_KEY=[redacted:llm.openai.api_key]\n2|DB_PASSWORD=[redacted:DB_PASSWORD]\n3|DEBUG=1",
+    });
+  });
+
+  it("redacts a failure before it is returned or written to the misfire log", async () => {
+    const home = mkdtempSync(join(tmpdir(), "jazz-registry-redaction-"));
+    const previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = home;
+    try {
+      const result = await execute(Effect.fail(new Error(`request with ${apiKey} failed`)));
+      expect(result.error).toBe("request with [redacted:llm.openai.api_key] failed");
+      const misfires = readFileSync(misfireLogPath(), "utf8");
+      expect(misfires).toContain("[redacted:llm.openai.api_key]");
+      expect(misfires).not.toContain(apiKey);
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("redacts an approval preview and keeps the arguments that run once approved", async () => {
+    const executeArgs = { path: ".env", content: "NEW_TOKEN=abc" };
+    const result = await execute(
+      Effect.succeed({
+        success: true,
+        result: {
+          approvalRequired: true,
+          message: `Overwrite .env holding ${apiKey}`,
+          executeToolName: "execute_write_file",
+          executeArgs,
+          previewDiff: `-OPENAI_API_KEY=${apiKey}\n+NEW_TOKEN=abc`,
+        },
+      }),
+    );
+    expect(result.result).toEqual({
+      approvalRequired: true,
+      message: "Overwrite .env holding [redacted:llm.openai.api_key]",
+      executeToolName: "execute_write_file",
+      executeArgs,
+      previewDiff: "-OPENAI_API_KEY=[redacted:llm.openai.api_key]\n+NEW_TOKEN=[redacted:NEW_TOKEN]",
     });
   });
 });

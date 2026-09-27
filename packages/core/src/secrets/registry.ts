@@ -11,18 +11,11 @@ import {
   LLM_PROVIDER_ENV_VAR_ALIASES,
   LLM_PROVIDER_ENV_VARS,
   llmProviderEnvVars,
-} from "@jazz/core/constants/provider-env-vars";
-import { NOTIFY_TARGET_SECRET_FIELDS } from "@jazz/core/types/notify";
-import { secretEnvVarSuffix } from "@jazz/core/utils/secret-env-var";
+} from "@/core/constants/provider-env-vars";
+import { NOTIFY_TARGET_SECRET_FIELDS } from "@/core/types/notify";
+import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
 
 export { LLM_PROVIDER_ENV_VAR_ALIASES, LLM_PROVIDER_ENV_VARS, llmProviderEnvVars };
-
-/**
- * Base Keychain/libsecret service name. Each Jazz home stores its secrets under
- * `jazz.<home hash>` (see `keyringServiceName` in `keyring.ts`); the bare name holds only entries
- * written before secrets were scoped per home, until the default home adopts them.
- */
-export const KEYRING_SERVICE_NAME = "jazz";
 
 const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
   brave: "BRAVE_API_KEY",

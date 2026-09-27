@@ -2,7 +2,7 @@
  * Which environment variables supply each LLM provider's API key.
  *
  * Lives in core so every layer names the same variables: the config service
- * resolves keys from them (`adapters/secrets/registry` re-exports this table),
+ * resolves keys from them (`core/secrets/registry` re-exports this table),
  * the first-run wizard reports which ones are set, and error hints tell people
  * which one to export.
  */

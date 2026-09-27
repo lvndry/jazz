@@ -98,13 +98,12 @@ destination, and a local operator must consent to those declarations for the cur
 ### Secrets
 
 Secrets resolve from environment variables, then the OS keyring, then a mode-`0600` local config
-fallback when no keyring is usable. Filesystem tools protect `.env`, `.env.*`, `secrets.json`,
-Jazz's global config and credential lock/temp files, resolving symlinks. Discovery and metadata
-remain available; content reads omit values and point to approved whole-file `cp`. Copies and
-moves persist destination protection in the current Jazz home's private registry, so renamed
-backups stay protected. Edit previews cannot read protected contents. This is not an OS sandbox:
-other credential names, external programs, hard links and other Jazz homes are outside this
-contract. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
+fallback when no keyring is usable. Files read normally; secret values in every tool result
+(file contents, command output, errors, approval previews) are replaced before the model, the
+transcript, logs or an approver see them: exactly for every secret Jazz holds and every
+credential-named environment variable, by shape for `.env`-style assignments, key formats and
+private keys. Writes carrying a redaction placeholder are refused. Recognition by shape is
+best-effort and a transformed secret is not caught. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
 telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
 events omit command text, tool arguments, results, and prompt/completion text. The local tool audit
@@ -174,9 +173,9 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Prompt-injection immunity:** hostile content can steer actions already permitted by the toolset
   and active policy.
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
-  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and the
-  filesystem protection covers recognized credential paths and registered copies, not arbitrary
-  credentials (`~/.ssh`, cloud CLI tokens). See [Secrets and egress](./secrets-and-egress.md#read-tools-and-jazzs-secret-files).
+  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and output
+  redaction catches secrets Jazz knows or recognizes by shape, not one a command transforms first.
+  See [Secrets and egress](./secrets-and-egress.md#secret-values-in-tool-output).
 - **DNS rebinding:** the guarded fetch resolves a hostname before the runtime connects and
   resolves it again to connect, so a name whose answer changes in between (a zero-TTL rebinding
   record) can still reach a private address. IP-literal URLs and redirect targets are unaffected.

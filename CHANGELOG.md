@@ -41,6 +41,12 @@ Releases before this file existed are described in their
 
 ### Changed
 
+- **Secret files read like any other file; secret values are redacted instead.** `read_file`,
+  `grep`, `find`, `ls`, `cp`, `mv` and the edit tools no longer treat `.env`, `secrets.json` or
+  Jazz's config specially. Every tool result is redacted before it is logged or shown: secrets Jazz
+  holds and credential-named environment variables exactly, `.env`-style assignments, key formats
+  and private keys by shape. `write_file` and `edit_file` refuse text carrying a `[redacted:`
+  placeholder. The `$JAZZ_HOME/.protected-files.json` registry is no longer read and can be deleted.
 - A release is created as a draft and published only after every binary is attached and
   has run on its own platform, so `releases/latest/download/install.sh` never serves a
   release without its assets.

@@ -9,10 +9,10 @@ import {
   retryStoppedNotifications,
 } from "@jazz/adapters/notification/outbox-drain";
 import { sendToTarget } from "@jazz/adapters/notification/targets";
-import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { notifyTargets } from "@jazz/core/notify/outbox";
+import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/core/secrets/registry";
 import {
   NOTIFY_SUBSCRIBABLE_EVENTS,
   NOTIFY_TARGET_KINDS,

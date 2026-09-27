@@ -1,4 +1,3 @@
-/** Path and metadata discovery, including protected files; never returns file contents. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import glob from "fast-glob";
@@ -6,7 +5,6 @@ import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { toError } from "@/core/utils/errors";
-import { loadSecretPathRules, secretPathReason } from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
@@ -87,7 +85,6 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           return { success: false, result: null, error: `Not a directory: ${resolvedPath}` };
         }
 
-        const secretRules = loadSecretPathRules();
         const includeHidden = args.showHidden === true;
         const recursive = args.recursive === true;
         const requestedMaxResults =
@@ -122,8 +119,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           catch: toError,
         }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
 
-        const results: { path: string; name: string; type: "file" | "dir"; protected?: boolean }[] =
-          [];
+        const results: { path: string; name: string; type: "file" | "dir" }[] = [];
 
         for (const entryPath of entries) {
           if (results.length >= maxResults) break;
@@ -143,7 +139,6 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
             path: cleanPath,
             name,
             type: isDir ? "dir" : "file",
-            ...(secretPathReason(cleanPath, secretRules) !== undefined ? { protected: true } : {}),
           });
         }
 

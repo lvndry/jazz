@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
@@ -24,5 +24,18 @@ describe("write_file", () => {
 
     expect(execution.success).toBe(true);
     expect(readFileSync(path, "utf8")).toBe("<svg/>");
+  });
+
+  it("refuses content carrying a redaction placeholder, so the real secret stays", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-write-"));
+    directories.push(directory);
+    const path = join(directory, ".env");
+    writeFileSync(path, "OPENAI_API_KEY=sk-real\n");
+    const content = "OPENAI_API_KEY=[redacted:OPENAI_API_KEY]\nDEBUG=1\n";
+
+    for (const half of [write.approval, write.execute]) {
+      await expect(runTool(half, { path, content }, directory)).rejects.toThrow("placeholder");
+    }
+    expect(readFileSync(path, "utf8")).toBe("OPENAI_API_KEY=sk-real\n");
   });
 });

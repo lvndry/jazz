@@ -14,12 +14,12 @@
 
 import { createHmac } from "node:crypto";
 import { type NotifyEvent, renderNotification } from "@jazz/core/notify/events";
+import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/core/secrets/registry";
 import type { NotifyTarget } from "@jazz/core/types/notify";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
-import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@/adapters/secrets/registry";
 
 /** A send that has not answered in this long is abandoned and retried later. */
 export const NOTIFY_SEND_TIMEOUT_MS = 15_000;

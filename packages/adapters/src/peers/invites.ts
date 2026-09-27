@@ -26,6 +26,7 @@ import type {
   RedeemInviteInput,
 } from "@jazz/core/interfaces/peer-invites";
 import { PeerInviteServiceTag } from "@jazz/core/interfaces/peer-invites";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import {
   inviteStatus,
   isInviteId,
@@ -38,7 +39,6 @@ import { Effect, Layer } from "effect";
 import { upsertPeer } from "@/adapters/peers/config";
 import { getPeersDirectory } from "@/adapters/peers/ledger";
 import { detectKeyringBackend, keyringSet, type KeyringBackend } from "@/adapters/secrets/keyring";
-import { peerTokenPath } from "@/adapters/secrets/registry";
 
 const INVITES_SUBDIRECTORY = "invites";
 

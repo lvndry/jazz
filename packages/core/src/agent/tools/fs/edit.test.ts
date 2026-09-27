@@ -66,6 +66,28 @@ describe("read-bound edit_file", () => {
     expect(readFileSync(path, "utf8")).toBe("first\nupdated\nthird\n");
   });
 
+  it("refuses an edit that would write a redaction placeholder over a secret", async () => {
+    const { directory, path } = fixture("DEBUG=1\nAPI_TOKEN=real-value\n");
+    const input = {
+      path,
+      snapshot: await snapshot(path, directory),
+      edits: [
+        {
+          type: "replace_lines",
+          startLine: 1,
+          endLine: 2,
+          content: "DEBUG=0\nAPI_TOKEN=[redacted:API_TOKEN]",
+        },
+      ],
+    };
+    for (const half of [edit.approval, edit.execute]) {
+      await expect(runTool(half, input, directory)).rejects.toThrow(
+        "edits[0].content contains a [redacted:",
+      );
+    }
+    expect(readFileSync(path, "utf8")).toBe("DEBUG=1\nAPI_TOKEN=real-value\n");
+  });
+
   it("rejects a stale read before asking for approval", async () => {
     const { directory, path } = fixture();
     const input = args(path, await snapshot(path, directory, 2));

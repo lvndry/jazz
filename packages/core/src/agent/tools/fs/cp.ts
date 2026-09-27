@@ -1,11 +1,9 @@
-/** Approved whole-file transfers keep bytes out of tool results and preserve secret protection. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
-import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -13,7 +11,6 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
-import { protectFileTransfer } from "./protected-transfer";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -41,8 +38,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
   const config: ApprovalToolConfig<CpDeps, CpArgs> = {
     name: "cp",
     disclosure: "public",
-    description:
-      "Copy whole files or directories without reading contents into context. Use this for .env and secret files; approval shows paths only and copies remain protected.",
+    description: "Copy a file or directory.",
     tags: ["filesystem", "write"],
     parameters: cpParameters,
     validate: makeZodValidator(cpParameters),
@@ -56,10 +52,6 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
-        yield* Effect.try({
-          try: () => assertNotProtectionStateMutation(destination),
-          catch: toError,
-        });
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
         return `About to copy: ${source}\n       to: ${destination}${overwrite}`;
       }),
@@ -99,30 +91,10 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           };
         }
 
-        const protectedTransfer = yield* Effect.tryPromise({
-          try: () => protectFileTransfer(source, destination),
-          catch: toError,
-        });
-        const copySource = protectedTransfer
-          ? yield* fs.realPath(source).pipe(Effect.mapError(toError))
-          : source;
-
         // Copied beside the destination and swapped in whole, so an interrupted copy leaves
         // the destination as it was: a true overwrite, never a merge or a half-copied tree.
         return yield* replacePathAtomically(fs, destination, (stagingPath) =>
-          fs.copy(copySource, stagingPath).pipe(
-            Effect.mapError(toError),
-            Effect.tap(() =>
-              protectedTransfer
-                ? fs.stat(stagingPath).pipe(
-                    Effect.flatMap((info) =>
-                      fs.chmod(stagingPath, info.type === "Directory" ? 0o700 : 0o600),
-                    ),
-                    Effect.mapError(toError),
-                  )
-                : Effect.void,
-            ),
-          ),
+          fs.copy(source, stagingPath).pipe(Effect.mapError(toError)),
         ).pipe(
           Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
           Effect.catchAll((error) =>
