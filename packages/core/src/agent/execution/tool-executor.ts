@@ -5,7 +5,7 @@
 
 import { Cause, Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
-import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
+import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -38,8 +38,9 @@ import {
 import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
-import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import type { ToolBatchLedger } from "./tool-batch-ledger";
 import {
   emitToolInvocation,
   recordToolError,
@@ -97,6 +98,26 @@ export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments 
   return { ok: true, args: parsed };
 }
 
+/**
+ * The conversation the command-risk classifier may read as evidence of what the
+ * user asked for, or `undefined` when the command has to stand on its own.
+ *
+ * Conversation turns are evidence only when the person the approval protects
+ * wrote them. On a bridge (no prompt possible) they come from whoever is
+ * messaging the bot. In a sub-agent the "user" turn is the task the parent
+ * model wrote, so a parent that has been talked into something could write the
+ * justification for its child's command.
+ */
+function classifierEvidence(
+  context: ToolExecutionContext,
+  canPrompt: boolean,
+): ToolExecutionContext["conversationMessages"] {
+  if (!canPrompt || (context.subagentDepth ?? 0) > 0) {
+    return undefined;
+  }
+  return context.conversationMessages;
+}
+
 /** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
 function resolveEligibleCommandRisk(
   command: string,
@@ -108,7 +129,7 @@ function resolveEligibleCommandRisk(
     return context.resolveCommandRisk(command, conversationMessages);
   }
   if (context.parentAgent === undefined) return Effect.succeed("high-risk");
-  return classifyCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
+  return resolveCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
 }
 
 /**
@@ -228,6 +249,8 @@ export class ToolExecutor {
     parkable = false,
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
+    /** Told when the call's side effect begins, so a stopped batch can say what ran. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -324,6 +347,11 @@ export class ToolExecutor {
           }
         }
 
+        // An approval tool's own call only builds the request; its side effect starts after
+        // approval, below.
+        if (!isApprovalTool) {
+          ledger?.markStarted(toolCall.id);
+        }
         // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
         let result = yield* ToolExecutor.executeTool(
           name,
@@ -384,11 +412,7 @@ export class ToolExecutor {
             classifiedRisk = yield* resolveEligibleCommandRisk(
               command,
               context,
-              // Conversation context is only evidence when the person the
-              // approval protects is the one who wrote it. On a bridge those
-              // turns come from whoever is messaging the bot, so the command
-              // has to stand on its own.
-              canPrompt ? context.conversationMessages : undefined,
+              classifierEvidence(context, canPrompt),
               runMetrics,
             );
             riskLevel = classifiedRisk;
@@ -560,6 +584,7 @@ export class ToolExecutor {
 
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
+            ledger?.markStarted(toolCall.id);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
@@ -733,6 +758,8 @@ export class ToolExecutor {
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
+    /** Records what each call did, for a batch that is stopped before it finishes. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome[],
     Error,
@@ -1023,9 +1050,11 @@ export class ToolExecutor {
                     approvalSet,
                     false,
                     preclassifiedRisk,
+                    ledger,
                   ).pipe(
                     Effect.tap((outcome) =>
                       Effect.sync(() => {
+                        ledger?.markFinished(outcome);
                         const returned = toolResultForProgress(outcome.result);
                         context.onToolEvent?.({
                           kind: "tool-finished",
@@ -1152,11 +1181,8 @@ function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
 /**
  * Check if a command is auto-approved via the per-command allowlist.
  * Only applies to `execute_command` tools; returns false for all others.
- *
- * Compares the extracted approval key (binary + first subcommand token) against
- * the allowlist using exact or word-boundary matching only — never raw prefix
- * matching on the full command string, which would allow "git status && rm -rf /"
- * to match an approved "git status" entry.
+ * Matching is `isCommandCoveredByAllowlist`: a compound command, or one with
+ * substitution, redirection or an environment prefix, never matches.
  */
 function isCommandAutoApproved(
   toolName: string,
@@ -1167,10 +1193,7 @@ function isCommandAutoApproved(
   if (toolName !== "execute_command") return false;
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
-  const commandKey = extractCommandApprovalKey(command);
-  return allowedCommands.some(
-    (allowed) => commandKey === allowed || commandKey.startsWith(allowed + " "),
-  );
+  return isCommandCoveredByAllowlist(command, allowedCommands);
 }
 
 /**

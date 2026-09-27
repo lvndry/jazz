@@ -577,9 +577,10 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
 /**
  * One daemon tick: settle cycles whose runs have moved on and start due cycles. A started
  * cycle runs on its own fiber so one long cycle does not hold up triggers, workflows, or
- * other goals; the fibers are returned for callers that want to wait on them.
+ * other goals; the fibers are returned for callers that want to wait on them. With `startNew`
+ * false (the daemon is paused) cycles already running are still settled, but none starts.
  */
-export function runDueGoals() {
+export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
@@ -596,7 +597,7 @@ export function runDueGoals() {
         }
         const cycle = goal.cycle;
         if (cycle === undefined) {
-          if (goal.state.kind !== "active") {
+          if (goal.state.kind !== "active" || options.startNew === false) {
             return;
           }
           const claim = yield* claimCycle(goal);

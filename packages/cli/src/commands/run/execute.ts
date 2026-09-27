@@ -22,6 +22,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
@@ -243,9 +244,10 @@ const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
   costUSD = 0,
+  stoppedToolCalls?: readonly StoppedToolCall[],
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, costUSD);
+    const formatted = formatOneShotError(message, options, costUSD, stoppedToolCalls);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -285,6 +287,8 @@ export function runAgentOnceCommand(
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
   const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
+  // Set when a tool batch is stopped part-way, so a failure envelope can say what ran.
+  let stoppedToolCalls: readonly StoppedToolCall[] | undefined;
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -442,6 +446,9 @@ export function runAgentOnceCommand(
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
+      onToolBatchStopped: (calls) => {
+        stoppedToolCalls = calls;
+      },
     });
 
     // `raceFirst`, not `race`: `race` waits for the first success, so a deadline that fails
@@ -511,6 +518,9 @@ export function runAgentOnceCommand(
           ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
           ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
           ...(runResult.stalled === true ? { stalled: true } : {}),
+          ...(runResult.stoppedToolCalls !== undefined
+            ? { stoppedToolCalls: runResult.stoppedToolCalls }
+            : {}),
           tokenUsage: {
             promptTokens,
             completionTokens,
@@ -556,7 +566,9 @@ export function runAgentOnceCommand(
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),
     ),
-    Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    Effect.catchAll((error) =>
+      failOneShot(getErrorMessage(error), outputOptions, 0, stoppedToolCalls),
+    ),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),

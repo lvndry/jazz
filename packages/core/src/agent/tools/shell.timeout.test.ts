@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
@@ -6,6 +7,7 @@ import { Effect, Fiber, Layer } from "effect";
 import { createShellCommandTools, runShellCommand } from "./shell";
 import { SHELL_COMMAND_MAX_TIMEOUT_MS } from "../../constants/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
+import { terminateProcessGroup } from "../../utils/process";
 
 /**
  * A command killed at its cap has usually already produced the output somebody wanted. The
@@ -174,6 +176,47 @@ describe("runShellCommand and the processes a command starts", () => {
 
     expect(result.exitCode).toBe(124);
     expect(await waitUntilGone(childPid)).toBe(true);
+  });
+
+  it("lets an interrupted command handle SIGTERM and clean up before it is killed", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-shell-term-"));
+    scratchDirectories.push(directory);
+    const ready = join(directory, "ready");
+    const cleaned = join(directory, "cleaned");
+    const fiber = Effect.runFork(
+      runShellCommand({
+        command: `trap 'echo done > "${cleaned}"; exit 0' TERM; echo up > "${ready}"; while true; do sleep 0.1; done`,
+        workingDir: process.cwd(),
+        timeoutMs: 30_000,
+        env: process.env,
+      }),
+    );
+    for (let attempt = 0; attempt < 100 && !existsSync(ready); attempt++) {
+      await Bun.sleep(20);
+    }
+
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(readFileSync(cleaned, "utf8").trim()).toBe("done");
+  });
+
+  it("kills a command that ignores SIGTERM once the grace period is over", async () => {
+    const path = pidFile();
+    const child = spawn(
+      "sh",
+      ["-c", `trap '' TERM; echo $$ > '${path}'; while true; do sleep 0.1; done`],
+      {
+        detached: true,
+        stdio: "ignore",
+      },
+    );
+    const pid = await readPid(path);
+    const startedAt = Date.now();
+
+    await terminateProcessGroup(child, 300);
+
+    expect(await waitUntilGone(pid)).toBe(true);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(290);
   });
 
   it("returns once the shell exits, even while a background job holds its output open", async () => {

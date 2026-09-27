@@ -148,6 +148,11 @@ sub-agent delegation that runs for a while) can push the total past the cap befo
 check trips. A run stopped by any cap reports which one fired on the response:
 `costCapped` / `tokenCapped` / `durationCapped`.
 
+When a deadline or an interrupt stops a tool batch part-way, the loop closes it from the
+batch's ledger: completed calls keep their results, the others say whether they were
+interrupted while running or never started, and the response lists them as `stoppedToolCalls`
+([stopping a batch](./tool-lifecycle.md#stopping-a-batch)).
+
 `--timeout` lives outside the loop entirely: the CLI races the whole run against a deadline
 (`packages/core/src/utils/run-deadline.ts`) with `Effect.raceFirst` and ends it as a failure
 with no warning to the agent. Interrupting the run interrupts its tool fibers (the shell kills

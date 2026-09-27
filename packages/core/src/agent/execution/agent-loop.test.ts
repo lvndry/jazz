@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
@@ -46,6 +46,7 @@ import { SkillServiceTag } from "../../skills/skill-service";
 import type { RecursiveRunner } from "../context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -1257,7 +1258,7 @@ describe("executeAgentLoop", () => {
         (message) => message.role === "tool" && message.tool_call_id === "call_1",
       );
       expect(toolMessage).toBeDefined();
-      expect(toolMessage?.content).toContain("interrupted");
+      expect(toolMessage?.content).toContain("stopped by the user");
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }
@@ -1360,7 +1361,7 @@ describe("executeAgentLoop", () => {
         const last = kept?.at(-1);
         expect(last?.role).toBe("tool");
         expect(last?.tool_call_id).toBe("call_1");
-        expect(last?.content).toContain("did not finish");
+        expect(last?.content).toContain("the run failed");
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
@@ -2691,6 +2692,139 @@ describe("dedupeToolCalls", () => {
       ["c", "a"],
       ["d", "b"],
       ["e", "a"],
+    ]);
+  });
+});
+
+describe("a tool batch stopped part-way", () => {
+  const registry = {
+    ...mockToolRegistry,
+    getTool: (name: string) => Effect.succeed({ name, approvalExecuteToolName: undefined }),
+    executeTool: (name: string) =>
+      name === "fast_tool"
+        ? Effect.succeed({ success: true, result: "fast result" })
+        : Effect.never,
+  } as any;
+  const layer = Layer.merge(TestLayer, Layer.succeed(ToolRegistryTag, registry));
+  const realMetrics = () =>
+    createAgentRunMetrics({
+      agent: makeOptions().agent,
+      conversationId: "conv-123",
+      provider: "openai",
+      model: "gpt-4",
+      maxIterations: 10,
+      maxCostUSD: undefined,
+    });
+
+  function batchStrategy(interruptAfterMs?: number): CompletionStrategy {
+    let calls = 0;
+    return {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed({
+          completion: {
+            id: `c${calls}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "fast",
+                type: "function" as const,
+                function: { name: "fast_tool", arguments: "{}" },
+              },
+              {
+                id: "slow",
+                type: "function" as const,
+                function: { name: "slow_tool", arguments: "{}" },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+      ...(interruptAfterMs !== undefined
+        ? { getInterruptSignal: () => Effect.sleep(`${interruptAfterMs} millis`) }
+        : {}),
+    };
+  }
+
+  function toolAnswers(messages: readonly ChatMessage[] | undefined) {
+    return Object.fromEntries(
+      (messages ?? [])
+        .filter((message) => message.role === "tool")
+        .map((message) => [message.tool_call_id, message.content]),
+    );
+  }
+
+  it("keeps a completed call's result and says which call was interrupted, on Esc", async () => {
+    const stopped: unknown[] = [];
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ onToolBatchStopped: (calls) => stopped.push(calls) }),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(100),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+
+    const answers = toolAnswers(response.messages);
+    expect(answers["fast"]).toContain("fast result");
+    expect(answers["slow"]).toContain("Interrupted while running (stopped by the user)");
+    expect(response.stoppedToolCalls).toEqual([
+      { id: "fast", name: "fast_tool", status: "completed" },
+      { id: "slow", name: "slow_tool", status: "interrupted" },
+    ]);
+    expect(stopped).toEqual([response.stoppedToolCalls]);
+  });
+
+  it("reports the same when the run's time budget stops the batch", async () => {
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ maxDurationMs: 300, runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+
+    const answers = toolAnswers(response.messages);
+    expect(response.durationCapped).toBe(true);
+    expect(answers["fast"]).toContain("fast result");
+    expect(answers["slow"]).toContain("the run reached its time budget");
+    expect(response.stoppedToolCalls?.map((call) => call.status)).toEqual([
+      "completed",
+      "interrupted",
+    ]);
+  });
+
+  it("tells the caller what ran when the whole run is interrupted from outside", async () => {
+    const stopped: unknown[] = [];
+    const fiber = Effect.runFork(
+      executeAgentLoop(
+        makeOptions({ onToolBatchStopped: (calls) => stopped.push(calls) }),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+    await Bun.sleep(150);
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(stopped).toEqual([
+      [
+        { id: "fast", name: "fast_tool", status: "completed" },
+        { id: "slow", name: "slow_tool", status: "interrupted" },
+      ],
     ]);
   });
 });

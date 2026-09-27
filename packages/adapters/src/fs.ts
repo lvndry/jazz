@@ -6,6 +6,7 @@ import {
   type FileSystemContextService,
   FileSystemContextServiceTag,
 } from "@jazz/core/interfaces/fs";
+import { terminateProcessGroup } from "@jazz/core/utils/process";
 import { Effect, Layer } from "effect";
 
 /**
@@ -123,9 +124,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
               resume(Effect.succeed({ stdout: "", stderr: error.message, exitCode: 1 }));
             });
 
-            return Effect.sync(() => {
-              child.kill("SIGKILL");
-            });
+            return Effect.promise(() => terminateProcessGroup(child));
           });
 
           // Parse results and sort
