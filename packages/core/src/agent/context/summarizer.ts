@@ -29,7 +29,7 @@ import type { AgentResponse } from "../types";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+import { DEFAULT_CONTEXT_WINDOW_MANAGER, PINNED_KINDS } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
@@ -45,13 +45,6 @@ export const COMPACTION_CONTINUATION_MESSAGE: ChatMessage = {
   content: "Continue the task using the summary above as context.",
   kind: "continuation",
 };
-
-/**
- * Message `kind`s that must survive every compaction cycle verbatim — never summarized,
- * never dropped. `"task"` is the only one today (a workflow's prompt); a future kind
- * that needs the same guarantee joins this set rather than a new one-off field.
- */
-const PINNED_KINDS = new Set<NonNullable<ChatMessage["kind"]>>(["task"]);
 
 /**
  * Keep arguments readable without letting one pasted payload dominate the transcript
