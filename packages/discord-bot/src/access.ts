@@ -128,10 +128,3 @@ export function messageMentionsUser(content: string, userId: string): boolean {
 export function stripBotMention(content: string, botUserId: string): string {
   return content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
 }
-
-export function parseCommand(text: string): { command: string; args: string } | undefined {
-  const match = /^\/([A-Za-z0-9_]+)(?:@\S+)?\s*([\s\S]*)$/.exec(text.trim());
-  const command = match?.[1];
-  if (command === undefined) return undefined;
-  return { command: command.toLowerCase(), args: (match?.[2] ?? "").trim() };
-}

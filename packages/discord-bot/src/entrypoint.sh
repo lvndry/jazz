@@ -77,4 +77,4 @@ else
   echo "Per-conversation sandboxes on: each channel runs as its own uid under ${JAZZ_HOME}/chats, readable by group ${OPERATOR_GID} and nobody else." >&2
 fi
 
-exec bun /app/packages/discord-bot/src/bridge.ts
+exec bun /app/packages/discord-bot/src/main.ts

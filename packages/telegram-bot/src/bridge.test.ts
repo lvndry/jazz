@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import type { OutgoingMessage } from "@jazz/bot-shared/surface";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -12,7 +13,7 @@ import {
   handleCallback,
   inboundFrom,
 } from "./bridge";
-import { createChoiceTokens, renderRichText, type TelegramSurface } from "./surface";
+import { renderRichText, type TelegramSurface } from "./surface";
 
 /** A run the test finishes by hand. */
 interface ManualRun {

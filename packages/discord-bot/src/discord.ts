@@ -56,7 +56,16 @@ export interface DiscordMessage {
   readonly author: DiscordUser;
   readonly mentions?: readonly DiscordUser[];
   readonly referenced_message?: { readonly author?: DiscordUser };
+  readonly attachments?: readonly DiscordAttachment[];
   readonly message_reference?: { readonly message_id?: string };
+}
+
+export interface DiscordAttachment {
+  readonly id: string;
+  readonly filename: string;
+  readonly url: string;
+  readonly size?: number;
+  readonly content_type?: string;
 }
 
 export interface DiscordInteractionOption {
@@ -114,6 +123,13 @@ const OP_HELLO = 10;
 const OP_HEARTBEAT_ACK = 11;
 
 const REST_MAX_RETRIES = 3;
+
+/**
+ * Methods safe to send twice. A network failure leaves the outcome unknown: Discord may
+ * already have posted the message, so retrying a POST can post it twice. Every other method
+ * here names its target and lands in the same state however often it arrives.
+ */
+const RETRY_SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "PUT", "PATCH", "DELETE"]);
 
 /** Bounds on the HELLO payload's heartbeat_interval, to survive a malformed or hostile value. */
 const MIN_HEARTBEAT_INTERVAL_MS = 1_000;
@@ -176,6 +192,7 @@ export async function discordRequest(
       response = await fetch(`${DISCORD_API_BASE}${path}`, init);
     } catch (error) {
       lastError = error;
+      if (!RETRY_SAFE_METHODS.has(method)) break;
       await sleep(1000 * (attempt + 1));
       continue;
     }
@@ -339,6 +356,39 @@ export async function editOriginalInteraction(
   if (!response.ok) {
     const payload = await response.text().catch(() => "");
     console.error(`Discord interaction edit failed: ${response.status} ${payload}`);
+  }
+}
+
+/** Remove the placeholder a deferred interaction left, once the real reply went out. */
+export async function deleteOriginalInteraction(
+  applicationId: string,
+  interactionToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    { method: "DELETE", headers: { "user-agent": DISCORD_USER_AGENT } },
+  );
+  if (!response.ok && response.status !== 404) {
+    console.error(`Discord interaction delete failed: ${response.status}`);
+  }
+}
+
+/** A message only the clicker sees, after the interaction was already acknowledged. */
+export async function ephemeralFollowup(
+  applicationId: string,
+  interactionToken: string,
+  content: string,
+): Promise<void> {
+  const response = await fetch(
+    `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "user-agent": DISCORD_USER_AGENT },
+      body: JSON.stringify({ content, flags: FLAG_EPHEMERAL, allowed_mentions: NO_MENTIONS }),
+    },
+  );
+  if (!response.ok) {
+    console.error(`Discord followup failed: ${response.status}`);
   }
 }
 

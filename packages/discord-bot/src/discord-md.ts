@@ -82,6 +82,11 @@ export function renderDiscordMarkdown(body: RichText): string {
         case "codeBlock":
           return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
         case "quote":
+          // Discord's only click-to-reveal container is a spoiler, the closest thing
+          // to a quote that collapses.
+          if (block.expandable === true) {
+            return spoilerBlock(block.text);
+          }
           return block.text
             .split("\n")
             .map((row) => `> ${row}`)

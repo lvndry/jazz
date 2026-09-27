@@ -21,6 +21,8 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 - 🤫 **Mention-gating**: in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
 - 🛡️ **Approvals you can get through fast**: a tool needing a human posts its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one click clears the batch. An operator's `/mode mode:yolo` turns approvals off for that conversation entirely; `/mode mode:safe` puts them back. Only the person who asked answers their own approvals.
 - 📡 **Live progress**: a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
+- 📎 **Attachments**: files you attach (up to 25 MB) are saved into the conversation's own home and handed to the agent, so it can read a PDF, listen to a voice note or look at an image.
+- ❓ **Questions**: when the agent needs an answer it posts the options as buttons; ⏹ Cancel on the progress message stops a run (yours, or anyone's if you are an operator).
 - ⏰ **Reminders**: `/remind` or plain language ("remind me in 2 hours …"), scheduled by the agent via a native tool, resolved in your timezone (`/tz`) and delivered even across restarts.
 - 💬 **Per-channel memory**, 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
