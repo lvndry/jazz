@@ -1,17 +1,38 @@
 import { getMcpPromptCommandNames, getPluginCommandNames, getSkillCommandNames } from "./constants";
 import type { SpecialCommand } from "./types";
 
+/** What a message starts with to run the rest of the line in the shell. */
+export const SHELL_ESCAPE_PREFIX = "! ";
+
+const SHELL_ESCAPE_PATTERN = /^![ \t]/;
+
+/**
+ * Whether a message is a shell escape: a `!` followed by a space or tab, after
+ * any leading whitespace. `!!! urgent` and `!important` are prose.
+ */
+export function isShellEscape(input: string): boolean {
+  return SHELL_ESCAPE_PATTERN.test(input.trimStart());
+}
+
+/**
+ * Whether a message is handled as a command (a slash command or a shell
+ * escape) rather than sent to the agent.
+ */
+export function isCommandInput(input: string): boolean {
+  return input.trimStart().startsWith("/") || isShellEscape(input);
+}
+
 /**
  * Parse special commands from user input.
  *
- * Slash commands start with "/" and may have arguments. A leading "!" is
- * preserved as a shell escape whose complete command is kept in one argument.
+ * Slash commands start with "/" and may have arguments. A shell escape (see
+ * `isShellEscape`) keeps its complete command in one argument.
  * Examples: /new, /help, /switch agent-name, ! git status
  */
 export function parseSpecialCommand(input: string): SpecialCommand {
   const trimmed = input.trim();
 
-  if (trimmed.startsWith("!")) {
+  if (isShellEscape(trimmed)) {
     const command = trimmed.slice(1).trim();
     return command.length > 0 ? { type: "shell", args: [command] } : { type: "unknown", args: [] };
   }
