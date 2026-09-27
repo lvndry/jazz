@@ -255,6 +255,64 @@ describe("ToolExecutor.executeToolCall", () => {
     expect(result.result).toHaveProperty("error");
   });
 
+  function runRefusedCall(toolCall: ToolCall) {
+    let executed = 0;
+    const registry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "test_tool",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.sync(() => {
+          executed += 1;
+          return { success: true, result: "ran with defaults" };
+        }),
+    } as unknown as ToolRegistry;
+    return Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        toolCall,
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(),
+      ).pipe(Effect.provide(makeTestLayer({ registry }))) as Effect.Effect<
+        ToolCallExecutionResult,
+        unknown,
+        never
+      >,
+    ).then((result) => ({ result, executed }));
+  }
+
+  it("answers a call the provider flagged invalid with its reason and never runs it", async () => {
+    const { result, executed } = await runRefusedCall({
+      id: "call_invalid",
+      type: "function",
+      function: { name: "test_tool", arguments: '{"path": ' },
+      invalidReason: "JSON parsing failed",
+    });
+
+    expect(executed).toBe(0);
+    expect(result.success).toBe(false);
+    expect(result.result).toEqual({ error: "Invalid tool call: JSON parsing failed" });
+  });
+
+  it("refuses arguments that are JSON but not an object instead of running on defaults", async () => {
+    const { result, executed } = await runRefusedCall({
+      id: "call_string",
+      type: "function",
+      function: { name: "test_tool", arguments: '"just a string"' },
+    });
+
+    expect(executed).toBe(0);
+    expect(result.success).toBe(false);
+  });
+
   it("should skip non-function tool calls", async () => {
     const emptyRegistry = {} as unknown as ToolRegistry;
     const testLayer = makeTestLayer({ registry: emptyRegistry });

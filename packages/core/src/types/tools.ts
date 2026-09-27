@@ -141,6 +141,12 @@ export interface ToolCall {
    * internal reasoning. Must be preserved when present to maintain context.
    */
   thought_signature?: string;
+  /**
+   * Why the provider marked this call invalid (arguments that do not parse or do not match the
+   * tool's schema, or a tool that does not exist). An invalid call is answered with this error
+   * as its tool result and is never executed.
+   */
+  invalidReason?: string;
 }
 
 export interface ToolCallResult {

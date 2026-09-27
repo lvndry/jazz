@@ -16,6 +16,7 @@ import type { streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { toJazzToolCall } from "./tool-call-parts";
 
 /**
  * Type for AI SDK StreamText result
@@ -429,25 +430,7 @@ export class StreamProcessor {
             const isProviderNative =
               this.config.providerNativeToolNames?.has(part.toolName) ?? false;
 
-            const toolCall: ToolCall = {
-              id: part.toolCallId,
-              type: "function",
-              function: {
-                name: part.toolName,
-                arguments: JSON.stringify(part.input),
-              },
-            };
-
-            // Preserve thought_signature for Google/Gemini models if present
-            // The AI SDK includes it in providerMetadata.google.thoughtSignature
-            if ("providerMetadata" in part && part.providerMetadata) {
-              const providerMetadata = part.providerMetadata as {
-                google?: { thoughtSignature?: string };
-              };
-              if (providerMetadata?.google?.thoughtSignature) {
-                toolCall.thought_signature = providerMetadata.google.thoughtSignature;
-              }
-            }
+            const toolCall = toJazzToolCall(part);
 
             if (isProviderNative) {
               // Buffer provider-native tool calls (e.g. OpenAI web_search).

@@ -63,6 +63,35 @@ function resolveToolDisplayMetadata(
   });
 }
 
+/** A tool call's arguments as the tool receives them, or why they cannot be used. */
+type ParsedToolArguments =
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Read a tool call's arguments. A call the provider flagged invalid, arguments that are not
+ * JSON, and JSON that is not an object are all refused with the reason, so the model is told
+ * its call was malformed instead of the tool running on defaults.
+ */
+export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
+  if (toolCall.invalidReason !== undefined) {
+    return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function.arguments);
+  } catch (parseError) {
+    return {
+      ok: false,
+      error: `Invalid JSON in tool arguments: ${toError(parseError).message}`,
+    };
+  }
+  if (!isRecord(parsed)) {
+    return { ok: false, error: "Invalid tool arguments: expected a JSON object." };
+  }
+  return { ok: true, args: parsed };
+}
+
 /** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
 function resolveEligibleCommandRisk(
   command: string,
@@ -219,26 +248,17 @@ export class ToolExecutor {
         return { toolCallId: toolCall.id, result: null, success: false, name: "unknown" };
       }
 
-      const { name, arguments: argsString } = toolCall.function;
+      const { name } = toolCall.function;
       recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
       let telemetryToolName = "unknown";
 
       try {
-        // Parse arguments
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(argsString);
-        } catch (parseError) {
-          throw new Error(`Invalid JSON in tool arguments: ${toError(parseError).message}`, {
-            cause: parseError,
-          });
+        const parsedArguments = parseToolCallArguments(toolCall);
+        if (!parsedArguments.ok) {
+          throw new Error(parsedArguments.error);
         }
-
-        const args: Record<string, unknown> =
-          parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {};
+        const args = parsedArguments.args;
 
         yield* logger.logToolCall(name, args);
 
@@ -813,16 +833,12 @@ export class ToolExecutor {
           if (!approvalSet.has(name)) continue;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
-          let args: Record<string, unknown> = {};
-          try {
-            const parsed: unknown = JSON.parse(toolCall.function.arguments);
-            if (isRecord(parsed)) {
-              args = parsed;
-            }
-          } catch {
-            // Unparseable arguments are the per-call path's error to report, not this one's.
+          const parsedArguments = parseToolCallArguments(toolCall);
+          // Malformed arguments are the per-call path's error to report, not this one's.
+          if (!parsedArguments.ok) {
             continue;
           }
+          const args = parsedArguments.args;
           // Side-effect free for an approval tool: this is the call that builds the request.
           const probe = yield* ToolExecutor.executeTool(name, args, {
             ...context,
