@@ -345,7 +345,13 @@ export function resolveCommandRisk(
   policyHook?: CommandRiskPolicyHook,
 ): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
   return Effect.gen(function* () {
-    if (findDeterministicHighRisk(command) !== undefined) {
+    const deterministicReason = findDeterministicHighRisk(command);
+    if (deterministicReason !== undefined) {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Command risk decided without the classifier", {
+        riskLevel: "high-risk",
+        reason: deterministicReason,
+      });
       return "high-risk" as const;
     }
     if (policyHook !== undefined) {
@@ -476,15 +482,6 @@ export function classifyCommandRisk(
     const logger = yield* LoggerServiceTag;
 
     if (command.length === 0 || command.length > CLASSIFIER_MAX_COMMAND_CHARS) {
-      return "high-risk" as const;
-    }
-
-    const deterministicReason = findDeterministicHighRisk(command);
-    if (deterministicReason !== undefined) {
-      yield* logger.debug("Command risk decided without the classifier", {
-        riskLevel: "high-risk",
-        reason: deterministicReason,
-      });
       return "high-risk" as const;
     }
 

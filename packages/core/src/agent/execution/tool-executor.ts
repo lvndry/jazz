@@ -5,7 +5,7 @@
 
 import { Cause, Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
-import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
+import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -94,7 +94,7 @@ function resolveEligibleCommandRisk(
     return context.resolveCommandRisk(command, conversationMessages);
   }
   if (context.parentAgent === undefined) return Effect.succeed("high-risk");
-  return classifyCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
+  return resolveCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
 }
 
 /**
