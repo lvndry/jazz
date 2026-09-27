@@ -388,12 +388,14 @@ export function App(): React.ReactElement {
     };
   }, [modeToast]);
 
-  // Handle Ctrl+C — bridge from Ink raw mode to process SIGINT.
-  // With exitOnCtrlC: false, Ink forwards Ctrl+C to useInput instead of
-  // swallowing it. The first press only warns; the second press (within the
-  // window) either resumes a chat conversation the same way typing /exit
-  // would — back to the wizard's main menu, no process exit — or, anywhere
-  // else, raises a real SIGINT so the handler in app-layer.ts fires.
+  // Handle Ctrl+C: bridge from Ink raw mode to process SIGINT, the same way
+  // the fullscreen interface does. With exitOnCtrlC: false, Ink forwards
+  // Ctrl+C to useInput instead of swallowing it. While the agent is working,
+  // the first press interrupts it. Otherwise the first press only warns, and
+  // the second press (within the window) either leaves a chat conversation
+  // the same way typing /exit would (back to the wizard's main menu, no
+  // process exit) or, anywhere else, raises a real SIGINT so the handler in
+  // app-layer.ts fires.
   const quitArmedRef = useRef(false);
   const quitArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const CTRL_C_CONFIRM_WINDOW_MS = 1500;
@@ -401,8 +403,24 @@ export function App(): React.ReactElement {
   useInput((input, key) => {
     if (input !== "c" || !key.ctrl) return;
 
-    if (quitArmedRef.current === false) {
+    const armQuit = (): void => {
       quitArmedRef.current = true;
+      quitArmTimerRef.current = setTimeout(() => {
+        quitArmedRef.current = false;
+        quitArmTimerRef.current = null;
+      }, CTRL_C_CONFIRM_WINDOW_MS);
+    };
+
+    const interruptRun = interruptHandlerRef.current;
+    if (interruptRun && quitArmedRef.current === false) {
+      armQuit();
+      store.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
+      store.collapseAllEphemeral();
+      interruptRun();
+      return;
+    }
+
+    if (quitArmedRef.current === false) {
       const inChat = promptRef.current?.type === "chat";
       store.printOutput({
         type: "warn",
@@ -411,10 +429,7 @@ export function App(): React.ReactElement {
           : "Press Ctrl+C again to exit.",
         timestamp: new Date(),
       });
-      quitArmTimerRef.current = setTimeout(() => {
-        quitArmedRef.current = false;
-        quitArmTimerRef.current = null;
-      }, CTRL_C_CONFIRM_WINDOW_MS);
+      armQuit();
       return;
     }
 

@@ -25,6 +25,7 @@ import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeLoopNow } from "@/cli/loops/describe-loop";
+import { builtinFormLines } from "./constants";
 import type { CommandContext } from "./types";
 
 /** Fields a cron expression takes, read after `/loop cron`. */
@@ -37,17 +38,6 @@ const GRANT_CHOICES: readonly { name: string; value: GrantChoice }[] = [
   { name: "Everything, including commands flagged high-risk", value: "high-risk" },
   { name: "Reading only; any change waits for me", value: "read-only" },
   { name: "Don't start it", value: "cancel" },
-];
-
-const HELP = [
-  "/loop <every> <prompt>             Rerun a prompt on a schedule, e.g. /loop 10m check the deploy",
-  "/loop cron <m h dom mon dow> <prompt>  Same, on a cron schedule in this machine's timezone",
-  "/loop list                         This conversation's loops and what each last did",
-  "/loop approve <loop>               Allow the step its run is waiting on",
-  "/loop reject <loop> [why]          Refuse that step; the reason goes to the agent",
-  "/loop answer <loop> <answer>       Answer the question its run is waiting on",
-  "/loop pause|resume|cancel <loop>   Stop, restart, or end a loop",
-  "Loops run in the background while `jazz daemon` runs; each run ends the loop once its purpose is met.",
 ];
 
 const loopLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -199,7 +189,7 @@ export function handleLoopCommand(context: CommandContext, args: readonly string
     case "help":
       return done(
         Effect.flatMap(TerminalServiceTag, (terminal) =>
-          Effect.forEach(HELP, (line) => terminal.log(line)),
+          Effect.forEach(builtinFormLines("loop"), (line) => terminal.log(line)),
         ),
       );
     case "list":

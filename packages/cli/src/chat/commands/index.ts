@@ -1,6 +1,8 @@
 export {
   CHAT_COMMANDS,
   filterCommandsByPrefix,
+  findBuiltinCommand,
+  isExitCommand,
   getMcpPromptCommandNames,
   getPluginCommandNames,
   getSkillCommandNames,
@@ -9,7 +11,7 @@ export {
   setSkillCommands,
   slashCommandQuery,
 } from "./constants";
-export type { ChatCommandInfo } from "./constants";
+export type { BuiltinChatCommand, ChatCommandInfo } from "./constants";
 export { handleSpecialCommand } from "./handler";
 export { isCommandInput, isShellEscape, parseSpecialCommand, SHELL_ESCAPE_PREFIX } from "./parser";
 export type {

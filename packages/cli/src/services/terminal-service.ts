@@ -60,7 +60,6 @@ export interface EscapeSequenceProfile {
 export interface TerminalCapabilities {
   readonly type: TerminalType;
   readonly supportsUnicode: boolean;
-  readonly supportsTrueColor: boolean;
   readonly supportsHyperlinks: boolean;
   readonly columns: number;
   readonly rows: number;
@@ -322,24 +321,10 @@ function isValidTerminalType(value: string): value is TerminalType {
   return validTypes.includes(value as TerminalType);
 }
 
-/**
- * Detect color support from environment.
- */
-function detectColorSupport(): { unicode: boolean; trueColor: boolean } {
-  const colorTerm = process.env["COLORTERM"];
-  const term = process.env["TERM"];
-
-  const trueColor =
-    colorTerm === "truecolor" ||
-    colorTerm === "24bit" ||
-    (term?.includes("256color") ?? false) ||
-    (term?.includes("truecolor") ?? false);
-
-  // Unicode support - check locale
+/** Whether the locale says the terminal renders Unicode. */
+function detectUnicodeSupport(): boolean {
   const lang = process.env["LANG"] || "";
-  const unicode = lang.toLowerCase().includes("utf");
-
-  return { unicode, trueColor };
+  return lang.toLowerCase().includes("utf");
 }
 
 /**
@@ -358,12 +343,9 @@ function buildSequenceProfile(type: TerminalType): EscapeSequenceProfile {
  * Build complete terminal capabilities.
  */
 function buildCapabilities(type: TerminalType): TerminalCapabilities {
-  const { unicode, trueColor } = detectColorSupport();
-
   return {
     type,
-    supportsUnicode: unicode,
-    supportsTrueColor: trueColor,
+    supportsUnicode: detectUnicodeSupport(),
     supportsHyperlinks: type === "iterm2" || type === "kitty" || type === "warp",
     columns: process.stdout.columns || 80,
     rows: process.stdout.rows || 24,
