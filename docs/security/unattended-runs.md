@@ -43,6 +43,29 @@ finishes and tells you what it could not do.
 run, exits `2`, and waits for `jazz runs approve`. Park only where somebody will actually look,
 because a parked run nobody answers is a job that silently did not happen.
 
+## Egress after untrusted input
+
+An inbox digest at `read-only` reads mail somebody else wrote. Without a further rule, the next
+call could put anything the agent knows into a URL of that person's choosing.
+
+So once a run has read external content (a web page, an API response, a search result, an MCP
+result, a peer's answer, or mail and web output from `execute_command`), egress tools stop
+auto-approving under `read-only`, `low-risk` or an unset policy. They prompt where somebody can
+answer, park under `--park`, and are declined otherwise, like any other gated call. The state is
+kept for the whole run, shared with its sub-agents, and restored on resume from the labelled
+results already in the conversation.
+
+Two kinds of call stay automatic because they cannot carry what the run learned:
+
+- `web_search`, which only reaches the search provider you configured;
+- a plain GET (`web_fetch`, `read_pdf` by URL, `http_request` GET or HEAD with no headers, query or
+  body) of a URL that already appears in your messages or in content the run read. Following a link
+  from a page or a search result tells its author nothing new.
+
+`high-risk` (and `true`) approve egress as before, and an explicit `autoApprovedTools` entry still
+counts. If an unattended job needs to post somewhere after reading mail, name that tool in
+`autoApprovedTools` for the job, or accept that it parks.
+
 ## 5. Give every external conversation a stable identity
 
 A bridge or webhook that reuses one conversation key across senders mixes people's history

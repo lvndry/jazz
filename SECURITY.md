@@ -175,6 +175,12 @@ not you. At `high-risk`, a message, or a prompt injection inside a web page the 
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
+Below `high-risk`, Jazz narrows what injected content can do on its own: model-chosen URLs reach
+public hosts only unless the agent lists private ones in `network.allowPrivateHosts`, the read
+tools refuse credential files such as `$JAZZ_HOME/secrets.json` and `~/.ssh`, outside content
+reaches the model labelled as untrusted, and once a run has read it, egress tools need approval.
+See [Secrets and egress](docs/security/secrets-and-egress.md).
+
 ### Before approving, ask
 
 - Do I understand what this will do, and is it reversible?
