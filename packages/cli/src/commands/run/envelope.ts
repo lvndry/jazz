@@ -15,6 +15,7 @@ import { isTruncated, type AnswerFailureCode } from "@jazz/core/agent/run/answer
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
 import type { FinishReason } from "@jazz/core/types/chat";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
 import { SIGNAL_EXIT_CODE, type ShutdownSignal } from "@jazz/core/utils/process";
 
 export interface OneShotTokenUsage {
@@ -69,6 +70,10 @@ export interface OneShotSuccess {
    * could only talk.
    */
   readonly toolsDisabled?: boolean;
+  /** True when the run was stopped for repeating the same tool calls without progress. */
+  readonly stalled?: boolean;
+  /** The calls of a tool batch the run stopped part-way, and what became of each. */
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly composition?: OneShotComposition;
@@ -152,6 +157,8 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ...(result.finishReason !== undefined ? { finishReason: result.finishReason } : {}),
     ...(result.truncated ? { truncated: true } : {}),
     ...(result.toolsDisabled ? { toolsDisabled: true } : {}),
+    ...(result.stalled ? { stalled: true } : {}),
+    ...(result.stoppedToolCalls ? { stoppedToolCalls: result.stoppedToolCalls } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.composition ? { composition: result.composition } : {}),
@@ -213,6 +220,7 @@ export type OneShotErrorCode = "failed" | "interrupted" | AnswerFailureCode;
 
 /** Extra fields a failure envelope carries beyond its message and cost. */
 export interface OneShotFailureDetails {
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
   readonly code?: OneShotErrorCode;
   readonly finishReason?: FinishReason;
   readonly signal?: ShutdownSignal;
@@ -233,6 +241,9 @@ export function formatOneShotError(
     ok: false,
     error: message,
     code: details.code ?? "failed",
+    ...(details.stoppedToolCalls !== undefined
+      ? { stoppedToolCalls: details.stoppedToolCalls }
+      : {}),
     costUSD,
     ...(details.finishReason !== undefined ? { finishReason: details.finishReason } : {}),
     ...(details.signal !== undefined ? { signal: details.signal } : {}),

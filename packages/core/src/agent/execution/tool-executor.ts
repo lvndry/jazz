@@ -21,7 +21,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  type ToolNotFoundError,
+  ToolTimeoutError,
+} from "@/core/types/errors";
 import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
@@ -33,10 +37,12 @@ import {
   type ToolExecutionResult,
   type ToolRiskLevel,
 } from "@/core/types/tools";
+import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import type { ToolBatchLedger } from "./tool-batch-ledger";
 import {
   emitToolInvocation,
   recordToolError,
@@ -63,6 +69,35 @@ function resolveToolDisplayMetadata(
       context.parentAgent?.config.webSearchProvider ?? appConfig.web_search?.provider;
     return { provider: provider ?? "builtin" };
   });
+}
+
+/** A tool call's arguments as the tool receives them, or why they cannot be used. */
+type ParsedToolArguments =
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Read a tool call's arguments. A call the provider flagged invalid, arguments that are not
+ * JSON, and JSON that is not an object are all refused with the reason, so the model is told
+ * its call was malformed instead of the tool running on defaults.
+ */
+export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
+  if (toolCall.invalidReason !== undefined) {
+    return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function.arguments);
+  } catch (parseError) {
+    return {
+      ok: false,
+      error: `Invalid JSON in tool arguments: ${toError(parseError).message}`,
+    };
+  }
+  if (!isRecord(parsed)) {
+    return { ok: false, error: "Invalid tool arguments: expected a JSON object." };
+  }
+  return { ok: true, args: parsed };
 }
 
 /**
@@ -240,28 +275,21 @@ export class ToolExecutor {
         ? execution.pipe(
             Effect.timeoutFail({
               duration: timeoutMs,
-              onTimeout: () => {
-                const timeoutMinutes = Math.round(timeoutMs / 60000);
-                return new Error(`Operation timed out after '${timeoutMinutes}m'`);
-              },
+              onTimeout: () => new ToolTimeoutError({ toolName: name, timeoutMs }),
             }),
-            Effect.catchAll((error) => {
-              const message = toError(error).message;
-              if (message.includes("timed out")) {
-                Effect.runFork(
-                  logger.warn("Tool execution timed out", {
-                    toolName: toolMeta?.name ?? "unknown",
-                    timeoutMs,
-                  }),
-                );
-                return Effect.succeed({
+            Effect.catchTag("ToolTimeoutError", (timeout) =>
+              Effect.gen(function* () {
+                yield* logger.warn("Tool execution timed out", {
+                  toolName: toolMeta?.name ?? "unknown",
+                  timeoutMs: timeout.timeoutMs,
+                });
+                return {
                   success: false,
                   result: null,
-                  error: message,
-                } satisfies ToolExecutionResult);
-              }
-              return Effect.fail(error);
-            }),
+                  error: `Tool '${timeout.toolName}' timed out after ${formatDuration(timeout.timeoutMs)} and was stopped.`,
+                } satisfies ToolExecutionResult;
+              }),
+            ),
           )
         : execution;
 
@@ -284,6 +312,8 @@ export class ToolExecutor {
     parkable = false,
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
+    /** Told when the call's side effect begins, so a stopped batch can say what ran. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -302,26 +332,17 @@ export class ToolExecutor {
         return { toolCallId: toolCall.id, result: null, success: false, name: "unknown" };
       }
 
-      const { name, arguments: argsString } = toolCall.function;
+      const { name } = toolCall.function;
       recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
       let telemetryToolName = "unknown";
 
       try {
-        // Parse arguments
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(argsString);
-        } catch (parseError) {
-          throw new Error(`Invalid JSON in tool arguments: ${toError(parseError).message}`, {
-            cause: parseError,
-          });
+        const parsedArguments = parseToolCallArguments(toolCall);
+        if (!parsedArguments.ok) {
+          throw new Error(parsedArguments.error);
         }
-
-        const args: Record<string, unknown> =
-          parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {};
+        const args = parsedArguments.args;
 
         yield* logger.logToolCall(name, args);
 
@@ -398,6 +419,11 @@ export class ToolExecutor {
           pendingApproval = plainToolApprovalRequest(name, args, plainGateRisk);
           result = { success: true, result: pendingApproval };
         } else {
+          // An approval tool's own call only builds the request; its side effect starts
+          // after approval, below.
+          if (!isApprovalTool) {
+            ledger?.markStarted(toolCall.id);
+          }
           // Pass the pre-fetched timeout to avoid a redundant getTool lookup.
           result = yield* ToolExecutor.executeTool(
             name,
@@ -645,6 +671,7 @@ export class ToolExecutor {
 
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
+            ledger?.markStarted(toolCall.id);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
@@ -818,6 +845,8 @@ export class ToolExecutor {
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
+    /** Records what each call did, for a batch that is stopped before it finishes. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome[],
     Error,
@@ -914,16 +943,12 @@ export class ToolExecutor {
           const name = toolCall.function.name;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
-          let args: Record<string, unknown> = {};
-          try {
-            const parsed: unknown = JSON.parse(toolCall.function.arguments);
-            if (isRecord(parsed)) {
-              args = parsed;
-            }
-          } catch {
-            // Unparseable arguments are the per-call path's error to report, not this one's.
+          const parsedArguments = parseToolCallArguments(toolCall);
+          // Malformed arguments are the per-call path's error to report, not this one's.
+          if (!parsedArguments.ok) {
             continue;
           }
+          const args = parsedArguments.args;
 
           const toolMeta = toolMetaByName.get(name);
           const plainGateRisk = plainToolGateRisk(toolMeta, args);
@@ -1006,127 +1031,149 @@ export class ToolExecutor {
       const park = yield* parkTheBatch;
       if (park !== undefined) return yield* Effect.fail(park);
 
-      // Limit concurrency to prevent resource exhaustion when many tools are requested.
-      // Forked as daemon fibers (not structured children of this generator) so a
-      // detached-into-the-background call survives past this function returning — a
-      // plain `Effect.fork` child gets auto-interrupted the moment its parent scope
-      // closes, which is exactly what "detach" must not do. `Fiber.interrupt`,
-      // `Fiber.join`, and `Fiber.poll` all work the same on a daemon fiber, so this
-      // changes nothing about the existing interrupt/normal-completion paths.
-      const toolFibers = yield* Effect.all(
-        toolCalls.map((toolCall) =>
-          Effect.forkDaemon(
-            // Tapped once here rather than at each of the several places a call can
-            // finish, so a new return path cannot quietly stop reporting.
-            ToolExecutor.executeToolCall(
-              toolCall,
-              context,
-              displayConfig,
-              renderer,
-              runMetrics,
-              agentId,
-              conversationId,
-              approvalSet,
-              false,
-              preclassifiedRisk,
-            ).pipe(
-              Effect.tap((outcome) =>
-                Effect.sync(() => {
-                  const returned = toolResultForProgress(outcome.result);
-                  context.onToolEvent?.({
-                    kind: "tool-finished",
-                    toolName: outcome.name,
-                    toolCallId: outcome.toolCallId,
-                    ok: outcome.success,
-                    ...(returned !== undefined
-                      ? {
-                          result: returned.text,
-                          ...(returned.truncated ? { resultTruncated: true } : {}),
-                        }
-                      : {}),
+      const settleToolBatch = (
+        toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
+      ) =>
+        Effect.gen(function* () {
+          const awaitResults = Effect.all(
+            toolFibers.map((fiber) => Fiber.join(fiber)),
+            { concurrency: "unbounded" },
+          );
+
+          // Both signals are optional and mutually exclusive per race: whichever fires first
+          // (if either does) decides how this batch resolves. Racing them against each other
+          // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
+          // the outcome type to one flat union instead of an awkward `let`-reassigned one.
+          const interruptOrBackground = interruptSignal?.pipe(
+            Effect.as({ type: "interrupt" as const }),
+          );
+          const backgroundOrInterrupt = backgroundSignal?.pipe(
+            Effect.as({ type: "background" as const }),
+          );
+          const signalEffect =
+            interruptOrBackground && backgroundOrInterrupt
+              ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
+              : (interruptOrBackground ?? backgroundOrInterrupt);
+
+          if (!signalEffect) {
+            return yield* awaitResults;
+          }
+
+          // `raceFirst`: a failed batch fails now instead of waiting on a signal that may
+          // never come.
+          const resultsOrSignal = yield* Effect.raceFirst(
+            awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
+            signalEffect,
+          );
+
+          if (resultsOrSignal.type === "interrupt") {
+            // Settle the UI before waiting on fiber interrupt, so a slow finalizer
+            // cannot leave the 30s "still running" timer armed across the next turn.
+            if (renderer && displayConfig.showToolExecution) {
+              for (let index = 0; index < toolFibers.length; index++) {
+                const fiber = toolFibers[index];
+                const toolCall = toolCalls[index];
+                if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
+                  continue;
+                }
+                const poll = yield* Fiber.poll(fiber);
+                if (
+                  Option.isNone(poll) ||
+                  (Option.isSome(poll) && Exit.isInterrupted(poll.value))
+                ) {
+                  yield* renderer.handleEvent({
+                    type: "tool_execution_complete",
+                    toolCallId: toolCall.id,
+                    result: "Interrupted by user",
+                    durationMs: 0,
+                    success: false,
+                    error: "Interrupted by user",
                   });
-                }),
+                }
+              }
+            }
+            yield* Effect.all(
+              toolFibers.map((fiber) => Fiber.interrupt(fiber)),
+              { concurrency: "unbounded" },
+            );
+            return yield* Effect.fail(
+              new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
+            );
+          }
+
+          if (resultsOrSignal.type === "background") {
+            return yield* detachInFlightToolCalls(
+              toolFibers,
+              toolCalls,
+              renderer,
+              displayConfig,
+              onDetachedToolComplete,
+            );
+          }
+
+          return resultsOrSignal.results;
+        });
+
+      /**
+       * Tool calls run as daemon fibers so a call detached into the background (Ctrl+B)
+       * outlives this batch; a plain `Effect.fork` child is interrupted as soon as its
+       * parent scope closes. Being daemons, they are not interrupted with the run on their
+       * own, so every fiber is interrupted explicitly when this batch is interrupted
+       * (`--timeout`, SIGTERM, a run deadline, a parent's race). `Fiber.interrupt` waits for
+       * each fiber's finalizers, which is what kills a running shell command's process group.
+       * Forking happens with interruption masked so no fiber can start without being tracked.
+       */
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const toolFibers = yield* Effect.all(
+            toolCalls.map((toolCall) =>
+              Effect.forkDaemon(
+                Effect.interruptible(
+                  // Tapped once here rather than at each of the several places a call can
+                  // finish, so a new return path cannot quietly stop reporting.
+                  ToolExecutor.executeToolCall(
+                    toolCall,
+                    context,
+                    displayConfig,
+                    renderer,
+                    runMetrics,
+                    agentId,
+                    conversationId,
+                    approvalSet,
+                    false,
+                    preclassifiedRisk,
+                    ledger,
+                  ).pipe(
+                    Effect.tap((outcome) =>
+                      Effect.sync(() => {
+                        ledger?.markFinished(outcome);
+                        const returned = toolResultForProgress(outcome.result);
+                        context.onToolEvent?.({
+                          kind: "tool-finished",
+                          toolName: outcome.name,
+                          toolCallId: outcome.toolCallId,
+                          ok: outcome.success,
+                          ...(returned !== undefined
+                            ? {
+                                result: returned.text,
+                                ...(returned.truncated ? { resultTruncated: true } : {}),
+                              }
+                            : {}),
+                        });
+                      }),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        { concurrency: MAX_CONCURRENT_TOOLS },
+            { concurrency: MAX_CONCURRENT_TOOLS },
+          );
+
+          return yield* restore(settleToolBatch(toolFibers)).pipe(
+            Effect.onInterrupt(() => Fiber.interruptAll(toolFibers)),
+          );
+        }),
       );
-
-      const awaitResults = Effect.all(
-        toolFibers.map((fiber) => Fiber.join(fiber)),
-        { concurrency: "unbounded" },
-      );
-
-      // Both signals are optional and mutually exclusive per race: whichever fires first
-      // (if either does) decides how this batch resolves. Racing them against each other
-      // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
-      // the outcome type to one flat union instead of an awkward `let`-reassigned one.
-      const interruptOrBackground = interruptSignal?.pipe(
-        Effect.as({ type: "interrupt" as const }),
-      );
-      const backgroundOrInterrupt = backgroundSignal?.pipe(
-        Effect.as({ type: "background" as const }),
-      );
-      const signalEffect =
-        interruptOrBackground && backgroundOrInterrupt
-          ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
-          : (interruptOrBackground ?? backgroundOrInterrupt);
-
-      if (!signalEffect) {
-        return yield* awaitResults;
-      }
-
-      const resultsOrSignal = yield* Effect.race(
-        awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
-        signalEffect,
-      );
-
-      if (resultsOrSignal.type === "interrupt") {
-        // Settle the UI before waiting on fiber interrupt: execute_command used
-        // to wrap spawn in Effect.promise, which is uninterruptible, so this
-        // wait could block until the child exited — leaving the 30s "still
-        // running" timer armed across the next turn.
-        if (renderer && displayConfig.showToolExecution) {
-          for (let index = 0; index < toolFibers.length; index++) {
-            const fiber = toolFibers[index];
-            const toolCall = toolCalls[index];
-            if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
-              continue;
-            }
-            const poll = yield* Fiber.poll(fiber);
-            if (Option.isNone(poll) || (Option.isSome(poll) && Exit.isInterrupted(poll.value))) {
-              yield* renderer.handleEvent({
-                type: "tool_execution_complete",
-                toolCallId: toolCall.id,
-                result: "Interrupted by user",
-                durationMs: 0,
-                success: false,
-                error: "Interrupted by user",
-              });
-            }
-          }
-        }
-        yield* Effect.all(
-          toolFibers.map((fiber) => Fiber.interrupt(fiber)),
-          { concurrency: "unbounded" },
-        );
-        return yield* Effect.fail(
-          new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
-        );
-      }
-
-      if (resultsOrSignal.type === "background") {
-        return yield* detachInFlightToolCalls(
-          toolFibers,
-          toolCalls,
-          renderer,
-          displayConfig,
-          onDetachedToolComplete,
-        );
-      }
-
-      return resultsOrSignal.results;
     });
   }
 }

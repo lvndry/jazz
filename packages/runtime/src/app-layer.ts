@@ -65,6 +65,7 @@ import { InteractiveTerminalRequiredError, type JazzError } from "@jazz/core/typ
 import { getCurrentCommandName } from "@jazz/core/utils/current-command";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { SIGNAL_EXIT_CODE, type ShutdownSignal } from "@jazz/core/utils/process";
+import { killTrackedProcesses } from "@jazz/core/utils/process";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { resolveStorageDirectory } from "@jazz/core/utils/storage";
 import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
@@ -245,7 +246,7 @@ export function createAppLayer(
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
-  const jazzStateLayer = createJazzStateServiceLayer().pipe(Layer.provide(fileSystemLayer));
+  const jazzStateLayer = createJazzStateServiceLayer();
   const loggerLayer = createLoggerLayer();
 
   const logFormatLayer = Layer.effectDiscard(
@@ -466,7 +467,10 @@ export function runCliEffect<R, E extends JazzError | Error>(
     writeNotice: (message) => process.stderr.write(message),
     requestShutdown: () => requestShutdownRef.current?.(),
     reportStopped: (signal) => options.onStoppedBySignal?.(signal),
-    exit: (code) => process.exit(code),
+    exit: (code) => {
+      killTrackedProcesses();
+      process.exit(code);
+    },
   });
 
   const program = Effect.gen(function* () {

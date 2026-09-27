@@ -22,7 +22,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
-import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
+import { AI_SDK_MAX_RETRIES } from "@jazz/core/constants/agent";
 import {
   isLocalServerProvider,
   type LocalServerProvider,
@@ -69,7 +69,6 @@ import {
   type ReasoningControlSurface,
   type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
-import type { ToolCall } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
@@ -93,7 +92,6 @@ import {
   createGateway,
   generateText,
   Output,
-  stepCountIs,
   streamText,
   jsonSchema,
   NoSuchProviderError,
@@ -143,6 +141,7 @@ import {
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
 export function safeLLMErrorMetadata(
@@ -372,9 +371,13 @@ export function toCoreMessages(
   providerName?: ProviderName,
   resolvedAttachments?: ResolvedAttachments,
 ): ModelMessage[] {
+  // An ephemeral nudge (context, budget, cost, time pressure) rides as a trailing user message
+  // but does not start a new turn. Counting it would put every reasoning part of the current
+  // tool loop "before the last user message" and drop it from the replay.
   let lastUserMessageIndex = -1;
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-    if (messages[messageIndex]?.role === "user") {
+    const message = messages[messageIndex];
+    if (message?.role === "user" && message.kind !== "ephemeral") {
       lastUserMessageIndex = messageIndex;
       break;
     }
@@ -1750,9 +1753,9 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     modelId: string,
   ): Effect.Effect<ReasoningControlSurface | { readonly kind: "unknown" }, never> =>
-    Effect.promise(async () => {
+    Effect.promise(async (signal) => {
       await this.refreshRuntimeConfigIfChanged();
-      const modelInfo = await this.resolveModelInfo(providerName, modelId);
+      const modelInfo = await this.resolveModelInfo(providerName, modelId, signal);
       return this.resolveCapabilities(providerName, modelId, modelInfo).reasoning;
     });
 
@@ -1780,9 +1783,15 @@ class AISDKService implements LLMService {
     );
   }
 
+  /**
+   * The listing entry for one model, or undefined when the provider cannot be listed in time.
+   * `signal` is the caller's: aborting it (an interrupted run) abandons the listing request
+   * instead of leaving it open until its own timeout.
+   */
   private async resolveModelInfo(
     providerName: ProviderName,
     modelId: ModelName,
+    signal?: AbortSignal,
   ): Promise<ModelInfo | undefined> {
     const models = await Effect.runPromise(
       this.getProviderModels(providerName).pipe(
@@ -1791,7 +1800,8 @@ class AISDKService implements LLMService {
         ),
         Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
       ),
-    );
+      signal === undefined ? undefined : { signal },
+    ).catch((): readonly ModelInfo[] => []);
     return models.find((model) => model.id === modelId);
   }
 
@@ -1978,7 +1988,7 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
@@ -2044,7 +2054,7 @@ class AISDKService implements LLMService {
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           abortSignal: signal,
-          stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+          stopWhen: SDK_STOP_CONDITIONS,
         });
         Effect.runFork(
           this.logger.debug(
@@ -2123,30 +2133,7 @@ class AISDKService implements LLMService {
           );
 
           if (filteredToolCalls.length > 0) {
-            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => {
-              const toolCall: ToolCall = {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-
-              // Preserve thought_signature for Google/Gemini models if present
-              // The AI SDK includes it in providerMetadata.google.thoughtSignature
-              if ("providerMetadata" in tc && tc.providerMetadata) {
-                const providerMetadata = tc.providerMetadata as {
-                  google?: { thoughtSignature?: string };
-                };
-                if (providerMetadata?.google?.thoughtSignature) {
-                  (toolCall as { thought_signature?: string }).thought_signature =
-                    providerMetadata.google.thoughtSignature;
-                }
-              }
-
-              return toolCall;
-            });
+            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => toJazzToolCall(tc));
           }
         }
 
@@ -2197,7 +2184,7 @@ class AISDKService implements LLMService {
     model: string,
   ): Effect.Effect<OllamaShowExtras, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchOllamaModelDetails(baseUrl, model),
+      try: (signal) => fetchOllamaModelDetails(baseUrl, model, signal),
       catch: (error) => error,
     });
   };
@@ -2207,7 +2194,8 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp")),
+      try: (signal) =>
+        fetchLlamaCppServerModel(baseUrl, apiKey ?? resolveProviderApiKey("llamacpp"), signal),
       catch: (error) => error,
     });
   };
@@ -2218,8 +2206,13 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () =>
-        fetchVllmServerModel(baseUrl, preferredModelId, apiKey ?? resolveProviderApiKey("vllm")),
+      try: (signal) =>
+        fetchVllmServerModel(
+          baseUrl,
+          preferredModelId,
+          apiKey ?? resolveProviderApiKey("vllm"),
+          signal,
+        ),
       catch: (error) => error,
     });
   };
@@ -2230,11 +2223,12 @@ class AISDKService implements LLMService {
     apiKey?: string,
   ): Effect.Effect<{ modelId?: string; contextWindow?: number }, unknown> => {
     return Effect.tryPromise({
-      try: () =>
+      try: (signal) =>
         fetchSglangServerModel(
           baseUrl,
           preferredModelId,
           apiKey ?? resolveProviderApiKey("sglang"),
+          signal,
         ),
       catch: (error) => error,
     });
@@ -2252,7 +2246,7 @@ class AISDKService implements LLMService {
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     return Effect.tryPromise({
-      try: async () => {
+      try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
         const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
           this.config.llmConfig,
@@ -2269,7 +2263,7 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
@@ -2327,6 +2321,7 @@ class AISDKService implements LLMService {
           const responseDeferred = createDeferred<ChatCompletionResponse>();
 
           let processorRef: StreamProcessor | null = null;
+          let streamSettled = false;
           const stream = Stream.async<StreamEvent, LLMError>(
             (
               emit: (
@@ -2380,7 +2375,7 @@ class AISDKService implements LLMService {
                     ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
                     ...(providerOptions ? { providerOptions } : {}),
                     abortSignal: abortController.signal,
-                    stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                    stopWhen: SDK_STOP_CONDITIONS,
                     // The stream carries the error to the processor, which reports and retries
                     // it; without this the SDK also dumps the raw error object to stderr.
                     onError: ({ error }) => {
@@ -2481,11 +2476,23 @@ class AISDKService implements LLMService {
 
                   responseDeferred.reject(llmError);
                 } finally {
+                  streamSettled = true;
                   if (processorRef && !abortController.signal.aborted) {
                     processorRef.cancel();
                   }
                 }
               })();
+
+              // Runs when the consumer stops pulling: an interrupt (Esc, `--timeout`,
+              // SIGTERM, an LLM wait timeout) aborts the provider request instead of leaving
+              // it streaming tokens nobody reads.
+              return Effect.sync(() => {
+                if (streamSettled) {
+                  return;
+                }
+                processorRef?.cancel();
+                abortController.abort();
+              });
             },
           );
 

@@ -1556,6 +1556,12 @@ export interface TranscriptProps {
 
 export interface TranscriptHandle {
   scrollBy(delta: number, unit?: "line" | "page" | "end"): boolean;
+  /**
+   * Rows the live edge currently sits on. The shell tracks this instead of
+   * block count, because a streaming answer grows one block in place — a block
+   * diff stays zero for the whole answer and the "new below" hint never fires.
+   */
+  rowCount(): number;
 }
 
 const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
@@ -1624,6 +1630,9 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
       scrollFromBottomRef.current = next;
       setScrollVersion((version) => version + 1);
       return next === 0;
+    },
+    rowCount(): number {
+      return rowsRef.current.length;
     },
   }));
 

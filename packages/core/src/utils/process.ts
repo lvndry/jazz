@@ -1,7 +1,8 @@
 /**
- * Process helpers: the exit codes for shutdown signals, and whether a process
- * recorded by pid (a lock holder, a run's owner) is still running.
+ * Process helpers: shutdown signal exit codes, process liveness, and killing spawned
+ * commands together with everything they started.
  */
+import type { ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
 
 /** The signals Jazz treats as a request to shut down. */
@@ -99,4 +100,94 @@ export function localOwnerStatus(owner: ProcessOwner): "alive" | "gone" | "unver
  */
 export function isLocalOwnerGone(owner: ProcessOwner): boolean {
   return localOwnerStatus(owner) === "gone";
+}
+
+/**
+ * How long a spawned command's output may keep arriving after the process exits before its
+ * caller returns anyway. Pipe data lands a few milliseconds after `exit`; a pipe still open past
+ * this belongs to a background job the command started, which can hold it for as long as it runs.
+ */
+export const PIPE_DRAIN_GRACE_MS = 200;
+
+/**
+ * How long a stopped command gets between SIGTERM and SIGKILL. Long enough for a process that
+ * handles SIGTERM to finish what it is doing safely: flush a file it is writing, remove its temp
+ * files, let git drop `index.lock`, close a database. Short enough that `--timeout`, SIGTERM and a
+ * run deadline still end promptly, well inside the 15s a chat bridge waits past its own timeout
+ * before killing the run.
+ */
+export const PROCESS_TERMINATION_GRACE_MS = 3_000;
+
+/** Commands started by tools and not yet exited, so a forced exit can take them down with it. */
+const trackedProcesses = new Set<ChildProcess>();
+
+/**
+ * Remember a spawned command until it exits. Commands run in their own process group, so nothing
+ * else stops them when Jazz exits; {@link killTrackedProcesses} does, on a forced exit.
+ */
+export function trackChildProcess(child: ChildProcess): void {
+  trackedProcesses.add(child);
+  child.once("exit", () => {
+    trackedProcesses.delete(child);
+  });
+}
+
+/** SIGKILL every tracked command's process group at once: the second-signal, force-exit path. */
+export function killTrackedProcesses(): void {
+  for (const child of trackedProcesses) {
+    signalProcessGroup(child, "SIGKILL");
+  }
+  trackedProcesses.clear();
+}
+
+/**
+ * Signal a child and, when it leads one (`detached: true`), its whole process group: the shell
+ * and every process the command started (a pipeline, a backgrounded `cmd &`, a script's own
+ * children). Signalling only the child's pid leaves those grandchildren running. Falls back to
+ * the child alone when it leads no group or the platform has no process groups.
+ */
+export function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid !== undefined && process.platform !== "win32") {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // No such group: signal the child directly below.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // Already exited.
+  }
+}
+
+/**
+ * Stop a command gracefully: SIGTERM to its process group, then SIGKILL once `graceMs` has passed
+ * without it exiting. When it exits on its own after SIGTERM, anything left in its group is
+ * SIGKILLed, since a process still there has already ignored the request to stop. Resolves when
+ * the command is gone. Immediate SIGKILL is only for a forced exit ({@link killTrackedProcesses}).
+ */
+export function terminateProcessGroup(
+  child: ChildProcess,
+  graceMs: number = PROCESS_TERMINATION_GRACE_MS,
+): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const forceTimer = setTimeout(() => {
+      child.off("exit", onExit);
+      signalProcessGroup(child, "SIGKILL");
+      resolve();
+    }, graceMs);
+    function onExit(): void {
+      clearTimeout(forceTimer);
+      signalProcessGroup(child, "SIGKILL");
+      resolve();
+    }
+    child.once("exit", onExit);
+    signalProcessGroup(child, "SIGTERM");
+  });
 }

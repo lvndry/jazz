@@ -1,12 +1,17 @@
+/**
+ * Regression coverage for durable writes, cancellation, cross-process locks and quarantine.
+ * Run with `bun test packages/core/src/utils/storage.test.ts`.
+ */
 import * as fs from "node:fs";
+import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { describe, expect, spyOn, test } from "bun:test";
+import { Effect, Fiber } from "effect";
 import {
   abbreviateHomePath,
+  quarantineCorruptFile,
   requireValidAgentId,
   resolveStorageDirectory,
   withLock,
@@ -53,6 +58,47 @@ describe("requireValidAgentId", () => {
 });
 
 describe("writeFileStringAtomic", () => {
+  test("holds the lock until a cancelled durable write settles", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-cancel-write-"));
+    const target = path.join(root, "state.txt");
+    const lock = path.join(root, "state.lock");
+    const syncing = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const originalOpen = nodeFs.open;
+    let paused = false;
+    const open = spyOn(nodeFs, "open").mockImplementation(async (...args) => {
+      const handle = await originalOpen(...args);
+      if (!paused && args[1] === "wx" && String(args[0]).startsWith(root)) {
+        paused = true;
+        const sync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          syncing.resolve();
+          await resume.promise;
+          await sync();
+        };
+      }
+      return handle;
+    });
+    const first = Effect.runFork(withLock(lock, writeFileStringAtomic(target, "old")));
+    try {
+      await syncing.promise;
+      const interrupted = Effect.runPromise(Fiber.interrupt(first));
+      await Bun.sleep(20);
+      expect(fs.existsSync(lock)).toBe(true);
+      const second = Effect.runPromise(withLock(lock, writeFileStringAtomic(target, "new")));
+      resume.resolve();
+      await interrupted;
+      await second;
+      expect(fs.readFileSync(target, "utf8")).toBe("new");
+      expect(fs.existsSync(lock)).toBe(false);
+    } finally {
+      resume.resolve();
+      await Effect.runPromise(Fiber.await(first));
+      open.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("creates parent directories and replaces the complete file", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-storage-"));
     const target = path.join(root, "nested", "state.txt");
@@ -60,16 +106,14 @@ describe("writeFileStringAtomic", () => {
     try {
       await Effect.runPromise(
         Effect.gen(function* () {
-          const platformFileSystem = yield* FileSystem.FileSystem;
-          yield* writeFileStringAtomic(platformFileSystem, target, "first", {
-            tempPrefix: "test",
-          });
-          yield* writeFileStringAtomic(platformFileSystem, target, "second", {
-            tempPrefix: "test",
-          });
-        }).pipe(Effect.provide(NodeFileSystem.layer)),
+          yield* writeFileStringAtomic(target, "first");
+          yield* writeFileStringAtomic(target, "second");
+        }),
       );
       expect(fs.readFileSync(target, "utf8")).toBe("second");
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.dirname(target)).mode & 0o777).toBe(0o700);
+      expect(fs.readdirSync(path.dirname(target))).toEqual(["state.txt"]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -106,7 +150,7 @@ describe("withLock", () => {
       const error = await Effect.runPromise(
         withLock(lockPath, Effect.void).pipe(Effect.flip, Effect.provide(NodeFileSystem.layer)),
       );
-      expect(error.message).not.toContain("after retries");
+      expect(error.message).not.toContain("Timed out");
       expect(Date.now() - startedAt).toBeLessThan(500);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -120,9 +164,77 @@ describe("withLock", () => {
 
     try {
       const error = await Effect.runPromise(
-        withLock(lockPath, Effect.void).pipe(Effect.flip, Effect.provide(NodeFileSystem.layer)),
+        withLock(lockPath, Effect.void, { maxWaitMs: 200 }).pipe(Effect.flip),
       );
-      expect(error.message).toContain("after retries");
+      expect(error.message).toContain("Timed out");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("withLock ownership", () => {
+  test("a holder's release leaves alone a lock that another holder now owns", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-lock-"));
+    const lockPath = path.join(root, "state.lock");
+    try {
+      await Effect.runPromise(
+        withLock(
+          lockPath,
+          Effect.sync(() => {
+            fs.rmSync(lockPath, { recursive: true });
+            fs.mkdirSync(lockPath);
+            fs.writeFileSync(
+              path.join(lockPath, "owner.json"),
+              JSON.stringify({ pid: process.pid, host: os.hostname(), token: "someone-else" }),
+            );
+          }),
+        ),
+      );
+      expect(fs.existsSync(path.join(lockPath, "owner.json"))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes concurrent holders in one process", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-lock-"));
+    const lockPath = path.join(root, "state.lock");
+    let inside = 0;
+    let mostInside = 0;
+    try {
+      await Effect.runPromise(
+        Effect.all(
+          Array.from({ length: 5 }, () =>
+            withLock(
+              lockPath,
+              Effect.gen(function* () {
+                inside += 1;
+                mostInside = Math.max(mostInside, inside);
+                yield* Effect.sleep(10);
+                inside -= 1;
+              }),
+            ),
+          ),
+          { concurrency: "unbounded" },
+        ),
+      );
+      expect(mostInside).toBe(1);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("quarantineCorruptFile", () => {
+  test("moves the file aside with its bytes intact", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-quarantine-"));
+    const target = path.join(root, "state.json");
+    fs.writeFileSync(target, "{torn");
+    try {
+      const moved = await Effect.runPromise(quarantineCorruptFile(target, "test"));
+      expect(fs.existsSync(target)).toBe(false);
+      expect(fs.readFileSync(moved, "utf8")).toBe("{torn");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

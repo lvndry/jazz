@@ -512,6 +512,7 @@ export function runWorkflowCommand(
               ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
               ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
               ...answerOutcomeFields(runResult),
+              ...(runResult.stalled === true ? { stalled: true } : {}),
               tokenUsage: {
                 promptTokens,
                 completionTokens,

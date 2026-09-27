@@ -71,13 +71,7 @@ export function loadCommandApprovals(): Effect.Effect<
 export function saveCommandApprovals(
   data: CommandApprovals,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const approvalsPath = getApprovalsPath();
-    yield* writeFileStringAtomic(fs, approvalsPath, JSON.stringify(data, null, 2), {
-      tempPrefix: "command-approvals",
-    });
-  });
+  return writeFileStringAtomic(getApprovalsPath(), JSON.stringify(data, null, 2));
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyAtMention, atMentionSpan } from "./at-mention";
+import { applyAtMention, atMentionSpan, mentionPathText } from "./at-mention";
 
 describe("atMentionSpan", () => {
   test("finds a mention at the start of the line", () => {
@@ -102,5 +102,26 @@ describe("code-point offsets", () => {
     const applied = applyAtMention("@s", span!, "notes/🎺.md");
     expect(applied.text).toBe("@notes/🎺.md ");
     expect([...applied.text].length).toBe(applied.caret);
+  });
+});
+
+describe("mentionPathText", () => {
+  test("leaves a plain path alone", () => {
+    expect(mentionPathText("notes/today.md")).toBe("notes/today.md");
+  });
+
+  test("quotes a path with spaces", () => {
+    expect(mentionPathText("Screenshot 2026-08-18 at 16.12.12.png")).toBe(
+      '"Screenshot 2026-08-18 at 16.12.12.png"',
+    );
+  });
+
+  test("escapes a path that has both spaces and a double quote", () => {
+    expect(mentionPathText('my "best" notes.md')).toBe('my\\ \\"best\\"\\ notes.md');
+  });
+
+  test("inserts the quoted form into the composer", () => {
+    const span = atMentionSpan("@my", 3);
+    expect(applyAtMention("@my", span!, "my notes.md").text).toBe('@"my notes.md" ');
   });
 });

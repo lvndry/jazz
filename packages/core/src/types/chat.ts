@@ -26,14 +26,19 @@ const FINISH_REASONS: ReadonlySet<string> = new Set<FinishReason>([
 ]);
 
 /** Narrow a provider's finish reason to {@link FinishReason}; anything else is `unknown`. */
-export function toFinishReason(value: string | undefined): FinishReason {
-  return value !== undefined && FINISH_REASONS.has(value) ? (value as FinishReason) : "unknown";
+export function toFinishReason(raw: unknown): FinishReason {
+  const value = raw !== null && typeof raw === "object" && "unified" in raw ? raw.unified : raw;
+  return typeof value === "string" && FINISH_REASONS.has(value)
+    ? (value as FinishReason)
+    : "unknown";
 }
 
 export interface ChatCompletionResponse {
   id: string;
   model: string;
   content: string;
+  /** Why generation stopped. `"length"` means the answer was cut off at the token limit. */
+  finishReason?: FinishReason;
   /**
    * Reasoning / chain-of-thought text emitted by the model, when the provider
    * exposes it as a separate channel (e.g. OpenAI-compatible servers returning
@@ -61,8 +66,6 @@ export interface ChatCompletionResponse {
     cacheWriteTokens?: number;
   };
   toolsDisabled?: boolean;
-  /** Why the model stopped. Absent only from responses built outside a provider call. */
-  finishReason?: FinishReason;
   /** Estimated character count of tool definitions sent in this request (for telemetry). */
   toolDefinitionChars?: number;
   /** Number of tool definitions sent in this request (for telemetry). */

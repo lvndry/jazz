@@ -137,6 +137,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     totalCacheWriteTokens: 0,
     childCostUSD: 0,
     childCostUnknown: false,
+    usageMissing: false,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,
@@ -218,6 +219,41 @@ describe("ToolExecutor.executeTool", () => {
   });
 });
 
+describe("ToolExecutor.executeTool timeouts", () => {
+  function runWithTool(timeoutMs: number, execution: Effect.Effect<ToolExecutionResult, Error>) {
+    const registry = {
+      getTool: () =>
+        Effect.succeed({ name: "slow_tool", timeoutMs, approvalExecuteToolName: undefined }),
+      executeTool: () => execution,
+    } as unknown as ToolRegistry;
+    return Effect.runPromiseExit(
+      ToolExecutor.executeTool(
+        "slow_tool",
+        {},
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+      ).pipe(Effect.provide(makeTestLayer({ registry }))) as Effect.Effect<
+        ToolExecutionResult,
+        unknown,
+        never
+      >,
+    );
+  }
+
+  it("names the timeout in a unit that fits it", async () => {
+    const exit = await runWithTool(50, Effect.never);
+
+    expect(Exit.isSuccess(exit) && exit.value.error).toBe(
+      "Tool 'slow_tool' timed out after 50ms and was stopped.",
+    );
+  });
+
+  it("leaves a tool's own error alone even when it mentions a timeout", async () => {
+    const exit = await runWithTool(5_000, Effect.fail(new Error("upstream request timed out")));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+});
+
 describe("ToolExecutor.executeToolCall", () => {
   it("should handle invalid JSON arguments", async () => {
     const mockToolRegistry = {
@@ -254,6 +290,64 @@ describe("ToolExecutor.executeToolCall", () => {
 
     expect(result.success).toBe(false);
     expect(result.result).toHaveProperty("error");
+  });
+
+  function runRefusedCall(toolCall: ToolCall) {
+    let executed = 0;
+    const registry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "test_tool",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.sync(() => {
+          executed += 1;
+          return { success: true, result: "ran with defaults" };
+        }),
+    } as unknown as ToolRegistry;
+    return Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        toolCall,
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(),
+      ).pipe(Effect.provide(makeTestLayer({ registry }))) as Effect.Effect<
+        ToolCallExecutionResult,
+        unknown,
+        never
+      >,
+    ).then((result) => ({ result, executed }));
+  }
+
+  it("answers a call the provider flagged invalid with its reason and never runs it", async () => {
+    const { result, executed } = await runRefusedCall({
+      id: "call_invalid",
+      type: "function",
+      function: { name: "test_tool", arguments: '{"path": ' },
+      invalidReason: "JSON parsing failed",
+    });
+
+    expect(executed).toBe(0);
+    expect(result.success).toBe(false);
+    expect(result.result).toEqual({ error: "Invalid tool call: JSON parsing failed" });
+  });
+
+  it("refuses arguments that are JSON but not an object instead of running on defaults", async () => {
+    const { result, executed } = await runRefusedCall({
+      id: "call_string",
+      type: "function",
+      function: { name: "test_tool", arguments: '"just a string"' },
+    });
+
+    expect(executed).toBe(0);
+    expect(result.success).toBe(false);
   });
 
   it("should skip non-function tool calls", async () => {
@@ -466,6 +560,63 @@ describe("ToolExecutor.executeToolCalls", () => {
           event.success === false,
       ),
     ).toBe(true);
+  });
+
+  it("interrupts running tools, finalizers included, when the batch itself is interrupted", async () => {
+    let finalizerRan = false;
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "slow_tool",
+          timeoutMs: 60_000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.never.pipe(
+          Effect.onInterrupt(() =>
+            Effect.sleep("20 millis").pipe(
+              Effect.zipRight(
+                Effect.sync(() => {
+                  finalizerRan = true;
+                }),
+              ),
+            ),
+          ),
+        ),
+    } as unknown as ToolRegistry;
+
+    const toolCalls: ToolCall[] = [
+      { id: "call_slow", type: "function", function: { name: "slow_tool", arguments: "{}" } },
+    ];
+
+    const program = Effect.gen(function* () {
+      const fiber = yield* Effect.fork(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
+          displayConfig,
+          null,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+        ),
+      );
+      yield* Effect.sleep("50 millis");
+      yield* Fiber.interrupt(fiber);
+      return finalizerRan;
+    });
+
+    const finalizedBeforeInterruptReturned = await Effect.runPromise(
+      program.pipe(Effect.provide(makeTestLayer({ registry: mockToolRegistry }))) as Effect.Effect<
+        boolean,
+        unknown,
+        never
+      >,
+    );
+
+    expect(finalizedBeforeInterruptReturned).toBe(true);
   });
 
   it("detaches an in-flight tool call when the background signal fires, instead of killing it", async () => {

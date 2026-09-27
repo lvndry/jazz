@@ -11,11 +11,11 @@ import {
   parseDaemonState,
   type DaemonState,
 } from "@jazz/core/daemon/attention";
+import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
 import { toError } from "@jazz/core/utils/errors";
+import { withFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
-import { writeJsonFileDurably } from "./durable-file";
-import { withFileLock } from "./file-lock";
 
 const STATE_FILE = "daemon-state.json";
 

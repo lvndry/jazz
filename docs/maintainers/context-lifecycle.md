@@ -44,13 +44,13 @@ flowchart TB
     class CO pricey
 ```
 
-|             | Trimming                                                                                | Compaction                                                                                                                    |
-| ----------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Runs        | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
-| Costs       | nothing                                                                                 | one LLM call                                                                                                                  |
-| Budget      | 95% of the context budget                                                               | the context window the provider will actually honour                                                                          |
-| What's lost | old messages, entirely                                                                  | detail: the gist survives as a summary                                                                                        |
-| Preserves   | system message + last N complete turns                                                  | system message + a summary + recent messages                                                                                  |
+|             | Trimming                                                                                   | Compaction                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Runs        | before each request and after each reply, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
+| Costs       | nothing                                                                                    | one LLM call                                                                                                                  |
+| Budget      | 95% of the context budget                                                                  | the context window the provider will actually honour                                                                          |
+| What's lost | old messages, entirely                                                                     | detail: the gist survives as a summary                                                                                        |
+| Preserves   | system message, compaction summary, pinned messages + last N complete turns                | system message + a summary + recent messages                                                                                  |
 
 **Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
 compaction's is 80%, so compaction always gets first refusal and trimming only fires when
@@ -67,6 +67,17 @@ message list, it also invalidated the provider's cacheable prefix on every singl
 
 Trimming keeps the working set tidy. Compaction is what saves a run that genuinely has more
 history than fits.
+
+When compaction cannot do its job, the loop goes straight to trimming instead of carrying on
+over budget. That happens when the summarizer fails, when it returns an empty summary or one cut
+off at its output limit (both are refused, and the original messages stay), or when everything
+over the limit is recent and nothing is old enough to summarize. The history is then trimmed to
+the compaction threshold, and the user is told once. A summarizer failure never fails the run.
+
+When the provider itself rejects a request as too long (`contextOverflow` on the error: the
+window was smaller than estimated), the loop compacts regardless of the estimate, or trims to 70%
+of the history's size when compaction cannot run, and retries once. A second rejection fails the
+run.
 
 ---
 
@@ -142,8 +153,8 @@ receipt can drive lesson changes or skill proposals.
 
 ## 2 · Trimming: turn-aware, never mid-tool-call
 
-Trimming is checked after every reply, against 95% of the context budget. The subtlety
-isn't _what_ to drop, it's what must never be split.
+Trimming is checked before every request and after every reply, against 95% of the context
+budget. The subtlety isn't _what_ to drop, it's what must never be split.
 
 ```mermaid
 flowchart TB
@@ -177,7 +188,7 @@ flowchart TB
 
 The algorithm:
 
-1. **System message is index 0 and always survives.** It carries the agent's identity and rules.
+1. **System message is index 0 and always survives.** It carries the agent's identity and rules. So do the compaction summary, the continuation nudge after it, and pinned messages (a workflow's task): they sit right after the system message, and the summary is the only record of everything compaction replaced.
 2. **Identify the protected zone**: the last N complete _turns_, scanning backwards for user messages (default 3). A "turn" is a user message plus every assistant and tool message after it until the next user message. Complete interaction cycles, not a raw message count.
 3. **Walk backwards** from just before the protected zone, keeping messages while they fit the budget.
 4. **Validate tool integrity.** An assistant message with `tool_calls` and its corresponding `tool` result messages are kept or dropped as a unit.
@@ -265,7 +276,8 @@ might not survive. Mitigations:
 - **`summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
 - **It's visible.** You get a `Context window ~80% full: auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
 - **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep. Both go through `Summarizer.compact`, the same path automatic compaction takes: recent messages kept, the earlier summary merged, a journal entry written. They differ from it only in when they run.
-- **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched.
+- **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched, with no "auto-compacting" notice, and the loop trims instead.
+- **A bad summary never replaces history.** An empty summary, or one the summarizer model cut off at its output limit, is refused and the original messages stay.
 
 ### Durable facts reach memory before the summary
 

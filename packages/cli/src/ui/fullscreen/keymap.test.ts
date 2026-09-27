@@ -55,6 +55,17 @@ describe("escape ladder", () => {
     expect(resolveEscape(context, 1_000 + INTERRUPT_WINDOW_MS)).toEqual({ type: "interrupt" });
   });
 
+  it("only arms on a single escape while messages are queued", () => {
+    expect(resolveEscape({ ...IDLE, runActive: true, hasQueued: true }, 1_000)).toEqual({
+      type: "arm-interrupt",
+    });
+  });
+
+  it("sends the queue on a second escape inside the window", () => {
+    const context = { ...IDLE, runActive: true, hasQueued: true, interruptArmedAt: 1_000 };
+    expect(resolveEscape(context, 1_000 + INTERRUPT_WINDOW_MS)).toEqual({ type: "flush-queue" });
+  });
+
   it("re-arms rather than interrupting once the window has passed", () => {
     const context = { ...IDLE, runActive: true, interruptArmedAt: 1_000 };
     expect(resolveEscape(context, 1_000 + INTERRUPT_WINDOW_MS + 1)).toEqual({
@@ -88,6 +99,11 @@ describe("coalesced escapes over a slow link", () => {
     // through the timing ladder would see one Esc and refuse to interrupt.
     const context = { ...IDLE, runActive: true };
     expect(resolveEscapeChunk(chunk, context, 0)).toEqual({ type: "interrupt" });
+  });
+
+  it("sends the queue on a doubled escape while messages are queued", () => {
+    const context = { ...IDLE, runActive: true, hasQueued: true };
+    expect(resolveEscapeChunk(chunk, context, 0)).toEqual({ type: "flush-queue" });
   });
 
   it("does not interrupt a doubled escape when nothing is running", () => {
@@ -344,7 +360,7 @@ describe("footer hints", () => {
       "^c to stop",
     ]);
     expect(hintsFor("input", true, true, undefined, false, true, true)).toEqual([
-      "esc to send all",
+      "esc esc to send all",
       "enter to queue",
       "up to recall",
       "^x to clear",

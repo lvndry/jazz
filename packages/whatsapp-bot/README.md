@@ -89,9 +89,10 @@ Anything that can read that directory can act as the account.
 
 ## Commands
 
-Same set as the other bridges: `/new`, `/model provider/model`, `/persona name`,
-`/mode safe|yolo`, `/tz Europe/Paris`, `/status`, `/help`. A message starting
-with `/` that is not one of these goes to the agent unchanged.
+Same set as the other bridges, from the shared core: `/new`, `/model provider/model`,
+`/persona name`, `/mode safe|yolo`, `/tz Europe/Paris`, `/remind <when> <text>`,
+`/reminders`, `/status`, `/help`. A message starting with `/` that is not one of these
+goes to the agent unchanged.
 
 WhatsApp buttons are restricted to business accounts and silently degrade to
 nothing on a personal one, so approvals and questions arrive as numbered

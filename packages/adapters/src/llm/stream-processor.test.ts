@@ -3,6 +3,7 @@ import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
 import { selectParser } from "./reasoning";
 import {
+  isContentStreamPart,
   resolveStreamIdleTimeoutMs,
   StreamIdleTimeoutError,
   StreamProcessor,
@@ -67,10 +68,15 @@ describe("StreamProcessor", () => {
       { type: "finish", finishReason: "length" },
     ]);
     const filtered = await run([{ type: "finish", finishReason: "content-filter" }]);
+    const unified = await run([
+      { type: "text-delta", text: "half" },
+      { type: "finish", finishReason: { unified: "length", raw: "max_tokens" } },
+    ]);
     const silent = await run([{ type: "text-delta", text: "answer" }, { type: "finish" }]);
 
     expect(cutOff.finishReason).toBe("length");
     expect(filtered.finishReason).toBe("content-filter");
+    expect(unified.finishReason).toBe("length");
     expect(silent.finishReason).toBe("unknown");
   });
 
@@ -114,6 +120,33 @@ describe("StreamProcessor", () => {
     const upperBound = (outputTokens / decodeMs) * 1000;
     expect(complete.metrics.tokensPerSecond).toBeLessThanOrEqual(upperBound);
     expect(complete.metrics.tokensPerSecond).toBeGreaterThan(upperBound / 3);
+  });
+
+  it("takes usage from the finish part without waiting on result.usage", async () => {
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      () => {},
+      mockLogger,
+    );
+
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "Hello" };
+        yield {
+          type: "finish",
+          finishReason: "stop",
+          totalUsage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
+        };
+      })(),
+      usage: new Promise(() => {}),
+      response: Promise.resolve({ messages: [] }),
+    } as any;
+
+    const startedAt = Date.now();
+    const finalResponse = await processor.process(mockResult);
+
+    expect(finalResponse.usage).toMatchObject({ promptTokens: 12, completionTokens: 3 });
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
   it("omits tokens per second when the provider reports no output tokens", async () => {
@@ -721,6 +754,38 @@ describe("withIdleTimeout", () => {
     const seen: number[] = [];
     for await (const value of withIdleTimeout(slowButAlive(), 50)) seen.push(value);
     expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("gives the first content part its own, longer budget", async () => {
+    async function* slowFirstToken(): AsyncGenerator<{ type: string }> {
+      yield { type: "start" };
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      yield { type: "text-delta" };
+      yield { type: "finish" };
+    }
+    const seen: string[] = [];
+    for await (const part of withIdleTimeout(slowFirstToken(), 30, 500, isContentStreamPart)) {
+      seen.push(part.type);
+    }
+    expect(seen).toEqual(["start", "text-delta", "finish"]);
+  });
+
+  it("holds the between-parts budget once content is flowing", async () => {
+    async function* stallAfterContent(): AsyncGenerator<{ type: string }> {
+      yield { type: "text-delta" };
+      await new Promise(() => {});
+    }
+    const drain = async (): Promise<void> => {
+      for await (const _part of withIdleTimeout(
+        stallAfterContent(),
+        30,
+        5_000,
+        isContentStreamPart,
+      )) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/no additional part/);
   });
 
   it("abandons a stream that stalls without closing", async () => {
