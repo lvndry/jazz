@@ -108,10 +108,12 @@ of it.
 
 Work the daemon runs alone stops and waits when it needs a person: a run asking to approve a
 command, a question only you can answer, a goal stopped for review, a loop that failed three
-times. The daemon tells you the moment that happens, once per item, through the channels in
-`daemon.notify`: a desktop notification on the machine (on unless you turn it off), a push to
-your phone through an [ntfy](https://ntfy.sh) topic, or a JSON POST to a URL of yours. Each
-notification says what waits and the command that answers it.
+times. The daemon tells you the moment that happens, once per item, through the
+[`notify` targets](../configure/notifications.md): a desktop notification on the machine (the
+default while `notify.targets` is unset), a push to your phone through an [ntfy](https://ntfy.sh)
+topic, a JSON POST to a URL of yours (HMAC-signed when you give it a secret), or a Telegram or
+Discord message. Each notification says what waits and the command that answers it, and goes
+through the notify outbox, so a target that is down gets it once it is back.
 
 ```bash
 jazz daemon status   # running or paused, what it spent today, and everything waiting for you
@@ -132,10 +134,12 @@ you can still be answered. `jazz daemon resume` starts it again. The HTTP equiva
 `POST /daemon/pause` and `POST /daemon/resume`.
 
 Each run the daemon starts is held to the agent loop's own limits, but nothing else bounds the
-sum. `daemon.dailyCostUSD` and `daemon.dailyTokens` do: once unattended runs started since local
-midnight have spent that much, the daemon pauses itself until midnight and tells you. Your chat
-turns never count. `jazz daemon resume` lifts the cap for the rest of that day. The dollar cap
-binds only while every counted run is priced; on a local model use `dailyTokens`.
+sum. `daemon.dailyCostUSD` and `daemon.dailyTokens` do: once unattended runs have spent that
+much since local midnight (read from the machine-wide spend ledger), the daemon pauses itself
+until midnight and tells you. Your chat turns never count. `jazz daemon resume` lifts the cap for
+the rest of that day. The dollar cap binds only while every counted run is priced; on a model
+nobody has priced use `dailyTokens`. Monthly, per-agent and goal caps sit beside these keys; see
+[daily and monthly caps](budgets.md#daily-and-monthly-caps).
 
 ---
 

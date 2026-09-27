@@ -1,10 +1,10 @@
 /**
  * @fileoverview Where a run came from, for the spend ledger and the notify channel.
  *
- * Every entry point that starts a run names its source. The source decides two things: which
- * line of `jazz spend` the cost lands on, and whether a reached spend ceiling refuses the run
- * (nobody is there to decide, so it must not start) or only warns (a person is typing and
- * can stop).
+ * Every entry point that starts a run names its source: which line of `jazz spend` the cost
+ * lands on, which `daemon.goals` caps cover it, and how a notification names it. Whether a
+ * reached cap refuses the run is decided by whether anyone could be asked while it runs (see
+ * `spend/run-accounting.ts`), not by its source.
  */
 
 export const SPEND_SOURCES = [
@@ -36,18 +36,7 @@ export interface RunOrigin {
   readonly deliverTo?: readonly string[];
 }
 
-/**
- * Sources where a person is present to decide. `resume` is a parked run somebody just
- * answered: stopping the work they approved would waste the approval.
- */
-const ATTENDED_SOURCES: ReadonlySet<SpendSource> = new Set(["chat", "bot", "resume"]);
-
-/** Whether nobody is present to decide, so a reached ceiling must refuse the run. */
-export function isUnattendedSource(source: SpendSource): boolean {
-  return !ATTENDED_SOURCES.has(source);
-}
-
-/** Sources the `spend.goals` ceilings cover: work that keeps going on its own. */
+/** Sources the `daemon.goals` caps cover: goal cycles and loop runs, wherever they run. */
 const AUTONOMOUS_SOURCES: ReadonlySet<SpendSource> = new Set(["goal", "loop"]);
 
 export function isGoalSource(source: SpendSource): boolean {

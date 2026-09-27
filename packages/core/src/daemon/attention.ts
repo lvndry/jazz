@@ -2,12 +2,12 @@
  * @fileoverview What the daemon owes the person who runs it: telling them when something needs
  * them, and stopping its own work when they say so or when it has spent its daily allowance.
  *
- * Pure rules over plain data; the stores, the notifier, and the routes live in adapters.
+ * Pure rules over plain data; the stores, the notifier, and the routes live in adapters. Spend
+ * is read from the spend ledger (`spend/ledger.ts`) and capped by `spend/ceilings.ts`.
  */
 
 import { z } from "zod";
-import type { RunRecord } from "@/core/agent/run/run-record";
-import type { DaemonConfig } from "@/core/types/config";
+import type { PendingInput } from "@/core/agent/run/run-state";
 
 /** Why the daemon stopped starting work of its own. */
 export type DaemonPause =
@@ -80,6 +80,7 @@ export function startOfNextLocalDay(now: Date): Date {
   return next;
 }
 
+/** What unattended runs spent today, from the spend ledger. */
 export interface UnattendedSpend {
   readonly runs: number;
   readonly totalTokens: number;
@@ -88,55 +89,9 @@ export interface UnattendedSpend {
   readonly costKnown: boolean;
 }
 
-/**
- * What unattended runs started since local midnight have spent. A run that started yesterday
- * counts toward yesterday even if it finished today; a chat's runs never count.
- */
-export function unattendedSpendToday(
-  records: readonly Pick<RunRecord, "unattended" | "createdAt" | "totalTokens" | "costUSD">[],
-  now: Date,
-): UnattendedSpend {
-  const since = startOfLocalDay(now).getTime();
-  let runs = 0;
-  let totalTokens = 0;
-  let costUSD = 0;
-  let costKnown = true;
-  for (const record of records) {
-    if (record.unattended !== true || Date.parse(record.createdAt) < since) {
-      continue;
-    }
-    runs += 1;
-    totalTokens += record.totalTokens ?? 0;
-    if (record.costUSD === undefined) {
-      costKnown = false;
-    } else {
-      costUSD += record.costUSD;
-    }
-  }
-  return costKnown ? { runs, totalTokens, costUSD, costKnown } : { runs, totalTokens, costKnown };
-}
-
 /** Whether the person lifted the daily cap for the rest of the day by resuming. */
 export function capLifted(state: DaemonState, now: Date): boolean {
   return state.capLiftedUntil !== undefined && Date.parse(state.capLiftedUntil) > now.getTime();
-}
-
-/** The daily cap today's spend has reached, or undefined while the daemon may keep working. */
-export function dailyCapReached(
-  config: DaemonConfig | undefined,
-  spend: UnattendedSpend,
-): DailyLimit | undefined {
-  if (
-    config?.dailyCostUSD !== undefined &&
-    spend.costKnown &&
-    (spend.costUSD ?? 0) >= config.dailyCostUSD
-  ) {
-    return "cost";
-  }
-  if (config?.dailyTokens !== undefined && spend.totalTokens >= config.dailyTokens) {
-    return "tokens";
-  }
-  return undefined;
 }
 
 /** Something that cannot go on until the person answers or looks at it. */
@@ -175,3 +130,113 @@ export function keepNotified(
   const waiting = new Set(items.map((item) => item.key));
   return Object.fromEntries(Object.entries(notified).filter(([key]) => waiting.has(key)));
 }
+
+/** What a parked run waits on from the person, in words. */
+export function describePendingInput(pending: PendingInput): string {
+  return pending.kind === "tool-approval"
+    ? pending.request.message
+    : pending.kind === "question"
+      ? pending.request.question
+      : "a file to be picked";
+}
+
+/**
+ * The waiting item for a parked run. `who` names what parked it ("Goal ship-docs", "Loop
+ * deploy-watch", "A run"). The key is the same whoever builds it (the daemon's tick, or the run
+ * the moment it parks), so the notify outbox announces it once.
+ */
+export function parkedRunWaitingItem(input: {
+  readonly runId: string;
+  readonly agentId: string;
+  readonly pending: PendingInput;
+  readonly since: string;
+  readonly who: string;
+  readonly conversationId?: string;
+  readonly goalId?: string;
+  readonly loopId?: string;
+}): WaitingItem {
+  const { pending, who } = input;
+  const common = {
+    since: input.since,
+    runId: input.runId,
+    agentId: input.agentId,
+    detail: describePendingInput(pending),
+    ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
+    ...(input.goalId !== undefined ? { goalId: input.goalId } : {}),
+    ...(input.loopId !== undefined ? { loopId: input.loopId } : {}),
+  };
+  switch (pending.kind) {
+    case "tool-approval":
+      return {
+        ...common,
+        key: `run:${input.runId}:${pending.request.toolCallId}`,
+        kind: "approval",
+        title: `${who} wants to use ${pending.request.toolName}`,
+      };
+    case "question":
+      return {
+        ...common,
+        key: `run:${input.runId}:${pending.toolCallId}`,
+        kind: "question",
+        title: `${who} has a question`,
+      };
+    case "file-picker":
+      return {
+        ...common,
+        key: `run:${input.runId}:${pending.toolCallId}`,
+        kind: "file",
+        title: `${who} needs a file`,
+      };
+  }
+}
+
+/**
+ * How to answer an item, for a notification body. From a chat a Jazz bridge serves, an approval
+ * is answered with `/approve`; anywhere else with the shell command.
+ */
+export function answerHint(
+  item: WaitingItem,
+  options: { readonly fromChat?: boolean } = {},
+): string {
+  if (item.runId !== undefined && item.kind === "approval") {
+    return options.fromChat === true
+      ? `Reply /approve ${item.runId} or /deny ${item.runId}`
+      : `jazz runs approve ${item.runId} (or reject)`;
+  }
+  if (item.runId !== undefined && item.kind === "question") {
+    return `jazz runs answer ${item.runId} --response "<your answer>"`;
+  }
+  if (item.goalId !== undefined) {
+    return `jazz goal show ${item.goalId.slice(0, 8)}`;
+  }
+  if (item.loopId !== undefined) {
+    return `jazz loop show ${item.loopId.slice(0, 8)}`;
+  }
+  return "open jazz";
+}
+
+const waitingKinds = [
+  "approval",
+  "question",
+  "file",
+  "goal-review",
+  "goal-limit",
+  "loop-stopped",
+] as const satisfies readonly WaitingKind[];
+
+/** On-disk shape of a {@link WaitingItem}, for the notify outbox. */
+export const WaitingItemSchema: z.ZodType<WaitingItem> = z.object({
+  key: z.string(),
+  kind: z.enum(waitingKinds),
+  title: z.string(),
+  detail: z.string(),
+  since: z.string(),
+  runId: z.string().exactOptional(),
+  goalId: z.string().exactOptional(),
+  loopId: z.string().exactOptional(),
+  agentId: z.string().exactOptional(),
+  conversationId: z.string().exactOptional(),
+});
+
+/** On-disk shape of a {@link DaemonPause}, for the notify outbox. */
+export const DaemonPauseSchema: z.ZodType<DaemonPause> = daemonStateSchema.shape.paused.unwrap();

@@ -37,6 +37,7 @@ function entryLine(at: number, agentId: string, costUSD: number): string {
     costUSD,
     costKnown: true,
     tokens: 10,
+    unattended: true,
   });
 }
 
@@ -45,13 +46,27 @@ describe("spend ledger", () => {
     const home = temporaryHome();
     await Effect.runPromise(
       recordSpend(
-        { agentId: "a", source: "workflow", costUSD: 0.5, costKnown: true, tokens: 100 },
+        {
+          agentId: "a",
+          source: "workflow",
+          costUSD: 0.5,
+          costKnown: true,
+          tokens: 100,
+          unattended: true,
+        },
         home,
       ),
     );
     await Effect.runPromise(
       recordSpend(
-        { agentId: "b", source: "goal", costUSD: 0.25, costKnown: false, tokens: 50 },
+        {
+          agentId: "b",
+          source: "goal",
+          costUSD: 0.25,
+          costKnown: false,
+          tokens: 50,
+          unattended: true,
+        },
         home,
       ),
     );
@@ -67,7 +82,10 @@ describe("spend ledger", () => {
   it("keeps the day file private to its owner", async () => {
     const home = temporaryHome();
     await Effect.runPromise(
-      recordSpend({ agentId: "a", source: "run", costUSD: 0.1, costKnown: true, tokens: 1 }, home),
+      recordSpend(
+        { agentId: "a", source: "run", costUSD: 0.1, costKnown: true, tokens: 1, unattended: true },
+        home,
+      ),
     );
     const dayFile = path.join(spendDirectory(home), "days", `${localDayKey(Date.now())}.jsonl`);
 
@@ -122,7 +140,10 @@ describe("spend ledger", () => {
     writeFileSync(dayFile, `${entryLine(Date.now(), "a", 1)}\n{"at":"torn`);
 
     await Effect.runPromise(
-      recordSpend({ agentId: "b", source: "run", costUSD: 2, costKnown: true, tokens: 1 }, home),
+      recordSpend(
+        { agentId: "b", source: "run", costUSD: 2, costKnown: true, tokens: 1, unattended: true },
+        home,
+      ),
     );
     const spend = await Effect.runPromise(readSpend(Date.now(), home));
 

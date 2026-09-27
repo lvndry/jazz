@@ -669,10 +669,10 @@ describe("parseConfigInput", () => {
     });
   });
 
-  it("names a URL setting's expected value in words", () => {
-    expect(parseConfigInput("daemon.notify.ntfyUrl", "not a url")).toMatchObject({
+  it("names a numeric setting's expected value in words", () => {
+    expect(parseConfigInput("daemon.dailyCostUSD", "-1")).toMatchObject({
       ok: false,
-      expected: "an https URL",
+      expected: "a number greater than 0",
     });
   });
 

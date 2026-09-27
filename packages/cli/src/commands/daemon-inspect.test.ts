@@ -132,6 +132,7 @@ it("retains background pause, spend caps and waiting approvals in the status tex
     pauseReason: "Paused by you",
     spendToday: { runs: 2, totalTokens: 120, costUSD: 0.5, costKnown: true },
     dailyCaps: { tokens: 1000, costUSD: 2 },
+    caps: [],
     capLiftedToday: false,
     waiting: [],
   });

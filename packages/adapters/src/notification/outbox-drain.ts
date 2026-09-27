@@ -1,5 +1,5 @@
 /**
- * @fileoverview Draining the notify outbox: claim what is due on each channel, send it, and
+ * @fileoverview Draining the notify outbox: claim what is due on each target, send it, and
  * settle each item as delivered (removed) or failed (kept with its error and next retry).
  *
  * The daemon drains every tick; a CLI command that may have queued something (`jazz run`, a
@@ -12,13 +12,14 @@
 import * as nodeFs from "node:fs/promises";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
+  notifyTargets,
   OUTBOX_FILE_KIND,
   type OutboxItem,
   outboxDirectory,
   outboxFilePath,
   outboxLockPath,
 } from "@jazz/core/notify/outbox";
-import type { NotifyChannelConfig } from "@jazz/core/types/notify";
+import type { NotifyTarget } from "@jazz/core/types/notify";
 import {
   type DeliveryOutcome,
   describeDelivery,
@@ -34,7 +35,7 @@ import {
   type ScheduledItemStore,
   settleItem,
 } from "@/adapters/storage/scheduled-items";
-import { type SendContext, sendToChannel } from "./channels";
+import { type SendContext, sendToTarget } from "./targets";
 
 /** Where notify outbox items live, for the shared claim and settle logic. */
 export const NOTIFY_OUTBOX_STORE: ScheduledItemStore<OutboxItem> = {
@@ -53,44 +54,41 @@ export interface DrainOptions {
   readonly home?: string;
   readonly now?: number;
   readonly send?: (
-    channelName: string,
-    channel: NotifyChannelConfig,
+    target: NotifyTarget,
     item: OutboxItem,
     context: SendContext,
   ) => Effect.Effect<DeliveryOutcome, never>;
 }
 
 /**
- * Send everything due in the outbox, channel by channel, in queue order. Never fails: a
- * channel whose file cannot be claimed this pass is tried again on the next.
+ * Send everything due in the outbox, target by target, in queue order. Never fails: a
+ * target whose file cannot be claimed this pass is tried again on the next.
  */
 export function drainNotifyOutbox(options: DrainOptions = {}) {
   return Effect.gen(function* () {
     const config = yield* AgentConfigServiceTag;
     const appConfig = yield* config.appConfig;
-    const channels = appConfig.notifications?.channels ?? {};
+    const targets = notifyTargets(appConfig);
     const baseDirectory = outboxDirectory(options.home);
     const now = options.now ?? Date.now();
     const claims = yield* claimDueItems(NOTIFY_OUTBOX_STORE, baseDirectory, now).pipe(
       Effect.catchAll(() => Effect.succeed([])),
     );
     const send =
-      options.send ??
-      ((channelName, channel, item, context) =>
-        sendToChannel(channelName, channel, item.event, context));
+      options.send ?? ((target, item, context) => sendToTarget(target, item.event, context));
     let delivered = 0;
     let failed = 0;
     const ordered = [...claims].sort((left, right) => left.item.fireAt - right.item.fireAt);
-    for (const { agentId: channelName, item } of ordered) {
-      const channel = channels[channelName];
+    for (const { agentId: targetName, item } of ordered) {
+      const target = targets.find((candidate) => candidate.name === targetName);
       const outcome: DeliveryOutcome =
-        channel === undefined
+        target === undefined
           ? {
               delivered: false,
-              error: `No notify channel named "${channelName}" is configured any more.`,
+              error: `No notify target named "${targetName}" is configured any more.`,
               retryable: false,
             }
-          : yield* send(channelName, channel, item, { deliveryId: item.id });
+          : yield* send(target, item, { deliveryId: item.id });
       if (outcome.delivered) {
         delivered += 1;
       } else {
@@ -99,7 +97,7 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
       yield* settleItem(
         NOTIFY_OUTBOX_STORE,
         baseDirectory,
-        channelName,
+        targetName,
         item.id,
         outcome,
         options.now ?? Date.now(),
@@ -107,11 +105,11 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
         Effect.catchAll((error) =>
           Effect.sync(() =>
             process.stderr.write(
-              `[jazz] Could not record a notification's delivery on "${channelName}": ${error.message}\n`,
+              `[jazz] Could not record a notification's delivery on "${targetName}": ${error.message}\n`,
             ),
           ),
         ),
-        Effect.ensuring(Effect.sync(() => finishClaim(NOTIFY_OUTBOX_STORE, channelName, item.id))),
+        Effect.ensuring(Effect.sync(() => finishClaim(NOTIFY_OUTBOX_STORE, targetName, item.id))),
       );
     }
     return { delivered, failed } satisfies DrainReport;
@@ -120,14 +118,14 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
 
 /** One queued notification as `jazz notify outbox` shows it. */
 export interface OutboxEntry {
-  readonly channel: string;
+  readonly target: string;
   readonly id: string;
   readonly kind: OutboxItem["event"]["kind"];
   readonly queuedAt: string;
   readonly delivery: ReturnType<typeof describeDelivery>;
 }
 
-async function channelNames(baseDirectory: string): Promise<string[]> {
+async function targetNames(baseDirectory: string): Promise<string[]> {
   try {
     const names = await nodeFs.readdir(baseDirectory);
     return names.filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -5));
@@ -144,18 +142,18 @@ export function listOutbox(home?: string): Effect.Effect<readonly OutboxEntry[],
   return Effect.gen(function* () {
     const baseDirectory = outboxDirectory(home);
     const names = yield* Effect.tryPromise({
-      try: () => channelNames(baseDirectory),
+      try: () => targetNames(baseDirectory),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
     const entries: OutboxEntry[] = [];
-    for (const channel of names) {
+    for (const target of names) {
       const items = yield* withLock(
-        outboxLockPath(baseDirectory, channel),
-        readItemsLocked(NOTIFY_OUTBOX_STORE, outboxFilePath(baseDirectory, channel)),
+        outboxLockPath(baseDirectory, target),
+        readItemsLocked(NOTIFY_OUTBOX_STORE, outboxFilePath(baseDirectory, target)),
       );
       for (const item of items) {
         entries.push({
-          channel,
+          target,
           id: item.id,
           kind: item.event.kind,
           queuedAt: new Date(item.fireAt).toISOString(),
@@ -175,14 +173,14 @@ export function retryStoppedNotifications(home?: string): Effect.Effect<number, 
   return Effect.gen(function* () {
     const baseDirectory = outboxDirectory(home);
     const names = yield* Effect.tryPromise({
-      try: () => channelNames(baseDirectory),
+      try: () => targetNames(baseDirectory),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
     let rearmed = 0;
-    for (const channel of names) {
-      const filePath = outboxFilePath(baseDirectory, channel);
+    for (const target of names) {
+      const filePath = outboxFilePath(baseDirectory, target);
       rearmed += yield* withLock(
-        outboxLockPath(baseDirectory, channel),
+        outboxLockPath(baseDirectory, target),
         Effect.gen(function* () {
           const items = yield* readItemsLocked(NOTIFY_OUTBOX_STORE, filePath);
           let changed = 0;

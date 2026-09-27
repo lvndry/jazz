@@ -1,5 +1,5 @@
 ---
-description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery to notify channels: verified against the parser source."
+description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery to notify targets: verified against the parser source."
 ---
 
 # Workflow frontmatter
@@ -48,7 +48,7 @@ deliver: phone
 | `maxCostUSD`       | number      | no       | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
 | `maxTokens`        | number      | no       | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
 | `maxDurationMs`    | ms          | no       | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
-| `deliver`          | string(s)   | no       | [Notify channel](./notifications.md) name, or a list, that receives each run's answer. Its failures and approval requests go there too                    |
+| `deliver`          | string(s)   | no       | [Notify target](./notifications.md) name, or a list, that receives each run's answer. Its failures and approval requests go there too                     |
 
 `maxCostUSD` and `maxTokens` are soft checkpoints, evaluated between iterations.
 `maxDurationMs` is a deadline that interrupts a model call or tool in flight. See

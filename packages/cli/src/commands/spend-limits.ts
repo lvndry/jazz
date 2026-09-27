@@ -1,32 +1,44 @@
 /**
- * The spend-limit settings the configuration wizard edits: a day and a month ceiling for goal
- * work (goal cycles and loops), and for every run on this machine. Each is unlimited until set,
- * and clearing one makes it unlimited again.
+ * The spend caps the configuration wizard edits, all under `daemon` in config.json: a daily and
+ * a monthly dollar cap for goal work (goal cycles and loops), and for every unattended run on
+ * this machine. Each is unlimited until set, and clearing one makes it unlimited again.
  *
  * `parseSpendLimitInput` reads what a person typed; `applySpendLimit` writes it (or removes the
  * key, for unlimited) through the config service, so the wizard and its tests share one rule.
  */
 
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import type { SpendConfig } from "@jazz/core/types/spend";
+import type { DaemonConfig } from "@jazz/core/types/config";
 import { Effect } from "effect";
 
 export interface SpendLimitSetting {
   readonly key: string;
   readonly label: string;
-  readonly read: (spend: SpendConfig | undefined) => number | undefined;
+  readonly read: (caps: DaemonConfig | undefined) => number | undefined;
 }
 
 /** Goal ceilings come first: they are the ones the owner asked the wizard to offer. */
 export const SPEND_LIMIT_SETTINGS: readonly SpendLimitSetting[] = [
-  { key: "spend.goals.dayUSD", label: "Goals, per day", read: (spend) => spend?.goals?.dayUSD },
   {
-    key: "spend.goals.monthUSD",
-    label: "Goals, per month",
-    read: (spend) => spend?.goals?.monthUSD,
+    key: "daemon.goals.dailyCostUSD",
+    label: "Goals, per day",
+    read: (caps) => caps?.goals?.dailyCostUSD,
   },
-  { key: "spend.dayUSD", label: "Every run, per day", read: (spend) => spend?.dayUSD },
-  { key: "spend.monthUSD", label: "Every run, per month", read: (spend) => spend?.monthUSD },
+  {
+    key: "daemon.goals.monthlyCostUSD",
+    label: "Goals, per month",
+    read: (caps) => caps?.goals?.monthlyCostUSD,
+  },
+  {
+    key: "daemon.dailyCostUSD",
+    label: "All unattended work, per day",
+    read: (caps) => caps?.dailyCostUSD,
+  },
+  {
+    key: "daemon.monthlyCostUSD",
+    label: "All unattended work, per month",
+    read: (caps) => caps?.monthlyCostUSD,
+  },
 ];
 
 export type SpendLimitInput =

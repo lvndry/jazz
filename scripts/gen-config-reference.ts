@@ -60,37 +60,20 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Days log files are kept after their last write. Defaults to 14; one-shot firing logs are kept for one day.",
   "logging.maxTotalSizeMB":
     "Size cap for the logs directory in megabytes. Oldest files are removed first. Defaults to 200.",
-  "notifications.channels.<name>.type":
-    "Delivery transport for this named notification channel. See [Notifications](./notifications.md).",
-  "notifications.channels.<name>.events":
-    "Event subscriptions. Unset receives every subscribable event; workflow results go to the channels named by the workflow’s `deliver` field.",
-  "notifications.channels.<name>.chatId": "Telegram chat id to receive notifications.",
-  "notifications.channels.<name>.botToken":
-    "Telegram or Discord bot token. Stored in the keyring; an environment variable can supply it on hosts without a keyring.",
-  "notifications.channels.<name>.apiBaseUrl":
-    "Override the Telegram or Discord API base URL for bot delivery.",
-  "notifications.channels.<name>.approveFromChat":
+  "notify.targets[].name":
+    "This target's name: the key its secrets are stored under (`notify.targets.<name>.<field>`) and what a workflow's `deliver` field names. See [Notifications](./notifications.md).",
+  "notify.targets[].kind": "Delivery transport: desktop, ntfy, webhook, telegram or discord.",
+  "notify.targets[].events":
+    "Event subscriptions. Unset receives every subscribable event; workflow results go to the targets named by the workflow’s `deliver` field.",
+  "notify.targets[].url":
+    "ntfy topic URL, or the endpoint that receives each notification as a JSON POST (signed when the target has a secret).",
+  "notify.targets[].chatId": "Telegram chat id to receive notifications.",
+  "notify.targets[].channelId": "Discord channel id for delivery using a bot token.",
+  "notify.targets[].apiBaseUrl": "Override the Telegram or Discord API base URL for bot delivery.",
+  "notify.targets[].approveFromChat":
     "Include chat approval commands in parked-run notifications. Requires a running bridge with operators and `JAZZ_APPROVALS_HOME` configured. Defaults to false.",
-  "notifications.channels.<name>.webhookUrl":
-    "Discord incoming webhook URL, used instead of a bot token and channel id.",
-  "notifications.channels.<name>.channelId": "Discord channel id for delivery using a bot token.",
-  "notifications.channels.<name>.url": "Webhook endpoint receiving JSON notification deliveries.",
-  "notifications.channels.<name>.secret":
-    "Shared secret used to sign webhook deliveries with HMAC-SHA256. Required to send.",
   "history.maxConversationsPerAgent":
     "Conversations kept in each agent’s live history. Older conversations are archived, not deleted; active goal, loop and run conversations are protected. Defaults to 100.",
-  "spend.dayUSD":
-    "Machine-wide spend ceiling per local day, in dollars. Unset is unlimited. See [Budgets](../concepts/budgets.md#day-and-month-ceilings).",
-  "spend.monthUSD":
-    "Machine-wide priced-spend ceiling per local month, in dollars. Unset is unlimited.",
-  "spend.goals.dayUSD":
-    "Combined goal-cycle and loop-run spend ceiling per local day, in dollars. Unset is unlimited.",
-  "spend.goals.monthUSD":
-    "Combined goal-cycle and loop-run priced-spend ceiling per local month, in dollars. Unset is unlimited.",
-  "spend.agents.<name>.dayUSD":
-    "Spend ceiling for this agent id per local day, in dollars. Unset is unlimited.",
-  "spend.agents.<name>.monthUSD":
-    "Priced-spend ceiling for this agent id per local month, in dollars. Unset is unlimited.",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":
@@ -234,14 +217,19 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "webhooks[].maxConcurrentRuns":
     "Runs this webhook may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "daemon.dailyCostUSD":
-    "Most dollars unattended runs may spend per day, across all of them. Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. See [Daemon limits](./jazz.md#daemon-limits-and-notifications).",
+    "Most dollars unattended runs may spend per day, across all of them. Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. Unset is unlimited. See [Spend caps](./jazz.md#spend-caps-and-notifications).",
+  "daemon.monthlyCostUSD":
+    "Most dollars unattended runs may spend per local month, across all of them. Unset is unlimited.",
   "daemon.dailyTokens":
     "Most prompt and completion tokens unattended runs may spend per day, across all of them.",
-  "daemon.notify.desktop":
-    "Desktop notification when the daemon needs you or pauses. Defaults to true; `notifications.enabled` false turns it off too.",
-  "daemon.notify.ntfyUrl":
-    "An ntfy topic URL, such as `https://ntfy.sh/my-jazz`, for a push to your phone.",
-  "daemon.notify.webhookUrl": "A URL that receives each daemon notification as a JSON POST.",
+  "daemon.goals.dailyCostUSD":
+    "Combined goal-cycle and loop-run spend cap per local day, in dollars. Unset is unlimited.",
+  "daemon.goals.monthlyCostUSD":
+    "Combined goal-cycle and loop-run spend cap per local month, in dollars. Unset is unlimited.",
+  "daemon.agents.<name>.dailyCostUSD":
+    "Unattended spend cap for this agent id per local day, in dollars. Unset is unlimited.",
+  "daemon.agents.<name>.monthlyCostUSD":
+    "Unattended spend cap for this agent id per local month, in dollars. Unset is unlimited.",
   "daemon.token":
     "The daemon's bearer token, written here only on a host without a keyring. Written by Jazz.",
 };

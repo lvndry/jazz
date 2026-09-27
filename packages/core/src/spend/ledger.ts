@@ -14,7 +14,7 @@
  *
  * Usage:
  * ```ts
- * yield* recordSpend({ agentId, source: "workflow", costUSD: 0.02, costKnown: true, tokens: 900 });
+ * yield* recordSpend({ agentId, source: "workflow", costUSD: 0.02, costKnown: true, tokens: 900, unattended: true });
  * const spend = yield* readSpend(Date.now());
  * spend.today.total.costUSD; // dollars spent today, across every run
  * ```
@@ -51,6 +51,8 @@ export interface SpendEntry {
   /** False when some of the run's tokens had no pricing, so `costUSD` understates it. */
   readonly costKnown: boolean;
   readonly tokens: number;
+  /** Nobody could be asked while it ran, so it counts toward the `daemon` spend caps. */
+  readonly unattended: boolean;
   readonly runId?: string;
   /** The surface the run came through when that is narrower than `source` ("telegram"). */
   readonly origin?: string;
@@ -66,6 +68,7 @@ const SpendEntrySchema = z.object({
   costUSD: z.number().finite().nonnegative(),
   costKnown: z.boolean(),
   tokens: z.number().finite().nonnegative(),
+  unattended: z.boolean(),
   runId: z.string().optional(),
   origin: z.string().optional(),
 });
@@ -82,6 +85,9 @@ export interface SpendTotals {
 /** One day's spend, whole and broken down. */
 export interface DaySpend {
   readonly total: SpendTotals;
+  /** The runs nobody could be asked in: what the `daemon` spend caps count. */
+  readonly unattended: SpendTotals;
+  readonly unattendedByAgent: Readonly<Record<string, SpendTotals>>;
   readonly byAgent: Readonly<Record<string, SpendTotals>>;
   readonly bySource: Readonly<Partial<Record<SpendSource, SpendTotals>>>;
   readonly byOrigin: Readonly<Record<string, SpendTotals>>;
@@ -102,7 +108,14 @@ export interface SpendReport {
 
 export const EMPTY_TOTALS: SpendTotals = { costUSD: 0, runs: 0, tokens: 0, unpricedRuns: 0 };
 
-export const EMPTY_DAY: DaySpend = { total: EMPTY_TOTALS, byAgent: {}, bySource: {}, byOrigin: {} };
+export const EMPTY_DAY: DaySpend = {
+  total: EMPTY_TOTALS,
+  unattended: EMPTY_TOTALS,
+  unattendedByAgent: {},
+  byAgent: {},
+  bySource: {},
+  byOrigin: {},
+};
 
 const TotalsSchema = z.object({
   costUSD: z.number().finite(),
@@ -113,6 +126,8 @@ const TotalsSchema = z.object({
 
 const DaySpendSchema = z.object({
   total: TotalsSchema,
+  unattended: TotalsSchema,
+  unattendedByAgent: z.record(z.string(), TotalsSchema),
   byAgent: z.record(z.string(), TotalsSchema),
   bySource: z.partialRecord(z.enum(SPEND_SOURCES), TotalsSchema),
   byOrigin: z.record(z.string(), TotalsSchema),
@@ -206,6 +221,10 @@ export function addEntryToDay(day: DaySpend, entry: SpendEntry): DaySpend {
   const totals = totalsOf(entry);
   return {
     total: addTotals(day.total, totals),
+    unattended: entry.unattended ? addTotals(day.unattended, totals) : day.unattended,
+    unattendedByAgent: entry.unattended
+      ? (addToRecord(day.unattendedByAgent, entry.agentId, totals) as Record<string, SpendTotals>)
+      : day.unattendedByAgent,
     byAgent: addToRecord(day.byAgent, entry.agentId, totals) as Record<string, SpendTotals>,
     bySource: addToRecord(day.bySource, entry.source, totals),
     byOrigin:
@@ -219,6 +238,11 @@ export function addEntryToDay(day: DaySpend, entry: SpendEntry): DaySpend {
 export function mergeDays(left: DaySpend, right: DaySpend): DaySpend {
   return {
     total: addTotals(left.total, right.total),
+    unattended: addTotals(left.unattended, right.unattended),
+    unattendedByAgent: mergeRecords(left.unattendedByAgent, right.unattendedByAgent) as Record<
+      string,
+      SpendTotals
+    >,
     byAgent: mergeRecords(left.byAgent, right.byAgent) as Record<string, SpendTotals>,
     bySource: mergeRecords(left.bySource, right.bySource),
     byOrigin: mergeRecords(left.byOrigin, right.byOrigin) as Record<string, SpendTotals>,

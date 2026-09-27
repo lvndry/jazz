@@ -50,12 +50,13 @@ import {
   type SkillService,
 } from "@jazz/core/skills/skill-service";
 import {
-  type CeilingCheck,
-  ceilingWindowKey,
-  checkSpendCeilings,
-  describeCeilingCheck,
-} from "@jazz/core/spend/ceilings";
+  type CapCheck,
+  capWindowKey,
+  checkSpendCaps,
+  describeCapCheck,
+} from "@jazz/core/spend/caps";
 import { localDayKey, localMonthKey } from "@jazz/core/spend/ledger";
+import type { DaemonConfig } from "@jazz/core/types/config";
 import {
   GenerationInterruptedError,
   LLMAuthenticationError,
@@ -65,7 +66,6 @@ import {
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
-import type { SpendConfig } from "@jazz/core/types/spend";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
@@ -250,8 +250,8 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
-      /** Ceilings already warned about this session, by window, so each warns once. */
-      const warnedSpendCeilings = new Set<string>();
+      /** Spend caps already warned about this session, by window, so each warns once. */
+      const warnedSpendCaps = new Set<string>();
       let sessionLimits: SessionLimits = {};
       let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
@@ -705,11 +705,11 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
-        yield* warnWhenSpendCeilingReached(
+        yield* warnWhenSpendCapReached(
           terminal,
-          (yield* configService.appConfig).spend,
+          (yield* configService.appConfig).daemon,
           agent.id,
-          warnedSpendCeilings,
+          warnedSpendCaps,
         );
         sessionTurnCount += 1;
 
@@ -1024,30 +1024,31 @@ export function createChatServiceLayer(): Layer.Layer<
 }
 
 /**
- * Chat is attended, so a reached spend ceiling does not stop it: the person is told once per
- * ceiling and window, and decides. Unattended runs refuse instead (see `run-accounting.ts`).
+ * Chat never counts toward the `daemon` spend caps and is never stopped by them, but the person
+ * is told once per cap and window when one covering this agent is reached: the unattended work
+ * it covers refuses to start until then (see `run-accounting.ts`).
  */
-function warnWhenSpendCeilingReached(
+function warnWhenSpendCapReached(
   terminal: TerminalService,
-  spend: SpendConfig | undefined,
+  caps: DaemonConfig | undefined,
   agentId: string,
   warned: Set<string>,
 ) {
   return Effect.gen(function* () {
     const now = Date.now();
-    const check = yield* checkSpendCeilings(spend, { agentId, source: "chat" }, now).pipe(
-      Effect.catchAll(() => Effect.succeed<CeilingCheck>({ kind: "clear" })),
+    const check = yield* checkSpendCaps(caps, { agentId, source: "chat" }, { now }).pipe(
+      Effect.catchAll(() => Effect.succeed<CapCheck>({ kind: "clear" })),
     );
     if (check.kind === "clear") {
       return;
     }
-    const key = ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
+    const key = capWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
     if (warned.has(key)) {
       return;
     }
     warned.add(key);
     yield* terminal.warn(
-      `${describeCeilingCheck(check)} Chat continues; unattended runs under this ceiling refuse to start.`,
+      `${describeCapCheck(check)} Chat is not capped; the unattended work it covers waits.`,
     );
   });
 }

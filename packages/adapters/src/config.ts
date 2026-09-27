@@ -1434,14 +1434,20 @@ function isBlankSecret(value: unknown): boolean {
 /**
  * Whether a dotted path can be written into the config object at all.
  *
- * False when the first segment names a list. `AppConfig.webhooks` and `AppConfig.peers` are
- * arrays, so `deepSet` on `webhooks.mira.token` would silently swap the array for an object
- * and take every configured entry with it.
+ * False when any segment on the way names a list. `webhooks`, `peers` and `notify.targets` are
+ * arrays, so `deepSet` on `webhooks.mira.token` or `notify.targets.phone.botToken` would
+ * silently swap the array for an object and take every configured entry with it.
  */
 function structuralHomeFor(config: AppConfig, path: string): boolean {
-  const root = splitConfigPath(path)?.[0];
-  if (root === undefined) return false;
-  return !Array.isArray((config as unknown as Record<string, unknown>)[root]);
+  const segments = splitConfigPath(path);
+  if (segments === undefined || segments.length === 0) return false;
+  let current: unknown = config;
+  for (const segment of segments.slice(0, -1)) {
+    if (current === null || typeof current !== "object") return true;
+    current = (current as Record<string, unknown>)[segment];
+    if (Array.isArray(current)) return false;
+  }
+  return true;
 }
 
 /**

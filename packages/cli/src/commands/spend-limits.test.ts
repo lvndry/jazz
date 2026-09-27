@@ -31,8 +31,8 @@ describe("parseSpendLimitInput", () => {
 describe("wizard spend limits", () => {
   it("offers the goal day and month caps first", () => {
     expect(SPEND_LIMIT_SETTINGS.slice(0, 2).map((setting) => setting.key)).toEqual([
-      "spend.goals.dayUSD",
-      "spend.goals.monthUSD",
+      "daemon.goals.dailyCostUSD",
+      "daemon.goals.monthlyCostUSD",
     ]);
   });
 
@@ -48,16 +48,18 @@ describe("wizard spend limits", () => {
     );
 
     await Effect.runPromise(
-      applySpendLimit(service, "spend.goals.dayUSD", { kind: "limit", dollars: 3 }),
+      applySpendLimit(service, "daemon.goals.dailyCostUSD", { kind: "limit", dollars: 3 }),
     );
     await Effect.runPromise(
-      applySpendLimit(service, "spend.goals.monthUSD", { kind: "limit", dollars: 40 }),
+      applySpendLimit(service, "daemon.goals.monthlyCostUSD", { kind: "limit", dollars: 40 }),
     );
     const written = JSON.parse(readFileSync(configPath, "utf8"));
-    await Effect.runPromise(applySpendLimit(service, "spend.goals.dayUSD", { kind: "unlimited" }));
+    await Effect.runPromise(
+      applySpendLimit(service, "daemon.goals.dailyCostUSD", { kind: "unlimited" }),
+    );
     const cleared = JSON.parse(readFileSync(configPath, "utf8"));
 
-    expect(written.spend).toEqual({ goals: { dayUSD: 3, monthUSD: 40 } });
-    expect(cleared.spend).toEqual({ goals: { monthUSD: 40 } });
+    expect(written.daemon).toEqual({ goals: { dailyCostUSD: 3, monthlyCostUSD: 40 } });
+    expect(cleared.daemon).toEqual({ goals: { monthlyCostUSD: 40 } });
   });
 });

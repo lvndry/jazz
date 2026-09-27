@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { NotifyChannelConfig } from "@/core/types/notify";
+import type { NotifyTarget } from "@/core/types/notify";
 import { readStateFile } from "@/core/utils/state-file";
 import type { NotifyEvent } from "./events";
 import {
@@ -11,6 +11,7 @@ import {
   OUTBOX_FILE_KIND,
   outboxDirectory,
   outboxFilePath,
+  notifyTargets,
   routeNotification,
 } from "./outbox";
 
@@ -28,11 +29,11 @@ function temporaryHome(): string {
   return home;
 }
 
-const channels: Record<string, NotifyChannelConfig> = {
-  phone: { type: "telegram", chatId: "1" },
-  desk: { type: "desktop" },
-  ops: { type: "webhook", url: "https://example.com/hook", events: ["unattended-failed"] },
-};
+const targets: readonly NotifyTarget[] = [
+  { name: "phone", kind: "telegram", chatId: "1" },
+  { name: "desk", kind: "desktop" },
+  { name: "ops", kind: "webhook", url: "https://example.com/hook", events: ["unattended-failed"] },
+];
 
 const reminder: NotifyEvent = { kind: "reminder", agentId: "a", text: "call mom", fireAt: 0 };
 const failure: NotifyEvent = { kind: "unattended-failed", source: "workflow", error: "boom" };
@@ -44,39 +45,52 @@ const result: NotifyEvent = {
 };
 
 describe("routeNotification", () => {
-  it("sends to every channel subscribed to the event", () => {
-    expect(routeNotification(channels, failure).targets).toEqual(["desk", "ops", "phone"]);
-    expect(routeNotification(channels, reminder).targets).toEqual(["desk", "phone"]);
+  it("sends to every target subscribed to the event", () => {
+    expect(routeNotification(targets, failure).targets).toEqual(["desk", "ops", "phone"]);
+    expect(routeNotification(targets, reminder).targets).toEqual(["desk", "phone"]);
   });
 
   it("sends a workflow result only where deliver names, and reports unknown names", () => {
-    expect(routeNotification(channels, result)).toEqual({ targets: [], missing: [] });
-    expect(routeNotification(channels, result, { channels: ["phone", "nope"] })).toEqual({
+    expect(routeNotification(targets, result)).toEqual({ targets: [], missing: [] });
+    expect(routeNotification(targets, result, { targets: ["phone", "nope"] })).toEqual({
       targets: ["phone"],
       missing: ["nope"],
     });
   });
 
-  it("leaves out channel types the caller already tried", () => {
-    expect(routeNotification(channels, reminder, { excludeTypes: ["desktop"] }).targets).toEqual([
+  it("leaves out target kinds the caller already tried", () => {
+    expect(routeNotification(targets, reminder, { excludeKinds: ["desktop"] }).targets).toEqual([
       "phone",
     ]);
   });
 });
 
+describe("notifyTargets", () => {
+  it("is one desktop target while notify.targets is unset, and none when notifications are off", () => {
+    expect(notifyTargets({}).map((target) => target.kind)).toEqual(["desktop"]);
+    expect(notifyTargets({ notifications: { enabled: false } })).toEqual([]);
+    expect(notifyTargets({ notify: { targets: [] } })).toEqual([]);
+    expect(
+      notifyTargets({ notify: { targets }, notifications: { enabled: false } }).map(
+        (target) => target.name,
+      ),
+    ).toEqual(["phone", "ops"]);
+  });
+});
+
 describe("enqueueNotification", () => {
-  it("writes nothing when no channel is configured", async () => {
+  it("writes nothing when there is no target", async () => {
     const home = temporaryHome();
 
-    const outcome = await Effect.runPromise(enqueueNotification(undefined, failure, { home }));
+    const outcome = await Effect.runPromise(enqueueNotification([], failure, { home }));
 
     expect(outcome.queued).toEqual([]);
   });
 
-  it("queues one item per channel, due now", async () => {
+  it("queues one item per target, due now", async () => {
     const home = temporaryHome();
 
-    await Effect.runPromise(enqueueNotification(channels, failure, { home, now: 1_000 }));
+    await Effect.runPromise(enqueueNotification(targets, failure, { home, now: 1_000 }));
 
     const items = await Effect.runPromise(
       readStateFile(outboxFilePath(outboxDirectory(home), "ops"), OUTBOX_FILE_KIND, {
@@ -91,10 +105,10 @@ describe("enqueueNotification", () => {
     const home = temporaryHome();
 
     const first = await Effect.runPromise(
-      enqueueNotification(channels, failure, { home, dedupeKey: "k" }),
+      enqueueNotification(targets, failure, { home, dedupeKey: "k" }),
     );
     const second = await Effect.runPromise(
-      enqueueNotification(channels, failure, { home, dedupeKey: "k" }),
+      enqueueNotification(targets, failure, { home, dedupeKey: "k" }),
     );
 
     expect(first.queued.length).toBeGreaterThan(0);

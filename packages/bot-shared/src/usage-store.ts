@@ -70,6 +70,7 @@ export async function recordUsage(
         costUSD: usage.costUSD,
         costKnown: usage.costKnown,
         tokens: usage.tokens,
+        unattended: false,
       },
       jazzHome,
     ).pipe(

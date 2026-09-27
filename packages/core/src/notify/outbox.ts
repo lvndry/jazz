@@ -2,21 +2,22 @@
  * @fileoverview The notify outbox: every notification is written to disk before anything tries
  * to send it, so a send that fails is retried instead of lost.
  *
- * One versioned JSON list per channel under `$JAZZ_HOME/notify/outbox/<channel>.json`. Items
+ * One versioned JSON list per target under `$JAZZ_HOME/notify/outbox/<target>.json`. Items
  * are delivered at least once with the same claim and settle rules as reminders and wake
- * triggers (`delivery.ts`): a sender claims an item under the channel's lock, removes it only
- * after the channel accepted it, and keeps the error, attempt count and next retry time when
- * it did not. The daemon drains every channel each tick; a CLI command that queued something
+ * triggers (`delivery.ts`): a sender claims an item under the target's lock, removes it only
+ * after the target accepted it, and keeps the error, attempt count and next retry time when
+ * it did not. The daemon drains every target each tick; a CLI command that queued something
  * drains before it exits, so a host without a daemon still delivers.
  *
- * Routing: a channel receives every subscribable event unless its `events` list narrows it.
- * Workflow results go only to the channels a workflow's `deliver:` names. A `dedupeKey` makes
- * an event go out at most once per key (a spend ceiling once per window, not once per refused
- * run).
+ * Routing ({@link notifyTargets}): the `notify.targets` list, or one desktop target when it is
+ * unset; desktop targets are left out while `notifications.enabled` is false. A target
+ * receives every subscribable event unless its `events` list narrows it. Workflow results go
+ * only to the targets a workflow's `deliver:` names. A `dedupeKey` makes an event go out at
+ * most once per key (a waiting item once, a spend cap once per window).
  *
  * Usage:
  * ```ts
- * yield* enqueueNotification(appConfig.notifications?.channels, event, { dedupeKey });
+ * yield* enqueueNotification(notifyTargets(appConfig), event, { dedupeKey });
  * // later, in adapters: drainNotifyOutbox() sends and settles.
  * ```
  */
@@ -24,7 +25,8 @@
 import * as path from "node:path";
 import { Effect } from "effect";
 import { z } from "zod";
-import type { NotifyChannelConfig, NotifyChannelType } from "@/core/types/notify";
+import type { AppConfig } from "@/core/types/config";
+import type { NotifyTarget, NotifyTargetKind } from "@/core/types/notify";
 import { DeliveryStateSchema, type DeliveryState, hasStoppedRetrying } from "@/core/utils/delivery";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
@@ -36,8 +38,8 @@ import {
 import { withLock } from "@/core/utils/storage";
 import { type NotifyEvent, NotifyEventSchema } from "./events";
 
-/** Queued items one channel may hold; the oldest given-up items make room first. */
-export const MAX_OUTBOX_ITEMS_PER_CHANNEL = 200;
+/** Queued items one target may hold; the oldest given-up items make room first. */
+export const MAX_OUTBOX_ITEMS_PER_TARGET = 200;
 
 /** How long a dedupe key is remembered: longer than the longest window (a month). */
 const DEDUPE_RETENTION_MS = 40 * 24 * 60 * 60_000;
@@ -57,7 +59,7 @@ const OutboxItemSchema: z.ZodType<OutboxItem> = z.object({
   delivery: DeliveryStateSchema.exactOptional(),
 });
 
-/** On-disk shape of one channel's outbox, shared with the sender in adapters. */
+/** On-disk shape of one target's outbox, shared with the sender in adapters. */
 export const OUTBOX_FILE_KIND = recordListKind("notifications", "notifications", OutboxItemSchema);
 
 /** `$JAZZ_HOME/notify/outbox`. */
@@ -65,12 +67,12 @@ export function outboxDirectory(home: string = getJazzHomeDirectory()): string {
   return path.join(home, "notify", "outbox");
 }
 
-export function outboxFilePath(baseDirectory: string, channel: string): string {
-  return path.join(baseDirectory, `${channel}.json`);
+export function outboxFilePath(baseDirectory: string, target: string): string {
+  return path.join(baseDirectory, `${target}.json`);
 }
 
-export function outboxLockPath(baseDirectory: string, channel: string): string {
-  return path.join(baseDirectory, `${channel}.lock`);
+export function outboxLockPath(baseDirectory: string, target: string): string {
+  return path.join(baseDirectory, `${target}.lock`);
 }
 
 type DedupeLog = Readonly<Record<string, number>>;
@@ -91,11 +93,27 @@ function dedupePath(home: string): string {
   return path.join(home, "notify", "sent.json");
 }
 
+/** The one desktop target used while `notify.targets` is unset. */
+const DEFAULT_TARGETS: readonly NotifyTarget[] = [{ name: "desktop", kind: "desktop" }];
+
+/**
+ * The targets notifications go to: `notify.targets`, or one desktop target when it is unset.
+ * Desktop targets are dropped while `notifications.enabled` is false.
+ */
+export function notifyTargets(
+  config: Pick<AppConfig, "notify" | "notifications">,
+): readonly NotifyTarget[] {
+  const targets = config.notify?.targets ?? DEFAULT_TARGETS;
+  return config.notifications?.enabled === false
+    ? targets.filter((target) => target.kind !== "desktop")
+    : targets;
+}
+
 export interface EnqueueOptions {
-  /** Channels named explicitly (a workflow's `deliver:`), on top of the subscribed ones. */
-  readonly channels?: readonly string[];
-  /** Leave out channels of these types (a reminder whose desktop notification just failed). */
-  readonly excludeTypes?: readonly NotifyChannelType[];
+  /** Targets named explicitly (a workflow's `deliver:`), on top of the subscribed ones. */
+  readonly targets?: readonly string[];
+  /** Leave out targets of these kinds (a reminder whose desktop notification just failed). */
+  readonly excludeKinds?: readonly NotifyTargetKind[];
   /** Send this event at most once per key. */
   readonly dedupeKey?: string;
   readonly home?: string;
@@ -103,45 +121,44 @@ export interface EnqueueOptions {
 }
 
 export interface EnqueueResult {
-  /** Channels the event was queued on. */
+  /** Targets the event was queued on. */
   readonly queued: readonly string[];
-  /** Channels named in `options.channels` that are not configured. */
+  /** Targets named in `options.targets` that are not configured. */
   readonly missing: readonly string[];
   /** True when the dedupe key had already been used, so nothing was queued. */
   readonly duplicate: boolean;
 }
 
-function subscribes(channel: NotifyChannelConfig, event: NotifyEvent): boolean {
+function subscribes(target: NotifyTarget, event: NotifyEvent): boolean {
   if (event.kind === "workflow-result") {
     return false;
   }
-  return channel.events === undefined || channel.events.includes(event.kind);
+  return target.events === undefined || target.events.includes(event.kind);
 }
 
-/** Which configured channels `event` goes to, and which explicitly named ones do not exist. */
+/** Which targets `event` goes to, and which explicitly named ones do not exist. */
 export function routeNotification(
-  channels: Readonly<Record<string, NotifyChannelConfig>> | undefined,
+  targets: readonly NotifyTarget[],
   event: NotifyEvent,
-  options: Pick<EnqueueOptions, "channels" | "excludeTypes"> = {},
+  options: Pick<EnqueueOptions, "targets" | "excludeKinds"> = {},
 ): { readonly targets: readonly string[]; readonly missing: readonly string[] } {
-  const configured = channels ?? {};
-  const excluded = new Set(options.excludeTypes ?? []);
-  const targets = new Set<string>();
+  const excluded = new Set(options.excludeKinds ?? []);
+  const chosen = new Set<string>();
   const missing: string[] = [];
-  for (const [name, channel] of Object.entries(configured)) {
-    if (subscribes(channel, event) && !excluded.has(channel.type)) {
-      targets.add(name);
+  for (const target of targets) {
+    if (subscribes(target, event) && !excluded.has(target.kind)) {
+      chosen.add(target.name);
     }
   }
-  for (const name of options.channels ?? []) {
-    const channel = configured[name];
-    if (channel === undefined) {
+  for (const name of options.targets ?? []) {
+    const target = targets.find((candidate) => candidate.name === name);
+    if (target === undefined) {
       missing.push(name);
-    } else if (!excluded.has(channel.type)) {
-      targets.add(name);
+    } else if (!excluded.has(target.kind)) {
+      chosen.add(target.name);
     }
   }
-  return { targets: [...targets].sort(), missing };
+  return { targets: [...chosen].sort(), missing };
 }
 
 function newItemId(now: number): string {
@@ -173,15 +190,15 @@ function claimDedupeKey(home: string, key: string, now: number): Effect.Effect<b
 /** Make room for one more item: drop the oldest items that stopped retrying, then refuse. */
 function withRoomForOne(
   items: readonly OutboxItem[],
-  channel: string,
+  target: string,
 ): Effect.Effect<OutboxItem[], Error> {
   const kept = [...items];
-  while (kept.length >= MAX_OUTBOX_ITEMS_PER_CHANNEL) {
+  while (kept.length >= MAX_OUTBOX_ITEMS_PER_TARGET) {
     const index = kept.findIndex((item) => hasStoppedRetrying(item.delivery));
     if (index === -1) {
       return Effect.fail(
         new Error(
-          `The "${channel}" notify outbox holds ${kept.length} undelivered notifications; check the channel with \`jazz notify test ${channel}\`.`,
+          `The "${target}" notify outbox holds ${kept.length} undelivered notifications; check the target with \`jazz notify test ${target}\`.`,
         ),
       );
     }
@@ -190,35 +207,36 @@ function withRoomForOne(
   return Effect.succeed(kept);
 }
 
-function appendToChannel(
+function appendToTarget(
   baseDirectory: string,
-  channel: string,
+  target: string,
   item: OutboxItem,
 ): Effect.Effect<void, Error> {
-  const filePath = outboxFilePath(baseDirectory, channel);
+  const filePath = outboxFilePath(baseDirectory, target);
   return withLock(
-    outboxLockPath(baseDirectory, channel),
+    outboxLockPath(baseDirectory, target),
     Effect.gen(function* () {
       const items =
         (yield* readStateFile(filePath, OUTBOX_FILE_KIND, { onCorrupt: "quarantine" })) ?? [];
-      const kept = yield* withRoomForOne(items, channel);
+      const kept = yield* withRoomForOne(items, target);
       yield* writeStateFile(filePath, OUTBOX_FILE_KIND, [...kept, item]);
     }),
   );
 }
 
 /**
- * Queue `event` on every channel it routes to. Nothing is sent here; a drain sends it. With no
- * channel configured this is a no-op that touches no file.
+ * Queue `event` on every target it routes to. Nothing is sent here; a drain sends it. With no
+ * target to send to this is a no-op that touches no file.
  */
 export function enqueueNotification(
-  channels: Readonly<Record<string, NotifyChannelConfig>> | undefined,
+  targets: readonly NotifyTarget[],
   event: NotifyEvent,
   options: EnqueueOptions = {},
 ): Effect.Effect<EnqueueResult, Error> {
   return Effect.gen(function* () {
-    const { targets, missing } = routeNotification(channels, event, options);
-    if (targets.length === 0) {
+    const routed = routeNotification(targets, event, options);
+    const { missing } = routed;
+    if (routed.targets.length === 0) {
       return { queued: [], missing, duplicate: false };
     }
     const home = options.home ?? getJazzHomeDirectory();
@@ -228,9 +246,9 @@ export function enqueueNotification(
     }
     const baseDirectory = outboxDirectory(home);
     const queued: string[] = [];
-    for (const channel of targets) {
-      yield* appendToChannel(baseDirectory, channel, { id: newItemId(now), fireAt: now, event });
-      queued.push(channel);
+    for (const target of routed.targets) {
+      yield* appendToTarget(baseDirectory, target, { id: newItemId(now), fireAt: now, event });
+      queued.push(target);
     }
     return { queued, missing, duplicate: false };
   });

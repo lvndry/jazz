@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { enqueueNotification } from "@jazz/core/notify/outbox";
-import type { NotifyChannelConfig } from "@jazz/core/types/notify";
+import type { NotifyTarget } from "@jazz/core/types/notify";
 import { DELIVERY_RETRY_INITIAL_MS, type DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
@@ -28,21 +28,19 @@ function temporaryHome(): string {
   return home;
 }
 
-const channels: Record<string, NotifyChannelConfig> = {
-  phone: { type: "telegram", chatId: "1" },
-};
+const targets: readonly NotifyTarget[] = [{ name: "phone", kind: "telegram", chatId: "1" }];
 
 const configLayer = Layer.succeed(AgentConfigServiceTag, {
-  appConfig: Effect.succeed({ notifications: { channels } }),
+  appConfig: Effect.succeed({ notify: { targets } }),
 } as unknown as AgentConfigService);
 
 function drain(home: string, now: number, outcome: DeliveryOutcome, sent: string[] = []) {
   const options: DrainOptions = {
     home,
     now,
-    send: (channelName) =>
+    send: (target) =>
       Effect.sync(() => {
-        sent.push(channelName);
+        sent.push(target.name);
         return outcome;
       }),
   };
@@ -52,7 +50,7 @@ function drain(home: string, now: number, outcome: DeliveryOutcome, sent: string
 async function queueOne(home: string, now: number) {
   await Effect.runPromise(
     enqueueNotification(
-      channels,
+      targets,
       { kind: "unattended-failed", source: "workflow", error: "boom" },
       { home, now },
     ),
