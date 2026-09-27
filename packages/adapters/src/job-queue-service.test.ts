@@ -3,12 +3,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { MAX_ACTIVE_BATCHES_PER_AGENT, MAX_JOBS_PER_BATCH } from "@jazz/core/constants/job-queue";
+import {
+  ARCHIVED_BATCH_RETENTION_MS,
+  COMPLETED_BATCH_ARCHIVE_GRACE_MS,
+  MAX_ACTIVE_BATCHES_PER_AGENT,
+  MAX_JOBS_PER_BATCH,
+} from "@jazz/core/constants/job-queue";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
+  archiveBatch,
+  archiveCompletedBatches,
   claimDueJobs,
   completeJob,
+  listAgentIdsWithActiveBatches,
   JobQueueServiceImpl,
   nextClaimableAt,
   reclaimExpiredLeases,
@@ -370,5 +378,90 @@ describe("nextClaimableAt", () => {
     const soonest = await runEffect(nextClaimableAt(tmpDir, "a1"));
     expect(soonest).not.toBeNull();
     expect(soonest).toBeGreaterThan(Date.now());
+  });
+});
+
+describe("archiving delivered batches", () => {
+  async function completedBatch(service: JobQueueServiceImpl) {
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), {
+        workingDir: "/tmp",
+        reason: "archive me",
+      }),
+    );
+    if (!outcome.success) {
+      throw new Error(outcome.message);
+    }
+    const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    if (claimed === undefined) {
+      throw new Error("nothing claimed");
+    }
+    const completed = await runEffect(
+      completeJob(tmpDir, "agent-1", outcome.batch.id, claimed.jobId, {
+        success: true,
+        result: { stdout: "done", stderr: "", exitCode: 0 },
+        error: null,
+      }),
+    );
+    if (completed.batch === null) {
+      throw new Error("batch vanished");
+    }
+    return completed.batch;
+  }
+
+  function activeBatchFiles(): string[] {
+    return fs.readdirSync(path.join(tmpDir, "agent-1")).filter((name) => name.endsWith(".json"));
+  }
+
+  test("moves a completed batch out of the directory the tick scans, and keeps it readable", async () => {
+    const service = makeService();
+    const batch = await completedBatch(service);
+
+    expect(await runEffect(archiveBatch(tmpDir, "agent-1", batch.id))).toBe(true);
+
+    expect(activeBatchFiles()).toEqual([]);
+    const readBack = await runEffect(service.getBatch("agent-1", batch.id));
+    expect(readBack?.jobs[0]?.result?.stdout).toBe("done");
+    expect(await runEffect(listAgentIdsWithActiveBatches(tmpDir))).toEqual(["agent-1"]);
+  });
+
+  test("leaves a batch that is still running where it is", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), {
+        workingDir: "/tmp",
+        reason: "still going",
+      }),
+    );
+    if (!outcome.success) {
+      throw new Error(outcome.message);
+    }
+    expect(await runEffect(archiveBatch(tmpDir, "agent-1", outcome.batch.id))).toBe(false);
+    expect(activeBatchFiles()).toHaveLength(1);
+  });
+
+  test("deletes archived batches past their retention", async () => {
+    const service = makeService();
+    const first = await completedBatch(service);
+    const archivedAt = Date.now() - ARCHIVED_BATCH_RETENTION_MS - 1_000;
+    await runEffect(archiveBatch(tmpDir, "agent-1", first.id, archivedAt));
+    const second = await completedBatch(service);
+    await runEffect(archiveBatch(tmpDir, "agent-1", second.id));
+
+    expect(await runEffect(service.getBatch("agent-1", first.id))).toBeNull();
+    expect(await runEffect(service.getBatch("agent-1", second.id))).not.toBeNull();
+  });
+
+  test("the sweep archives completed batches whose resume never archived them", async () => {
+    const service = makeService();
+    const batch = await completedBatch(service);
+    const completedAt = batch.completedAt ?? Date.now();
+
+    expect(await runEffect(archiveCompletedBatches(tmpDir, completedAt + 1_000))).toBe(0);
+    expect(activeBatchFiles()).toHaveLength(1);
+
+    const later = completedAt + COMPLETED_BATCH_ARCHIVE_GRACE_MS + 1_000;
+    expect(await runEffect(archiveCompletedBatches(tmpDir, later))).toBe(1);
+    expect(activeBatchFiles()).toEqual([]);
   });
 });

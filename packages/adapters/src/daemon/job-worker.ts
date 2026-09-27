@@ -13,6 +13,7 @@ import * as os from "node:os";
 import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import {
+  COMPLETED_BATCH_SWEEP_INTERVAL_MS,
   DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
   WORKER_POOL_SIZE,
@@ -24,6 +25,8 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Duration, Effect } from "effect";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import {
+  archiveBatch,
+  archiveCompletedBatches,
   claimDueJobs,
   completeJob,
   nextClaimableAt,
@@ -65,16 +68,24 @@ export function summarizeBatch(batch: JobBatchRecord): string {
   );
 }
 
+/** Resumes the batch's conversation with its results, then moves the batch to the archive. */
 function fireBatchResume(agentId: string, batch: JobBatchRecord) {
-  return runUnattendedTurn({
-    agentId,
-    conversationId: batch.conversationId,
-    prompt: summarizeBatch(batch),
-    fallbackTitle: batch.reason,
-    source: "job batch",
-    sourceId: batch.id,
+  return Effect.gen(function* () {
+    yield* runUnattendedTurn({
+      agentId,
+      conversationId: batch.conversationId,
+      prompt: summarizeBatch(batch),
+      fallbackTitle: batch.reason,
+      source: "job batch",
+      sourceId: batch.id,
+    });
+    yield* archiveBatch(jobBatchDirectory(), agentId, batch.id).pipe(
+      Effect.catchAll(() => Effect.void),
+    );
   });
 }
+
+let nextCompletedBatchSweepAtMs = 0;
 
 function runClaimedJob(claimed: ClaimedJob) {
   return Effect.gen(function* () {
@@ -159,6 +170,14 @@ export function runDueJobs() {
   return Effect.gen(function* () {
     const baseDirectory = jobBatchDirectory();
     const leaseOwner = `${os.hostname()}-${process.pid}`;
+
+    const sweepStartedAt = Date.now();
+    if (sweepStartedAt >= nextCompletedBatchSweepAtMs) {
+      nextCompletedBatchSweepAtMs = sweepStartedAt + COMPLETED_BATCH_SWEEP_INTERVAL_MS;
+      yield* archiveCompletedBatches(baseDirectory, sweepStartedAt).pipe(
+        Effect.catchAll(() => Effect.succeed(0)),
+      );
+    }
 
     const reclaimed = yield* reclaimExpiredLeases(baseDirectory, Date.now()).pipe(
       Effect.catchAll(() => Effect.succeed([])),
