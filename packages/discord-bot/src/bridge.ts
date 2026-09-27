@@ -32,6 +32,7 @@ import {
   sandboxCommand,
   sandboxEnv,
 } from "@jazz/bot-shared/chat-sandbox";
+import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -698,6 +699,7 @@ async function runJazz(
       "--events",
       "tools,reasoning,text,approval,subagent",
       "--interactive-stdin",
+      "--input-stdin",
       "--agent",
       agentIdForChannel(channelId),
       "--approval-policy",
@@ -708,16 +710,10 @@ async function runJazz(
       "--timezone",
       tzForChat(config.jazzHome, TZ_FILE, channelId),
       ...(incognito
-        ? [
-            "--ephemeral",
-            ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
-              ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
-              : []),
-          ]
+        ? ["--ephemeral"]
         : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, channelId)]),
       "--timeout",
       String(config.runTimeoutMs),
-      prompt,
     ]),
     {
       stdout: "pipe",
@@ -727,6 +723,14 @@ async function runJazz(
     },
   );
   activeRuns.set(runToken, { child, cancelled: false });
+  // The message and an incognito transcript go in the stdin frame, never on
+  // argv, where `ps` shows them to every account on the host.
+  await writeStdinFrame(child, {
+    prompt,
+    ...(priorIncognitoMessages && priorIncognitoMessages.length > 0
+      ? { history: priorIncognitoMessages }
+      : {}),
+  });
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
   const stderrTail: string[] = [];
@@ -1052,13 +1056,20 @@ async function jazzJson(
       "run",
       "--no-tui",
       "--json",
+      "--input-stdin",
       "--agent",
       agentId,
       ...extraArgs,
-      prompt,
     ]),
-    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "discord") },
+    {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: sandboxEnv(sandbox, process.env, "discord"),
+    },
   );
+  await writeStdinFrame(child, { prompt });
+  await child.stdin.end();
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([
     new Response(child.stdout).text(),

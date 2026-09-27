@@ -2,10 +2,14 @@
  * @fileoverview Run one Jazz turn for a conversation and narrate it.
  *
  * Every bridge does the same thing with `jazz run`: spawn it inside the
- * conversation's sandbox with `--json --events … --interactive-stdin`, read the
- * NDJSON event stream off stderr while it works, answer whatever it blocks on
- * over stdin, and parse the single JSON envelope it prints on stdout at the
- * end. That was copied verbatim into the Telegram and Discord bridges and is
+ * conversation's sandbox with `--json --events … --interactive-stdin --input-stdin`,
+ * write the person's message as the first stdin line, read the NDJSON event
+ * stream off stderr while it works, answer whatever it blocks on over the same
+ * stdin, and parse the single JSON envelope it prints on stdout at the end.
+ *
+ * The message and an incognito transcript never go on argv: every account on
+ * the host reads another process's arguments through `ps`, a leading `-` would
+ * parse as a flag, and Linux caps one argument at 128 KiB. That was copied verbatim into the Telegram and Discord bridges and is
  * the part with the sharp edges — the envelope is the *last* JSON line, not the
  * whole of stdout; a run parked on an approval never exits unless something
  * writes a decision; the kill timer has to outlive Jazz's own `--timeout` or it
@@ -57,8 +61,9 @@ export interface JazzSuccessEnvelope {
   readonly composition?: JazzComposition;
   /**
    * Only present for `--ephemeral` runs (incognito conversations): the full
-   * transcript, opaque to the bridge, round-tripped back in as `--history-json`
-   * on that conversation's next turn instead of being loaded from disk.
+   * transcript, opaque to the bridge, round-tripped back in as the stdin
+   * frame's `history` on that conversation's next turn instead of being loaded
+   * from disk.
    */
   readonly messages?: unknown[];
 }
@@ -74,8 +79,8 @@ export type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
  * Where this turn's history comes from.
  *
  * `persistent` names a conversation Jazz loads and appends to on disk;
- * `ephemeral` hands the prior transcript in on the command line and gets the
- * new one back in the envelope, so an incognito chat's context never lands in
+ * `ephemeral` hands the prior transcript in on stdin and gets the new one back
+ * in the envelope, so an incognito chat's context never lands in
  * a file.
  */
 export type ConversationSource =
@@ -84,6 +89,8 @@ export type ConversationSource =
 
 export interface JazzRunOptions {
   readonly jazzBinary: string;
+  /** The surface's name, recorded by the run as `JAZZ_SURFACE`. */
+  readonly surface: string;
   readonly agentId: string;
   readonly sandbox: ChatSandbox;
   readonly approvalPolicy: string;
@@ -126,15 +133,14 @@ const KILL_GRACE_MS = 15_000;
 /** How many stderr lines to keep for the log when a run produces no envelope. */
 const STDERR_TAIL_LINES = 50;
 
-function buildArgs(options: JazzRunOptions): string[] {
+/**
+ * The command line of a turn. Carries no message text: the prompt and any
+ * incognito history go in the stdin frame (`stdinFrame`).
+ */
+export function buildJazzRunArgs(options: JazzRunOptions): string[] {
   const conversationArgs =
     options.conversation.kind === "ephemeral"
-      ? [
-          "--ephemeral",
-          ...(options.conversation.history.length > 0
-            ? ["--history-json", JSON.stringify(options.conversation.history)]
-            : []),
-        ]
+      ? ["--ephemeral"]
       : ["--conversation", options.conversation.key];
 
   return [
@@ -145,6 +151,7 @@ function buildArgs(options: JazzRunOptions): string[] {
     "--events",
     "tools,reasoning,text,approval,subagent",
     "--interactive-stdin",
+    "--input-stdin",
     "--agent",
     options.agentId,
     "--approval-policy",
@@ -157,8 +164,36 @@ function buildArgs(options: JazzRunOptions): string[] {
     ...conversationArgs,
     "--timeout",
     String(options.runTimeoutMs),
-    options.prompt,
   ];
+}
+
+/** The first stdin line `jazz run --input-stdin` reads: the message and incognito history. */
+export interface StdinFrame {
+  readonly prompt: string;
+  readonly history?: readonly unknown[];
+}
+
+export function stdinFrame(options: Pick<JazzRunOptions, "prompt" | "conversation">): StdinFrame {
+  return options.conversation.kind === "ephemeral" && options.conversation.history.length > 0
+    ? { prompt: options.prompt, history: options.conversation.history }
+    : { prompt: options.prompt };
+}
+
+/**
+ * Write the frame to a run started with `--input-stdin` and flush it.
+ *
+ * For a caller that owns the process itself; `startJazzRun` writes its own.
+ */
+export async function writeStdinFrame(
+  child: { readonly stdin: Bun.FileSink },
+  frame: StdinFrame,
+): Promise<void> {
+  try {
+    await child.stdin.write(`${JSON.stringify(frame)}\n`);
+    await child.stdin.flush();
+  } catch (error) {
+    console.error(`Failed to write the Jazz run's input: ${String(error)}`);
+  }
 }
 
 /** Read a byte stream and invoke `onLine` for each newline-delimited line. */
@@ -214,11 +249,11 @@ export function parseEnvelope(stdout: string): JazzEnvelope | undefined {
  * shape that only handed back a promise could never unblock its own run.
  */
 export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers = {}): JazzRun {
-  const child = Bun.spawn(sandboxCommand(options.sandbox, buildArgs(options)), {
+  const child = Bun.spawn(sandboxCommand(options.sandbox, buildJazzRunArgs(options)), {
     stdout: "pipe",
     stderr: "pipe",
     stdin: "pipe",
-    env: sandboxEnv(options.sandbox, process.env),
+    env: sandboxEnv(options.sandbox, process.env, options.surface),
   });
 
   let cancelled = false;
@@ -250,15 +285,23 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
    * Bun's FileSink buffers, so a decision written without a flush can sit in
    * the buffer while the run it unblocks waits for it — a deadlock that looks
    * exactly like a hung agent.
+   *
+   * Writes are chained so the input frame is always the first line, whatever
+   * a caller answers before it has landed.
    */
-  const writeStdin = async (payload: unknown): Promise<void> => {
-    try {
-      await child.stdin.write(`${JSON.stringify(payload)}\n`);
-      await child.stdin.flush();
-    } catch (error) {
-      console.error(`Failed to write to the Jazz run's stdin: ${String(error)}`);
-    }
+  let stdinWrites: Promise<void> = Promise.resolve();
+  const writeStdin = (payload: unknown): Promise<void> => {
+    stdinWrites = stdinWrites.then(async () => {
+      try {
+        await child.stdin.write(`${JSON.stringify(payload)}\n`);
+        await child.stdin.flush();
+      } catch (error) {
+        console.error(`Failed to write to the Jazz run's stdin: ${String(error)}`);
+      }
+    });
+    return stdinWrites;
   };
+  void writeStdin(stdinFrame(options));
 
   const result = (async (): Promise<JazzEnvelope> => {
     const [stdout, , exitCode] = await Promise.all([

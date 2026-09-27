@@ -44,6 +44,7 @@ import {
 import { join } from "node:path";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { applyBridgeConfigFile } from "./bridge-config-file";
+import { type ChildEnvOptions, childEnvironment } from "./child-env";
 
 /** Directory under the data dir holding one Jazz home per conversation. */
 const SANDBOX_DIRECTORY = "chats";
@@ -434,12 +435,15 @@ export function sandboxCommand(sandbox: ChatSandbox, command: string[]): string[
 }
 
 /**
- * Environment for a sandboxed run: every path that defaults to `$HOME` or
- * `$JAZZ_HOME` is moved inside the conversation's own home.
+ * Environment for a run a bridge starts: the allowlist `childEnvironment` keeps, with every
+ * path that defaults to `$HOME` or `$JAZZ_HOME` moved inside the conversation's own home.
  *
- * The mail, calendar, GPG and `pass` stores are here for the same reason as
- * Jazz's own state — they are the account credentials of whoever set them up,
- * and a second conversation has no business reading them.
+ * Built from an allowlist rather than a copy of `base`, so the bot token, a webhook secret and
+ * any other credential the bridge holds never reach an agent that can run `env`.
+ *
+ * The mail, calendar, GPG and `pass` stores are moved for the same reason as Jazz's own state:
+ * they are the account credentials of whoever set them up, and a second conversation has no
+ * business reading them.
  *
  * `surface` names the front door for whatever the spawned process records about
  * itself. A bot shells out to the same `jazz run` a terminal user invokes, so
@@ -449,13 +453,14 @@ export function sandboxEnv(
   sandbox: ChatSandbox,
   base: NodeJS.ProcessEnv,
   surface?: string,
-): NodeJS.ProcessEnv {
-  const withSurface = surface === undefined ? { ...base } : { ...base, JAZZ_SURFACE: surface };
+  options: ChildEnvOptions = {},
+): Record<string, string> {
+  const allowed = childEnvironment(base, options);
+  const withSurface = surface === undefined ? allowed : { ...allowed, JAZZ_SURFACE: surface };
   // Set whether or not the conversation gets its own uid: which data directory
-  // the agent lives in is not an isolation question. The containerised bridges
-  // never noticed, because their entrypoint already exports JAZZ_HOME=/data; a
-  // native bridge inherits the operator's environment, where it is unset and
-  // the run resolves their own Jazz home instead of the bridge's.
+  // the agent lives in is not an isolation question. A native bridge inherits
+  // the operator's environment, where JAZZ_HOME is unset and the run would
+  // resolve their own Jazz home instead of the bridge's.
   const withHome = { ...withSurface, JAZZ_HOME: sandbox.home };
   if (!sandbox.isolated) return withHome;
   return {

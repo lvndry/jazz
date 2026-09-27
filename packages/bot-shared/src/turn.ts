@@ -384,6 +384,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const run = (config.startRun ?? startJazzRun)(
       {
         jazzBinary: config.jazzBinary,
+        surface: surface.name,
         agentId: config.agentIdFor(chatId),
         sandbox,
         approvalPolicy: approvalPolicyFor(
