@@ -4,10 +4,14 @@
  * This module owns user-facing error classification and recovery guidance.
  */
 import { Effect } from "effect";
+import { apiKeyHint } from "@/core/constants/provider-env-vars";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
 import { toError } from "@/core/utils/errors";
+
+/** Where Jazz writes its logs, for "check the logs" hints. */
+const LOGS_LOCATION = "$JAZZ_HOME/logs (~/.jazz/logs by default)";
 
 export interface ErrorDisplay {
   readonly title: string;
@@ -61,7 +65,7 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         recovery: [
           "Use a different agent name",
           "Delete existing agent: `jazz agent delete <agent-id>`",
-          "Update existing agent: `jazz agent update <agent-id>`",
+          "Update existing agent: `jazz agent edit <agent-id>`",
         ],
         relatedCommands: ["jazz agent delete", "jazz agent list"],
       };
@@ -74,10 +78,10 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         suggestion: error.suggestion || `Fix the configuration issue in field: ${error.field}`,
         recovery: [
           `Check the ${error.field} field in your agent configuration`,
-          "Validate your configuration: `jazz agent validate <agent-id>`",
+          "Validate your configuration and agents: `jazz config validate`",
           "Use the interactive agent editor: `jazz agent edit <agent-id>`",
         ],
-        relatedCommands: ["jazz agent get", "jazz agent edit"],
+        relatedCommands: ["jazz agent show", "jazz agent edit"],
       };
     }
 
@@ -87,11 +91,10 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `Agent "${error.agentId}" failed to execute: ${error.reason}`,
         suggestion: error.suggestion || "Check the agent configuration and dependencies",
         recovery: [
-          "Check agent configuration: `jazz agent get <agent-id>`",
-          "Run with verbose logging: `jazz agent run <agent-id> --verbose`",
-          "Test individual tasks: `jazz task test <task-id>`",
+          "Check agent configuration: `jazz agent show <agent-id>`",
+          "Run with verbose logging: `jazz --verbose agent chat <agent-id>`",
         ],
-        relatedCommands: ["jazz agent get", "jazz agent run --verbose"],
+        relatedCommands: ["jazz agent show", "jazz config validate"],
       };
     }
 
@@ -101,11 +104,10 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `Configuration error in field "${error.field}": ${error.message}`,
         suggestion: error.suggestion || "Fix the configuration value",
         recovery: [
-          "Check configuration file: `jazz config list`",
+          "Check configuration: `jazz config show`",
           "Validate configuration: `jazz config validate`",
-          "Reset to defaults: `jazz config reset`",
         ],
-        relatedCommands: ["jazz config list", "jazz config validate"],
+        relatedCommands: ["jazz config show", "jazz config validate"],
       };
     }
 
@@ -115,11 +117,11 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `Configuration file not found at: ${error.path}`,
         suggestion: error.suggestion || "Create a configuration file or check the path",
         recovery: [
-          "Create default config: `jazz config init`",
-          "Check file path and permissions",
+          "Check the path passed to `--config` and its permissions",
+          "Leave out `--config` to use $JAZZ_HOME/config.json, which `jazz config set` creates",
           "Use environment variables instead",
         ],
-        relatedCommands: ["jazz config init", "jazz config set"],
+        relatedCommands: ["jazz config show", "jazz config set"],
       };
     }
 
@@ -228,12 +230,12 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `API call to "${error.endpoint}" failed with status ${error.statusCode}: ${error.message}`,
         suggestion: error.suggestion || "Check API credentials and endpoint status",
         recovery: [
-          "Verify API credentials: `jazz config get api`",
+          "Verify API credentials: `jazz config validate`",
           "Check API service status",
           "Review API rate limits",
           "Update API configuration",
         ],
-        relatedCommands: ["jazz config get api", "jazz auth status"],
+        relatedCommands: ["jazz config validate"],
       };
     }
 
@@ -316,11 +318,11 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         suggestion: error.suggestion || "This is an internal error. Please report it.",
         recovery: [
           "Restart the application",
-          "Check application logs",
+          `Check the logs in ${LOGS_LOCATION}`,
           "Report the issue to support",
           "Update to latest version",
         ],
-        relatedCommands: ["jazz logs", "jazz --version"],
+        relatedCommands: ["jazz --version", "jazz update --check"],
       };
     }
 
@@ -330,12 +332,12 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `LLM provider "${error.provider}" configuration error: ${error.message}`,
         suggestion: error.suggestion || "Check your LLM provider configuration and API keys",
         recovery: [
-          "Check API key configuration: `jazz config get llm.${error.provider}`",
-          "Set API key: `jazz config set llm.${error.provider}.api_key <your-key>`",
+          `Check API key configuration: \`jazz config get llm.${error.provider}\``,
+          `Set API key: ${apiKeyHint(error.provider)}`,
           "Verify provider is supported",
           "Check provider documentation",
         ],
-        relatedCommands: ["jazz config get llm", "jazz config set llm"],
+        relatedCommands: ["jazz config validate", "jazz config set"],
       };
     }
 
@@ -348,9 +350,10 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
           "Verify API key is correct and active",
           "Check API key permissions",
           "Regenerate API key if needed",
+          apiKeyHint(error.provider),
           "Check provider service status",
         ],
-        relatedCommands: ["jazz config get llm", "jazz auth status"],
+        relatedCommands: ["jazz config validate", "jazz config set"],
       };
     }
 
@@ -406,8 +409,12 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: message,
         suggestion:
           "Please report this error to the development team (include the error type and message above).",
-        recovery: ["Check application logs", "Restart the application", "Report the issue"],
-        relatedCommands: ["jazz logs", "jazz --help"],
+        recovery: [
+          `Check the logs in ${LOGS_LOCATION}`,
+          "Restart the application",
+          "Report the issue",
+        ],
+        relatedCommands: ["jazz --help"],
       };
     }
   }
@@ -516,7 +523,7 @@ export function handleError(
       const cause = unknownException.error;
       const message = toError(cause).message;
       yield* presentation.writeOutput(
-        `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Related Commands:\n   • jazz logs\n   • jazz --help\n`,
+        `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Logs: ${LOGS_LOCATION}\n   Related Commands:\n   • jazz --help\n`,
       );
       return;
     }
@@ -529,7 +536,7 @@ export function handleError(
       // Handle generic Error objects
       const genericError = error;
       yield* presentation.writeOutput(
-        `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Related Commands:\n   • jazz --help\n   • jazz logs\n`,
+        `❌ Error\n   ${genericError.message}\n\n💡 Suggestion: Check the error details and try again\n\n📚 Logs: ${LOGS_LOCATION}\n   Related Commands:\n   • jazz --help\n`,
       );
     }
   });
@@ -550,51 +557,4 @@ export const CommonSuggestions = {
    */
   checkAgentExists: (_agentId: string) =>
     `Run 'jazz agent list' to see available agents or create a new one with 'jazz agent create'`,
-
-  /**
-   * Suggestion for configuration-related errors
-   * @param field - The configuration field that has an issue
-   * @returns A suggestion string with commands to check or update the configuration
-   */
-  checkConfiguration: (field: string) =>
-    `Run 'jazz config get ${field}' to check current value or 'jazz config set ${field} <value>' to update`,
-
-  /**
-   * Suggestion for file permission errors
-   * @param path - The file path that has permission issues
-   * @returns A suggestion string with commands to check and fix permissions
-   */
-  checkPermissions: (path: string) =>
-    `Check file permissions with 'ls -la ${path}' and fix with 'chmod 755 ${path}' if needed`,
-
-  /**
-   * Suggestion for network-related errors
-   * @returns A suggestion string for network connectivity issues
-   */
-  checkNetwork: () =>
-    `Check your internet connection and try again. If using a proxy, configure it in your environment`,
-
-  /**
-   * Suggestion for authentication errors
-   * @param service - The service that requires authentication
-   * @returns A suggestion string with commands to authenticate or check status
-   */
-  checkCredentials: (service: string) =>
-    `Run 'jazz auth ${service} login' to authenticate or check credentials with 'jazz auth ${service} status'`,
-
-  /**
-   * Suggestion for timeout errors
-   * @param currentTimeout - The current timeout value in milliseconds
-   * @returns A suggestion string recommending a higher timeout value
-   */
-  increaseTimeout: (currentTimeout: number) =>
-    `Try increasing the timeout to ${currentTimeout * 2}ms or more in your configuration`,
-
-  /**
-   * Suggestion for task dependency errors
-   * @param taskId - The task ID that has dependency issues
-   * @returns A suggestion string with commands to check task dependencies
-   */
-  checkDependencies: (taskId: string) =>
-    `Run 'jazz task deps ${taskId}' to check task dependencies and resolve any issues`,
 } as const;

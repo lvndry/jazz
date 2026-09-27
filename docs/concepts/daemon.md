@@ -4,7 +4,7 @@ description: "The daemon is what lets Jazz act with no terminal open: serving ru
 
 # Daemon: Jazz with no terminal attached
 
-`jazz chat` and `jazz run` are one process talking to one terminal. Some things have to happen
+`jazz agent chat` and `jazz run` are one process talking to one terminal. Some things have to happen
 when nobody is typing:
 
 - a scheduled workflow firing at 6 AM,

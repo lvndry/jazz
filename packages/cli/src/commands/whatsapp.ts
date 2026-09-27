@@ -39,7 +39,7 @@ async function selectSeedAgent(query: string): Promise<void> {
   if (match.kind === "missing") {
     throw new Error(
       agents.length === 0
-        ? `No agents in ${home}. Make one with \`jazz create\`.`
+        ? `No agents in ${home}. Make one with \`jazz agent create\`.`
         : `No agent "${query}" in ${home}. There is:\n${list(agents)}`,
     );
   }

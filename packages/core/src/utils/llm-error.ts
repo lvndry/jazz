@@ -11,6 +11,7 @@ import {
   localServerAddress,
 } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
+import { apiKeyHint } from "@/core/constants/provider-env-vars";
 import {
   LLMAuthenticationError,
   LLMRateLimitError,
@@ -430,9 +431,7 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
     ) {
       // Create a more user-friendly message for API key issues
       const providerDisplayName = formatProviderDisplayName(providerName);
-      const friendlyMessage = `${providerDisplayName} API key is missing or invalid.
-You can set it by running: jazz config set llm.${providerName}.api_key <your-key>
-Or update it in the interactive wizard: jazz wizard -> Update configuration`;
+      const friendlyMessage = `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
 
       llmError = new LLMAuthenticationError({
         provider: providerName,

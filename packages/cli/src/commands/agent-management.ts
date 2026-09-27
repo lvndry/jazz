@@ -4,6 +4,7 @@
 
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
+import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@jazz/core/interfaces/cli-options";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
@@ -60,7 +61,7 @@ function formatAgentsListBlock(
   lines.push(chalk.dim(header));
 
   const titleLine = ` ${chalk.bold(title)} ${chalk.dim(
-    "— use `jazz agent get <id|name>` or `jazz agent chat <id|name>`",
+    "— use `jazz agent show <id|name>` or `jazz agent chat <id|name>`",
   )}`;
   lines.push(chalk.dim(g.boxV) + padRight(titleLine, innerWidth) + chalk.dim(g.boxV));
   lines.push(chalk.dim(sep));
@@ -206,7 +207,7 @@ function listAgentsThatGenerate(
     if (suggestions.length === 0) {
       yield* terminal.log(
         `No model from your configured providers generates ${modality}. Gemini models are the ` +
-          `most common source; add that provider with: jazz config set llm.gemini.api_key <key>`,
+          `most common source; to add that provider, ${apiKeyHint("gemini")}`,
       );
       return;
     }
