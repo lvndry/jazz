@@ -70,6 +70,7 @@ import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
 import { SchedulerServiceLayer } from "@jazz/core/workflows/scheduler-service";
 import { WorkflowsLive } from "@jazz/core/workflows/workflow-service";
 import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { reportStartupFailure } from "./startup-failure";
 
 /** Config used to select terminal and presentation layers. Exported for testing. */
 export interface PresentationConfig {
@@ -526,6 +527,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       ),
     ),
     Effect.scoped,
+    Effect.catchAll(reportStartupFailure),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect).finally(() => {

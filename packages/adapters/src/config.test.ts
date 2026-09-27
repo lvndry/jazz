@@ -272,7 +272,7 @@ describe("createConfigLayer", () => {
     expect(JSON.parse(written).logging).toEqual({ level: "info" });
   });
 
-  it("warns about a repurposed unknown google block without blocking startup", async () => {
+  it("refuses to start on a repurposed unknown google block", async () => {
     const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([
       [globalPath, JSON.stringify({ google: { somethingElse: "keep-me" } })],
@@ -282,11 +282,12 @@ describe("createConfigLayer", () => {
     const layer = createConfigLayer().pipe(
       Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
     );
-    const { stderr } = await captureStderr(() =>
-      Effect.runPromise(Effect.provide(AgentConfigServiceTag, layer)),
-    );
+    const exit = await Effect.runPromiseExit(Effect.provide(AgentConfigServiceTag, layer));
 
-    expect(stderr).toContain("google: not a setting");
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(String(Cause.squash((exit as Exit.Failure<unknown, unknown>).cause))).toContain(
+      "google: not a setting",
+    );
     const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
     expect(calls.length).toBe(0);
   });
@@ -642,29 +643,6 @@ describe("createConfigLayer", () => {
     });
   });
 
-  it("preserves ignored entries when writing a different setting", async () => {
-    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
-    const fileContents = new Map([[globalPath, JSON.stringify({ maxRetrys: 5, maxRetries: "7" })]]);
-    const testFS = createTestFileSystem(fileContents);
-    const layer = createConfigLayer().pipe(
-      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
-    );
-
-    await captureStderr(() =>
-      Effect.runPromise(
-        Effect.flatMap(AgentConfigServiceTag, (service) =>
-          service.set("notifications.enabled", false),
-        ).pipe(Effect.provide(layer)),
-      ),
-    );
-
-    expect(lastWrite(testFS)).toEqual({
-      maxRetrys: 5,
-      maxRetries: "7",
-      notifications: { enabled: false },
-    });
-  });
-
   it("never copies project overrides, --debug, or defaults into the global file", async () => {
     const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const localPath = path.join(process.cwd(), ".jazz", "config.json");
@@ -700,7 +678,7 @@ describe("createConfigLayer", () => {
     });
   });
 
-  it("warns and uses valid siblings when an initial value has the wrong type", async () => {
+  it("refuses to start when an initial value has the wrong type, naming every problem", async () => {
     const customConfigPath = path.join(os.tmpdir(), "jazz-mistyped-config.json");
     const fileContents = new Map([
       [
@@ -712,39 +690,36 @@ describe("createConfigLayer", () => {
       Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
     );
 
-    const { result: config, stderr } = await captureStderr(() =>
-      Effect.runPromise(
-        Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
-          Effect.provide(layer),
-        ),
+    const exit = await Effect.runPromiseExit(
+      Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+        Effect.provide(layer),
       ),
     );
 
-    expect(config.maxRetries).toBeUndefined();
-    expect(config.output?.collapseReasoning).toBeUndefined();
-    expect(config.output?.mode).toBe("raw");
-    expect(stderr).toContain(customConfigPath);
-    expect(stderr).toContain('maxRetries: expected a whole number of 0 or more, got "5"');
-    expect(stderr).toContain("output.collapseReasoning: expected true or false");
+    expect(Exit.isFailure(exit)).toBe(true);
+    const message = String(Cause.squash((exit as Exit.Failure<unknown, unknown>).cause));
+    expect(message).toContain(customConfigPath);
+    expect(message).toContain('maxRetries: expected a whole number of 0 or more, got "5"');
+    expect(message).toContain("output.collapseReasoning: expected true or false");
   });
 
-  it("warns and uses defaults when the initial file is malformed JSON", async () => {
+  it("refuses to start when the file is malformed JSON", async () => {
     const customConfigPath = path.join(os.tmpdir(), "jazz-malformed-config.json");
     const fileContents = new Map([[customConfigPath, "{ broken"]]);
     const layer = createConfigLayer(undefined, customConfigPath).pipe(
       Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
     );
 
-    const { result: config, stderr } = await captureStderr(() =>
-      Effect.runPromise(
-        Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
-          Effect.provide(layer),
-        ),
+    const exit = await Effect.runPromiseExit(
+      Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+        Effect.provide(layer),
       ),
     );
 
-    expect(config.logging).toEqual({ level: "info", format: "plain" });
-    expect(stderr).toContain(`Config file is not a valid JSON object: ${customConfigPath}`);
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(String(Cause.squash((exit as Exit.Failure<unknown, unknown>).cause))).toContain(
+      `Config file is not a valid JSON object: ${customConfigPath}`,
+    );
   });
 
   it("merges a project provider block into the global one field by field", async () => {

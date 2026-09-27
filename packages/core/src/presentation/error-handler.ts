@@ -104,10 +104,10 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
         message: `Configuration error in field "${error.field}": ${error.message}`,
         suggestion: error.suggestion || "Fix the configuration value",
         recovery: [
-          "Check configuration: `jazz config show`",
-          "Validate configuration: `jazz config validate`",
+          "Fix the file named above; Jazz does not start on a config it cannot fully read",
+          "Check every problem at once: `jazz config validate` (it runs on a broken file)",
         ],
-        relatedCommands: ["jazz config show", "jazz config validate"],
+        relatedCommands: ["jazz config validate"],
       };
     }
 

@@ -468,13 +468,6 @@ function requireValidConfigFile(
   );
 }
 
-/** Load the largest valid subset and report what was ignored, without blocking startup. */
-function loadCheckedConfigFile(path: string, document: ConfigDocument): ConfigFile {
-  const checked = parseCheckedConfigFile(path, document);
-  if (checked.report !== undefined) process.stderr.write(checked.report);
-  return checked.config;
-}
-
 function effectiveConfigReport(config: AppConfig): string | undefined {
   return formatConfigIssues(
     "the merged configuration",
@@ -537,16 +530,16 @@ export function createConfigLayer(
     AgentConfigServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const files = yield* loadConfigFiles(fs, customConfigPath, "warn");
+      const files = yield* loadConfigFiles(fs, customConfigPath);
 
       const checkedGlobal =
         files.global === undefined
           ? EMPTY_CONFIG_FILE
-          : loadCheckedConfigFile(files.global.path, files.global.document);
+          : yield* requireValidConfigFile(files.global.path, files.global.document);
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : loadCheckedConfigFile(files.local.path, files.local.document);
+          : yield* requireValidConfigFile(files.local.path, files.local.document);
       const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
       const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
 
@@ -582,7 +575,7 @@ export function createConfigLayer(
         resolvedSecrets: snapshotResolvedSecrets(secrets.config),
       };
 
-      const runtimeConfig = sanitizeEffectiveConfig(buildRuntimeConfig(sources));
+      const runtimeConfig = yield* requireValidEffectiveConfig(buildRuntimeConfig(sources));
 
       return new AgentConfigServiceImpl(
         runtimeConfig,
@@ -947,25 +940,14 @@ interface ConfigFilesOnDisk {
   readonly local?: ConfigFileOnDisk;
 }
 
-type InvalidConfigPolicy = "warn" | "fail";
-
-function handleInvalidConfig(
-  error: ConfigurationError,
-  policy: InvalidConfigPolicy,
-): Effect.Effect<undefined, ConfigurationError> {
-  if (policy === "fail") return Effect.fail(error);
-  process.stderr.write(`jazz: ${error.message}\n`);
-  return Effect.succeed(undefined);
-}
-
 /**
- * Read a config file that may legitimately be absent. A file that exists but is not a JSON object
- * is reported and treated as absent, rather than silently ignored.
+ * Read a config file that may legitimately be absent. A file that exists but cannot be read, is
+ * empty, or is not a JSON object fails the load: running on defaults instead would quietly drop
+ * the user's limits and approvals.
  */
 function readOptionalConfigFile(
   fs: FileSystem.FileSystem,
   filePath: string,
-  policy: InvalidConfigPolicy,
 ): Effect.Effect<GlobalConfigFileOnDisk | undefined, ConfigurationError> {
   return Effect.gen(function* () {
     const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
@@ -973,37 +955,34 @@ function readOptionalConfigFile(
 
     const content = yield* fs.readFileString(filePath).pipe(
       Effect.catchAll((cause) =>
-        handleInvalidConfig(
+        Effect.fail(
           new ConfigurationError({
             field: "file",
             message: `Cannot read config file at ${filePath}: ${String(cause)}`,
             suggestion: "Check the file permissions and try again.",
           }),
-          policy,
         ),
       ),
     );
     if (content === undefined) return undefined;
     if (!content.trim()) {
-      return yield* handleInvalidConfig(
+      return yield* Effect.fail(
         new ConfigurationError({
           field: "file",
           message: `Config file is empty: ${filePath}`,
           suggestion: "Delete the empty file or replace it with a JSON object.",
         }),
-        policy,
       );
     }
 
     const document = parseConfigDocument(content);
     if (document === undefined) {
-      return yield* handleInvalidConfig(
+      return yield* Effect.fail(
         new ConfigurationError({
           field: "format",
           message: `Config file is not a valid JSON object: ${filePath}`,
           suggestion: "Fix the JSON before starting Jazz.",
         }),
-        policy,
       );
     }
 
@@ -1014,9 +993,8 @@ function readOptionalConfigFile(
 
 function readLocalConfigFile(
   fs: FileSystem.FileSystem,
-  policy: InvalidConfigPolicy,
 ): Effect.Effect<ConfigFileOnDisk | undefined, ConfigurationError> {
-  return readOptionalConfigFile(fs, `${getLocalJazzDirectory()}/config.json`, policy).pipe(
+  return readOptionalConfigFile(fs, `${getLocalJazzDirectory()}/config.json`).pipe(
     Effect.map((file) => {
       if (file === undefined) return undefined;
       const { storage: _storage, ...document } = file.document;
@@ -1028,7 +1006,6 @@ function readLocalConfigFile(
 function loadConfigFiles(
   fs: FileSystem.FileSystem,
   customConfigPath?: string,
-  policy: InvalidConfigPolicy = "fail",
 ): Effect.Effect<ConfigFilesOnDisk, ConfigurationError | ConfigurationNotFoundError> {
   return Effect.gen(function* () {
     // If custom config path is provided, validate and use it exclusively
@@ -1042,13 +1019,14 @@ function loadConfigFiles(
         return yield* Effect.fail(
           new ConfigurationNotFoundError({
             path: expandedPath,
-            suggestion: "Please ensure the file exists and the path is correct.",
+            suggestion:
+              "Check the path passed to --config, or leave --config out to use the default config file.",
           }),
         );
       }
 
-      const global = yield* readOptionalConfigFile(fs, expandedPath, policy);
-      const local = yield* readLocalConfigFile(fs, policy);
+      const global = yield* readOptionalConfigFile(fs, expandedPath);
+      const local = yield* readLocalConfigFile(fs);
       return {
         configPath: expandedPath,
         ...(global !== undefined ? { global } : {}),
@@ -1061,8 +1039,8 @@ function loadConfigFiles(
       ? expandHome(envConfigPath)
       : `${getJazzHomeDirectory()}/config.json`;
 
-    const global = yield* readOptionalConfigFile(fs, globalConfigPath, policy);
-    const local = yield* readLocalConfigFile(fs, policy);
+    const global = yield* readOptionalConfigFile(fs, globalConfigPath);
+    const local = yield* readLocalConfigFile(fs);
     return {
       configPath: globalConfigPath,
       ...(global !== undefined ? { global } : {}),

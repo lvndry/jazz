@@ -89,7 +89,6 @@ describe("Error Handler", () => {
     expect(formatted).toContain("❌ Configuration Error");
     expect(formatted).toContain('Configuration error in field "llm.openai.api_key"');
     expect(formatted).toContain("🔧 Recovery Steps:");
-    expect(formatted).toContain("jazz config list");
     expect(formatted).toContain("jazz config validate");
   });
 
