@@ -85,8 +85,7 @@ function claimUnderLock(fs: FileSystem.FileSystem, filePath: string, keys: reado
       return "duplicate" as const;
     }
     const kept = [...claimed, ...keys].slice(-MAX_REMEMBERED_DELIVERIES);
-    yield* writeFileStringAtomic(fs, filePath, JSON.stringify(kept), {
-      tempPrefix: "webhook-deliveries",
+    yield* writeFileStringAtomic(filePath, JSON.stringify(kept), {
       mode: DELIVERIES_FILE_MODE,
     });
     return "fresh" as const;
