@@ -35,6 +35,7 @@
 
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { TextAttributes, type MouseEvent as OTMouseEvent } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import {
   createContext,
   forwardRef,
@@ -1575,6 +1576,17 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
     () => ({ hovered: hoveredLink, setHovered: setHoveredLink }),
     [hoveredLink],
   );
+  const renderer = useRenderer();
+  const isHoveringLink = hoveredLink !== undefined;
+  useEffect(() => {
+    if (!isHoveringLink) {
+      return;
+    }
+    renderer.setMousePointer("pointer");
+    return () => {
+      renderer.setMousePointer("default");
+    };
+  }, [isHoveringLink, renderer]);
   const scrollFromBottomRef = useRef(0);
   const rowsRef = useRef(rows);
   const heightRef = useRef(windowHeight);

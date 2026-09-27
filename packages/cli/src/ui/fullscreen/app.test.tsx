@@ -674,7 +674,7 @@ describe("composer after a completed turn", () => {
 });
 
 describe("transcript links under the pointer", () => {
-  it("underlines every row of a wrapped link while hovered, and clears when the pointer leaves", async () => {
+  it("underlines every row of a wrapped link and shows a pointer while hovered, and clears both when the pointer leaves", async () => {
     const label = Array.from({ length: 14 }, (_, index) => `word${String(index)}`).join(" ");
     const view: ViewModel = {
       ...sampleIdleView(),
@@ -695,6 +695,12 @@ describe("transcript links under the pointer", () => {
         />,
         { width: 60, height: 16 },
       );
+    const pointerShapes: string[] = [];
+    const setMousePointer = renderer.setMousePointer.bind(renderer);
+    renderer.setMousePointer = (style) => {
+      pointerShapes.push(style);
+      setMousePointer(style);
+    };
     await renderOnce();
     const underlined = (): string[] =>
       captureSpans()
@@ -716,10 +722,12 @@ describe("transcript links under the pointer", () => {
     const hovering = underlined();
     expect(hovering.join(" ")).toContain("word0");
     expect(hovering.join(" ")).toContain("word13");
+    expect(pointerShapes).toEqual(["pointer"]);
 
     await pointAt(rows[firstRow]!.indexOf("see"), firstRow);
     const offLabel = underlined();
     renderer.destroy();
     expect(offLabel).toEqual([]);
+    expect(pointerShapes).toEqual(["pointer", "default"]);
   });
 });
