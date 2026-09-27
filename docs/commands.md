@@ -17,13 +17,13 @@ Available on every command.
 
 | Flag                | Effect                                                                                                                                                                      |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--verbose`         | Verbose logging                                                                                                                                                             |
+| `-v, --verbose`     | Verbose logging                                                                                                                                                             |
 | `--debug`           | Debug-level logging                                                                                                                                                         |
 | `--config <path>`   | Use a specific config file (also `JAZZ_CONFIG_PATH`). A path that does not exist, or a file that is not valid, stops the command with the reason and exit code `1`          |
 | `--data-dir <path>` | Directory holding this invocation's config, data, and keyring entries (overrides `$JAZZ_HOME`; defaults to `~/.jazz`). Lets one host run several independent agents by flag |
 | `--no-tui`          | Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as `JAZZ_NO_TUI=1`                                                   |
 | `--output <mode>`   | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE`                                                          |
-| `-v, --version`     | Print the version                                                                                                                                                           |
+| `--version`         | Print the version                                                                                                                                                           |
 | `--help`            | Print help                                                                                                                                                                  |
 
 ---

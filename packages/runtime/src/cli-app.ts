@@ -31,7 +31,7 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { securePrivateHome } from "@jazz/core/utils/private-home";
 import type { ShutdownSignal } from "@jazz/core/utils/process";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { Command, Option } from "commander";
+import { Command } from "commander";
 import packageJson from "../../../package.json";
 
 /**
@@ -3201,17 +3201,10 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     .description(
       "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
     )
-    .version(packageJson.version, "-v, --version", "Print the Jazz version");
-
-  // `-V` also prints the version, as it does in many CLIs; it stays out of the help.
-  program.addOption(new Option("-V").hideHelp());
-  program.on("option:V", () => {
-    process.stdout.write(`${packageJson.version}\n`);
-    process.exit(0);
-  });
+    .version(packageJson.version, "--version", "Print the Jazz version");
 
   program
-    .option("--verbose", "Enable verbose logging")
+    .option("-v, --verbose", "Enable verbose logging")
     .option("--debug", "Enable debug level logging")
     .option("--config <path>", "Path to configuration file")
     .option(
