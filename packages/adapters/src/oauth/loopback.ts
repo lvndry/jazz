@@ -6,17 +6,41 @@
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-/** Open a URL in the user's default browser, best-effort. */
-export function openBrowser(url: string): void {
-  const [command, args] = browserCommand(url);
+/** The schemes an authorization or sign-in page can use. */
+export const WEB_URL_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
+
+/**
+ * Open a URL in the user's default browser, best-effort.
+ *
+ * The URL reaches `open`/`xdg-open`/`rundll32`, which dispatch on the scheme, so only a URL whose
+ * protocol is in `allowedProtocols` is handed over: a `file:` or `smb:` URL supplied by a remote
+ * authorization server would otherwise open a local file or mount a share. Returns whether the
+ * URL was handed to the browser; callers print the URL either way.
+ */
+export function openBrowser(
+  url: string,
+  allowedProtocols: ReadonlySet<string> = WEB_URL_PROTOCOLS,
+): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (!allowedProtocols.has(parsed.protocol)) {
+    return false;
+  }
+  const [command, args] = browserCommand(parsed.href);
   try {
     const child = spawn(command, args, { stdio: "ignore", detached: true, windowsHide: true });
     child.on("error", () => {
       // Falling back to the printed URL is the whole recovery path.
     });
     child.unref();
+    return true;
   } catch {
     // Same: the caller has already printed the URL.
+    return false;
   }
 }
 

@@ -14,8 +14,9 @@
  */
 
 import type { DisclosureTier } from "./disclosure-tier";
+import type { DoorLimits } from "./remote-door";
 
-export interface WebhookConfig {
+export interface WebhookConfig extends DoorLimits {
   /** Local name, used in the URL (`POST /webhooks/<name>`) and to look up its token. Unique. */
   readonly name: string;
   /** Which agent this webhook wakes. */
@@ -70,7 +71,47 @@ export interface WebhookConfig {
    * is the same axis on the other external door.
    */
   readonly allow?: readonly string[];
+  /**
+   * Authenticate each request by a signature over its raw body instead of a bearer token.
+   *
+   * The sender signs with a secret it shares with this machine (`jazz webhook secret <name>`),
+   * so the secret itself never travels. This is what GitHub, and most services that send
+   * webhooks, do. A webhook with a signature ignores any `Authorization` header; one without
+   * needs its bearer token on every request.
+   */
+  readonly signature?: WebhookSignature;
+  /**
+   * Request header carrying the sender's id for one delivery. A delivery whose id this webhook
+   * has already received is refused, so a replayed or re-sent request runs nothing twice.
+   * Absent means {@link DEFAULT_WEBHOOK_DELIVERY_HEADER}.
+   */
+  readonly deliveryIdHeader?: string;
 }
+
+/**
+ * How a sender signs a webhook body.
+ *
+ * `hmac-sha256` is an HMAC-SHA256 of the raw body under the shared secret, hex-encoded, sent in
+ * `header` after `prefix`. Its defaults are GitHub's: `X-Hub-Signature-256: sha256=<hex>`.
+ */
+export interface WebhookSignature {
+  readonly format: "hmac-sha256";
+  /** Request header holding the signature. Absent means {@link DEFAULT_SIGNATURE_HEADER}. */
+  readonly header?: string;
+  /** Text before the hex digest in that header. Absent means {@link DEFAULT_SIGNATURE_PREFIX}. */
+  readonly prefix?: string;
+}
+
+export type WebhookSignatureFormat = WebhookSignature["format"];
+
+/** The signature header GitHub sends. */
+export const DEFAULT_SIGNATURE_HEADER = "x-hub-signature-256";
+
+/** The text GitHub puts before the digest. */
+export const DEFAULT_SIGNATURE_PREFIX = "sha256=";
+
+/** The delivery id header GitHub sends. */
+export const DEFAULT_WEBHOOK_DELIVERY_HEADER = "x-github-delivery";
 
 /**
  * What a webhook may reach when its config does not say.

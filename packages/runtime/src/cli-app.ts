@@ -174,8 +174,8 @@ function registerRunCommand(program: Command): void {
       "Skip Jazz conversation/session persistence: --conversation is ignored (no history load/save) and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
     .option(
-      "--history-json <json>",
-      "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
+      "--input-stdin",
+      'Read the prompt from the first stdin line as JSON: {"prompt": "...", "history": [...]}. `history` (with --ephemeral) is the `messages` field of the previous --ephemeral --json envelope. Keeps a relayed message and transcript off the command line; later stdin lines still carry --interactive-stdin answers.',
     )
     .option(
       "--park",
@@ -215,7 +215,7 @@ function registerRunCommand(program: Command): void {
           noStream?: boolean;
           interactiveStdin?: boolean;
           ephemeral?: boolean;
-          historyJson?: string;
+          inputStdin?: boolean;
           park?: boolean;
           withVision?: string;
           withAudio?: string;
@@ -362,7 +362,7 @@ function registerRunCommand(program: Command): void {
                 ...resolveStreamOption(options, eventCategories),
                 ...(options.interactiveStdin === true ? { interactiveStdin: true } : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
-                ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
+                ...(options.inputStdin === true ? { inputStdin: true } : {}),
                 ...(options.park === true ? { park: true } : {}),
                 ...(companionFlags.some((entry) => entry.value !== undefined)
                   ? {
@@ -617,10 +617,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("get <key>")
-    .description("Get a configuration value")
-    .action((key: string) =>
+    .description("Get a configuration value (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((key: string, options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.getConfigCommand(key)),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.getConfigCommand(key, { reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -637,10 +641,14 @@ function registerConfigCommands(program: Command): void {
 
   configCommand
     .command("show")
-    .description("Show all configuration values")
-    .action(() =>
+    .description("Show all configuration values (secrets redacted unless --reveal)")
+    .option("--reveal", "Print secret values in full")
+    .action((options: { reveal?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/config").then((mod) => mod.listConfigCommand()),
+        () =>
+          import("@jazz/cli/commands/config").then((mod) =>
+            mod.listConfigCommand({ reveal: options.reveal === true }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -916,8 +924,9 @@ function registerDetachCommands(program: Command): void {
 }
 
 /**
- * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
- * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ * Register `jazz webhook token|forget-token|secret|forget-secret`: minting a webhook's bearer
+ * token or signing secret instead of asking somebody to invent one, the way
+ * `jazz daemon set-token` already does for the daemon.
  */
 function registerWebhookCommands(program: Command): void {
   const webhookCommand = program
@@ -941,6 +950,29 @@ function registerWebhookCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("secret <name>")
+    .description(
+      "Generate and store the secret a webhook's sender signs bodies with (GitHub's webhook secret), printing it once",
+    )
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookSecretCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-secret <name>")
+    .description("Remove a webhook's stored signing secret")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookSecretCommand(name)),
         cliRuntimeOptions(program),
       ),
     );
@@ -1639,6 +1671,45 @@ function registerDaemonCommand(program: Command): void {
       ),
     );
 
+  const attention = () => import("@jazz/cli/commands/daemon-attention");
+  daemonCommand
+    .command("status")
+    .description("What the daemon is doing, what it spent today, and what is waiting for you")
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.daemonStatusCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("pause")
+    .description(
+      "Stop background work from starting (running work finishes; answering still works)",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.pauseDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+  daemonCommand
+    .command("resume")
+    .description(
+      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () => attention().then((mod) => mod.resumeDaemonCommand({ json: options.json === true })),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      ),
+    );
+
   daemonCommand
     .command("set-token")
     .description(
@@ -1657,6 +1728,28 @@ function registerDaemonCommand(program: Command): void {
     .action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetDaemonTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("operator-token")
+    .description(
+      "Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve a run), store it in the OS keyring, and print it once",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-operator-token")
+    .description("Remove the operator token, so the daemon grants nothing over HTTP")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetOperatorTokenCommand()),
         cliRuntimeOptions(program),
       ),
     );
@@ -2803,7 +2896,42 @@ function registerWorkflowCommands(program: Command): void {
  * - MCP server management
  * - Update command
  */
-export function createCLIApp(): Command {
+/**
+ * The first command-line operand (a subcommand name, typo or not), skipping the
+ * program's own options and the values they take. `jazz --no-tui` and
+ * `jazz --data-dir ~/work` have none, so they open the interactive home;
+ * `jazz agent list` and `jazz agnt` do, so Commander routes or rejects them.
+ */
+export function firstOperand(program: Command, args: readonly string[]): string | undefined {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) {
+      break;
+    }
+    if (arg === "--") {
+      return args[index + 1];
+    }
+    if (arg === "-" || !arg.startsWith("-")) {
+      return arg;
+    }
+    if (arg.includes("=")) {
+      continue;
+    }
+    const option = program.options.find(
+      (candidate) => candidate.long === arg || candidate.short === arg,
+    );
+    const next = args[index + 1];
+    const takesValue =
+      option !== undefined &&
+      (option.required || (option.optional && next !== undefined && !next.startsWith("-")));
+    if (takesValue) {
+      index += 1;
+    }
+  }
+  return undefined;
+}
+
+export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
   program
@@ -2874,7 +3002,7 @@ export function createCLIApp(): Command {
   registerRunsCommands(program);
   registerWorkflowCommands(program);
 
-  if (process.argv.length <= 2) {
+  if (firstOperand(program, argv.slice(2)) === undefined) {
     program.action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/wizard").then((mod) => mod.wizardCommand()),

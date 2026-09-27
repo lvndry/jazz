@@ -650,7 +650,7 @@ describe("spawn_subagent tool ceiling", () => {
     }
   });
 
-  it("sets no allowlist when the parent's toolset is unknown", async () => {
+  it("gives the child no tools when the parent's toolset is unknown", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
@@ -665,7 +665,7 @@ describe("spawn_subagent tool ceiling", () => {
       const { presentation } = createPresentationHarness();
       await runSpawn(presentation);
 
-      expect(captured?.toolAllowlist).toBeUndefined();
+      expect(captured?.toolAllowlist).toEqual([]);
     } finally {
       spy.mockRestore();
     }

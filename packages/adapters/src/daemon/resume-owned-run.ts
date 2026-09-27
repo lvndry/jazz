@@ -8,6 +8,7 @@
  */
 
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { Effect } from "effect";
 import { resumeGoalRun } from "./goal-worker";
@@ -28,6 +29,15 @@ export function resumeOwnedRun(options: ResumeRunOptions) {
   });
 }
 
+/** What a parked run waits on, in the words its request carries. */
+export function describePending(pending: PendingInput): string {
+  return pending.kind === "tool-approval"
+    ? pending.request.message
+    : pending.kind === "question"
+      ? pending.request.question
+      : "a file to be picked";
+}
+
 /** What a parked run waits on from the user, in words, or undefined when it is not parked. */
 export function pendingRunInput(runId: string) {
   return Effect.gen(function* () {
@@ -37,13 +47,7 @@ export function pendingRunInput(runId: string) {
       return undefined;
     }
     const pending = run.state.pending;
-    const described =
-      pending.kind === "tool-approval"
-        ? pending.request.message
-        : pending.kind === "question"
-          ? pending.request.question
-          : "a file to be picked";
-    return { kind: pending.kind, runId: run.runId, described } as const;
+    return { kind: pending.kind, runId: run.runId, described: describePending(pending) } as const;
   });
 }
 

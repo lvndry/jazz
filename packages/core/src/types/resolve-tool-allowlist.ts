@@ -37,6 +37,7 @@ export function resolveToolAllowlist(
         riskLevel: tool.riskLevel,
         disclosure: tool.disclosure,
         egress: tool.egress,
+        ...(tool.peerGrantRequired === true ? { peerGrantRequired: true } : {}),
       });
     }
     return allowedToolsForTier(tier, allow, described);

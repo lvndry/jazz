@@ -48,7 +48,16 @@ export interface MCPServerConfigBase {
    * matter what it claims about them.
    */
   readonly trusted?: boolean;
+  /**
+   * Which `mcp.json` supplied the definition: the user's `~/.agents/mcp.json` or the current
+   * project's `./.agents/mcp.json`. Set by the config loader. Only a user definition can be
+   * trusted, and a project definition never replaces a user one of the same name.
+   */
+  readonly definedIn?: MCPServerDefinitionSource;
 }
+
+/** Where an MCP server definition came from. */
+export type MCPServerDefinitionSource = "user" | "project";
 
 /**
  * MCP Server configuration for stdio transport (default)

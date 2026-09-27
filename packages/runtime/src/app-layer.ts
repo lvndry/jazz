@@ -61,7 +61,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { handleError, isUserCancellation } from "@jazz/core/presentation/error-handler";
 import { QuietPresentationServiceLayer } from "@jazz/core/presentation/quiet-presentation-service";
 import { SkillsLive } from "@jazz/core/skills/skill-service";
-import type { JazzError } from "@jazz/core/types/errors";
+import { InteractiveTerminalRequiredError, type JazzError } from "@jazz/core/types/errors";
 import { getCurrentCommandName } from "@jazz/core/utils/current-command";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
@@ -114,14 +114,38 @@ export function getPresentationConfig(
     stdout,
     stdin,
   );
-  const capabilityBlocked = !decision.fullscreen && decision.reason !== "requested";
+  // Plain output is for print-and-exit modes and for sessions without a
+  // terminal. A real terminal that is only too limited for the alternate screen
+  // (CI, TERM=dumb, a screen reader, a tiny window) keeps the classic Ink
+  // interface, which still prompts; plain prompts cannot show a menu at all.
+  const noTerminal = stdout.isTTY !== true || stdin.isTTY !== true;
+  const usePlainOutput = rawOutput || requestNoTui || noTerminal;
 
   return {
     isQuiet,
-    usePlainTerminal: isQuiet || rawOutput || requestNoTui || capabilityBlocked,
-    useCLIPresentation: !isQuiet && (rawOutput || requestNoTui || capabilityBlocked),
+    usePlainTerminal: isQuiet || usePlainOutput,
+    useCLIPresentation: !isQuiet && usePlainOutput,
     useFullscreen: decision.fullscreen && !isQuiet && !rawOutput && session,
   };
+}
+
+/** Exit code for a command that needs a terminal it was not given. */
+export const EXIT_CODE_NEEDS_TERMINAL = 2;
+
+/**
+ * The process exit code for a command whose effect failed. A failure never
+ * exits 0 (CI relies on the exit code), except Ctrl+C during a prompt, which is
+ * a cancellation and leaves the exit code alone. An interactive command started
+ * without a terminal exits 2, so a script can tell it apart from a failed run.
+ */
+export function exitCodeForFailure(error: JazzError | Error): number | undefined {
+  if (isUserCancellation(error)) {
+    return undefined;
+  }
+  if (error instanceof InteractiveTerminalRequiredError) {
+    return EXIT_CODE_NEEDS_TERMINAL;
+  }
+  return 1;
 }
 
 /**
@@ -506,10 +530,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
       const maybeError = Cause.failureOption(exit.cause);
       if (Option.isSome(maybeError)) {
         yield* handleError(maybeError.value);
-        // A command whose effect failed must not exit 0 (CI relies on the exit
-        // code), but Ctrl+C during a prompt is a cancellation, not a failure.
-        if (!isUserCancellation(maybeError.value)) {
-          process.exitCode = 1;
+        const failureExitCode = exitCodeForFailure(maybeError.value);
+        if (failureExitCode !== undefined) {
+          process.exitCode = failureExitCode;
         }
         return;
       }

@@ -34,7 +34,8 @@ export function formatWorkflow(
   const scheduleStr = w.schedule ? (scheduleDesc ? ` (${scheduleDesc})` : ` [${w.schedule}]`) : "";
   const agent = w.agent ? ` (agent: ${w.agent})` : "";
   const status = options?.statusBadge ?? "";
-  return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}`;
+  const problem = w.definitionError !== undefined ? `\n    cannot run: ${w.definitionError}` : "";
+  return `  ${w.name}${scheduleStr}${agent}${status}\n    ${w.description}${problem}`;
 }
 
 /**

@@ -8,8 +8,7 @@
  * a JID, so the encoding has to be reversible rather than merely unique.
  */
 
-import { syncAgentDisplayName as syncScopedAgentDisplayName } from "@jazz/bot-shared/agent-file";
-import { listChatSandboxes } from "@jazz/bot-shared/chat-sandbox";
+import { syncAgentDisplayNameEverywhere } from "@jazz/bot-shared/agent-file";
 import { isGroupJid, type Jid, normalizeJid } from "./access";
 
 export function agentIdForChat(jid: Jid): string {
@@ -32,8 +31,5 @@ export function syncAgentDisplayName(
   baseAgentId: string,
   displayName: string,
 ): void {
-  syncScopedAgentDisplayName(dataDir, baseAgentId, displayName, isChatAgentId);
-  for (const { home } of listChatSandboxes(dataDir)) {
-    syncScopedAgentDisplayName(home, baseAgentId, displayName, isChatAgentId);
-  }
+  syncAgentDisplayNameEverywhere(dataDir, baseAgentId, displayName, isChatAgentId);
 }

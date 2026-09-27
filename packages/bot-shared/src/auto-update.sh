@@ -1,9 +1,14 @@
 #!/bin/sh
 # Hourly auto-update for a Jazz chat bridge, shared by every bridge.
 #
-# Fast-forwards the checkout to the latest origin/main, rebuilds only if it
+# By default the checkout follows releases: it moves to the newest release tag
+# (vX.Y.Z) once one is published past the running commit, rebuilds only if it
 # actually changed, and rolls back to the previous commit if the new build does
-# not come up healthy.
+# not come up healthy. It never moves backwards, so a checkout that is already
+# ahead of the newest release waits for the next one.
+#
+# Set JAZZ_DEPLOY_BRANCH=<branch> to follow a branch instead (fast-forwarding
+# to origin/<branch> on every run), for example main to run every merged commit.
 #
 # Usage (from a bridge's own auto-update.sh):
 #   exec "$DIR/../../bot-shared/src/auto-update.sh" "$DIR" jazz-telegram
@@ -23,7 +28,9 @@ BRIDGE_DIR=${1:?usage: auto-update.sh <bridge-dir> <compose-project>}
 PROJECT=${2:?usage: auto-update.sh <bridge-dir> <compose-project>}
 REPO=$(cd -- "$BRIDGE_DIR/../../.." && pwd)
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-DEPLOY_BRANCH=${JAZZ_DEPLOY_BRANCH:-main}
+DEPLOY_BRANCH=${JAZZ_DEPLOY_BRANCH:-}
+# Release tags are vMAJOR.MINOR.PATCH; plugin-sdk-v* and other tags are not deploys.
+RELEASE_TAG_PATTERN='v[0-9]*.[0-9]*.[0-9]*'
 
 # Cron has no reader. Anything a human must act on goes to the bridge itself: in a
 # logfile, a failed run is indistinguishable from an update that was not needed.
@@ -41,56 +48,100 @@ die() {
 
 cd "$REPO"
 
-# Park the checkout back on the deploy branch rather than attempting a merge
-# that cannot succeed. Only tracked modifications are stashed: untracked files
-# are deliberate local config (a docker-compose.override.yml publishing a port,
-# a .env) and stashing them would silently change how the bridge deploys.
-# Nothing is discarded — commits stay on the branch they were made on and the
-# stash is left for a human, both reported below.
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [ "$CURRENT_BRANCH" != "$DEPLOY_BRANCH" ]; then
-  # Resolve to a sha before moving: on a detached HEAD there is no branch name
-  # to diff against afterwards, and those commits are the easiest to lose.
-  PRIOR_HEAD=$(git rev-parse HEAD)
-  STASHED=no
+# Stash tracked modifications before moving the checkout, rather than attempting
+# a merge that cannot succeed. Only tracked modifications are stashed: untracked
+# files are deliberate local config (a docker-compose.override.yml publishing a
+# port, a .env) and stashing them would silently change how the bridge deploys.
+# Nothing is discarded: the stash is left for a human and reported.
+stash_local_edits() {
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    git stash push -m "auto-update ${STAMP} (was on ${CURRENT_BRANCH})" >/dev/null
-    STASHED=yes
+    git stash push -m "auto-update ${STAMP} (was on $1)" >/dev/null
+    echo "Local edits were stashed. Recover with: git -C ${REPO} stash list"
   fi
-  git checkout -q "$DEPLOY_BRANCH" ||
-    die "auto-update: cannot check out ${DEPLOY_BRANCH} from ${CURRENT_BRANCH}; left as-is"
+}
 
-  message="auto-update: moved the checkout from ${CURRENT_BRANCH} to ${DEPLOY_BRANCH}"
-  # Commits only ever reachable from the old branch are not lost, but they are
-  # now invisible to anyone looking at the deploy — so say so by name.
-  orphans=$(git log --oneline "${DEPLOY_BRANCH}..${PRIOR_HEAD}" 2>/dev/null || true)
+# Commits reachable from $1 that neither $2 nor any remote branch has: moving the
+# checkout off them does not delete them, but hides them from anyone looking at
+# the deploy, so every move names them.
+unpushed_commits() {
+  git log --oneline "$1" --not "$2" --remotes 2>/dev/null || true
+}
+
+if [ -z "$DEPLOY_BRANCH" ]; then
+  git fetch -q --tags origin
+  RELEASE_TAG=$(git tag -l "$RELEASE_TAG_PATTERN" --sort=-v:refname | head -n 1)
+  [ -n "$RELEASE_TAG" ] || die "auto-update: origin has no release tag matching ${RELEASE_TAG_PATTERN}; nothing to deploy"
+  PREV=$(git rev-parse HEAD)
+  LATEST=$(git rev-parse "${RELEASE_TAG}^{commit}")
+
+  # Already on the release, or ahead of it (a checkout that used to follow main):
+  # moving would be a downgrade, so wait for the next release instead.
+  if git merge-base --is-ancestor "$LATEST" "$PREV"; then
+    echo "$STAMP up-to-date ($PREV, at or past ${RELEASE_TAG})"
+    exit 0
+  fi
+
+  CURRENT=$(git rev-parse --abbrev-ref HEAD)
+  message="auto-update: moving the checkout from ${CURRENT} (${PREV}) to release ${RELEASE_TAG}"
+  orphans=$(unpushed_commits "$PREV" "$LATEST")
   if [ -n "$orphans" ]; then
     message="${message}
-Commits left behind on ${CURRENT_BRANCH} (push them or they stay only on this box):
+Commits only on this box (push them or they stay only here):
 ${orphans}"
   fi
-  if [ "$STASHED" = yes ]; then
+  stashed=$(stash_local_edits "$CURRENT")
+  if [ -n "$stashed" ]; then
     message="${message}
-Local edits were stashed — recover with: git -C ${REPO} stash list"
+${stashed}"
   fi
-  notify "$message"
+  if [ -n "$orphans" ] || [ -n "$stashed" ]; then
+    notify "$message"
+  fi
+
+  echo "$STAMP updating ${PREV} -> ${RELEASE_TAG} (${LATEST})"
+  git checkout -q --detach "$RELEASE_TAG" ||
+    die "auto-update: cannot check out ${RELEASE_TAG}; the bridge is still on ${PREV}"
+else
+  # Park the checkout back on the deploy branch before fast-forwarding it.
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$CURRENT_BRANCH" != "$DEPLOY_BRANCH" ]; then
+    # Resolve to a sha before moving: on a detached HEAD there is no branch name
+    # to diff against afterwards, and those commits are the easiest to lose.
+    PRIOR_HEAD=$(git rev-parse HEAD)
+    stashed=$(stash_local_edits "$CURRENT_BRANCH")
+    git checkout -q "$DEPLOY_BRANCH" ||
+      die "auto-update: cannot check out ${DEPLOY_BRANCH} from ${CURRENT_BRANCH}; left as-is"
+
+    message="auto-update: moved the checkout from ${CURRENT_BRANCH} to ${DEPLOY_BRANCH}"
+    orphans=$(unpushed_commits "$PRIOR_HEAD" "$DEPLOY_BRANCH")
+    if [ -n "$orphans" ]; then
+      message="${message}
+Commits left behind on ${CURRENT_BRANCH} (push them or they stay only on this box):
+${orphans}"
+    fi
+    if [ -n "$stashed" ]; then
+      message="${message}
+${stashed}"
+    fi
+    notify "$message"
+  fi
+
+  git fetch -q origin "$DEPLOY_BRANCH"
+  PREV=$(git rev-parse HEAD)
+  LATEST=$(git rev-parse "origin/${DEPLOY_BRANCH}")
+
+  if [ "$PREV" = "$LATEST" ]; then
+    echo "$STAMP up-to-date ($PREV)"
+    exit 0
+  fi
+
+  echo "$STAMP updating ${PREV} -> ${LATEST}"
+  # Fast-forward only: never silently discard local commits. Reaching here with a
+  # non-fast-forwardable branch means someone committed to the deploy branch on
+  # this box, which a cron job must not resolve on their behalf.
+  git merge --ff-only "origin/${DEPLOY_BRANCH}" 2>/dev/null ||
+    die "auto-update: ${DEPLOY_BRANCH} has local commits that block a fast-forward to ${LATEST}. Push or drop them; the bridge is still on ${PREV}."
 fi
-
-git fetch -q origin "$DEPLOY_BRANCH"
-PREV=$(git rev-parse HEAD)
-LATEST=$(git rev-parse "origin/${DEPLOY_BRANCH}")
-
-if [ "$PREV" = "$LATEST" ]; then
-  echo "$STAMP up-to-date ($PREV)"
-  exit 0
-fi
-
-echo "$STAMP updating ${PREV} -> ${LATEST}"
-# Fast-forward only: never silently discard local commits. Reaching here with a
-# non-fast-forwardable branch means someone committed to the deploy branch on
-# this box, which a cron job must not resolve on their behalf.
-git merge --ff-only "origin/${DEPLOY_BRANCH}" 2>/dev/null ||
-  die "auto-update: ${DEPLOY_BRANCH} has local commits that block a fast-forward to ${LATEST}. Push or drop them; the bridge is still on ${PREV}."
 
 deploy() {
   cd "$BRIDGE_DIR"

@@ -246,10 +246,15 @@ function executeMCPTool(
 
     // A server that advertises an `outputSchema` returns the parsed object in
     // `structuredContent`; `content` is then just its text rendering, so the
-    // structured form is what the model should reason over.
+    // structured form is what the model should reason over. Either is nested under
+    // its own key: the server writes these bytes, and the top level of a tool
+    // result is where the executor looks for an approval request.
     return {
       success: true,
-      result: result.structuredContent ?? result.content ?? null,
+      result:
+        result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent }
+          : { content: result.content ?? null },
     };
   });
 }
@@ -258,10 +263,9 @@ function executeMCPTool(
  * Adapt one MCP tool to Jazz's tool model.
  *
  * Returns one tool for calls that need no confirmation, or an approval/execute
- * pair for everything else. The split has to happen here rather than through a
- * risk level alone: the approval gate in the executor fires on the sentinel
- * `defineApprovalTool` returns, so a tool registered as a plain tool runs
- * ungated no matter what risk level it carries.
+ * pair for everything else. The pair gives the approval prompt the server's own
+ * annotations and name; the executor would gate a plain tool above `read-only`
+ * too, but only with a generic prompt.
  */
 function adaptMCPToolToJazz(
   serverConfig: MCPServerConfig,

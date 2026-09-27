@@ -48,7 +48,9 @@ Jazz resolves a provider key in this order:
 2. the global provider configuration;
 3. the provider's environment variable.
 
-The configuration wizard writes secrets to macOS Keychain or libsecret when available. On a host without a keyring it falls back to the protected Jazz secrets file. `jazz config show` redacts resolved secrets.
+The configuration wizard writes secrets to macOS Keychain or libsecret when available. On a host without a keyring it falls back to the protected Jazz secrets file. `jazz config show` and `jazz config get` redact resolved secrets, including those read from the keyring or the environment; add `--reveal` to print them.
+
+Keyring entries belong to one Jazz home: each home stores its secrets under the service `jazz.<hash of the home path>`, so a `JAZZ_HOME` or `--data-dir` home never reads the keys of another. Entries saved by earlier versions of Jazz sit under the bare `jazz` service; the default `~/.jazz` home moves them into its own service the first time it touches the keyring. Any other home starts empty, so set its keys again there (`jazz config`, `jazz config set llm.<provider>.api_key`, and `jazz mcp auth` for OAuth servers).
 
 To set a key by hand, run `jazz config set <provider>` (for example `jazz config set anthropic`) and paste the key when asked, so it never lands in your shell history. Jazz trims a pasted key and, for providers with a free endpoint to ask (OpenAI, Anthropic, Gemini, OpenRouter, xAI, Cerebras, DeepSeek, Fireworks, Groq, Mistral, Together AI), checks it before saving: a key the provider rejects is asked for again. A provider pointed at a custom `base_url` is not checked.
 

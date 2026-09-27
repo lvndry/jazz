@@ -112,6 +112,7 @@ describe("Error Handler", () => {
       createStreamingRenderer: vi.fn().mockReturnValue(Effect.succeed({})),
       writeOutput: vi.fn().mockReturnValue(Effect.void),
       writeBlankLine: vi.fn().mockReturnValue(Effect.void),
+      writeError: vi.fn().mockReturnValue(Effect.void),
       openEphemeralRegion: vi.fn().mockReturnValue(Effect.succeed("region-1")),
       appendEphemeralRegion: vi.fn().mockReturnValue(Effect.void),
       collapseEphemeralRegion: vi.fn().mockReturnValue(Effect.void),

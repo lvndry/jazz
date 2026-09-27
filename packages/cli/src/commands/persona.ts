@@ -9,9 +9,11 @@ import {
   StorageError,
   StorageNotFoundError,
   ValidationError,
+  type InteractiveTerminalRequiredError,
 } from "@jazz/core/types/errors";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { resolveEditor } from "./editor";
 
 /**
@@ -28,10 +30,14 @@ import { resolveEditor } from "./editor";
  */
 export function createPersonaCommand(): Effect.Effect<
   void,
-  StorageError | PersonaAlreadyExistsError | ValidationError,
+  StorageError | PersonaAlreadyExistsError | ValidationError | InteractiveTerminalRequiredError,
   PersonaService | TerminalService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz persona create",
+      "Run `jazz persona create` in a terminal, or write the persona by hand under $JAZZ_HOME/personas/ (normally ~/.jazz/personas/).",
+    );
     const terminal = yield* TerminalServiceTag;
     const personaService = yield* PersonaServiceTag;
 
@@ -254,10 +260,14 @@ export function editPersonaCommand(
   identifier: string,
 ): Effect.Effect<
   void,
-  StorageError | StorageNotFoundError | PersonaNotFoundError,
+  StorageError | StorageNotFoundError | PersonaNotFoundError | InteractiveTerminalRequiredError,
   PersonaService | TerminalService | AgentConfigService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz persona edit",
+      "Run `jazz persona edit` in a terminal, or edit the persona's files under $JAZZ_HOME/personas/ (normally ~/.jazz/personas/).",
+    );
     const personaService = yield* PersonaServiceTag;
     const terminal = yield* TerminalServiceTag;
 

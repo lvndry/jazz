@@ -104,6 +104,12 @@ class QuietPresentationService implements PresentationService {
     return Effect.void;
   }
 
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      process.stderr.write(message);
+    });
+  }
+
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.void;
   }
