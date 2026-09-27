@@ -71,11 +71,11 @@ memory write; plain piped stdin is treated as untrusted text.
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
 | `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                                            |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
 | `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
 | `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
-| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                                            |
+| `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                            |
 | `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                                            |
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
@@ -86,8 +86,9 @@ memory write; plain piped stdin is treated as untrusted text.
 | `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
 | `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                           |
 
-`--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
-interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
+`--max-cost-usd` and `--max-tokens` are soft checkpoints, checked between iterations.
+`--max-duration-ms` is a deadline: it interrupts the run wherever it is and still returns a
+result. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
 for the enforcement model and how they differ from `--timeout`.
 
 **Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and

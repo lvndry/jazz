@@ -3,11 +3,12 @@ import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
+import type { CompletionFinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
 import type { RemoteCaller } from "@/core/types/remote-door";
-import type { ToolProgressEvent } from "@/core/types/tools";
+import type { StoppedToolCall, ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
   AutoApprovePolicy,
@@ -210,6 +211,12 @@ export interface AgentRunnerOptions {
    * process resumes from. Off by default, and never set for sub-agent runs.
    */
   readonly parkWhenUnattended?: boolean;
+  /**
+   * Told once when a tool batch is stopped part-way, however it is stopped (Esc, a deadline,
+   * `--timeout`, SIGTERM), with what became of each call. A caller whose run is interrupted
+   * gets no response, so this is where it learns what ran.
+   */
+  readonly onToolBatchStopped?: (calls: readonly StoppedToolCall[]) => void;
   /** Told what the run is doing while it does it. See `ToolExecutionContext.onToolEvent`. */
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /**
@@ -405,6 +412,19 @@ export interface AgentResponse {
    * that point — a partial result, same as hitting any other cap.
    */
   readonly durationCapped?: boolean;
+  /**
+   * True when the run was stopped because the agent kept repeating the same tool calls after
+   * it had already been told once to change approach. The answer is whatever it had produced.
+   */
+  readonly stalled?: boolean;
+  /** Why the model stopped generating its final answer, when the provider said. */
+  readonly finishReason?: CompletionFinishReason;
+  /**
+   * Set when the run ended with a tool batch stopped part-way (Esc, the run's time budget):
+   * each of its calls, and whether it completed, was interrupted while running, or never
+   * started. The transcript's tool results say the same to the model.
+   */
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
 }
 
 /**

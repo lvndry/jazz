@@ -145,7 +145,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-duration-ms <ms>",
-      "Abort the run once elapsed wall-clock time reaches this many milliseconds. The agent gets pressure nudges at 50/80/90% elapsed, then the run stops between iterations.",
+      "Stop the run once elapsed wall-clock time reaches this many milliseconds, wherever it is: a model call or a running tool is interrupted. The agent gets pressure nudges at 50/80/90% elapsed. Sub-agents run under what is left.",
       parsePositiveInt("--max-duration-ms"),
     )
     .option(

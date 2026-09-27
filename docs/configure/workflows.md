@@ -48,8 +48,8 @@ maxDurationMs: 1800000
 | `maxTokens`        | number      | no       | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
 | `maxDurationMs`    | ms          | no       | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
 
-`maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between
-iterations, not preemptive interrupts. See
+`maxCostUSD` and `maxTokens` are soft checkpoints, evaluated between iterations.
+`maxDurationMs` is a deadline that interrupts a model call or tool in flight. See
 [Configuration → run budgets](../configure/jazz.md#run-budgets)
 for the full enforcement model and how `maxDurationMs` differs from `--timeout`.
 

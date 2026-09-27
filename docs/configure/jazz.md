@@ -73,13 +73,13 @@ Run `jazz config validate` for the same diagnostics and a non-zero exit status, 
 | `maxIterations`         |   `100` | Reason-and-act cycles for a top-level run                                                                     |
 | `maxSubagentIterations` |    `30` | Reason-and-act cycles for each delegated child run                                                            |
 | `maxSubagentDepth`      |     `3` | Delegation levels below the top-level run; `0` disables delegation                                            |
-| `maxRetries`            |    `10` | Retries after transient model-provider failures                                                               |
+| `maxRetries`            |    `10` | Retries per model call after transient provider failures, shared by streaming and its fallback                |
 | `editor`                |         | Editor for `jazz persona edit` / `jazz mcp add`, e.g. `code --wait`; falls back to `$VISUAL`, `$EDITOR`, `vi` |
 | `maxCostUSD`            |   unset | Own and delegated model spend in US dollars                                                                   |
 | `maxTokens`             |   unset | Own prompt and completion tokens; child tokens are not included                                               |
 | `maxDurationMs`         |   unset | Wall-clock budget with model warnings before termination                                                      |
 
-Cost, token, and duration limits are checked between iterations. One model call or tool phase can cross a limit before Jazz stops the next iteration. An external `--timeout` is a separate hard deadline around the entire run.
+Cost and token limits are checked between iterations. One model call or tool phase can cross them before Jazz stops the next iteration. The duration limit is a deadline: when it passes, Jazz interrupts whatever is running (a model call, a shell command, a sub-agent), closes any unfinished tool call, and returns what the run had so far. Sub-agents run under what is left of it. An external `--timeout` is a separate hard deadline around the entire run that ends it as a failure.
 
 Command-line and workflow values override application defaults for that run.
 

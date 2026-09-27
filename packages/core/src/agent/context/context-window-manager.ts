@@ -40,6 +40,24 @@ export const CONTEXT_COMPACT_THRESHOLD_RATIO = 0.8;
  */
 export const CONTEXT_TRIM_THRESHOLD_RATIO = 0.95;
 
+/**
+ * Message `kind`s that must survive every compaction cycle verbatim: never summarized, never
+ * dropped. `"task"` is the only one today (a workflow's prompt); a future kind that needs the
+ * same guarantee joins this set rather than a new one-off field.
+ */
+export const PINNED_KINDS: ReadonlySet<NonNullable<ChatMessage["kind"]>> = new Set(["task"]);
+
+/**
+ * Kinds trimming keeps whatever their age: the pinned kinds, the compaction summary (the only
+ * record of everything it replaced) and the continuation nudge that follows it. They sit right
+ * after the system prompt, so an age-ordered trim would drop them first.
+ */
+const TRIM_KEPT_KINDS: ReadonlySet<NonNullable<ChatMessage["kind"]>> = new Set([
+  ...PINNED_KINDS,
+  "summary",
+  "continuation",
+]);
+
 export interface ContextWindowConfig {
   /** Maximum number of tokens to keep in history */
   readonly maxTokens: number;
@@ -157,13 +175,18 @@ export class ContextWindowManager {
   /**
    * Trim message history to fit within context window limits.
    * Returns a new array of messages and the trim metadata.
-   * Preserves system message, protected recent messages, and ensures tool call/result pairing.
+   * Preserves the system message, the compaction summary, its continuation and pinned
+   * messages, the protected recent turns, and tool call/result pairing.
+   *
+   * @param budgetTokens - The size to trim to. Defaults to the trim budget; a caller escalating
+   *   past a compaction that could not run passes a lower one.
    */
   trim(
     messages: ConversationMessages,
     logger: LoggerService,
     agentId: string,
     conversationId: string,
+    budgetTokens: number = this.config.maxTokens,
   ): Effect.Effect<
     { messages: ConversationMessages; result: TrimResult | undefined },
     never,
@@ -171,7 +194,7 @@ export class ContextWindowManager {
   > {
     const overheadTokens = this.requestOverheadTokens();
     const currentTokens = this.calculateTotalTokens(messages) + overheadTokens;
-    if (currentTokens <= this.config.maxTokens) {
+    if (currentTokens <= budgetTokens) {
       return Effect.succeed({ messages, result: undefined });
     }
 
@@ -182,6 +205,12 @@ export class ContextWindowManager {
     const protectedIndices = new Set<number>();
     for (let i = protectedStartIndex; i < messages.length; i++) {
       protectedIndices.add(i);
+    }
+    for (let i = 1; i < protectedStartIndex; i++) {
+      const kind = messages[i]?.kind;
+      if (kind !== undefined && TRIM_KEPT_KINDS.has(kind)) {
+        protectedIndices.add(i);
+      }
     }
 
     // Step 2: Build tool call ID map
@@ -212,11 +241,11 @@ export class ContextWindowManager {
 
     for (let i = protectedStartIndex - 1; i >= 1; i--) {
       const msg = messages[i];
-      if (!msg) continue;
+      if (!msg || protectedIndices.has(i)) continue;
 
       const tokens = this.counter.countMessage(msg, this.modelHint);
 
-      if (accumulatedTokens + tokens > this.config.maxTokens) {
+      if (accumulatedTokens + tokens > budgetTokens) {
         break;
       }
 
@@ -276,7 +305,7 @@ export class ContextWindowManager {
         agentId,
         conversationId,
         limits: {
-          maxTokens: this.config.maxTokens,
+          maxTokens: budgetTokens,
           protectedRecentTurns: protectedTurns,
         },
         originalCount: trimResult.originalCount,
