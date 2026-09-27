@@ -16,11 +16,8 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { createConfigLayer } from "@jazz/adapters/config";
-import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { existsSync } from "node:fs";
+import { removeAgentFile } from "@jazz/bot-shared/agent-file";
 import { formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
@@ -31,7 +28,7 @@ import {
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
 import {
-  adoptIntoSandbox,
+  addAutoApprovedCommand,
   type ChatSandbox,
   chatIsolationEnabled,
   ensureChatSandbox,
@@ -39,11 +36,14 @@ import {
   SANDBOX_UMASK,
   sandboxCommand,
   sandboxEnv,
+  sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
 import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -61,16 +61,14 @@ import {
 } from "@jazz/bot-shared/timezone-store";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
-import { Effect } from "effect";
 import tzlookup from "tz-lookup";
 import {
   agentIdForChat,
   agentPath,
+  chatIdFromAgentId,
   ensureChatAgent,
   readAgentFile,
   syncAgentDisplayName,
@@ -84,7 +82,7 @@ import {
   type TelegramMediaFields,
 } from "./media";
 import { withReplyContext } from "./quotes";
-import { startReminderSweep } from "./reminders";
+import { renderRichText } from "./surface";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
 import {
   escapeHtml,
@@ -618,30 +616,6 @@ function commandKeyFromApprovalMessage(
   const match = /^Command: (.+)$/m.exec(message);
   if (!match?.[1]) return undefined;
   return extractCommandApprovalKey(match[1]).split(" ")[0];
-}
-
-/**
- * Persist a command key to autoApprovedCommands in config.json so future
- * `jazz run` invocations (each a fresh process — nothing in-memory here
- * would survive to the next message) auto-approve it without prompting.
- * Goes through the same `AgentConfigService` the CLI itself uses to mutate
- * config.json, rather than a hand-rolled read/modify/write, so this stays
- * consistent with whatever else (secrets, mcpOverrides) that file holds.
- */
-async function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string): Promise<void> {
-  const configPath = join(sandbox.home, "config.json");
-  const configLayer = createConfigLayer(undefined, configPath);
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const configService = yield* AgentConfigServiceTag;
-      const current = yield* configService.getOrElse<readonly string[]>("autoApprovedCommands", []);
-      if (current.includes(commandKey)) return;
-      yield* configService.set("autoApprovedCommands", [...current, commandKey]);
-    }).pipe(Effect.provide(configLayer), Effect.provide(NodeFileSystem.layer)),
-  );
-  // The bridge writes as root; without this the rewritten config comes back
-  // owned by root and the chat's own agent can no longer read its settings.
-  adoptIntoSandbox(sandbox, configPath);
 }
 
 function modeKeyboard(current: ApprovalMode): Record<string, unknown> {
@@ -1573,45 +1547,10 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function remindersFilePath(home: string, chatId: number): string {
-  return join(home, "reminders", `${agentIdForChat(chatId)}.json`);
-}
-
-/**
- * Synchronous read of this chat's per-agent reminder file, for display only
- * (the /reminders list and /status). Reminders are only ever created or
- * cancelled through the add_reminder/cancel_reminder tools (or, for the
- * inline "cancel" buttons below, the same ReminderServiceImpl those tools use)
- * — never written here.
- */
-function readRemindersForDisplay(home: string, chatId: number): ReminderRecord[] {
-  try {
-    const path = remindersFilePath(home, chatId);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Cancel via the same ReminderServiceImpl the cancel_reminder tool uses — the only reminder-cancelling code path. */
-async function cancelReminderForChat(
-  config: BridgeConfig,
-  chatId: number,
-  id: string,
-): Promise<boolean> {
+/** Cancel one of this chat's reminders, written back to the chat's own uid. */
+function cancelReminderForChat(config: BridgeConfig, chatId: number, id: string): Promise<boolean> {
   const sandbox = sandboxForChat(config, chatId);
-  const service = new ReminderServiceImpl({
-    baseReminderDirectory: join(sandbox.home, "reminders"),
-  });
-  const outcome = await Effect.runPromise(
-    service.cancel(agentIdForChat(chatId), id).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
-  // Cancelling rewrites the file as root; hand it back or the chat's own agent
-  // can no longer add or cancel reminders itself.
-  adoptIntoSandbox(sandbox, remindersFilePath(sandbox.home, chatId));
-  return outcome.success;
+  return cancelReminder(sandbox.home, agentIdForChat(chatId), id, sandboxOwnership(sandbox));
 }
 
 async function handleRemind(config: BridgeConfig, chatId: number, args: string): Promise<void> {
@@ -1688,7 +1627,7 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readRemindersForDisplay(sandboxForChat(config, chatId).home, chatId).sort(
+    const mine = readReminders(sandboxForChat(config, chatId).home, agentIdForChat(chatId)).sort(
       (left, right) => left.fireAt - right.fireAt,
     );
     if (mine.length === 0) {
@@ -1994,12 +1933,11 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     pendingApprovals.delete(toolCallId);
     await writeApprovalDecisions(run, [{ toolCallId, approved }]);
     if (always && pending.commandKey) {
-      await addAutoApprovedCommand(
-        sandboxForChat(config, pending.chatId),
-        pending.commandKey,
-      ).catch((error: unknown) =>
-        console.error(`Failed to persist auto-approved command: ${String(error)}`),
-      );
+      try {
+        addAutoApprovedCommand(sandboxForChat(config, pending.chatId), pending.commandKey);
+      } catch (error) {
+        console.error(`Failed to persist auto-approved command: ${String(error)}`);
+      }
     }
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
@@ -2190,8 +2128,8 @@ async function handleMedia(
     media.file,
     chatId,
     Date.now(),
+    sandboxOwnership(sandbox),
   );
-  if (outcome.ok) adoptIntoSandbox(sandbox, outcome.path);
   if (!outcome.ok) {
     await sendReply(config, chatId, `⚠️ I couldn't fetch that file — ${outcome.reason}.`);
     return;
@@ -2412,12 +2350,18 @@ async function start(): Promise<void> {
     config.jazzHome,
     ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
   ]) {
-    rmSync(agentPath(home, SUGGEST_AGENT_ID), { force: true });
+    removeAgentFile(home, SUGGEST_AGENT_ID);
   }
   startHealthServer(config);
-  startReminderSweep(config.jazzHome, (reminderChatId, html) =>
-    sendReply(config, reminderChatId, html),
-  );
+  startReminderSweep({
+    dataDir: config.jazzHome,
+    decodeScope: (agentId) => {
+      const reminderChatId = chatIdFromAgentId(agentId);
+      return reminderChatId === undefined ? undefined : String(reminderChatId);
+    },
+    send: (reminderChatId, body) =>
+      sendReply(config, Number.parseInt(reminderChatId, 10), renderRichText(body)),
+  });
   // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's
   // just re-sent on every start rather than only when BOT_COMMANDS changes.
   await callTelegram(config, "setMyCommands", { commands: BOT_COMMANDS });

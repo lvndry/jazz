@@ -9,10 +9,8 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { existsSync } from "node:fs";
+import { removeAgentFile } from "@jazz/bot-shared/agent-file";
 import { formatTokenCount } from "@jazz/bot-shared/answer";
 import {
   APPROVAL_MODE_LABELS,
@@ -23,7 +21,6 @@ import {
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
 import {
-  adoptIntoSandbox,
   type ChatSandbox,
   chatIsolationEnabled,
   ensureChatSandbox,
@@ -31,11 +28,14 @@ import {
   SANDBOX_UMASK,
   sandboxCommand,
   sandboxEnv,
+  sandboxOwnership,
 } from "@jazz/bot-shared/chat-sandbox";
 import { writeStdinFrame } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
+import { cancelReminder, readReminders } from "@jazz/bot-shared/reminder-store";
+import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
@@ -53,10 +53,8 @@ import {
 } from "@jazz/bot-shared/timezone-store";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
-import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { Effect } from "effect";
 import {
   type AccessConfig,
   hasAnyAllowlist,
@@ -70,6 +68,7 @@ import {
 import {
   agentIdForChannel,
   agentPath,
+  channelIdFromAgentId,
   ensureChatAgent,
   hasChatAgent,
   readAgentFile,
@@ -115,11 +114,11 @@ import {
 } from "./discord";
 import {
   neutralizeBroadcastMentions,
+  renderDiscordMarkdown,
   spoilerBlock,
   splitForDiscord,
   threadNameFromPrompt,
 } from "./discord-md";
-import { startReminderSweep } from "./reminders";
 
 const TZ_FILE = "dc-tz.json";
 const USAGE_FILE = "dc-usage.json";
@@ -1251,37 +1250,14 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
 ];
 
-function remindersFilePath(home: string, channelId: string): string {
-  return join(home, "reminders", `${agentIdForChannel(channelId)}.json`);
-}
-
-function readRemindersForDisplay(home: string, channelId: string): ReminderRecord[] {
-  try {
-    const path = remindersFilePath(home, channelId);
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function cancelReminderForChannel(
+/** Cancel one of this conversation's reminders, written back to its own uid. */
+function cancelReminderForChannel(
   config: BridgeConfig,
   channelId: string,
   id: string,
 ): Promise<boolean> {
   const sandbox = sandboxForChannel(config, channelId);
-  const service = new ReminderServiceImpl({
-    baseReminderDirectory: join(sandbox.home, "reminders"),
-  });
-  const outcome = await Effect.runPromise(
-    service.cancel(agentIdForChannel(channelId), id).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
-  // Cancelling rewrites the file as root; hand it back or the conversation's
-  // own agent can no longer add or cancel reminders itself.
-  adoptIntoSandbox(sandbox, remindersFilePath(sandbox.home, channelId));
-  return outcome.success;
+  return cancelReminder(sandbox.home, agentIdForChannel(channelId), id, sandboxOwnership(sandbox));
 }
 
 function listPersonas(config: BridgeConfig): Promise<string[]> {
@@ -1345,9 +1321,10 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readRemindersForDisplay(sandboxForChannel(config, channelId).home, channelId).sort(
-      (left, right) => left.fireAt - right.fireAt,
-    );
+    const mine = readReminders(
+      sandboxForChannel(config, channelId).home,
+      agentIdForChannel(channelId),
+    ).sort((left, right) => left.fireAt - right.fireAt);
     if (mine.length === 0) {
       return { content: "No reminders set. Use `/remind when:<when> text:<text>`." };
     }
@@ -2040,12 +2017,14 @@ function start(): void {
     config.jazzHome,
     ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
   ]) {
-    rmSync(agentPath(home, SUGGEST_AGENT_ID), { force: true });
+    removeAgentFile(home, SUGGEST_AGENT_ID);
   }
   startHealthServer(config);
-  startReminderSweep(config.jazzHome, (channelId, markdown) =>
-    sendReply(config, channelId, markdown),
-  );
+  startReminderSweep({
+    dataDir: config.jazzHome,
+    decodeScope: (agentId) => channelIdFromAgentId(agentId) ?? undefined,
+    send: (channelId, body) => sendReply(config, channelId, renderDiscordMarkdown(body)),
+  });
 
   let runtime: Runtime | undefined;
 

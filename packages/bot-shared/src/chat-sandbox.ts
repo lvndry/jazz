@@ -31,20 +31,18 @@
 
 import {
   chmodSync,
-  chownSync,
   existsSync,
-  lstatSync,
-  mkdirSync,
+  lchownSync,
   readdirSync,
   readFileSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { applyBridgeConfigFile } from "./bridge-config-file";
+import { bridgeConfigContent } from "./bridge-config-file";
 import { type ChildEnvOptions, childEnvironment } from "./child-env";
+import { type FileOwner, type Ownership, type PinnedDirectory, withDirectory } from "./sandbox-fs";
 
 /** Directory under the data dir holding one Jazz home per conversation. */
 const SANDBOX_DIRECTORY = "chats";
@@ -63,6 +61,30 @@ const TRAVERSABLE_MODE = 0o2751;
 const SANDBOX_HOME_MODE = 0o2750;
 /** Drops the world bits off everything the bridge and its agents create. */
 export const SANDBOX_UMASK = 0o027;
+/** `rwx------`: a directory only its owner enters (GnuPG insists). */
+const PRIVATE_DIRECTORY_MODE = 0o700;
+/** What the bridge writes for a conversation: its uid reads and writes, the operator reads. */
+const SANDBOX_FILE_MODE = 0o640;
+/** The conversation's `config.json` can carry keys, so the operator group is kept out too. */
+const CONFIG_FILE_MODE = 0o600;
+const CONFIG_FILE = "config.json";
+
+/** The directories every conversation home starts with, all `uid:O 2750`. */
+const SANDBOX_CHILD_DIRECTORIES = [
+  "agents",
+  "history",
+  "memory",
+  "workspace",
+  "reminders",
+  "compositions",
+  "tg-media",
+  "xdg-config",
+  "xdg-data",
+  "xdg-state",
+  "xdg-cache",
+  "tmp",
+  "password-store",
+] as const;
 
 export interface ChatSandbox {
   /** `JAZZ_HOME` for this conversation's agent runs. */
@@ -257,22 +279,6 @@ export function setMode(path: string, mode: number): void {
   }
 }
 
-function ensureDirectory(path: string, uid: number, gid: number, mode: number): void {
-  mkdirSync(path, { recursive: true });
-  // chown(2) clears setgid, so the mode goes on afterwards.
-  chownSync(path, uid, gid);
-  setMode(path, mode);
-}
-
-function exists(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Expose a shared, read-only directory inside a conversation home.
  *
@@ -281,13 +287,12 @@ function exists(path: string): boolean {
  * symlink beats a per-conversation copy that would go stale on the next
  * install.
  */
-function linkShared(home: string, name: string, target: string): void {
-  const path = join(home, name);
-  if (exists(path) || !existsSync(target)) return;
+function linkShared(home: PinnedDirectory, name: string, target: string): void {
+  if (!home.isAbsent(name) || !existsSync(target)) return;
   try {
-    symlinkSync(target, path);
+    home.link(name, target);
   } catch (error) {
-    console.error(`Could not link ${name} into ${home}: ${String(error)}`);
+    console.error(`Could not link ${name} into ${home.path}: ${String(error)}`);
   }
 }
 
@@ -300,12 +305,52 @@ function linkShared(home: string, name: string, target: string): void {
  * on the next restart — while whatever the conversation itself put in the file
  * (an "Always allow" for a shell command, say) survives, because that is what
  * the merge rule is for.
+ *
+ * Read without following a link and replaced by rename, so a conversation that
+ * swaps its config for a symlink gets its own file back rather than having the
+ * bridge write through the link as root.
  */
-function seedConfig(home: string, uid: number, gid: number): void {
-  const path = join(home, "config.json");
-  applyBridgeConfigFile(path);
-  chownSync(path, uid, gid);
-  chmodSync(path, 0o600);
+function seedConfig(home: PinnedDirectory, owner: FileOwner): void {
+  const { content } = bridgeConfigContent(
+    home.readText(CONFIG_FILE),
+    `${home.path}/${CONFIG_FILE}`,
+  );
+  home.writeBytes(CONFIG_FILE, content, { owner, mode: CONFIG_FILE_MODE });
+}
+
+/** The config key an "Always allow" writes to, read by every later run of the conversation. */
+const AUTO_APPROVED_COMMANDS_KEY = "autoApprovedCommands";
+
+/**
+ * Persist a command approval key to the conversation's `autoApprovedCommands`, so its later
+ * runs (each a fresh process) run that command without asking.
+ *
+ * Read without following a link and replaced by rename, like the seeded config, and handed
+ * back to the conversation's uid as it is written. A config that is not valid JSON is left
+ * alone rather than overwritten.
+ */
+export function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string): void {
+  const ownership = sandboxOwnership(sandbox);
+  withDirectory(sandbox.home, {}, (home) => {
+    const raw = home.readText(CONFIG_FILE);
+    let config: Record<string, unknown> = {};
+    if (raw !== undefined) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (isRecord(parsed)) {
+        config = parsed;
+      }
+    }
+    const existing = config[AUTO_APPROVED_COMMANDS_KEY];
+    const current = Array.isArray(existing)
+      ? existing.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    if (current.includes(commandKey)) return;
+    config[AUTO_APPROVED_COMMANDS_KEY] = [...current, commandKey];
+    home.writeBytes(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, {
+      owner: ownership?.owner,
+      mode: CONFIG_FILE_MODE,
+    });
+  });
 }
 
 const provisioned = new Map<string, ChatSandbox>();
@@ -346,7 +391,7 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
   // readable: `chats/` never lists, and the bridge's own stores next to it
   // stay 0640.
   setMode(dataDir, TRAVERSABLE_MODE);
-  ensureDirectory(root, 0, gid, TRAVERSABLE_MODE);
+  withDirectory(root, { create: { owner: { uid: 0, gid }, mode: TRAVERSABLE_MODE } }, () => {});
 
   const map = readUidMap(dataDir);
   let uid = map[agentId];
@@ -358,32 +403,25 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
   ensureAccount(uid);
 
   const home = join(root, agentId);
-  ensureDirectory(home, uid, gid, SANDBOX_HOME_MODE);
-  // Seeded up front so the first run writes into directories that already
-  // carry the setgid bit, rather than ones Jazz creates with a plain mode.
-  for (const child of [
-    "agents",
-    "history",
-    "memory",
-    "workspace",
-    "reminders",
-    "compositions",
-    "tg-media",
-    "xdg-config",
-    "xdg-data",
-    "xdg-state",
-    "xdg-cache",
-    "tmp",
-  ]) {
-    ensureDirectory(join(home, child), uid, gid, SANDBOX_HOME_MODE);
-  }
-  // GnuPG refuses to use a home directory any group or other identity can
-  // reach, so this one keeps the operator out too — an operator setting up mail
-  // for a conversation does it through the container as root anyway.
-  ensureDirectory(join(home, "gnupg"), uid, uid, 0o700);
-  ensureDirectory(join(home, "password-store"), uid, gid, SANDBOX_HOME_MODE);
-  linkShared(home, "personas", join(dataDir, "personas"));
-  seedConfig(home, uid, gid);
+  const owner: FileOwner = { uid, gid };
+  const directory = { create: { owner, mode: SANDBOX_HOME_MODE } };
+  // Everything below `home` is a name the conversation controls, so it is all
+  // reached through the pinned home and never by path.
+  withDirectory(home, directory, (homeDirectory) => {
+    // Seeded up front so the first run writes into directories that already
+    // carry the setgid bit, rather than ones Jazz creates with a plain mode.
+    for (const child of SANDBOX_CHILD_DIRECTORIES) {
+      homeDirectory.directory(child, directory).close();
+    }
+    // GnuPG refuses to use a home directory any group or other identity can
+    // reach, so this one keeps the operator out too — an operator setting up mail
+    // for a conversation does it through the container as root anyway.
+    homeDirectory
+      .directory("gnupg", { create: { owner: { uid, gid: uid }, mode: PRIVATE_DIRECTORY_MODE } })
+      .close();
+    linkShared(homeDirectory, "personas", join(dataDir, "personas"));
+    seedConfig(homeDirectory, owner);
+  });
 
   const sandbox: ChatSandbox = { home, uid, gid, isolated: true };
   provisioned.set(cacheKey, sandbox);
@@ -391,20 +429,35 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
 }
 
 /**
+ * How files the bridge writes into this conversation's home are handed to it, or undefined
+ * when the conversation runs as the bridge's own user and there is nobody to hand them to.
+ */
+export function sandboxOwnership(sandbox: ChatSandbox): Ownership | undefined {
+  if (!sandbox.isolated || sandbox.uid === null || sandbox.gid === null) return undefined;
+  return {
+    owner: { uid: sandbox.uid, gid: sandbox.gid },
+    directoryMode: SANDBOX_HOME_MODE,
+    fileMode: SANDBOX_FILE_MODE,
+  };
+}
+
+/**
  * Hand a file the bridge wrote inside a conversation home over to that
  * conversation.
  *
- * The bridge writes as root, so an agent file or a downloaded attachment would
- * otherwise land owned by root and stay unreadable to the very uid meant to
- * use it.
+ * The bridge writes as root, so a downloaded attachment would otherwise land
+ * owned by root and stay unreadable to the very uid meant to use it. `lchown`,
+ * so a name the conversation swapped for a link changes the link and nothing it
+ * points at.
  */
 export function adoptIntoSandbox(sandbox: ChatSandbox, ...paths: readonly string[]): void {
-  if (!sandbox.isolated || sandbox.uid === null || sandbox.gid === null) return;
+  const owner = sandboxOwnership(sandbox)?.owner;
+  if (owner === undefined) return;
   for (const path of paths) {
     try {
-      chownSync(path, sandbox.uid, sandbox.gid);
+      lchownSync(path, owner.uid, owner.gid);
     } catch (error) {
-      console.error(`Could not hand ${path} to uid ${String(sandbox.uid)}: ${String(error)}`);
+      console.error(`Could not hand ${path} to uid ${String(owner.uid)}: ${String(error)}`);
     }
   }
 }

@@ -14,13 +14,7 @@
  */
 
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import {
-  type AgentFile,
-  agentPath,
-  ensureScopedAgentFrom,
-  readAgentFile,
-  writeAgentFile,
-} from "./agent-file";
+import { type AgentFile, ensureScopedAgentFrom, readAgentFile, writeAgentFile } from "./agent-file";
 import {
   cancelledSummary,
   deliverComposition,
@@ -40,8 +34,7 @@ import {
   describeApprovalMode,
   setApprovalMode,
 } from "./approval-mode-store";
-import { type ChatSandbox, ensureChatSandbox } from "./chat-sandbox";
-import { adoptIntoSandbox } from "./chat-sandbox";
+import { type ChatSandbox, ensureChatSandbox, sandboxOwnership } from "./chat-sandbox";
 import { type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { listPersonaNames } from "./personas";
 import { createProgressReporter } from "./progress";
@@ -233,20 +226,17 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const sandboxFor = (chatId: ChatId): ChatSandbox =>
     ensureChatSandbox(config.jazzHome, config.agentIdFor(chatId));
 
-  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile => {
-    const agent = ensureScopedAgentFrom(
+  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile =>
+    ensureScopedAgentFrom(
       config.jazzHome,
       sandbox.home,
       config.agentIdFor(chatId),
       config.baseAgentId,
+      sandboxOwnership(sandbox),
     );
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
-    return agent;
-  };
 
   const writeAgent = (sandbox: ChatSandbox, agent: AgentFile): void => {
-    writeAgentFile(sandbox.home, agent);
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
+    writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
   };
 
   // --- Prompts the person answers -----------------------------------------
