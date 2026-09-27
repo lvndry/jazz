@@ -71,7 +71,8 @@ const SEEDED_JOURNAL = {
   ].join("\n"),
 };
 
-function seedWorkState(jazzHome: string, agentId: string): void {
+/** Seed only durable task state; shared by the live eval and its process-free fixture test. */
+export function seedBlindSuccessorState(jazzHome: string, agentId: string): void {
   const workDir = join(jazzHome, "work", agentId, CONVERSATION_ID);
   mkdirSync(workDir, { recursive: true });
   writeFileSync(join(workDir, "state.json"), `${JSON.stringify(SEEDED_STATE, null, 2)}\n`);
@@ -91,7 +92,7 @@ export const tasks: EvalTask[] = [
     setup() {},
     async run(context: TaskRunContext): Promise<OneShotResult> {
       // No prior conversation is written: working state is the only thing to go on.
-      seedWorkState(context.jazzHome, context.agentId);
+      seedBlindSuccessorState(context.jazzHome, context.agentId);
       return runJazzOnce({
         prompt: PROMPT,
         agentId: context.agentId,

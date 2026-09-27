@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+/** Continuity fixture and grading checks run without a model or a Jazz subprocess. */
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "bun:test";
-import { tasks as blindSuccessorTasks } from "./blind-successor";
+import { describe, expect, it, spyOn } from "bun:test";
+import { seedBlindSuccessorState, tasks as blindSuccessorTasks } from "./blind-successor";
 import { tasks as killTestTasks } from "./kill-test";
 import { continuityCheck, sawCompaction } from "../../checks";
 import { emptyResult, type OneShotResult } from "../../types";
@@ -76,21 +77,18 @@ describe("sawCompaction", () => {
 describe("blind-successor task", () => {
   const task = blindSuccessorTasks[0]!;
 
-  it("seeds working state and nothing else, so state alone is under test", async () => {
+  it("seeds working state and nothing else, so state alone is under test", () => {
     const jazzHome = mkdtempSync(join(tmpdir(), "eval-blind-"));
     const workspaceDir = mkdtempSync(join(tmpdir(), "eval-blind-ws-"));
+    const spawn = spyOn(Bun, "spawn").mockImplementation(() => {
+      throw new Error("Fixture seeding must not start the Jazz runtime");
+    });
     try {
-      // Drive only the seeding half: runJazzOnce would need a live model.
-      await task.run!({
-        agentId: "eval-sut",
-        workspaceDir,
-        cassettePath: join(workspaceDir, "cassette.json"),
-        timeoutMs: 1,
-        runId: "test",
-        jazzHome,
-        environment: {},
-        stubRoot: join(workspaceDir, "stubs"),
-      }).catch(() => undefined);
+      seedBlindSuccessorState(jazzHome, "eval-sut");
+
+      expect(spawn).not.toHaveBeenCalled();
+      expect(readdirSync(jazzHome)).toEqual(["work"]);
+      expect(readdirSync(workspaceDir)).toEqual([]);
 
       const workDir = join(jazzHome, "work", "eval-sut", "continuity-blind-successor");
       const state = JSON.parse(readFileSync(join(workDir, "state.json"), "utf-8")) as {
@@ -104,6 +102,7 @@ describe("blind-successor task", () => {
       expect(journal.split("\n").length).toBe(1);
       expect(JSON.parse(journal)).toHaveProperty("summary");
     } finally {
+      spawn.mockRestore();
       rmSync(jazzHome, { recursive: true, force: true });
       rmSync(workspaceDir, { recursive: true, force: true });
     }
