@@ -577,6 +577,10 @@ function describeNumber(schema: z.ZodNumber): string {
 
 function alternatives(schema: z.ZodType): string[] {
   const inner = unwrap(schema);
+  const described = expectedDescriptions.get(inner);
+  if (described !== undefined) {
+    return [described];
+  }
   if (inner instanceof z.ZodBoolean) return ["true", "false"];
   if (inner instanceof z.ZodEnum) return inner.options.map(String);
   if (inner instanceof z.ZodLiteral) return [...inner.values].map(String);

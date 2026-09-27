@@ -178,6 +178,15 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "`ephemeral` starts fresh on each call; `threaded` continues one conversation.",
   "webhooks[].disclosure": "What the webhook's answers may reveal. Defaults to `internal`.",
   "webhooks[].allow": "Tools the webhook run may reach by name, beyond its disclosure tier.",
+  "daemon.dailyCostUSD":
+    "Most dollars unattended runs may spend per day, across all of them. Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. See [Daemon limits](./jazz.md#daemon-limits-and-notifications).",
+  "daemon.dailyTokens":
+    "Most prompt and completion tokens unattended runs may spend per day, across all of them.",
+  "daemon.notify.desktop":
+    "Desktop notification when the daemon needs you or pauses. Defaults to true; `notifications.enabled` false turns it off too.",
+  "daemon.notify.ntfyUrl":
+    "An ntfy topic URL, such as `https://ntfy.sh/my-jazz`, for a push to your phone.",
+  "daemon.notify.webhookUrl": "A URL that receives each daemon notification as a JSON POST.",
   "daemon.token":
     "The daemon's bearer token, written here only on a host without a keyring. Written by Jazz.",
 };
