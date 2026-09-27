@@ -208,6 +208,15 @@ export function formatOneShotParked(
   );
 }
 
+/** What a failed run had spent before it stopped. */
+export interface OneShotSpend {
+  /** Absent when nothing could be priced. */
+  readonly costUSD?: number;
+  /** Whether costUSD is based on pricing metadata rather than an unknown-price fallback. */
+  readonly costKnown: boolean;
+  readonly totalTokens: number;
+}
+
 /**
  * Machine-readable failure reasons in the `code` field of a failure envelope.
  *
@@ -231,7 +240,7 @@ export interface OneShotFailureDetails {
 export function formatOneShotError(
   message: string,
   options: OneShotOutputOptions,
-  costUSD = 0,
+  spend?: OneShotSpend,
   details: OneShotFailureDetails = {},
 ): string {
   if (!options.json) {
@@ -240,11 +249,14 @@ export function formatOneShotError(
   return `${JSON.stringify({
     ok: false,
     error: message,
+    costUSD: spend?.costUSD ?? 0,
+    ...(spend !== undefined
+      ? { costKnown: spend.costKnown, tokenUsage: { totalTokens: spend.totalTokens } }
+      : {}),
     code: details.code ?? "failed",
     ...(details.stoppedToolCalls !== undefined
       ? { stoppedToolCalls: details.stoppedToolCalls }
       : {}),
-    costUSD,
     ...(details.finishReason !== undefined ? { finishReason: details.finishReason } : {}),
     ...(details.signal !== undefined ? { signal: details.signal } : {}),
     ...(details.toolsDisabled ? { toolsDisabled: true } : {}),

@@ -41,6 +41,7 @@ import {
   type JazzComposition,
   type JazzEnvelope,
   type JazzSuccessEnvelope,
+  JAZZ_RUN_EVENT_CATEGORIES,
   writeStdinFrame,
 } from "@jazz/bot-shared/jazz-run";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
@@ -68,8 +69,12 @@ import { operatorOnlyMessage } from "@jazz/bot-shared/turn";
 import {
   capBlockMessage,
   dailyCostCapBlockReason,
-  recordUsage,
+  recordRunUsage,
+  runSpend,
+  runSpendFromEvent,
+  spendFields,
   todayUsage,
+  type RunSpend,
 } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -495,6 +500,10 @@ function followupComponents(): unknown[] {
 
 interface JazzEvent {
   readonly type: string;
+  /** `run_spend`: what the run has spent so far. */
+  readonly costUSD?: number;
+  readonly costIncomplete?: boolean;
+  readonly totalTokens?: number;
   readonly toolName?: string;
   readonly content?: string;
   readonly approved?: boolean;
@@ -696,7 +705,7 @@ async function runJazz(
       "--no-tui",
       "--json",
       "--events",
-      "tools,reasoning,text,approval,subagent",
+      JAZZ_RUN_EVENT_CATEGORIES,
       "--interactive-stdin",
       "--input-stdin",
       "--agent",
@@ -733,13 +742,17 @@ async function runJazz(
 
   const timeout = setTimeout(() => child.kill(), config.runTimeoutMs + 15_000);
   const stderrTail: string[] = [];
+  let lastSpend: RunSpend | undefined;
   const stderrDone = streamLines(child.stderr, (line) => {
     if (stderrTail.length < 50) stderrTail.push(line);
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) return;
     try {
       const event = JSON.parse(trimmed) as JazzEvent;
-      if (typeof event.type === "string") onEvent(event);
+      if (typeof event.type === "string") {
+        lastSpend = runSpendFromEvent(event) ?? lastSpend;
+        onEvent(event);
+      }
       if (event.type === "approval_required" && event.toolCallId) {
         void sendApprovalRequest(config, channelId, runToken, event).catch((error) =>
           console.error(`Failed to send approval request for ${channelId}: ${String(error)}`),
@@ -767,7 +780,7 @@ async function runJazz(
     console.error(
       `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
     );
-    return { ok: false, error: "Jazz did not return a response." };
+    return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
   }
 
   try {
@@ -775,10 +788,12 @@ async function runJazz(
     if (incognito && envelope.ok) {
       incognitoHistory.set(channelId, envelope.messages ?? []);
     }
-    return envelope;
+    return envelope.ok || envelope.costKnown !== undefined
+      ? envelope
+      : { ...envelope, ...spendFields(lastSpend) };
   } catch (error) {
     console.error(`Failed to parse Jazz envelope: ${String(error)}\nLine: ${lastJsonLine}`);
-    return { ok: false, error: "Could not parse the agent response." };
+    return { ok: false, error: "Could not parse the agent response.", ...spendFields(lastSpend) };
   }
 }
 
@@ -908,6 +923,12 @@ async function handleMessage(
       ...(envelope.ok ? {} : { error: envelope.error }),
     });
     runLogged = true;
+    await recordRunUsage(
+      config.jazzHome,
+      SPEND_ORIGIN,
+      agentIdForChannel(channelId),
+      runSpend(envelope, undefined),
+    );
 
     if (cancelled) {
       await reporter?.finish("⏹ **Cancelled**");
@@ -921,12 +942,6 @@ async function handleMessage(
         );
       }
       const costKnown = envelope.costKnown !== false;
-      await recordUsage(config.jazzHome, SPEND_ORIGIN, {
-        agentId: agentIdForChannel(channelId),
-        costUSD: envelope.costUSD,
-        tokens: envelope.tokenUsage?.totalTokens ?? 0,
-        costKnown,
-      });
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ **Done**"];
       if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));

@@ -62,7 +62,13 @@ import {
 } from "./surface";
 import { tzForChat } from "./timezone-store";
 import { createCommands, operatorOnlyMessage } from "./turn-commands";
-import { capBlockMessage, dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
+import {
+  capBlockMessage,
+  dailyCostCapBlockReason,
+  recordRunUsage,
+  runSpend,
+  todayUsage,
+} from "./usage-store";
 
 export { operatorOnlyMessage };
 
@@ -696,6 +702,12 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       toolsUsed: reporter.toolsUsed(),
       ...(envelope.ok ? {} : { error: envelope.error }),
     });
+    await recordRunUsage(
+      config.jazzHome,
+      config.spendOrigin,
+      config.agentIdFor(chatId),
+      runSpend(envelope, run.lastSpend()),
+    );
 
     if (!envelope.ok) {
       const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
@@ -707,13 +719,6 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // touches disk, so a run that errored just means the next turn starts
     // context-free rather than resurrecting a stale transcript.
     if (incognito) incognitoHistory.set(chatId, envelope.messages ?? []);
-
-    await recordUsage(config.jazzHome, config.spendOrigin, {
-      agentId: config.agentIdFor(chatId),
-      costUSD: envelope.costUSD,
-      tokens: envelope.tokenUsage?.totalTokens ?? 0,
-      costKnown: envelope.costKnown !== false,
-    });
 
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);

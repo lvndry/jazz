@@ -80,11 +80,24 @@ _and_ on failure.
 
 ```jsonc
 // failure
-{ "ok": false, "error": "Run exceeded the 300000ms timeout.", "code": "failed", "costUSD": 0.0041 }
+{
+  "ok": false,
+  "code": "failed",
+  "error": "Run exceeded the 300000ms timeout.",
+  "costUSD": 0.0041,
+  "costKnown": true,
+  "tokenUsage": { "totalTokens": 5210 },
+}
 ```
 
-Note that the failure envelope still reports `costUSD`: a run that timed out still
-spent money, and an unattended deployment needs to account for it.
+Note that the failure envelope still reports what the run spent: a run that failed or timed
+out still spent money, and an unattended deployment needs to account for it. `costKnown` and
+`tokenUsage` are present once the run reached the model; a run that failed before that
+reports `costUSD: 0` alone.
+
+A run your caller kills leaves no envelope at all. Ask for the `spend` event category and
+keep the last `run_spend` event: it carries the run's total so far (`costUSD`,
+`costIncomplete`, `totalTokens`) after every model call and tool batch.
 
 `code` says why a run failed, so a script can branch without parsing `error`:
 
@@ -144,7 +157,7 @@ interpret that fallback as a free run.
 | `--json`                   | Emit the single-object envelope instead of raw text.                                                                                                                                                                           |
 | `--conversation <id>`      | Stable conversation key. Loads prior history before the run, saves the updated transcript after. Omit for a stateless one-shot.                                                                                                |
 | `--approval-policy <p>`    | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued.                                                                                                                                   |
-| `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                                                                                            |
+| `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,spend,all`.                                                                                                                                      |
 | `--reasoning <effort>`     | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`. Overrides the agent's config for this run; a level the model does not accept runs at the nearest one it does, with a warning on stderr.             |
 | `--with-vision <p/m>`      | Bind the `analyze:image` companion for this run, e.g. `openrouter/inclusionai/ling-3.0-flash-vl`. Overrides the agent's config. Without a bound companion (flag or config), `analyze_media` fails loudly rather than guessing. |
 | `--with-audio <p/m>`       | Same, for the `analyze:audio` companion.                                                                                                                                                                                       |
@@ -239,6 +252,7 @@ jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
 | `usage`     | `stream_start`, `usage_update`, `complete`                                       |
 | `approval`  | `approval_required`, `approval_resolved`                                         |
 | `subagent`  | `subagent_start`, `subagent_complete`                                            |
+| `spend`     | `run_spend`: the run's total spend so far, after each model call and tool batch  |
 | `all`       | every category above                                                             |
 
 `error` events are **always** included regardless of what you select, so a failure can

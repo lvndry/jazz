@@ -1,36 +1,19 @@
 /**
  * @fileoverview What a run, or a one-off model call outside a run, has spent.
  *
- * The loop prices a run once, at the end, on its way to building an `AgentResponse`. A run
- * that parks or fails never gets there, and reporting nothing for those would tell an
- * unattended deployment that the tokens it already burned were free. This prices the same
- * numbers from the metrics at any point mid-flight.
+ * The loop prices a run once, at the end, on its way to building an `AgentResponse`; a run
+ * that parks or fails is priced mid-flight by `runSpendReport` in the run metrics. This module
+ * prices single model calls made outside a run's own loop and reads a finished run's spend.
  */
 
 import { Effect } from "effect";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { Agent } from "@/core/types";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
-import type { UsageCostPricing, UsageCostTokens } from "@/core/utils/usage-cost";
-import { computeUsageCostUSD } from "@/core/utils/usage-cost";
+import type { UsageCostTokens } from "@/core/utils/usage-cost";
+import { computeUsageCostUSD, isUsageCostIncomplete } from "@/core/utils/usage-cost";
 import type { RunRecord } from "./run-record";
-import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
-
-export function runSpendUSD(
-  metrics: ReturnType<typeof createAgentRunMetrics>,
-  pricing: UsageCostPricing | undefined,
-): number | undefined {
-  const own = computeUsageCostUSD(
-    {
-      promptTokens: metrics.totalPromptTokens,
-      completionTokens: metrics.totalCompletionTokens,
-      cacheReadTokens: metrics.totalCacheReadTokens,
-    },
-    pricing,
-  );
-  if (own === null && metrics.childCostUSD <= 0) return undefined;
-  return parseFloat(((own ?? 0) + metrics.childCostUSD).toFixed(8));
-}
+import type { RunSpendReport } from "../metrics/agent-run-metrics";
 
 /**
  * Distinguish unavailable remote pricing from providers that run on the user's machine.
@@ -70,18 +53,33 @@ export function priceOneOffCall(
   agent: Pick<Agent, "config">,
   usage: (UsageCostTokens & { readonly totalTokens: number }) | undefined,
 ): Effect.Effect<CallSpend> {
+  return priceModelCall(agent.config.llmProvider, agent.config.llmModel, usage);
+}
+
+/** {@link priceOneOffCall} for a call made on a named provider and model. */
+export function priceModelCall(
+  provider: string,
+  model: string,
+  usage: (UsageCostTokens & { readonly totalTokens: number }) | undefined,
+): Effect.Effect<CallSpend> {
   return Effect.gen(function* () {
     if (usage === undefined) {
       return spendOf(0, undefined);
     }
-    const { llmProvider, llmModel } = agent.config;
-    if (isZeroCostLocalModel(llmProvider, llmModel)) {
+    if (isZeroCostLocalModel(provider, model)) {
       return spendOf(usage.totalTokens, 0);
     }
-    const pricing = yield* Effect.tryPromise(() =>
-      getModelsDevMetadata(llmModel, llmProvider),
-    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-    return spendOf(usage.totalTokens, computeUsageCostUSD(usage, pricing) ?? undefined);
+    const pricing = yield* Effect.tryPromise(() => getModelsDevMetadata(model, provider)).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined)),
+    );
+    const costUSD = computeUsageCostUSD(usage, pricing) ?? undefined;
+    return isUsageCostIncomplete(usage, pricing)
+      ? {
+          totalTokens: usage.totalTokens,
+          ...(costUSD !== undefined ? { costUSD } : {}),
+          costKnown: false,
+        }
+      : spendOf(usage.totalTokens, costUSD);
   });
 }
 
@@ -229,5 +227,22 @@ export function extendSpendBudget(
     ...(budget.maxCostUSD !== undefined
       ? { maxCostUSD: Math.max(budget.maxCostUSD, spentUSD + (room.maxCostUSD ?? 0)) }
       : {}),
+  };
+}
+
+/**
+ * A run's spend as a caller reports it, from the report the runner gives on every exit path:
+ * the cost is known when it was fully priced, or when the model runs locally for free.
+ */
+export function runSpendAsCallSpend(
+  spend: RunSpendReport,
+  provider: string,
+  modelId: string,
+): CallSpend {
+  const costKnown = isRunCostKnown(spend.costUSD, provider, modelId, spend.costIncomplete);
+  return {
+    totalTokens: spend.totalTokens,
+    ...(spend.costUSD !== undefined ? { costUSD: spend.costUSD } : {}),
+    costKnown,
   };
 }

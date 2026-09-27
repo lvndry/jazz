@@ -94,7 +94,7 @@ async function runCliAction(
  */
 function printInterruptedEnvelope(signal: ShutdownSignal): void {
   process.stdout.write(
-    formatOneShotError("interrupted", { json: true }, 0, { code: "interrupted", signal }),
+    formatOneShotError("interrupted", { json: true }, undefined, { code: "interrupted", signal }),
   );
 }
 
@@ -164,7 +164,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
+      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
       "--reasoning <effort>",
@@ -2793,7 +2793,7 @@ function registerWorkflowCommands(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
+      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
       "--stream",

@@ -47,6 +47,7 @@ describe("parseEventCategories", () => {
       "subagent_start",
       "subagent_complete",
       "subagent_result",
+      "run_spend",
     ];
     expect([...result.types].sort()).toEqual(expected.sort());
   });
