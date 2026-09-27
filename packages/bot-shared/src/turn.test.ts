@@ -30,6 +30,13 @@ interface FakeRun {
 }
 
 const DONE: JazzEnvelope = { ok: true, answer: "done", costUSD: 0 };
+const REQUESTER = "u1";
+const OTHER_MEMBER = "u2";
+const OPERATOR = "op";
+
+function message(text: string, senderId: string = REQUESTER, chatId = "c1") {
+  return { chatId, senderId, text };
+}
 
 describe("turn runner", () => {
   let dataDir: string;
@@ -141,6 +148,8 @@ describe("turn runner", () => {
         mode: "t-mode.json",
       },
       agentIdFor: (chatId) => `t_${chatId}`,
+      isOperator: (senderId) => senderId === OPERATOR,
+      operatorSettingName: "TEST_OPERATOR_IDS",
       onPendingChange: (_chatId, outstanding) => pendingSeen.push([...outstanding]),
       startRun: (_options, handlers) => {
         const fake = makeFakeRun();
@@ -164,7 +173,7 @@ describe("turn runner", () => {
    * finish — which is exactly what these tests are trying to intervene in.
    */
   const startTurn = async (prompt = "hello"): Promise<{ turn: Promise<void> }> => {
-    const turn = runner.handle("c1", prompt);
+    const turn = runner.handle(message(prompt));
     for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) await Bun.sleep(1);
     if (current === undefined) throw new Error("the run never started");
     return { turn };
@@ -211,7 +220,7 @@ describe("turn runner", () => {
     const { turn } = await startTurn();
     current?.emit({ type: "run_spend", costUSD: 0.02, costIncomplete: false, totalTokens: 800 });
     await Bun.sleep(5);
-    expect(runner.cancel("c1")).toBe(true);
+    expect(runner.cancel("c1")).toBe("cancelled");
     await turn;
 
     expect(todayUsage(dataDir, "t-usage.json")).toMatchObject({
@@ -226,7 +235,7 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
     await Bun.sleep(5);
 
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID)).toBe(true);
+    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("answered");
     expect(current?.decisions).toEqual([{ toolCallId: "tc1", approved: true }]);
 
     current?.finish();
@@ -238,8 +247,8 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "read_file" });
     await Bun.sleep(5);
 
-    await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID);
-    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID)).toBe(false);
+    await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER);
+    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("expired");
     expect(current?.decisions).toHaveLength(1);
 
     current?.finish();
@@ -253,7 +262,10 @@ describe("turn runner", () => {
     }
     await Bun.sleep(5);
 
-    expect(await runner.deliverAllApprovals("c1", true)).toBe(3);
+    expect(await runner.deliverAllApprovals("c1", true, REQUESTER)).toEqual({
+      outcome: "answered",
+      count: 3,
+    });
     expect(current?.decisions.map((decision) => decision.toolCallId)).toEqual([
       "tc1",
       "tc2",
@@ -276,7 +288,7 @@ describe("turn runner", () => {
     });
     await Bun.sleep(5);
 
-    expect(await runner.deliverAllApprovals("c1", true)).toBe(1);
+    expect((await runner.deliverAllApprovals("c1", true, REQUESTER)).count).toBe(1);
     expect(pendingSeen.at(-1)).toEqual([{ id: "q1", kind: "question" }]);
 
     current?.finish();
@@ -289,7 +301,7 @@ describe("turn runner", () => {
     await Bun.sleep(5);
 
     // "2" is Reject in the two-option approval prompt.
-    await runner.handle("c1", "2");
+    await runner.handle(message("2"));
     expect(current?.decisions).toEqual([{ toolCallId: "tc1", approved: false }]);
 
     current?.finish();
@@ -301,12 +313,12 @@ describe("turn runner", () => {
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
     await Bun.sleep(5);
 
-    await runner.handle("c1", "actually, what's the weather?");
+    await runner.handle(message("actually, what's the weather?"));
     expect(current?.decisions).toHaveLength(0);
 
     // Queued rather than consumed — letting the run finish would answer it as a
     // fresh turn, so cancelling is how this one unwinds.
-    runner.cancel("c1");
+    runner.cancel("c1", undefined);
     await turn;
   });
 
@@ -315,7 +327,7 @@ describe("turn runner", () => {
     current?.emit({ type: "user_input_required", requestId: "q1", question: "name the file?" });
     await Bun.sleep(5);
 
-    await runner.handle("c1", "notes.md");
+    await runner.handle(message("notes.md"));
     expect(current?.answers).toEqual([{ requestId: "q1", response: "notes.md" }]);
 
     current?.finish();
@@ -334,9 +346,9 @@ describe("turn runner", () => {
 
   test("cancelling kills the run and drops what was queued behind it", async () => {
     const { turn } = await startTurn();
-    await runner.handle("c1", "and also this");
+    await runner.handle(message("and also this"));
 
-    expect(runner.cancel("c1")).toBe(true);
+    expect(runner.cancel("c1", REQUESTER)).toBe("cancelled");
     expect(current?.cancelled()).toBe(true);
     await turn;
 
@@ -345,6 +357,61 @@ describe("turn runner", () => {
   });
 
   test("cancelling an idle chat reports that there was nothing to stop", () => {
-    expect(runner.cancel("nobody")).toBe(false);
+    expect(runner.cancel("nobody", REQUESTER)).toBe("idle");
+  });
+
+  test("only the requester answers the approval their message led to", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
+    await Bun.sleep(5);
+
+    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, OTHER_MEMBER)).toBe(
+      "not-requester",
+    );
+    expect(await runner.deliverAllApprovals("c1", true, OTHER_MEMBER)).toEqual({
+      outcome: "not-requester",
+      count: 0,
+    });
+    expect(current?.decisions).toEqual([]);
+
+    expect(await runner.deliverChoice("c1", "tc1", APPROVE_CHOICE_ID, REQUESTER)).toBe("answered");
+    current?.finish();
+    await turn;
+  });
+
+  test("another member's typed number is conversation, not a decision", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
+    await Bun.sleep(5);
+
+    expect(runner.awaitsReplyFrom("c1", OTHER_MEMBER)).toBe(false);
+    expect(runner.awaitsReplyFrom("c1", REQUESTER)).toBe(true);
+    await runner.handle(message("1", OTHER_MEMBER));
+    expect(current?.decisions).toEqual([]);
+
+    runner.cancel("c1", undefined);
+    await turn;
+  });
+
+  test("another member cannot cancel someone else's run, an operator can", async () => {
+    const { turn } = await startTurn();
+    expect(runner.cancel("c1", OTHER_MEMBER)).toBe("not-requester");
+    expect(current?.cancelled()).toBe(false);
+    expect(runner.cancel("c1", OPERATOR)).toBe("cancelled");
+    await turn;
+  });
+
+  test("/mode yolo is refused for anyone but an operator", async () => {
+    await runner.handle(message("/mode yolo", OTHER_MEMBER));
+    expect(sent.at(-1)?.text).toContain("Operator only");
+    expect(sent.at(-1)?.text).toContain(OTHER_MEMBER);
+    expect(sent.at(-1)?.text).toContain("TEST_OPERATOR_IDS");
+
+    await runner.handle(message("/mode yolo", OPERATOR));
+    expect(sent.at(-1)?.text).toContain("Mode →");
+
+    // Tightening back to safe is anyone's call.
+    await runner.handle(message("/mode safe", OTHER_MEMBER));
+    expect(sent.at(-1)?.text).toContain("Mode →");
   });
 });

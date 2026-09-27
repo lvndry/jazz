@@ -38,7 +38,11 @@ import {
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "@jazz/core/workflows/scheduler-service";
-import { WorkflowServiceTag, type WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
+import {
+  resolveWorkflowApprovalPolicy,
+  WorkflowServiceTag,
+  type WorkflowMetadata,
+} from "@jazz/core/workflows/workflow-service";
 import {
   formatWorkflow,
   groupWorkflows,
@@ -170,8 +174,10 @@ export function showWorkflowCommand(workflowName: string) {
       yield* terminal.log(`Default frequency: ${scheduleDisplay}`);
     }
 
-    if (workflow.metadata.autoApprove !== undefined) {
-      yield* terminal.log(`Auto-approve: ${workflow.metadata.autoApprove}`);
+    if (workflow.metadata.definitionError !== undefined) {
+      yield* terminal.error(`Cannot run: ${workflow.metadata.definitionError}`);
+    } else {
+      yield* terminal.log(`Auto-approve: ${String(workflow.metadata.autoApprove ?? false)}`);
     }
 
     if (workflow.metadata.skills && workflow.metadata.skills.length > 0) {
@@ -331,6 +337,13 @@ export function runWorkflowCommand(
       ),
     );
 
+    const approval = resolveWorkflowApprovalPolicy(workflow.metadata);
+    if (!approval.ok) {
+      yield* markFailed(approval.error);
+      return yield* Effect.fail(new Error(approval.error));
+    }
+    const autoApprovePolicy = approval.policy;
+
     // Determine which agent to use (CLI flag > workflow metadata > default)
     const agentIdentifier = options?.agent || workflow.metadata.agent || "default";
 
@@ -395,15 +408,7 @@ export function runWorkflowCommand(
       yield* terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`);
     }
 
-    // Determine auto-approve policy
-    const autoApprovePolicy =
-      options?.autoApprove === true
-        ? (workflow.metadata.autoApprove ?? true)
-        : workflow.metadata.autoApprove;
-
-    if (autoApprovePolicy) {
-      yield* say(() => terminal.info(`Auto-approve policy: ${autoApprovePolicy}`));
-    }
+    yield* say(() => terminal.info(`Auto-approve policy: ${String(autoApprovePolicy)}`));
 
     yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
@@ -442,7 +447,7 @@ export function runWorkflowCommand(
       ...(resolvedMaxCostUSD != null ? { maxCostUSD: resolvedMaxCostUSD } : {}),
       ...(resolvedMaxTokens != null ? { maxTokens: resolvedMaxTokens } : {}),
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
-      ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
       onRunSpend: (spend) => {
         runSpend = runSpendAsCallSpend(spend, agent.config.llmProvider, agent.config.llmModel);
@@ -589,6 +594,11 @@ export function scheduleWorkflowCommand(
       ),
     );
 
+    const approval = resolveWorkflowApprovalPolicy(workflow.metadata);
+    if (!approval.ok) {
+      return yield* Effect.fail(new Error(approval.error));
+    }
+
     const cron = (options?.cron ?? workflow.metadata.schedule)?.trim();
     if (cron === undefined || cron.length === 0) {
       yield* terminal.error(`Workflow '${workflowName}' has no default frequency.`);
@@ -708,13 +718,15 @@ export function scheduleWorkflowCommand(
     }
     yield* terminal.log("");
 
-    if (workflow.metadata.autoApprove) {
-      yield* terminal.info(`Auto-approve policy: ${workflow.metadata.autoApprove}`);
+    if (workflow.metadata.autoApprove !== undefined && workflow.metadata.autoApprove !== false) {
+      yield* terminal.info(`Auto-approve policy: ${String(workflow.metadata.autoApprove)}`);
     } else {
       yield* terminal.warn(
-        "No auto-approve policy set. The workflow may pause for approval during scheduled runs.",
+        "autoApprove is false or unset, so scheduled runs decline every gated tool call.",
       );
-      yield* terminal.info("Add 'autoApprove: true' or 'autoApprove: low-risk' to the workflow.");
+      yield* terminal.info(
+        "Add 'autoApprove: read-only', 'low-risk' or 'high-risk' to the workflow's frontmatter.",
+      );
     }
 
     yield* terminal.log("");

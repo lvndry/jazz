@@ -10,11 +10,13 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { replacePathAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
  * Move or rename files and directories tool.
- * Uses fs.rename - equivalent to mv (same filesystem).
+ * A rename where it can be one; replacing a destination or crossing filesystems stages the
+ * result and swaps it in, so an interrupted move leaves a complete destination or no change.
  * Uses defineApprovalTool to create approval + execution pair.
  */
 
@@ -99,12 +101,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           };
         }
 
-        // When force is true and destination exists, remove it first — rename() does not overwrite on Unix
-        if (destExists && args.force === true) {
-          yield* fs.remove(destination, { recursive: true });
-        }
-
-        return yield* fs.rename(source, destination).pipe(
+        return yield* moveAtomically(fs, source, destination, destExists).pipe(
           Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),
           Effect.catchAll((error) =>
             Effect.succeed({
@@ -118,4 +115,54 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
   };
 
   return defineApprovalTool<MvDeps, MvArgs>(config);
+}
+
+/** `rename` failing because source and destination are on different filesystems. */
+function isCrossDeviceError(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | undefined)?.cause;
+  return (error as { code?: unknown } | undefined)?.code === "EXDEV" || cause?.code === "EXDEV";
+}
+
+/**
+ * Move `source` to `destination` so that it ends complete or unchanged. A plain rename onto a
+ * free destination is already atomic. Replacing an existing destination, or crossing
+ * filesystems (a copy, then removing the source), goes through {@link replacePathAtomically},
+ * with the source removed in the same uninterruptible step as the swap.
+ */
+function moveAtomically(
+  fs: FileSystem.FileSystem,
+  source: string,
+  destination: string,
+  destinationExists: boolean,
+): Effect.Effect<void, Error> {
+  const direct = destinationExists
+    ? Effect.fail(new Error("destination exists"))
+    : fs.rename(source, destination).pipe(Effect.mapError(toError));
+  return direct.pipe(
+    Effect.catchAll((error) => {
+      if (!destinationExists && !isCrossDeviceError(error)) {
+        return Effect.fail(error);
+      }
+      let copied = false;
+      return replacePathAtomically(
+        fs,
+        destination,
+        (stagingPath) =>
+          fs.rename(source, stagingPath).pipe(
+            Effect.catchAll((renameError) => {
+              if (!isCrossDeviceError(renameError)) {
+                return Effect.fail(toError(renameError));
+              }
+              copied = true;
+              return fs.copy(source, stagingPath).pipe(Effect.mapError(toError));
+            }),
+          ),
+        Effect.suspend(() =>
+          copied
+            ? fs.remove(source, { recursive: true }).pipe(Effect.mapError(toError))
+            : Effect.void,
+        ),
+      );
+    }),
+  );
 }

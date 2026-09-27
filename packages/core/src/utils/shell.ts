@@ -1,100 +1,68 @@
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { terminateProcessGroup } from "@/core/utils/process";
+import { parseShellCommandLine, type ShellWord } from "@/core/utils/shell-syntax";
 
 /**
- * Extract a subcommand-level approval key from a shell command string.
+ * The "always approve" key for a shell command, or `undefined` when the
+ * command is not one plain command and so cannot be allowlisted.
  *
- * Instead of storing the full command (e.g. "git diff --name-only") as the
- * approval key, we extract the binary + first non-flag subcommand token
- * (e.g. "git diff"). This way, approving "git diff" once covers all flag
- * variants like "git diff --stat", "git diff --name-only HEAD~3", etc.
+ * The key is the binary plus, when the word right after it is not a flag, that
+ * word as a subcommand: `git diff --stat` keys to `git diff`, `ls -la` to `ls`,
+ * `git -C repo status` to `git`. Approving `git diff` once covers every
+ * `git diff ...` invocation, and the key shown to the person is exactly the
+ * scope they grant.
  *
- * For commands without subcommands (e.g. "ls -la"), only the binary name
- * is returned ("ls"). Environment variable prefixes (FOO=bar) and common
- * command prefixes (sudo, env, npx, etc.) are skipped.
- *
- * The returned key is what Jazz persists for "always approve". Runtime
- * matching compares extracted keys exactly or by a token-boundary prefix, not
- * the full raw command. Wrapper stripping can therefore create broad keys:
- * `npx jest --watch` persists `jest`.
+ * The command is lexed the way the shell will read it
+ * (`parseShellCommandLine`). A command with control operators (`&&`, `||`,
+ * `;`, `|`, `&`), command or process substitution, parameter expansion,
+ * redirection, a comment, or a leading `NAME=value` assignment has no key,
+ * so no allowlist entry can ever authorize it. Wrappers such as `sudo`,
+ * `env` and `npx` are part of the key (`sudo apt install x` keys to
+ * `sudo apt`), so allowlisting a command never extends to running it under
+ * another user or environment.
  */
-export function extractCommandApprovalKey(command: string): string {
-  const trimmed = command.trim();
-  if (!trimmed) return trimmed;
-
-  // Tokenize respecting simple quoting (we only need the first few tokens)
-  const tokens = tokenizeCommand(trimmed);
-  if (tokens.length === 0) return trimmed;
-
-  // Skip env-var prefixes like FOO=bar and wrapper commands like sudo/env/npx
-  const WRAPPER_COMMANDS = new Set(["sudo", "env", "npx", "bunx", "pnpx", "nohup", "nice", "time"]);
-  let startIdx = 0;
-  for (let i = 0; i < tokens.length; i++) {
-    const tok = tokens[i]!;
-    // Skip env-var assignments (KEY=value)
-    if (tok.includes("=") && !tok.startsWith("-")) {
-      startIdx = i + 1;
-      continue;
-    }
-    // Skip wrapper/prefix commands
-    if (WRAPPER_COMMANDS.has(tok)) {
-      startIdx = i + 1;
-      continue;
-    }
-    break;
+export function extractCommandApprovalKey(command: string): string | undefined {
+  const line = parseShellCommandLine(command);
+  if (line.hazards.size > 0 || line.commands.length !== 1) {
+    return undefined;
   }
-
-  if (startIdx >= tokens.length) return trimmed;
-
-  const binary = tokens[startIdx]!;
-
-  // Look for the first non-flag argument after the binary (the subcommand)
-  for (let i = startIdx + 1; i < tokens.length; i++) {
-    const token = tokens[i]!;
-    // Skip flags (--foo, -f)
-    if (token.startsWith("-")) continue;
-    // Found a subcommand-like token
-    return `${binary} ${token}`;
+  const simpleCommand = line.commands[0];
+  const binary = simpleCommand?.words[0];
+  if (binary === undefined || !isKeyWord(binary)) {
+    return undefined;
   }
-
-  // No subcommand found — just the binary
-  return binary;
+  const subcommand = simpleCommand?.words[1];
+  if (subcommand === undefined || subcommand.text.startsWith("-") || !isKeyWord(subcommand)) {
+    return binary.text;
+  }
+  return `${binary.text} ${subcommand.text}`;
 }
 
 /**
- * Minimal tokenizer that splits a command string into tokens,
- * respecting single and double quotes. Only needed for the first
- * few tokens so it doesn't need to be exhaustive.
+ * Whether an `autoApprovedCommands` entry covers this command. An entry
+ * matches its own key and any longer key that starts with it at a word
+ * boundary, so `git` covers `git status` and `git status` covers
+ * `git status --short`. A command without a key matches nothing.
  */
-function tokenizeCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = "";
-  let inSingle = false;
-  let inDouble = false;
-
-  for (let i = 0; i < command.length; i++) {
-    const ch = command[i];
-
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
-    }
-    if (ch === '"' && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (ch === " " && !inSingle && !inDouble) {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += ch;
+export function isCommandCoveredByAllowlist(
+  command: string,
+  allowedCommands: readonly string[],
+): boolean {
+  const commandKey = extractCommandApprovalKey(command);
+  if (commandKey === undefined) {
+    return false;
   }
+  return allowedCommands.some(
+    (allowed) => commandKey === allowed || commandKey.startsWith(`${allowed} `),
+  );
+}
 
-  if (current) tokens.push(current);
-  return tokens;
+const WHITESPACE_PATTERN = /\s/;
+
+/** A word can be part of a key only when it is a literal the key can spell unambiguously. */
+function isKeyWord(word: ShellWord): boolean {
+  return word.text.length > 0 && !word.expands && !WHITESPACE_PATTERN.test(word.text);
 }
 
 /**
@@ -161,9 +129,7 @@ export function execCommand(
       resume(Effect.fail(err));
     });
 
-    return Effect.sync(() => {
-      child.kill("SIGKILL");
-    });
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }
 
@@ -218,9 +184,7 @@ export function execCommandWithStdin(
       child.stdin.end();
     }
 
-    return Effect.sync(() => {
-      child.kill("SIGKILL");
-    });
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }
 
@@ -282,8 +246,6 @@ export function execCommandWithStdinCapturingOutput(
       child.stdin.end();
     }
 
-    return Effect.sync(() => {
-      child.kill("SIGKILL");
-    });
+    return Effect.promise(() => terminateProcessGroup(child));
   });
 }

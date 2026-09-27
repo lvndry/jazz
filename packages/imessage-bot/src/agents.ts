@@ -12,8 +12,7 @@
  * escaped into something no longer reversible.
  */
 
-import { syncAgentDisplayName as syncScopedAgentDisplayName } from "@jazz/bot-shared/agent-file";
-import { listChatSandboxes } from "@jazz/bot-shared/chat-sandbox";
+import { syncAgentDisplayNameEverywhere } from "@jazz/bot-shared/agent-file";
 
 export function agentIdForChat(chatId: number): string {
   return `im_${String(chatId)}`;
@@ -39,8 +38,5 @@ export function syncAgentDisplayName(
   baseAgentId: string,
   displayName: string,
 ): void {
-  syncScopedAgentDisplayName(dataDir, baseAgentId, displayName, isChatAgentId);
-  for (const { home } of listChatSandboxes(dataDir)) {
-    syncScopedAgentDisplayName(home, baseAgentId, displayName, isChatAgentId);
-  }
+  syncAgentDisplayNameEverywhere(dataDir, baseAgentId, displayName, isChatAgentId);
 }

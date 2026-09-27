@@ -99,6 +99,19 @@ describe("formatOneShotError", () => {
     expect(envelope.costKnown).toBe(false);
   });
 
+  it("json mode lists the calls of a batch the failure stopped", () => {
+    const stopped = [
+      { id: "a", name: "read_file", status: "completed" as const },
+      { id: "b", name: "execute_command", status: "interrupted" as const },
+    ];
+    expect(JSON.parse(formatOneShotError("timeout", { json: true }, undefined, stopped))).toEqual({
+      ok: false,
+      error: "timeout",
+      costUSD: 0,
+      stoppedToolCalls: stopped,
+    });
+  });
+
   it("json mode defaults costUSD to 0", () => {
     expect(JSON.parse(formatOneShotError("boom", { json: true })).costUSD).toBe(0);
   });

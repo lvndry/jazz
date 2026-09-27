@@ -5,7 +5,7 @@
 
 import { Cause, Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
-import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
+import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -17,6 +17,7 @@ import {
 } from "@/core/interfaces/presentation";
 import {
   ToolRegistryTag,
+  type Tool,
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
@@ -30,6 +31,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
   shouldAutoApprove,
+  type ApprovalRequiredResult,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -38,8 +40,9 @@ import {
 import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
-import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import type { ToolBatchLedger } from "./tool-batch-ledger";
 import {
   emitToolInvocation,
   recordToolError,
@@ -97,6 +100,87 @@ export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments 
   return { ok: true, args: parsed };
 }
 
+/**
+ * The conversation the command-risk classifier may read as evidence of what the
+ * user asked for, or `undefined` when the command has to stand on its own.
+ *
+ * Conversation turns are evidence only when the person the approval protects
+ * wrote them. On a bridge (no prompt possible) they come from whoever is
+ * messaging the bot. In a sub-agent the "user" turn is the task the parent
+ * model wrote, so a parent that has been talked into something could write the
+ * justification for its child's command.
+ */
+function classifierEvidence(
+  context: ToolExecutionContext,
+  canPrompt: boolean,
+): ToolExecutionContext["conversationMessages"] {
+  if (!canPrompt || (context.subagentDepth ?? 0) > 0) {
+    return undefined;
+  }
+  return context.conversationMessages;
+}
+
+type ToolGateMetadata = Pick<
+  Tool<never>,
+  "riskLevel" | "resolveRiskLevel" | "approvalExecuteToolName"
+>;
+
+/** How much of a call's arguments a plain tool's approval prompt quotes. */
+const PLAIN_TOOL_APPROVAL_ARGS_CHARS = 600;
+
+/**
+ * The level a plain (non-approval) tool's call is gated on, or `undefined` when the call
+ * needs no gate: an approval tool is gated by the request it returns, and a plain
+ * `read-only` call runs under every policy.
+ */
+function plainToolGateRisk(
+  tool: ToolGateMetadata | undefined,
+  args: Record<string, unknown>,
+): ToolRiskLevel | undefined {
+  if (tool === undefined || tool.approvalExecuteToolName !== undefined) {
+    return undefined;
+  }
+  const riskLevel = tool.resolveRiskLevel?.(args) ?? tool.riskLevel;
+  return riskLevel === "read-only" ? undefined : riskLevel;
+}
+
+/**
+ * The approval request the executor raises on behalf of a gated plain tool. Approving it
+ * runs the tool itself with the same arguments.
+ */
+function plainToolApprovalRequest(
+  name: string,
+  args: Record<string, unknown>,
+  riskLevel: ToolRiskLevel,
+): ApprovalRequiredResult {
+  const quoted = JSON.stringify(args);
+  const clipped =
+    quoted.length > PLAIN_TOOL_APPROVAL_ARGS_CHARS
+      ? `${quoted.slice(0, PLAIN_TOOL_APPROVAL_ARGS_CHARS - 1)}…`
+      : quoted;
+  return {
+    approvalRequired: true,
+    message: `Run ${name} (${riskLevel}) with ${clipped}`,
+    executeToolName: name,
+    executeArgs: args,
+  };
+}
+
+/**
+ * Whether an approval request a tool returned is one that tool may make: its registered
+ * `approvalExecuteToolName` names the execute half the request asks to run. Any other tool
+ * output shaped like a request (an MCP server's reply, a fetched JSON document) is data.
+ */
+function isRequestBoundToTool(
+  tool: ToolGateMetadata | undefined,
+  request: ApprovalRequiredResult,
+): boolean {
+  return (
+    tool?.approvalExecuteToolName !== undefined &&
+    tool.approvalExecuteToolName === request.executeToolName
+  );
+}
+
 /** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
 function resolveEligibleCommandRisk(
   command: string,
@@ -108,7 +192,7 @@ function resolveEligibleCommandRisk(
     return context.resolveCommandRisk(command, conversationMessages);
   }
   if (context.parentAgent === undefined) return Effect.succeed("high-risk");
-  return classifyCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
+  return resolveCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
 }
 
 /**
@@ -228,6 +312,8 @@ export class ToolExecutor {
     parkable = false,
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
+    /** Told when the call's side effect begins, so a stopped batch can say what ran. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -289,7 +375,8 @@ export class ToolExecutor {
         // Emit tool execution start - skip for approval tools to avoid interleaving with
         // approval UI when multiple tools run in parallel (approval wrapper returns
         // immediately; the real "Executing tool" is emitted after user approval)
-        const isApprovalTool = toolsRequiringApproval.has(name);
+        const plainGateRisk = plainToolGateRisk(toolMeta, args);
+        const isApprovalTool = toolsRequiringApproval.has(name) || plainGateRisk !== undefined;
         // The counterpart to "Tool execution succeeded"/"failed" below. Both carry the
         // tool call id, so a start with no completion — a row the live band keeps
         // spinning forever — is one grep apart from being named.
@@ -324,28 +411,56 @@ export class ToolExecutor {
           }
         }
 
-        // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
-        let result = yield* ToolExecutor.executeTool(
-          name,
-          args,
-          { ...context, toolCallId: toolCall.id },
-          toolMeta?.timeoutMs,
-        );
+        // A gated plain tool does not run yet: the executor raises the approval request
+        // for it. Everything else runs, and an approval tool's run is its proposal.
+        let result: ToolExecutionResult;
+        let pendingApproval: ApprovalRequiredResult | undefined;
+        if (plainGateRisk !== undefined) {
+          pendingApproval = plainToolApprovalRequest(name, args, plainGateRisk);
+          result = { success: true, result: pendingApproval };
+        } else {
+          // An approval tool's own call only builds the request; its side effect starts
+          // after approval, below.
+          if (!isApprovalTool) {
+            ledger?.markStarted(toolCall.id);
+          }
+          // Pass the pre-fetched timeout to avoid a redundant getTool lookup.
+          result = yield* ToolExecutor.executeTool(
+            name,
+            args,
+            { ...context, toolCallId: toolCall.id },
+            toolMeta?.timeoutMs,
+          );
+          if (isApprovalRequiredResult(result.result)) {
+            if (isRequestBoundToTool(toolMeta, result.result)) {
+              pendingApproval = result.result;
+            } else {
+              yield* logger.warn("Refused an approval request the tool is not registered to make", {
+                toolCallId: toolCall.id,
+              });
+              result = {
+                success: false,
+                result: null,
+                error: `${name} returned an approval request for ${result.result.executeToolName}, which it is not registered to propose. Nothing was run.`,
+              };
+            }
+          }
+        }
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
         let classifiedRisk: ToolRiskLevel | undefined;
 
-        // Check if this result requires approval (Cursor/Claude-style approval flow)
-        // If so, we intercept here, show approval UI (or auto-approve), and execute the follow-up tool
-        if (isApprovalRequiredResult(result.result)) {
-          const approvalResult = result.result;
+        // An approval request: show the approval UI (or auto-approve), then run the
+        // execute half.
+        if (pendingApproval !== undefined) {
+          const approvalResult = pendingApproval;
           const registry = yield* ToolRegistryTag;
 
           // Get the tool's risk level to check against auto-approve policy
           const toolInfo = yield* registry
             .getTool(name)
             .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
-          let riskLevel = toolInfo.riskLevel;
+          let riskLevel = plainGateRisk ?? toolInfo.riskLevel;
 
           const getCurrentPolicy = () => context.getAutoApprovePolicy?.();
           const autoApprovePolicy = getCurrentPolicy();
@@ -384,11 +499,7 @@ export class ToolExecutor {
             classifiedRisk = yield* resolveEligibleCommandRisk(
               command,
               context,
-              // Conversation context is only evidence when the person the
-              // approval protects is the one who wrote it. On a bridge those
-              // turns come from whoever is messaging the bot, so the command
-              // has to stand on its own.
-              canPrompt ? context.conversationMessages : undefined,
+              classifierEvidence(context, canPrompt),
               runMetrics,
             );
             riskLevel = classifiedRisk;
@@ -560,6 +671,7 @@ export class ToolExecutor {
 
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
+            ledger?.markStarted(toolCall.id);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
@@ -733,6 +845,8 @@ export class ToolExecutor {
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
+    /** Records what each call did, for a batch that is stopped before it finishes. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome[],
     Error,
@@ -757,16 +871,15 @@ export class ToolExecutor {
         { concurrency: MAX_CONCURRENT_TOOLS },
       );
       const approvalToolNameSet = new Set<string>();
+      const toolMetaByName = new Map<string, ToolGateMetadata>();
       for (let i = 0; i < uniqueToolNames.length; i++) {
         const uniqueToolName = uniqueToolNames[i];
         const toolResult = toolResults[i];
-        if (
-          uniqueToolName &&
-          toolResult &&
-          Either.isRight(toolResult) &&
-          toolResult.right.approvalExecuteToolName
-        ) {
-          approvalToolNameSet.add(uniqueToolName);
+        if (uniqueToolName && toolResult && Either.isRight(toolResult)) {
+          toolMetaByName.set(uniqueToolName, toolResult.right);
+          if (toolResult.right.approvalExecuteToolName) {
+            approvalToolNameSet.add(uniqueToolName);
+          }
         }
       }
       const toolsRequiringApproval = toolNames.filter((toolName) =>
@@ -828,7 +941,6 @@ export class ToolExecutor {
         let firstRequest: Parameters<typeof presentationService.requestApproval>[0] | undefined;
         for (const toolCall of toolCalls) {
           const name = toolCall.function.name;
-          if (!approvalSet.has(name)) continue;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
           const parsedArguments = parseToolCallArguments(toolCall);
@@ -837,17 +949,24 @@ export class ToolExecutor {
             continue;
           }
           const args = parsedArguments.args;
-          // Side-effect free for an approval tool: this is the call that builds the request.
-          const probe = yield* ToolExecutor.executeTool(name, args, {
-            ...context,
-            toolCallId: toolCall.id,
-          }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-          if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
 
-          const request = probe.result;
-          const toolInfo = yield* registry
-            .getTool(name)
-            .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
+          const toolMeta = toolMetaByName.get(name);
+          const plainGateRisk = plainToolGateRisk(toolMeta, args);
+          let request: ApprovalRequiredResult;
+          if (plainGateRisk !== undefined) {
+            request = plainToolApprovalRequest(name, args, plainGateRisk);
+          } else {
+            if (!approvalSet.has(name)) continue;
+            // Side-effect free for an approval tool: this is the call that builds the request.
+            const probe = yield* ToolExecutor.executeTool(name, args, {
+              ...context,
+              toolCallId: toolCall.id,
+            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
+            if (!isRequestBoundToTool(toolMeta, probe.result)) continue;
+            request = probe.result;
+          }
+
           const policy = context.getAutoApprovePolicy?.();
           const allowlisted =
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
@@ -855,7 +974,7 @@ export class ToolExecutor {
 
           // Without classifying, `execute_command` stays `unknown` and parks even `git
           // status` — while the per-call path, which does classify, would let it through.
-          let riskLevel = toolInfo.riskLevel;
+          let riskLevel = plainGateRisk ?? toolMeta?.riskLevel ?? "high-risk";
           const commandArg = request.executeArgs["command"];
           const command = typeof commandArg === "string" ? commandArg : undefined;
           if (
@@ -1023,9 +1142,11 @@ export class ToolExecutor {
                     approvalSet,
                     false,
                     preclassifiedRisk,
+                    ledger,
                   ).pipe(
                     Effect.tap((outcome) =>
                       Effect.sync(() => {
+                        ledger?.markFinished(outcome);
                         const returned = toolResultForProgress(outcome.result);
                         context.onToolEvent?.({
                           kind: "tool-finished",
@@ -1152,11 +1273,8 @@ function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
 /**
  * Check if a command is auto-approved via the per-command allowlist.
  * Only applies to `execute_command` tools; returns false for all others.
- *
- * Compares the extracted approval key (binary + first subcommand token) against
- * the allowlist using exact or word-boundary matching only — never raw prefix
- * matching on the full command string, which would allow "git status && rm -rf /"
- * to match an approved "git status" entry.
+ * Matching is `isCommandCoveredByAllowlist`: a compound command, or one with
+ * substitution, redirection or an environment prefix, never matches.
  */
 function isCommandAutoApproved(
   toolName: string,
@@ -1167,10 +1285,7 @@ function isCommandAutoApproved(
   if (toolName !== "execute_command") return false;
   const command = executeArgs["command"];
   if (typeof command !== "string") return false;
-  const commandKey = extractCommandApprovalKey(command);
-  return allowedCommands.some(
-    (allowed) => commandKey === allowed || commandKey.startsWith(allowed + " "),
-  );
+  return isCommandCoveredByAllowlist(command, allowedCommands);
 }
 
 /**

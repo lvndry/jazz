@@ -114,6 +114,19 @@ export class CLIError extends Data.TaggedError("CLIError")<{
   readonly suggestion?: string;
 }> {}
 
+/**
+ * An interactive command started where nobody can answer its prompts (stdin or
+ * stdout is not a terminal). The CLI exits 2 so scripts can tell "run this
+ * elsewhere" apart from a failed command.
+ */
+export class InteractiveTerminalRequiredError extends Data.TaggedError(
+  "InteractiveTerminalRequiredError",
+)<{
+  readonly command: string;
+  readonly message: string;
+  readonly suggestion: string;
+}> {}
+
 export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly field: string;
   readonly message: string;
@@ -361,6 +374,7 @@ export type JazzError =
   | StorageNotFoundError
   | StoragePermissionError
   | CLIError
+  | InteractiveTerminalRequiredError
   | ValidationError
   | NetworkError
   | APIError

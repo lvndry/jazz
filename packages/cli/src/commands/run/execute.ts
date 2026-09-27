@@ -22,6 +22,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
@@ -36,6 +37,7 @@ import {
   type OneShotComposition,
 } from "./envelope";
 import type { ReasoningEffort } from "./flags";
+import { parseStdinRunInput, readFirstStdinLine } from "./stdin-input";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -165,12 +167,11 @@ export interface RunAgentOnceOptions {
    */
   readonly ephemeral?: boolean | undefined;
   /**
-   * Inline JSON-encoded `ChatMessage[]` of prior turns, used only with
-   * `ephemeral` in place of `--conversation` — the caller (e.g. a webhook
-   * bridge) holds the transcript itself and passes it back in each call
-   * instead of it living on disk. Malformed JSON is treated as "no history".
+   * Read the prompt, and for an `ephemeral` run its prior messages, from the first stdin line
+   * (see `stdin-input.ts`). The caller (a chat bridge) holds an incognito transcript itself and
+   * passes it back each turn instead of it living on disk, and neither travels on argv.
    */
-  readonly historyJson?: string | undefined;
+  readonly inputStdin?: boolean | undefined;
   /**
    * Park instead of declining when a gated tool needs approval nobody here can give.
    *
@@ -218,10 +219,9 @@ export function buildConversation(params: {
 }
 
 function readStdin(): Promise<string> {
-  // Relies on the prompt being passed as a CLI argument in flows (e.g. the
-  // Telegram bridge) that also expect `OneShotPresentationService` to read
-  // approval decisions from this same stdin stream — reading the prompt here
-  // AND approval lines there would race over one stream.
+  // Reads to end of stream, so it cannot share stdin with the approval protocol
+  // `OneShotPresentationService` reads. A bridge that needs both uses
+  // `--input-stdin`, which consumes only the first line.
   // If stdin already ended, the "end" event has fired and won't fire again —
   // registering a new listener would hang forever.
   if (process.stdin.readableEnded) {
@@ -244,9 +244,10 @@ const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
   spend?: OneShotSpend,
+  stoppedToolCalls?: readonly StoppedToolCall[],
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, spend);
+    const formatted = formatOneShotError(message, options, spend, stoppedToolCalls);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -269,9 +270,10 @@ export function stripMemorySources(history: readonly ChatMessage[]): ChatMessage
 /**
  * Run an agent once against a dynamic prompt and print a clean payload.
  *
- * The prompt comes from the positional argument or, when absent, piped stdin —
- * webhook text is untrusted and stdin avoids shell-escaping it. Only a positional
- * prompt may be quoted as a memory source.
+ * The prompt comes from the positional argument, the `--input-stdin` frame, or, when
+ * neither is given, piped stdin. Webhook text is untrusted and stdin avoids shell-escaping
+ * it. Only a positional or framed prompt may be quoted as a memory source: both are the
+ * caller's own message, while piped stdin is a body relayed from somewhere else.
  */
 export function runAgentOnceCommand(
   agentIdentifier: string,
@@ -288,6 +290,8 @@ export function runAgentOnceCommand(
   const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
   // Set when the run ends however it ends, so a failure envelope can report what it spent.
   let runSpend: OneShotSpend | undefined;
+  // Set when a tool batch is stopped part-way, so a failure envelope can say what ran.
+  let stoppedToolCalls: readonly StoppedToolCall[] | undefined;
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -297,7 +301,32 @@ export function runAgentOnceCommand(
 
     let prompt = promptArg ?? "";
     const promptFromArgument = prompt.trim().length > 0;
-    if (!promptFromArgument && !process.stdin.isTTY) {
+    let framedHistory: readonly unknown[] | undefined;
+    if (options.inputStdin === true) {
+      if (promptFromArgument) {
+        return yield* failOneShot(
+          "Pass the prompt as an argument or with --input-stdin, not both.",
+          outputOptions,
+        );
+      }
+      const frame = parseStdinRunInput(
+        yield* Effect.tryPromise({
+          try: () => readFirstStdinLine(),
+          catch: () => new Error("Failed to read --input-stdin from stdin."),
+        }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+      );
+      if (!frame.ok) {
+        return yield* failOneShot(frame.error, outputOptions);
+      }
+      if (frame.input.history !== undefined && options.ephemeral !== true) {
+        return yield* failOneShot(
+          '--input-stdin "history" is only read with --ephemeral; use --conversation to load saved history.',
+          outputOptions,
+        );
+      }
+      prompt = frame.input.prompt;
+      framedHistory = frame.input.history;
+    } else if (!promptFromArgument && !process.stdin.isTTY) {
       prompt = yield* Effect.tryPromise({
         try: () => readStdin(),
         catch: () => new Error("Failed to read prompt from stdin."),
@@ -381,17 +410,10 @@ export function runAgentOnceCommand(
     // Ephemeral runs do not use Jazz's conversation persistence, so prior context
     // (if any) comes back inline rather than from a `--conversation` load. File
     // tools and telemetry are intentionally unaffected by this flag.
-    let inlineHistory: ChatMessage[] | undefined;
-    if (ephemeral && options.historyJson !== undefined) {
-      try {
-        const parsed: unknown = JSON.parse(options.historyJson);
-        if (Array.isArray(parsed)) {
-          inlineHistory = stripMemorySources(parsed as ChatMessage[]);
-        }
-      } catch {
-        // Malformed inline history starts the run fresh rather than failing it.
-      }
-    }
+    const inlineHistory =
+      ephemeral && framedHistory !== undefined
+        ? stripMemorySources(framedHistory as ChatMessage[])
+        : undefined;
 
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
     // Not a run id: a run's identity is the uuid the metrics mint, and this is the
@@ -424,7 +446,7 @@ export function runAgentOnceCommand(
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
-      trustUserInputAsMemorySource: promptFromArgument,
+      trustUserInputAsMemorySource: promptFromArgument || options.inputStdin === true,
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
@@ -451,6 +473,9 @@ export function runAgentOnceCommand(
           agentForRun.config.llmProvider,
           agentForRun.config.llmModel,
         );
+      },
+      onToolBatchStopped: (calls) => {
+        stoppedToolCalls = calls;
       },
     });
 
@@ -521,6 +546,9 @@ export function runAgentOnceCommand(
           ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
           ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
           ...(runResult.stalled === true ? { stalled: true } : {}),
+          ...(runResult.stoppedToolCalls !== undefined
+            ? { stoppedToolCalls: runResult.stoppedToolCalls }
+            : {}),
           tokenUsage: {
             promptTokens,
             completionTokens,
@@ -566,7 +594,9 @@ export function runAgentOnceCommand(
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),
     ),
-    Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions, runSpend)),
+    Effect.catchAll((error) =>
+      failOneShot(getErrorMessage(error), outputOptions, runSpend, stoppedToolCalls),
+    ),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),

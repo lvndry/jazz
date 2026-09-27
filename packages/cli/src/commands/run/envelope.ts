@@ -13,6 +13,7 @@
 
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { StoppedToolCall } from "@jazz/core/types/tools";
 
 export interface OneShotTokenUsage {
   readonly promptTokens: number;
@@ -56,6 +57,8 @@ export interface OneShotSuccess {
   readonly durationCapped?: boolean;
   /** True when the run was stopped for repeating the same tool calls without progress. */
   readonly stalled?: boolean;
+  /** The calls of a tool batch the run stopped part-way, and what became of each. */
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly composition?: OneShotComposition;
@@ -73,8 +76,8 @@ export interface OneShotSuccess {
    * calls. Since ephemeral runs never load/save `--conversation` history on
    * disk, any caller that wants multi-turn context (a webhook bridge, a
    * script — this is generic to `jazz run`, not tied to any one integration)
-   * round-trips this array back in as `--history-json` on the next call
-   * instead. The conversation lives in the caller's own memory, never on
+   * round-trips this array back in as the `--input-stdin` frame's `history`
+   * on the next call instead. The conversation lives in the caller's own memory, never on
    * disk.
    */
   readonly messages?: readonly ChatMessage[];
@@ -113,6 +116,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ...(result.tokenCapped ? { tokenCapped: true } : {}),
     ...(result.durationCapped ? { durationCapped: true } : {}),
     ...(result.stalled ? { stalled: true } : {}),
+    ...(result.stoppedToolCalls ? { stoppedToolCalls: result.stoppedToolCalls } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.composition ? { composition: result.composition } : {}),
@@ -177,11 +181,14 @@ export interface OneShotSpend {
  * A run that failed, timed out or was cancelled after reaching the model still spent money,
  * so its envelope carries `spend` when there is one: a caller enforcing a spending cap has to
  * count failed runs too. A failure before any model call reports `costUSD: 0`.
+ * `stoppedToolCalls` lists a tool batch the failure stopped part-way (`--timeout`, SIGTERM),
+ * so a caller knows which calls completed, which were interrupted, and which never started.
  */
 export function formatOneShotError(
   message: string,
   options: OneShotOutputOptions,
   spend?: OneShotSpend,
+  stoppedToolCalls?: readonly StoppedToolCall[],
 ): string {
   if (!options.json) {
     return `${message}\n`;
@@ -193,6 +200,7 @@ export function formatOneShotError(
     ...(spend !== undefined
       ? { costKnown: spend.costKnown, tokenUsage: { totalTokens: spend.totalTokens } }
       : {}),
+    ...(stoppedToolCalls !== undefined ? { stoppedToolCalls } : {}),
   })}\n`;
 }
 

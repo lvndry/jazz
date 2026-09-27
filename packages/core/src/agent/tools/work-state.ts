@@ -40,7 +40,9 @@ export function createUpdateWorkStateTool(): Tool<never> {
     description:
       "Read or update the current task's state; it survives compaction and resumption. Update it when a field materially changes. For facts about the user, use manage_memory. Omitted fields stay unchanged; call with no fields to read.",
     parameters: updateWorkStateParameters,
-    riskLevel: "low-risk",
+    // Writes only this agent's own bookkeeping, which nothing outside the run acts on.
+    peerGrantRequired: true,
+    riskLevel: "read-only",
     hidden: false,
     validate: makeZodValidator(updateWorkStateParameters),
     handler: (args, context) =>

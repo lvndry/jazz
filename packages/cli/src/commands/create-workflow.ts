@@ -9,6 +9,7 @@ import { toError } from "@jazz/core/utils/errors";
 import { getGlobalWorkflowsDirectory } from "@jazz/core/utils/paths";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { Effect } from "effect";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 
 interface WorkflowAnswers {
   name: string;
@@ -63,6 +64,10 @@ function previousStep(current: WizardStep): WizardStep | null {
 
 export function createWorkflowCommand() {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz workflow create",
+      "Run `jazz workflow create` in a terminal, or write $JAZZ_HOME/workflows/<name>/WORKFLOW.md by hand (normally ~/.jazz/workflows/). See docs/configure/workflows.md for the fields.",
+    );
     const terminal = yield* TerminalServiceTag;
     yield* terminal.heading("Create a New Workflow");
     yield* terminal.log("Let's set up a recurring task step by step.");

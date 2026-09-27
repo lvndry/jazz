@@ -8,6 +8,7 @@
  */
 
 import { Effect, Option } from "effect";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AutoApprovePolicy } from "@/core/types/tools";
@@ -15,7 +16,12 @@ import { toError } from "@/core/utils/errors";
 import { currentProcessOwner } from "@/core/utils/process";
 import type { AgentResponse } from "../types";
 import { RunParkRequested, isRunParkRequested } from "./park-signal";
-import { DEFAULT_PARK_TTL_MS, createRunRecord, type RunRecord } from "./run-record";
+import {
+  DEFAULT_PARK_TTL_MS,
+  createRunRecord,
+  type RunRecord,
+  type RunRecordBoundary,
+} from "./run-record";
 import type { RunState } from "./run-state";
 
 export interface RunRecordingInput {
@@ -34,6 +40,7 @@ export interface RunRecordingInput {
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
   readonly workingDirectory?: string;
+  readonly boundary?: RunRecordBoundary;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -93,6 +100,9 @@ export function withRunRecording<E, R>(
     }
     const store = storeOption.value;
     const activeStartedAt = Date.now();
+    const presentation = yield* Effect.serviceOption(PresentationServiceTag);
+    const unattended =
+      Option.isNone(presentation) || presentation.value.canPromptForApproval?.() !== true;
 
     const withCost = (record: RunRecord): RunRecord => {
       const costUSD = input.costSoFarUSD?.();
@@ -133,6 +143,8 @@ export function withRunRecording<E, R>(
           ...(input.workingDirectory !== undefined
             ? { workingDirectory: input.workingDirectory }
             : {}),
+          ...(unattended ? { unattended: true } : {}),
+          ...(input.boundary !== undefined ? { boundary: input.boundary } : {}),
         }),
       );
       yield* moveTo(

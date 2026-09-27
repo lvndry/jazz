@@ -63,6 +63,7 @@ import {
   moveCaretVertical,
   redo,
   selectAll,
+  typeCharacter,
   UP,
   type ComposerHistory,
   undo,
@@ -1001,10 +1002,8 @@ function approvalFrom(
   const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
   const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
   const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
-  const alwaysLabel =
-    typeof command === "string"
-      ? `always allow ${extractCommandApprovalKey(command)}`
-      : `always allow ${pending.toolName}`;
+  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
+  const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
 
   return {
     kind: "approval",
@@ -2415,8 +2414,8 @@ export function FullscreenBridge(): React.ReactNode {
       if (!ctrl && !superKey && [...sequence].length === 1) {
         const code = sequence.codePointAt(0) ?? 0;
         if (code >= 0x20 && code !== 0x7f) {
-          const text = sequence === "!" && composerRef.current.text.length === 0 ? "! " : sequence;
-          insertAtCaret(text);
+          historyIndex.current = null;
+          commitComposer((current) => typeCharacter(current, sequence));
           return true;
         }
       }

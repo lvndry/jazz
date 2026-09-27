@@ -15,7 +15,11 @@ import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
 import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
-import { killProcessGroup, PIPE_DRAIN_GRACE_MS } from "@/core/utils/process";
+import {
+  PIPE_DRAIN_GRACE_MS,
+  terminateProcessGroup,
+  trackChildProcess,
+} from "@/core/utils/process";
 import { defineTool, makeZodValidator } from "./base-tool";
 import {
   appendCapped,
@@ -66,7 +70,8 @@ type CommandExecutionOutcome =
  * stdin, and collect stdout/stderr up to `MAX_COMMAND_OUTPUT_BYTES` each. Never fails: the
  * outcome carries spawn failures and timeout kills as a bounded error message, the way
  * `execute_command` in `shell.ts` reports failures to the model. A timeout or an interrupted
- * tool fiber kills the whole group, and the call returns once the command exits even when a
+ * tool fiber stops the whole group, SIGTERM first and SIGKILL after a grace
+ * ({@link terminateProcessGroup}), and the call returns once the command exits even when a
  * process it started keeps the pipes open.
  */
 function runCustomToolCommand(
@@ -116,6 +121,7 @@ function runCustomToolCommand(
     }
 
     const spawned = child;
+    trackChildProcess(spawned);
 
     const finishWithExit = (code: number | null): void => {
       finish({
@@ -127,7 +133,7 @@ function runCustomToolCommand(
     };
 
     const timeoutHandle = setTimeout(() => {
-      killProcessGroup(spawned);
+      void terminateProcessGroup(spawned);
       finish({ ok: false, error: `Command timed out after ${timeoutMs}ms` });
     }, timeoutMs);
 
@@ -164,12 +170,8 @@ function runCustomToolCommand(
 
     return Effect.sync(() => {
       clearTimers();
-      if (settled) {
-        return;
-      }
       settled = true;
-      killProcessGroup(spawned);
-    });
+    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 
@@ -233,9 +235,11 @@ function buildRecordTool(
  * would silently apply the WRONG agent's allowlist (e.g. leaking a token the
  * declaring agent was never granted, or scrubbing one it was).
  *
- * Command tools spawn arbitrary processes on every invocation with no
- * interactive approval step, so they are always registered `high-risk`
- * regardless of what the command itself does.
+ * Command tools spawn arbitrary processes on every invocation, so they are
+ * always registered `high-risk` regardless of what the command itself does.
+ * The executor gates them like any plain tool above `read-only`: they ask
+ * first, and run unasked only under the `high-risk` policy or when the tool
+ * is on the run's auto-approved tool list.
  */
 function buildCommandTool(
   definition: CustomToolDefinition & { readonly handler: CustomToolCommandHandler },

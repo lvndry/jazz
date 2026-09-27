@@ -17,9 +17,9 @@
  */
 
 import type { CapturedFrame, CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { Footer, formatUsage } from "./Footer";
@@ -69,7 +69,7 @@ interface Rendered {
 }
 
 async function render(node: ReactNode, width: number, height = 3): Promise<Rendered> {
-  const { renderOnce, captureCharFrame, captureSpans, renderer } = await testRender(node, {
+  const { renderOnce, captureCharFrame, captureSpans, renderer } = await renderForTest(node, {
     width,
     height,
   });

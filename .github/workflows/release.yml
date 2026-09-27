@@ -72,12 +72,18 @@ jobs:
     name: Generate release notes & create release
     needs: tag
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The release is created with RELEASE_PAT, so GITHUB_TOKEN stays read-only in the job that
+    # runs the auto-approving release-notes agent over commit text.
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.new_tag }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -109,6 +115,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
+            --max-cost-usd 2 \
             2>&1 | tee /tmp/jazz-release-notes.txt
 
       - name: Create GitHub release
@@ -155,8 +162,24 @@ jobs:
               tag_name: tag,
               name: tag,
               body: releaseBody,
-              draft: false,
+              // Release Binaries publishes it once every asset is attached, so the install
+              // URL (releases/latest/download/install.sh) never points at a release without them.
+              draft: true,
               prerelease: false
             });
 
-            console.log(`Release ${tag} created successfully.`);
+            console.log(`Draft release ${tag} created; Release Binaries publishes it.`);
+
+      # Release Binaries starts when this workflow completes (workflow_run) and reads the tag
+      # from this artifact.
+      - name: Record the tag for Release Binaries
+        env:
+          NEW_TAG: ${{ needs.tag.outputs.new_tag }}
+        run: printf '%s' "$NEW_TAG" > release-tag.txt
+
+      - name: Upload the tag
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-tag
+          path: release-tag.txt
+          retention-days: 7

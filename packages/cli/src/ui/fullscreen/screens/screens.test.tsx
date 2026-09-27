@@ -15,9 +15,9 @@
  */
 
 import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "../test-helpers";
 import { AgentDetails, agentDetailsRows } from "./AgentDetails";
 import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
@@ -148,7 +148,7 @@ interface Drawn {
 }
 
 async function draw(node: ReactNode, viewport: Viewport): Promise<Drawn> {
-  const { renderOnce, captureCharFrame, captureSpans, renderer } = await testRender(node, {
+  const { renderOnce, captureCharFrame, captureSpans, renderer } = await renderForTest(node, {
     width: viewport.width,
     height: viewport.height,
   });

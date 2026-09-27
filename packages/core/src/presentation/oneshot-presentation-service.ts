@@ -226,6 +226,9 @@ export class OneShotPresentationService implements PresentationService {
         }
       }
     });
+    // `jazz run --input-stdin` reads its frame first and leaves the stream paused, and a
+    // paused stream stays paused when a listener is added.
+    this.stdinStream.resume();
   }
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -358,6 +361,16 @@ export class OneShotPresentationService implements PresentationService {
           message,
           ...(agentName !== undefined ? { agentName } : {}),
         });
+        return;
+      }
+      process.stderr.write(message);
+    });
+  }
+
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      if (this.eventsActive) {
+        this.emitNdjson({ type: "status", level: "error", message });
         return;
       }
       process.stderr.write(message);

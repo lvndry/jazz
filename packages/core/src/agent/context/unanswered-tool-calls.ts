@@ -10,11 +10,14 @@ import type { ChatMessage } from "@/core/types/message";
  * fail before doing any work. Resuming the parked run itself must not use this: the
  * unanswered call is what the resume answers.
  *
+ * `content` is the answer, or a function choosing one per call (a stopped batch answers a call
+ * that completed with its real result and one that did not with why).
+ *
  * Returns the input unchanged when nothing is unanswered.
  */
 export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]>(
   messages: Messages,
-  content: string,
+  content: string | ((toolCall: { readonly id: string; readonly name: string }) => string),
 ): Messages {
   const answered = new Set(
     messages
@@ -51,7 +54,10 @@ export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]
       closed.push({
         role: "tool",
         name: toolCall.function.name,
-        content,
+        content:
+          typeof content === "string"
+            ? content
+            : content({ id: toolCall.id, name: toolCall.function.name }),
         tool_call_id: toolCall.id,
       });
     }
