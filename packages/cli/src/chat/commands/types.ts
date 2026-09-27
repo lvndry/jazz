@@ -10,6 +10,8 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
  * Types of special commands available in the chat interface
  */
 export type CommandType =
+  | "exit"
+  | "model"
   | "memory"
   | "new"
   | "fork"
@@ -43,7 +45,18 @@ export type CommandType =
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"
+  | "prose"
   | "unknown";
+
+/**
+ * The command types a built-in `CHAT_COMMANDS` entry can dispatch to. The rest
+ * come from the shell escape, a registered skill, MCP prompt or plugin, or
+ * input that is not a command.
+ */
+export type BuiltinCommandType = Exclude<
+  CommandType,
+  "shell" | "runSkill" | "runMcpPrompt" | "runPluginCommand" | "prose" | "unknown"
+>;
 
 /**
  * Parsed special command from user input
@@ -63,6 +76,11 @@ export interface CommandResult {
   newConversationId?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /**
+   * Put the message back in the composer at the next prompt, so a mistyped
+   * command can be fixed instead of retyped.
+   */
+  keepDraft?: boolean;
   /** Leave the on-screen chat as-is instead of redrawing it. */
   skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */

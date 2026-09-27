@@ -17,8 +17,10 @@ import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
 import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
+import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
 import { store } from "@/cli/ui/store";
+import { CHALK_THEME } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
 
 // Singleton guard to prevent accidental double instantiation
@@ -76,7 +78,7 @@ function closePromptWithAnswer(message: string, answer: string): void {
   store.printOutput({
     type: "log",
     message: wrapToWidth(
-      `${message} ${chalk.green(answer)}`,
+      `${message} ${CHALK_THEME.primary(answer)}`,
       getTerminalWidth() - USER_ECHO_WIDTH_OFFSET,
     ),
     timestamp: new Date(),
@@ -136,6 +138,7 @@ export class InkTerminalService implements TerminalService {
     if (options.fullscreen === false) {
       this.mountInk();
     } else {
+      setActiveKeymap("fullscreen");
       this.fullscreen = mountFullscreenApp({
         onFailure: this.fallbackToInk,
       });
@@ -158,6 +161,7 @@ export class InkTerminalService implements TerminalService {
 
   private mountInk(): void {
     if (this.inkInstance !== null) return;
+    setActiveKeymap("classic");
     this.inkInstance = render(
       React.createElement(
         TerminalDimensionsProvider,
@@ -348,7 +352,7 @@ export class InkTerminalService implements TerminalService {
             store.pushInputHistory(inputValue);
             printUserMessage(displayValue);
           } else {
-            const rawMessage = `${message} ${chalk.green(displayValue)}`;
+            const rawMessage = `${message} ${CHALK_THEME.primary(displayValue)}`;
             store.printOutput({
               type: "user",
               message: wrapToWidth(rawMessage, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),

@@ -59,6 +59,7 @@ import type { StreamingConfig } from "@/core/types/streaming";
 import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { isRecord } from "@/core/utils/is-record";
+import { closestMatch } from "@/core/utils/string";
 
 /**
  * `T` with every property optional, all the way down. A file is a partial override, so this is what
@@ -580,36 +581,6 @@ function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
 }
 
-function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let diagonal = previous[0] as number;
-    previous[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const above = previous[j] as number;
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      previous[j] = Math.min(above + 1, (previous[j - 1] as number) + 1, diagonal + cost);
-      diagonal = above;
-    }
-  }
-  return previous[right.length] as number;
-}
-
-/** The known key a typo most plausibly meant, if any is close enough to be worth suggesting. */
-function closestKey(typed: string, known: readonly string[]): string | undefined {
-  const lowered = typed.toLowerCase();
-  let best: string | undefined;
-  let bestDistance = Math.max(1, Math.floor(typed.length / 3)) + 1;
-  for (const candidate of known) {
-    const distance = editDistance(lowered, candidate.toLowerCase());
-    if (distance < bestDistance) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 function knownKeysAt(path: Path): readonly string[] {
   const schema = schemaAt(path);
   const inner = schema === undefined ? undefined : unwrap(schema);
@@ -742,7 +713,7 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         for (const key of issue.keys) {
           const path = [...issue.path, key];
           const removed = removalPath(path);
-          const suggestion = closestKey(key, known);
+          const suggestion = closestMatch(key, known);
           issues.push({
             kind: "unknown-key",
             path: formatConfigPath(path),
@@ -850,7 +821,7 @@ function suggestPath(segments: readonly string[]): string | undefined {
     const prefix = segments.slice(0, depth);
     const segment = segments[depth] as string;
     if (schemaAt([...prefix, segment]) !== undefined) continue;
-    const guess = closestKey(segment, knownKeysAt(prefix));
+    const guess = closestMatch(segment, knownKeysAt(prefix));
     if (guess === undefined) return undefined;
     const suggested = [...prefix, guess, ...segments.slice(depth + 1)];
     return schemaAt(suggested) === undefined ? undefined : joinConfigPath(suggested);

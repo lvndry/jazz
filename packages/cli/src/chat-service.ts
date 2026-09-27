@@ -67,6 +67,7 @@ import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
 import {
   handleSpecialCommand,
+  isExitCommand,
   parseSpecialCommand,
   setPluginCommands,
   setSkillCommands,
@@ -87,6 +88,7 @@ import {
   findExceededSessionLimits,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
   initializeSession,
@@ -327,6 +329,9 @@ export class ChatServiceImpl implements ChatService {
       let attendedGoalId: string | undefined;
       let goalContinues = false;
 
+      /** A mistyped command, put back in the composer at the next prompt. */
+      let draftToRestore: string | undefined;
+
       while (chatActive) {
         let userMessage: string | undefined;
         const queued = store.peekQueue();
@@ -371,9 +376,11 @@ export class ChatServiceImpl implements ChatService {
           // call terminal.user() — the shared helper that owns rendering.
           yield* terminal.user(userMessage);
         } else {
+          const draft = queued.length > 0 ? queued : draftToRestore;
+          draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
-            ...(queued.length > 0 ? { defaultValue: queued } : {}),
+            ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
           userMessage = yield* terminal.ask("You:", askOptions).pipe(
@@ -399,8 +406,7 @@ export class ChatServiceImpl implements ChatService {
         lastTurnErrored = false;
 
         const trimmedMessage = (userMessage ?? "").trim();
-        const lowerMessage = trimmedMessage.toLowerCase();
-        if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+        if (isExitCommand(trimmedMessage)) {
           if (attendedGoalId !== undefined) {
             yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
           }
@@ -458,7 +464,9 @@ export class ChatServiceImpl implements ChatService {
               ? specialCommand.args.join(" ").trim()
               : null;
 
-          if (passThroughMessage !== null) {
+          if (specialCommand.type === "prose") {
+            // A leading file path (a dragged file) is a message, not a command.
+          } else if (passThroughMessage !== null) {
             // Send the trailing text (e.g. "create") as the user message so the agent can guide
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
@@ -612,6 +620,10 @@ export class ChatServiceImpl implements ChatService {
               );
             }
 
+            if (commandResult.keepDraft === true && terminal.isInteractive) {
+              draftToRestore = userMessage;
+            }
+
             if (commandResult.attendGoal !== undefined) {
               attendedGoalId = commandResult.attendGoal;
               goalContinues = true;
@@ -636,6 +648,21 @@ export class ChatServiceImpl implements ChatService {
               continue;
             }
           }
+        }
+
+        if (goalTurn === undefined && messageForAgent === userMessage) {
+          const typedMessage = messageForAgent;
+          const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
+            agentId: agent.id,
+            conversationId,
+          });
+          const inlined = yield* Effect.tryPromise(() =>
+            inlineMentionedTextFiles(typedMessage, workingDirectory),
+          ).pipe(Effect.catchAll(() => Effect.succeed({ message: typedMessage, skipped: [] })));
+          for (const note of inlined.skipped) {
+            yield* terminal.warn(note);
+          }
+          messageForAgent = inlined.message;
         }
 
         if (Object.keys(sessionLimits).length > 0) {
