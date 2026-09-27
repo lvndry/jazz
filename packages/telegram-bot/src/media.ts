@@ -19,6 +19,10 @@ import type { Ownership } from "@jazz/bot-shared/sandbox-fs";
  */
 const TELEGRAM_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 
+/** Bounds on the two calls a download makes, so a stalled one fails instead of hanging. */
+const FILE_INFO_TIMEOUT_MS = 20_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+
 const MEDIA_DIRECTORY = "tg-media";
 
 /**
@@ -239,6 +243,7 @@ export async function downloadTelegramFile(
   let telegramFilePath: string;
   try {
     const response = await fetch(`${apiBase}/bot${botToken}/getFile`, {
+      signal: AbortSignal.timeout(FILE_INFO_TIMEOUT_MS),
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file_id: fileId }),
@@ -258,7 +263,9 @@ export async function downloadTelegramFile(
 
   let bytes: Uint8Array;
   try {
-    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`);
+    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`, {
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
     if (!download.ok) {
       return { ok: false, reason: `downloading the file failed with status ${download.status}` };
     }

@@ -19,6 +19,8 @@
  * disabled, which is not something a chat bridge should ask of a machine.
  */
 
+import { backoffDelay } from "@jazz/bot-shared/backoff";
+
 /** One message row, as `imsg` prints it. Fields we do not act on are omitted. */
 export interface ImsgMessage {
   /** `chat.db` rowid. Doubles as the watch cursor — see `--since-rowid`. */
@@ -303,6 +305,8 @@ export async function sendFile(
 
 export interface WatchHandle {
   stop(): void;
+  /** Whether an `imsg watch` process is running right now, for a health check. */
+  running(): boolean;
 }
 
 export interface WatchOptions {
@@ -315,8 +319,8 @@ export interface WatchOptions {
   readonly onRestart: (reason: string) => void;
 }
 
-/** How long to wait before respawning a watcher that exited. */
-const WATCH_RESTART_DELAY_MS = 3_000;
+/** Restart backoff for a watcher that exited: jittered, from one second up to a minute. */
+const WATCH_RESTART_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
 
 /**
  * Follow new messages, restarting the watcher if it dies.
@@ -330,6 +334,8 @@ export function watchMessages(options: WatchOptions): WatchHandle {
   let stopped = false;
   let child: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
   let cursor = options.sinceRowId;
+  let alive = false;
+  let restarts = 0;
 
   const spawnWatcher = () => {
     if (stopped) return;
@@ -344,6 +350,7 @@ export function watchMessages(options: WatchOptions): WatchHandle {
       stdout: "pipe",
       stderr: "pipe",
     });
+    alive = true;
 
     void (async () => {
       const decoder = new TextDecoder();
@@ -363,6 +370,7 @@ export function watchMessages(options: WatchOptions): WatchHandle {
             // Advance before handling: a handler that throws must not make the
             // same row arrive again on the next restart, forever.
             cursor = Math.max(cursor ?? 0, message.id);
+            restarts = 0;
             options.onMessage(message);
           }
         }
@@ -374,9 +382,12 @@ export function watchMessages(options: WatchOptions): WatchHandle {
     })();
 
     void child.exited.then((exitCode) => {
+      alive = false;
       if (stopped) return;
-      options.onRestart(`imsg watch exited (${exitCode})`);
-      setTimeout(spawnWatcher, WATCH_RESTART_DELAY_MS);
+      const delayMs = backoffDelay(restarts, WATCH_RESTART_BACKOFF);
+      restarts += 1;
+      options.onRestart(`imsg watch exited (${exitCode}); restarting in ${delayMs}ms`);
+      setTimeout(spawnWatcher, delayMs);
     });
   };
 
@@ -387,5 +398,6 @@ export function watchMessages(options: WatchOptions): WatchHandle {
       stopped = true;
       child?.kill();
     },
+    running: () => alive,
   };
 }

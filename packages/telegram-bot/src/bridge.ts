@@ -19,6 +19,7 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
+import { backoffDelay } from "@jazz/bot-shared/backoff";
 import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { ensureChatSandbox, SANDBOX_UMASK, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 import {
@@ -32,9 +33,11 @@ import {
   removeSuggestAgents,
   SUGGESTION_PROMPT_PREFIX,
 } from "@jazz/bot-shared/dynamic-suggestions";
+import { createHealthState, type HealthState, healthResponse } from "@jazz/bot-shared/health";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { secretsMatch } from "@jazz/bot-shared/secret-compare";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { code, line, plainLine, text } from "@jazz/bot-shared/surface";
 import { setTzForChat, isValidTimeZone } from "@jazz/bot-shared/timezone-store";
 import {
@@ -67,7 +70,15 @@ const COMPOSITIONS_FILE = "tg-compositions.json";
 const SUGGEST_AGENT_ID = "tg_suggest";
 
 const GETUPDATES_TIMEOUT_SECONDS = 30;
-const POLL_ERROR_BACKOFF_MS = 5_000;
+/** Reconnect backoff after failed polls: jittered, from one second up to a minute. */
+const POLL_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
+/**
+ * A poll returns at least every `GETUPDATES_TIMEOUT_SECONDS`, so a healthy loop beats that
+ * often; three missed polls is a loop that is not getting through.
+ */
+const POLL_STALE_AFTER_MS = GETUPDATES_TIMEOUT_SECONDS * 3 * 1000;
+/** Webhook mode has no poll, so it asks Telegram about the webhook this often instead. */
+const WEBHOOK_PROBE_MS = 60_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
 
 /**
@@ -195,6 +206,7 @@ function loadConfig(): BridgeConfig {
 /** Everything the transport handlers need, built once at start. */
 export interface Bridge {
   readonly config: BridgeConfig;
+  readonly health: HealthState;
   readonly surface: TelegramSurface;
   readonly runner: TurnRunner;
   readonly compositions: CompositionLinks;
@@ -533,7 +545,7 @@ function startHealthServer(bridge: Bridge): void {
       const url = new URL(request.url);
 
       if (request.method === "GET" && url.pathname === "/health") {
-        return new Response("ok", { status: 200 });
+        return healthResponse(bridge.health);
       }
 
       const compositionId =
@@ -560,6 +572,7 @@ function startHealthServer(bridge: Bridge): void {
         } catch {
           return new Response("bad request", { status: 400 });
         }
+        bridge.health.beat();
         dispatchUpdate(bridge, update);
         return new Response("ok", { status: 200 });
       }
@@ -575,22 +588,34 @@ async function registerWebhook(bridge: Bridge): Promise<void> {
   if (config.webhookUrl === undefined || config.webhookSecret.length === 0) {
     throw new Error("webhook mode requires TELEGRAM_WEBHOOK_URL and TELEGRAM_WEBHOOK_SECRET");
   }
-  await bridge.surface.call("setWebhook", {
+  // Pending updates are kept: a message sent while the bridge restarted is still answered.
+  const registered = (await bridge.surface.call("setWebhook", {
     url: config.webhookUrl,
     secret_token: config.webhookSecret,
     allowed_updates: ALLOWED_UPDATES,
-    drop_pending_updates: true,
-  });
+  })) as { ok?: boolean } | undefined;
+  if (registered?.ok === true) bridge.health.beat();
   console.log(`Registered Telegram webhook → ${config.webhookUrl}`);
+  const probe = setInterval(() => {
+    void bridge.surface.call("getWebhookInfo", {}).then((info) => {
+      if ((info as { ok?: boolean } | undefined)?.ok === true) bridge.health.beat();
+    });
+  }, WEBHOOK_PROBE_MS);
+  probe.unref?.();
 }
 
+/** Set once a shutdown starts, so the poll loop stops asking for more. */
+let polling = true;
+
 async function pollLoop(bridge: Bridge): Promise<void> {
-  // Polling and webhooks are mutually exclusive on Telegram's side.
-  await bridge.surface.call("deleteWebhook", { drop_pending_updates: true });
+  // Polling and webhooks are mutually exclusive on Telegram's side. Pending updates are
+  // kept, so a message sent while the bridge restarted is still answered.
+  await bridge.surface.call("deleteWebhook", {});
   console.log("Polling Telegram for updates…");
 
   let offset = 0;
-  for (;;) {
+  let failures = 0;
+  while (polling) {
     try {
       const response = (await bridge.surface.call("getUpdates", {
         offset,
@@ -603,6 +628,9 @@ async function pollLoop(bridge: Bridge): Promise<void> {
         // persistent failure (bad token, 409 conflict, rate limit, …).
         throw new Error("getUpdates returned a non-ok response");
       }
+      failures = 0;
+      bridge.health.beat();
+      if (!polling) break;
 
       for (const update of response.result ?? []) {
         if (typeof update.update_id === "number") {
@@ -611,8 +639,10 @@ async function pollLoop(bridge: Bridge): Promise<void> {
         dispatchUpdate(bridge, update);
       }
     } catch (error) {
-      console.error(`Poll error: ${String(error)}`);
-      await Bun.sleep(POLL_ERROR_BACKOFF_MS);
+      const delayMs = backoffDelay(failures, POLL_BACKOFF);
+      failures += 1;
+      console.error(`Poll error: ${String(error)}; retrying in ${delayMs}ms`);
+      await Bun.sleep(delayMs);
     }
   }
 }
@@ -694,7 +724,13 @@ export function createBridge(
         }
       : {}),
   });
-  return { config, surface, runner, compositions };
+  return {
+    config,
+    surface,
+    runner,
+    compositions,
+    health: createHealthState(POLL_STALE_AFTER_MS),
+  };
 }
 
 export async function startBridge(): Promise<void> {
@@ -744,6 +780,13 @@ export async function startBridge(): Promise<void> {
   console.log(
     `Telegram → Jazz bridge started as ${botName ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
   );
+
+  installShutdown({
+    runner: bridge.runner,
+    stopIntake: () => {
+      polling = false;
+    },
+  });
 
   if (config.mode === "webhook") {
     await registerWebhook(bridge);

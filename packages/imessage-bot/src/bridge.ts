@@ -20,7 +20,8 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { envFlag } from "@jazz/bot-shared/bridge-env";
+import { envFlag, envPositiveInt } from "@jazz/bot-shared/bridge-env";
+import { createHealthState, startHealthOnlyServer } from "@jazz/bot-shared/health";
 import { defaultJazzBinary, runningAsJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
@@ -30,6 +31,7 @@ import {
 } from "@jazz/bot-shared/scoped-record-store";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
 import type { ChatId } from "@jazz/bot-shared/surface";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import {
@@ -229,6 +231,38 @@ function targetFor(chatId: ChatId): ImsgTarget {
   return { kind: "chat", chatId: Number.parseInt(chatId, 10) };
 }
 
+/** How often the watcher is checked, and how long it may be down before it is unhealthy. */
+const WATCHER_CHECK_MS = 15_000;
+const WATCHER_STALE_AFTER_MS = 90_000;
+
+/**
+ * Which row the bridge can resume after, given messages that are still being handled.
+ *
+ * The cursor is written once a message was handled, not when it arrived, so a restart
+ * mid-answer gets that message again rather than losing it. With several in flight it can
+ * only move up to just before the oldest unfinished one.
+ */
+export function createCursorTracker(): {
+  started(rowId: number): void;
+  /** Returns the row to persist as handled, or undefined when it cannot move yet. */
+  finished(rowId: number): number | undefined;
+} {
+  const inFlight = new Set<number>();
+  let highestFinished: number | undefined;
+  return {
+    started: (rowId) => {
+      inFlight.add(rowId);
+    },
+    finished: (rowId) => {
+      inFlight.delete(rowId);
+      highestFinished = Math.max(highestFinished ?? rowId, rowId);
+      if (inFlight.size === 0) return highestFinished;
+      const oldestOpen = Math.min(...inFlight);
+      return highestFinished < oldestOpen ? highestFinished : oldestOpen - 1;
+    },
+  };
+}
+
 function readCursor(dataDir: string): number | undefined {
   const store = readRecordStore<number>(recordStorePath(dataDir, CURSOR_FILE));
   const value = store?.[CURSOR_KEY];
@@ -280,7 +314,13 @@ export function questionFromSelfText(
   if (selfTrigger === undefined) return undefined;
   const typed = text.trim();
   if (!typed.toLowerCase().startsWith(selfTrigger)) return undefined;
-  const stripped = typed.slice(selfTrigger.length).trim();
+  // The trigger is a word: "jazzy weather" is not "jazz" followed by "y weather".
+  const after = typed.charAt(selfTrigger.length);
+  if (after.length > 0 && /[\p{L}\p{N}_]/u.test(after)) return undefined;
+  const stripped = typed
+    .slice(selfTrigger.length)
+    .replace(/^[\s,:;.!?-]+/, "")
+    .trim();
   return stripped.length > 0 ? stripped : undefined;
 }
 
@@ -539,23 +579,34 @@ export async function startBridge(): Promise<void> {
     send: (chatId, body) => runner.send(chatId, body),
   });
 
+  const cursor = createCursorTracker();
   const watcher = watchMessages({
     binary: config.imsgBinary,
     sinceRowId: readCursor(config.jazzHome),
     includeAttachments: true,
     onRestart: (reason) => console.error(`${reason}; restarting the watcher.`),
     onMessage: (message) => {
-      writeCursor(config.jazzHome, message.id);
-      void handleIncoming(config, runner, surface, message).catch((error) =>
-        console.error(`Failed to handle message ${message.id}: ${String(error)}`),
-      );
+      cursor.started(message.id);
+      void handleIncoming(config, runner, surface, message)
+        .catch((error) => console.error(`Failed to handle message ${message.id}: ${String(error)}`))
+        .finally(() => {
+          const resumeFrom = cursor.finished(message.id);
+          if (resumeFrom !== undefined) writeCursor(config.jazzHome, resumeFrom);
+        });
     },
   });
 
-  const shutdown = (): void => {
-    watcher.stop();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  const health = createHealthState(WATCHER_STALE_AFTER_MS);
+  const beat = setInterval(() => {
+    if (watcher.running()) health.beat();
+  }, WATCHER_CHECK_MS);
+  beat.unref?.();
+  const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);
+  const stopHealth = healthPort > 0 ? startHealthOnlyServer(healthPort, health) : undefined;
+
+  installShutdown({
+    runner,
+    stopIntake: () => watcher.stop(),
+    afterDrain: () => stopHealth?.(),
+  });
 }

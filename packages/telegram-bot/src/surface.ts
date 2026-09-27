@@ -50,6 +50,25 @@ const CAPABILITIES: SurfaceCapabilities = {
   maxMessageChars: TELEGRAM_MAX_CHARS,
 };
 
+/**
+ * How long a Bot API call may take. Without a bound a half-open connection stalls the call
+ * for Bun's five-minute default, and with it the chat's whole send queue.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
+/** An upload carries a file, so it gets longer. */
+const UPLOAD_TIMEOUT_MS = 60_000;
+/** A long poll holds the request open for its own `timeout` seconds; this is the margin. */
+const LONG_POLL_MARGIN_MS = 15_000;
+
+/** The deadline for one call: a long poll's own wait plus a margin, or the usual bound. */
+export function requestTimeoutMs(method: string, payload: Record<string, unknown>): number {
+  const pollSeconds = payload["timeout"];
+  if (method === "getUpdates" && typeof pollSeconds === "number") {
+    return pollSeconds * 1000 + LONG_POLL_MARGIN_MS;
+  }
+  return REQUEST_TIMEOUT_MS;
+}
+
 export interface TelegramSurfaceOptions {
   readonly botToken: string;
   /** The Bot API origin. Defaults to Telegram's own. */
@@ -192,6 +211,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(requestTimeoutMs(method, payload)),
         }),
     });
 
@@ -330,6 +350,7 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
           fetch(`${apiBase}/bot${options.botToken}/sendPhoto`, {
             method: "POST",
             body: form,
+            signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
           }),
       });
     },
