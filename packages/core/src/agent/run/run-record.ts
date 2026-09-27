@@ -42,6 +42,11 @@ export interface RunRecord {
   readonly maxIterations?: number;
   /** Where the run worked, restored on resume instead of the resuming process's directory. */
   readonly workingDirectory?: string;
+  /**
+   * Set when nobody could be asked while it started (the daemon, a headless run), as opposed
+   * to a chat. The daemon's daily spend cap counts only these.
+   */
+  readonly unattended?: boolean;
 }
 
 /**
@@ -64,6 +69,7 @@ export function createRunRecord(input: {
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
   readonly workingDirectory?: string;
+  readonly unattended?: boolean;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -80,5 +86,6 @@ export function createRunRecord(input: {
       : {}),
     ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
     ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
+    ...(input.unattended === true ? { unattended: true } : {}),
   };
 }

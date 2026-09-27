@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { execCommand, execCommandWithStdin, extractCommandApprovalKey } from "./shell";
+import {
+  execCommand,
+  execCommandWithStdin,
+  extractCommandApprovalKey,
+  isCommandCoveredByAllowlist,
+} from "./shell";
 
 describe("shell", () => {
   describe("execCommand", () => {
@@ -47,10 +52,14 @@ describe("shell", () => {
       expect(extractCommandApprovalKey("cat")).toBe("cat");
     });
 
-    it("should include the first positional arg for non-subcommand tools", () => {
-      // "rm /tmp/foo" is a better key than just "rm" — you wouldn't want
-      // to auto-approve all rm invocations.
-      expect(extractCommandApprovalKey("rm -rf /tmp/foo")).toBe("rm /tmp/foo");
+    it("keys to the binary alone when a flag comes before any positional word", () => {
+      expect(extractCommandApprovalKey("rm -rf /tmp/foo")).toBe("rm");
+      expect(extractCommandApprovalKey("grep -rn pattern")).toBe("grep");
+      expect(extractCommandApprovalKey("git -C status rm -rf .")).toBe("git");
+    });
+
+    it("keeps the first positional word when it follows the binary directly", () => {
+      expect(extractCommandApprovalKey("rm /tmp/foo")).toBe("rm /tmp/foo");
     });
 
     it("should extract binary + subcommand for npm/yarn/pnpm commands", () => {
@@ -60,34 +69,28 @@ describe("shell", () => {
       expect(extractCommandApprovalKey("pnpm run build")).toBe("pnpm run");
     });
 
-    it("should skip env-var prefixes", () => {
-      expect(extractCommandApprovalKey("NODE_ENV=production npm test")).toBe("npm test");
-      expect(extractCommandApprovalKey("FOO=bar BAZ=qux git status")).toBe("git status");
+    it("has no key for a command with an environment-assignment prefix", () => {
+      expect(extractCommandApprovalKey("NODE_ENV=production npm test")).toBeUndefined();
+      expect(extractCommandApprovalKey("FOO=bar BAZ=qux git status")).toBeUndefined();
+      expect(extractCommandApprovalKey("PAGER=x git log")).toBeUndefined();
     });
 
-    it("should skip wrapper commands like sudo, env, npx", () => {
-      expect(extractCommandApprovalKey("sudo git status")).toBe("git status");
-      expect(extractCommandApprovalKey("npx jest --coverage")).toBe("jest");
-      expect(extractCommandApprovalKey("env git diff --stat")).toBe("git diff");
-      expect(extractCommandApprovalKey("bunx vitest run")).toBe("vitest run");
-    });
-
-    it("should handle combined wrappers and env vars", () => {
-      expect(extractCommandApprovalKey("NODE_ENV=test sudo npm test")).toBe("npm test");
-    });
-
-    it("should handle commands with only flags (no subcommand)", () => {
-      expect(extractCommandApprovalKey("grep -rn pattern")).toBe("grep pattern");
+    it("keeps wrappers in the key so an approval never extends to another user or environment", () => {
+      expect(extractCommandApprovalKey("sudo git status")).toBe("sudo git");
+      expect(extractCommandApprovalKey("npx jest --coverage")).toBe("npx jest");
+      expect(extractCommandApprovalKey("env PAGER=x git log")).toBe("env PAGER=x");
+      expect(extractCommandApprovalKey("bunx vitest run")).toBe("bunx vitest");
     });
 
     it("should handle quoted arguments", () => {
       expect(extractCommandApprovalKey('git commit -m "some message"')).toBe("git commit");
       expect(extractCommandApprovalKey("git commit -m 'some message'")).toBe("git commit");
+      expect(extractCommandApprovalKey("'git' \"status\"")).toBe("git status");
     });
 
-    it("should handle empty and whitespace-only strings", () => {
-      expect(extractCommandApprovalKey("")).toBe("");
-      expect(extractCommandApprovalKey("   ")).toBe("");
+    it("has no key for empty and whitespace-only strings", () => {
+      expect(extractCommandApprovalKey("")).toBeUndefined();
+      expect(extractCommandApprovalKey("   ")).toBeUndefined();
     });
 
     it("should handle docker commands", () => {
@@ -98,6 +101,61 @@ describe("shell", () => {
     it("should handle kubectl commands", () => {
       expect(extractCommandApprovalKey("kubectl get pods -n default")).toBe("kubectl get");
       expect(extractCommandApprovalKey("kubectl apply -f config.yaml")).toBe("kubectl apply");
+    });
+
+    it("has no key for a word built from an expansion", () => {
+      expect(extractCommandApprovalKey("$EDITOR notes.md")).toBeUndefined();
+      expect(extractCommandApprovalKey("git $SUBCOMMAND")).toBe("git");
+    });
+  });
+
+  describe("isCommandCoveredByAllowlist", () => {
+    const allowlist = ["git status", "ls"];
+
+    it.each([
+      "git status && rm -rf x",
+      "git status $(rm x)",
+      "git status `rm x`",
+      "git status | sh",
+      "git status > ~/.bashrc",
+      "git status & rm x",
+      "git status <(rm x)",
+      "git status >(rm x)",
+      "git status; rm x",
+      "git status || rm x",
+      "git status\nrm x",
+      "git status 2>/dev/null",
+      "git status ${HOME@P}",
+      "git status # comment",
+      "(git status)",
+      "PAGER=x git status",
+      "sudo git status",
+      "ls $(rm x)",
+      'ls "$(rm x)"',
+      "git status 'unterminated",
+    ])("never matches %p", (command) => {
+      expect(isCommandCoveredByAllowlist(command, allowlist)).toBe(false);
+    });
+
+    it.each(["git status", "git status --short", "ls", "ls -la /tmp", "ls '$(literal)'"])(
+      "matches the plain command %p",
+      (command) => {
+        expect(isCommandCoveredByAllowlist(command, allowlist)).toBe(true);
+      },
+    );
+
+    it("keeps an environment prefix off an approved key", () => {
+      expect(isCommandCoveredByAllowlist("PAGER=x git log", ["git log"])).toBe(false);
+      expect(isCommandCoveredByAllowlist("git log", ["git log"])).toBe(true);
+    });
+
+    it("lets a binary entry cover its subcommands at a word boundary only", () => {
+      expect(isCommandCoveredByAllowlist("git push", ["git"])).toBe(true);
+      expect(isCommandCoveredByAllowlist("gitk", ["git"])).toBe(false);
+    });
+
+    it("keeps an option value from posing as the approved subcommand", () => {
+      expect(isCommandCoveredByAllowlist("git -C status rm -rf .", ["git status"])).toBe(false);
     });
   });
 

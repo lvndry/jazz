@@ -6,6 +6,7 @@
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { useSyncExternalStore } from "react";
+import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
   initialScrollbackState,
@@ -37,7 +38,7 @@ const EMPTY_QUEUE: readonly string[] = [];
 
 function isQueuedCommand(entry: string): boolean {
   const trimmed = entry.trim();
-  return (trimmed.startsWith("/") || trimmed.startsWith("!")) && !trimmed.includes("\n");
+  return isCommandInput(trimmed) && !trimmed.includes("\n");
 }
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
