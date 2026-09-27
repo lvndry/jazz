@@ -20,9 +20,28 @@ checksums, and tells you if that directory is not on your `PATH`. Override the l
 `JAZZ_INSTALL_DIR`, or pin a version with `JAZZ_VERSION`:
 
 ```bash
-JAZZ_INSTALL_DIR=/usr/local/bin JAZZ_VERSION=v0.15.21 \
-  curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh |
+  JAZZ_VERSION=v0.15.21 JAZZ_INSTALL_DIR="$HOME/bin" bash
 ```
+
+The variables go after the pipe because they configure `bash`, which runs the script, not
+`curl`, which only downloads it.
+
+### Verify where a binary came from
+
+The checksum check proves the download is intact. To prove it was built by this
+repository's release workflow, check its build provenance with the GitHub CLI. Every
+release binary and its `SHA256SUMS` carry a signed attestation:
+
+```bash
+tag="v$(jazz --version)"
+gh release download "$tag" --repo lvndry/jazz --pattern 'jazz-darwin-arm64.gz'
+gh attestation verify jazz-darwin-arm64.gz --repo lvndry/jazz
+```
+
+Swap in the asset for your platform (`jazz-linux-x64.gz`, `jazz-linux-arm64-musl.gz`, and so
+on). Releases older than the provenance step have no attestation to check. A passing check names the workflow run that built the
+file and the commit it was built from.
 
 Jazz is also on npm, which installs the same macOS or Linux binary through your package
 manager:
@@ -74,6 +93,9 @@ Keep Jazz up to date with the latest features and improvements:
 ```bash
 jazz update
 ```
+
+Before updating across a minor version, read [Upgrading](../upgrading.md): it explains the
+versioning policy and what to change when a release renames a setting.
 
 ## Next steps
 

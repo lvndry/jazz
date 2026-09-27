@@ -191,6 +191,52 @@ describe("parseConfigFile", () => {
     expect(issues.map((issue) => issue.removed)).toContain("webhooks[2]");
   });
 
+  it("drops a door whose name reads the same secret variable as an earlier one", () => {
+    // `JAZZ_WEBHOOK_TOKEN_A_B` would otherwise authenticate both of these.
+    const { config, issues } = parseConfigFile({
+      webhooks: [
+        { name: "a.b", agentId: "x", promptTemplate: "p" },
+        { name: "A_b", agentId: "x", promptTemplate: "p" },
+      ],
+      peers: [{ name: "sam" }, { name: "Sam" }, { name: "sam-2" }],
+    });
+
+    expect(config.webhooks?.map((webhook) => webhook.name)).toEqual(["a.b"]);
+    expect(config.peers?.map((peer) => peer.name)).toEqual(["sam", "sam-2"]);
+    expect(issues).toContainEqual({
+      kind: "invalid-value",
+      path: "webhooks[1].name",
+      removed: "webhooks[1]",
+      expected: 'a name distinct from "a.b" once case and punctuation are ignored',
+      actual: "A_b",
+    });
+    expect(issues.map((issue) => issue.removed)).toContain("peers[1]");
+  });
+
+  it("keeps a webhook's signature, delivery header and limits", () => {
+    const webhook = {
+      name: "gh",
+      agentId: "x",
+      promptTemplate: "p",
+      signature: { format: "hmac-sha256" as const, header: "x-signature", prefix: "" },
+      deliveryIdHeader: "x-request-id",
+      budget: { maxTokens: 50_000, maxCostUSD: 0.5, maxDurationMs: 120_000 },
+      maxConcurrentRuns: 2,
+    };
+    const { config, issues } = parseConfigFile({ webhooks: [webhook] });
+
+    expect(issues).toEqual([]);
+    expect(config.webhooks).toEqual([webhook]);
+  });
+
+  it("drops a webhook whose signature format it cannot verify", () => {
+    const { config } = parseConfigFile({
+      webhooks: [{ name: "gh", agentId: "x", promptTemplate: "p", signature: { format: "md5" } }],
+    });
+
+    expect(config.webhooks).toEqual([]);
+  });
+
   it("reports a full server definition under mcpServers, which only holds overrides", () => {
     const { config, issues } = parseConfigFile({
       mcpServers: { github: { enabled: true, command: "npx" } },
@@ -421,7 +467,8 @@ describe("parseConfigFile", () => {
       kind: "invalid-value",
       path: "context.warnThresholdRatio",
       removed: "context.warnThresholdRatio",
-      expected: "a number greater than 0 and less than 1",
+      // 0.9 is inside warnThresholdRatio's own range, so the rule it broke is named instead.
+      expected: "a number below compactThresholdRatio",
       actual: 0.9,
     });
     expect(parseConfigFile({ context: { compactThresholdRatio: 0.95 } }).issues[0]).toMatchObject({

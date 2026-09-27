@@ -1,0 +1,3 @@
+# Agent prompt templates: Prettier rewrites their __PLACEHOLDER__ tokens as bold markers and
+# collapses the four-backtick fences the output parsers depend on.
+.github/jazz/workflows/

@@ -94,9 +94,10 @@ opens with the request and names the entry; amend needs a quote that names the e
 cross-scope source ledger revokes the quoted sentences, as hashed keys, before their memory is
 corrected or forgotten, so compaction cannot re-save that statement later. A malformed ledger
 pauses cited writes but never blocks a delete; the model cannot address its hidden path through
-memory tools. The runner marks terminal messages and a `jazz run` positional
-prompt as memory sources. A prompt piped on stdin and inline `--history-json` never are, so a
-webhook body relayed through `jazz run` cannot back a memory write. Callers that put untrusted
+memory tools. The runner marks terminal messages, a `jazz run` positional
+prompt, and an `--input-stdin` frame's prompt as memory sources. A prompt piped on stdin and a
+frame's `history` never are, so a webhook body relayed through `jazz run` cannot back a memory
+write. Callers that put untrusted
 text in the positional prompt are responsible for separating it before invoking Jazz.
 
 Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
@@ -121,10 +122,23 @@ is supplied, a loopback daemon warns and may run without one; a non-loopback bin
 
 Operator HTTP routes reject browser `Origin` headers, and JSON routes require
 `application/json`, reducing drive-by browser access to a loopback daemon. This does not protect
-against another local process that already has the operator token.
+against another local process that already has the daemon token.
 
-Peers authenticate with separate per-peer tokens. Webhooks use per-door tokens and fixed prompt
-templates. Invite secrets are one-time credentials. Telegram, Discord, iMessage, Photon, and
+An agent can be that process: the daemon token sits in the environment or, without an OS keyring,
+in `$JAZZ_HOME/secrets.json`. So the routes that grant authority (accept a goal, start or resume a
+loop, approve or answer a parked run) also need an operator token kept only in the OS keyring,
+minted only outside an agent-started process, and never loaded into config. A daemon an agent
+started grants nothing. What this does not stop: an agent with a shell can query the keychain
+itself, but such an agent already holds more than any grant could add.
+
+Peers authenticate with separate per-peer tokens. Webhooks use per-door bearer tokens or an
+HMAC-SHA256 signature over the raw body, and remember recent delivery ids and signatures so a
+captured delivery cannot be replayed. Both use fixed prompt templates or a fixed peer preamble,
+refuse to reveal which webhook names exist, and answer failures without their cause. Their runs
+get no operator preferences, no AGENTS.md, and no file attachments from paths in caller text, and
+each door has a budget, a concurrency cap, and a body cap. A parked remote run resumes with the
+tool list, caller, and remaining budget it parked with, or not at all. Invite secrets are one-time
+credentials. Telegram, Discord, iMessage, Photon, and
 WhatsApp bridges apply their own sender or conversation allowlists before a run starts.
 
 ## What Jazz does not guarantee

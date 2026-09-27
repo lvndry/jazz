@@ -1,4 +1,8 @@
-import { envVarForSecretPath, isSecretPath } from "@jazz/adapters/secrets/registry";
+import {
+  envVarForSecretPath,
+  isSecretPath,
+  redactSecretValues,
+} from "@jazz/adapters/secrets/registry";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -20,27 +24,37 @@ import { ConfigCard } from "../ui/ConfigCard";
  * CLI commands for configuration management
  */
 
+/** Options shared by the commands that print configuration values. */
+export interface ConfigReadOptions {
+  /** Print secrets in full instead of redacting them. */
+  readonly reveal?: boolean;
+}
+
 /**
- * List all configuration values
+ * Print the merged configuration. Secrets (provider keys, tokens, OTLP and MCP headers, MCP env
+ * values), including those merged in from the keyring or the environment, are redacted unless
+ * `reveal` is set.
  */
-export function listConfigCommand(): Effect.Effect<
-  void,
-  never,
-  AgentConfigService | TerminalService
-> {
+export function listConfigCommand(
+  options: ConfigReadOptions = {},
+): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
+    const reveal = options.reveal === true;
 
-    const json = JSON.stringify(config, null, 2);
+    const json = JSON.stringify(reveal ? config : redactSecretValues(config), null, 2);
+    const note = reveal
+      ? "Showing full values, including secrets."
+      : "Secrets are redacted. Pass --reveal to print them.";
 
     if (process.stdout.isTTY) {
       yield* terminal.log(
         ink(
           React.createElement(ConfigCard, {
             title: "Current configuration",
-            note: "Showing full values (including secrets).",
+            note,
             json,
           }),
         ),
@@ -53,15 +67,17 @@ export function listConfigCommand(): Effect.Effect<
 }
 
 /**
- * Get a configuration value
- * Supports nested keys (e.g., "llm.openai.api_key")
+ * Print one configuration value and nothing else, so scripts can capture it.
+ * Supports nested keys (e.g. "llm.openai.api_key"). A string prints as-is and
+ * any other value as JSON. A secret, or a section holding one, is redacted
+ * unless `reveal` is set. A key with no value reports on stderr and exits 1.
  */
 export function getConfigCommand(
   key: string,
+  options: ConfigReadOptions = {},
 ): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.info(`Getting config: ${key}`);
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
 
@@ -77,7 +93,14 @@ export function getConfigCommand(
       }
     }
 
-    yield* terminal.log(JSON.stringify(value, null, 2));
+    if (value === undefined) {
+      yield* terminal.error(`No configuration value at "${key}".`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const shown = options.reveal === true ? value : redactSecretValues(value, parts.join("."));
+    yield* terminal.log(typeof shown === "string" ? shown : JSON.stringify(shown, null, 2));
   });
 }
 
@@ -201,6 +224,10 @@ export function setConfigCommand(
               value: provider,
             })),
           }));
+        if (provider === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* terminal.info(`Configuring ${provider}...`);
 
@@ -211,7 +238,7 @@ export function setConfigCommand(
           placeholder: "Paste your API key... (Esc to cancel)",
         });
         if (apiKey === undefined) {
-          yield* terminal.info("Cancelled — configuration unchanged.");
+          yield* terminal.info("Cancelled. Configuration unchanged.");
           return;
         }
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -236,10 +263,18 @@ export function setConfigCommand(
           (yield* terminal.select<string>("Select web search provider:", {
             choices: WEB_SEARCH_PROVIDERS.map((p) => ({ name: p.name, value: p.value })),
           }));
+        if (provider === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* terminal.info(`Configuring ${provider}...`);
 
         const apiKey = yield* terminal.password("Enter API Key:");
+        if (apiKey === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
         yield* configService.set(`web_search.${provider}.api_key`, apiKey);
 
         yield* terminal.success(`Configuration for ${provider} updated.`);
@@ -250,6 +285,10 @@ export function setConfigCommand(
         const level = yield* terminal.select<LoggingConfig["level"]>("Select logging level:", {
           choices: ["debug", "info", "warn", "error"],
         });
+        if (level === undefined) {
+          yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
 
         yield* configService.set("logging.level", level);
         yield* terminal.success("Logging configuration updated.");
@@ -271,7 +310,7 @@ export function setConfigCommand(
       });
       // Nothing is a valid answer: `set(undefined)` stored the literal string.
       if (answer === undefined || answer.trim() === "") {
-        yield* terminal.info("Cancelled — configuration unchanged.");
+        yield* terminal.info("Cancelled. Configuration unchanged.");
         return;
       }
       const typedAnswer = yield* typedConfigValue(targetKey, answer);

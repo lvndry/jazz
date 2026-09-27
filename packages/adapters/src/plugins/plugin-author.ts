@@ -9,7 +9,6 @@
 
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
-import { isBuiltin } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,32 +28,12 @@ import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
-import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";
+import { parsePluginManifest, parsePluginSourceManifest } from "./manifest-schema";
 import { PluginSecretStore } from "./secret-store";
+import { isRuntimeBuiltin } from "./source-integrity";
 
 const NATIVE_OR_ASSET_INPUT =
   /\.(?:node|wasm|css|html|sqlite|db|png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
-const BUILTIN_IMPORT = /^(?:node:|bun:)/;
-
-/** Bun may emit a bare Node builtin such as `url` while bundling a dependency. */
-function isRuntimeBuiltin(path: string): boolean {
-  return BUILTIN_IMPORT.test(path) || isBuiltin(path);
-}
-
-interface SourceManifest {
-  readonly schemaVersion?: 1;
-  readonly id: string;
-  readonly name: string;
-  readonly version: string;
-  readonly hostApi: 1;
-  readonly entry?: string;
-  readonly hooks: readonly string[];
-  readonly policyHooks: readonly string[];
-  readonly decisionProviders: readonly string[];
-  readonly network: { readonly destinations: readonly string[] };
-  readonly dataSent: readonly string[];
-  readonly secrets: readonly unknown[];
-}
 
 export interface PackPluginOptions {
   readonly pluginDirectory: string;
@@ -109,43 +88,25 @@ function fail(message: string): never {
   throw new Error(`Cannot pack Jazz plugin: ${message}`);
 }
 
-function record(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) {
-    fail("jazz-plugin.json must contain an object");
-  }
-  return value;
+export interface PreparedSourceManifest {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
 }
 
-async function readSourceManifest(pluginDirectory: string): Promise<SourceManifest> {
+/**
+ * Read and validate `jazz-plugin.json` with the install-time source-manifest parser, which also
+ * confines `entry` to a safe relative path. The returned manifest carries a placeholder digest.
+ */
+async function readSourceManifest(pluginDirectory: string): Promise<PreparedSourceManifest> {
   let decoded: unknown;
   try {
     decoded = JSON.parse(
       await fs.readFile(path.join(pluginDirectory, "jazz-plugin.json"), "utf8"),
     ) as unknown;
   } catch (error) {
-    fail(`invalid jazz-plugin.json (${toError(error).message})`);
+    throw new Error(`invalid jazz-plugin.json (${toError(error).message})`, { cause: error });
   }
-  const source = record(decoded);
-  const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "policyHooks", "entry"]);
-  const unknown = Object.keys(source).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) fail(`manifest contains unknown field(s): ${unknown.join(", ")}`);
-  // Reuse the install boundary for all metadata by supplying pack-generated fields.
-  const { entry: _entry, ...installMetadata } = source;
-  parsePluginManifest({
-    ...installMetadata,
-    schemaVersion: source["schemaVersion"] ?? 1,
-    artifact: "./plugin.mjs",
-    sha256: "0".repeat(64),
-  });
-  if (source["entry"] !== undefined && typeof source["entry"] !== "string") {
-    fail("entry must be a string");
-  }
-  return source as unknown as SourceManifest;
-}
-
-export interface PreparedSourceManifest {
-  readonly manifest: PluginManifest;
-  readonly entry: string;
+  return parsePluginSourceManifest(decoded);
 }
 
 /**
@@ -157,16 +118,8 @@ export async function prepareSourceManifest(
   pluginDirectory: string,
   digest: string,
 ): Promise<PreparedSourceManifest> {
-  const source = await readSourceManifest(pluginDirectory);
-  const entry = source.entry ?? "src/index.ts";
-  const { entry: _entry, ...installMetadata } = source as unknown as Record<string, unknown>;
-  const manifest = parsePluginManifest({
-    ...installMetadata,
-    schemaVersion: source.schemaVersion ?? 1,
-    artifact: entry,
-    sha256: digest,
-  });
-  return { manifest, entry };
+  const { manifest, entry } = await readSourceManifest(pluginDirectory);
+  return { manifest: { ...manifest, sha256: digest }, entry };
 }
 
 function resolveInside(root: string, relativePath: string): string {
@@ -230,8 +183,10 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
   if (!directory?.isDirectory() || directory.isSymbolicLink()) {
     fail("pluginDirectory must be a real directory, not a symlink");
   }
-  const source = await readSourceManifest(pluginDirectory);
-  const entrypoint = resolveInside(pluginDirectory, source.entry ?? "src/index.ts");
+  const source = await readSourceManifest(pluginDirectory).catch((error: unknown) =>
+    fail(toError(error).message),
+  );
+  const entrypoint = resolveInside(pluginDirectory, source.entry);
   const entry = await fs.lstat(entrypoint).catch(() => undefined);
   if (!entry?.isFile() || entry.isSymbolicLink())
     fail("entry must be a regular file, not a symlink");
@@ -268,13 +223,7 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
   const digestPath = path.join(releaseDirectory, "plugin.mjs.sha256");
   await atomicWrite(digestPath, `${sha256}  plugin.mjs\n`);
   const catalogEntryPath = path.join(releaseDirectory, "catalog-entry.json");
-  const { entry: _entry, ...metadata } = source;
-  const manifest = parsePluginManifest({
-    ...metadata,
-    schemaVersion: metadata.schemaVersion ?? 1,
-    artifact: "./plugin.mjs",
-    sha256,
-  });
+  const manifest: PluginManifest = { ...source.manifest, artifact: "./plugin.mjs", sha256 };
   await atomicWrite(catalogEntryPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return { artifactPath, digestPath, catalogEntryPath, sha256 };
 }

@@ -13,9 +13,9 @@
  * loses its scroll offset. This asserts the behaviour rather than assuming it.
  */
 
-import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React from "react";
+import { renderForTest } from "./fullscreen/test-helpers";
 
 const WIDTH = 80;
 const HEIGHT = 24;
@@ -85,7 +85,7 @@ function transcriptRows(frame: string): string[] {
 
 describe("opentui fullscreen spike", () => {
   it("renders five regions at exactly the terminal size, chrome anchored", async () => {
-    const { renderer, renderOnce, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, captureCharFrame } = await renderForTest(
       <Layout overlay={false} />,
       {
         width: WIDTH,
@@ -137,7 +137,7 @@ describe("opentui fullscreen spike", () => {
       );
     }
 
-    const { renderer, renderOnce, captureCharFrame } = await testRender(<Scrollable />, {
+    const { renderer, renderOnce, captureCharFrame } = await renderForTest(<Scrollable />, {
       width: WIDTH,
       height: HEIGHT,
     });
@@ -167,7 +167,7 @@ describe("opentui fullscreen spike", () => {
   });
 
   it("opens an overlay without disturbing the transcript behind it", async () => {
-    const { renderer, renderOnce, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, captureCharFrame } = await renderForTest(
       <Layout overlay={false} />,
       {
         width: WIDTH,
@@ -182,7 +182,7 @@ describe("opentui fullscreen spike", () => {
       renderer: r2,
       renderOnce: render2,
       captureCharFrame: capture2,
-    } = await testRender(<Layout overlay={true} />, { width: WIDTH, height: HEIGHT });
+    } = await renderForTest(<Layout overlay={true} />, { width: WIDTH, height: HEIGHT });
     await render2();
     const frameWithOverlay = capture2();
 

@@ -13,9 +13,9 @@
  */
 
 import { TextAttributes, type CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { terminalCellWidth } from "./terminal-cells";
@@ -139,7 +139,7 @@ interface Rendered {
 }
 
 async function render(node: ReactNode, viewport: Viewport): Promise<Rendered> {
-  const { renderOnce, captureCharFrame, captureSpans, renderer } = await testRender(node, {
+  const { renderOnce, captureCharFrame, captureSpans, renderer } = await renderForTest(node, {
     width: viewport.width,
     height: viewport.height,
   });

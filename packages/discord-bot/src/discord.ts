@@ -287,12 +287,12 @@ export async function getOriginalInteraction(
 export async function sendAttachment(
   token: string,
   channelId: string,
-  filePath: string,
+  file: Blob,
   filename: string,
   content?: string,
 ): Promise<void> {
   const form = new FormData();
-  form.append("files[0]", Bun.file(filePath), filename);
+  form.append("files[0]", file, filename);
   form.append(
     "payload_json",
     JSON.stringify({

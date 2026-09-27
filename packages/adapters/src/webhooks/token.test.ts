@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { resolveWebhookToken } from "./token";
+import { resolveWebhookSecret, resolveWebhookToken } from "./token";
 
 const ENV_VAR = "JAZZ_WEBHOOK_TOKEN_DEPLOYS";
 
@@ -31,5 +31,28 @@ describe("resolving a webhook's bearer token", () => {
     // No keyring entry exists for this name under test, so the blank value must not be
     // returned as though it were the token.
     expect(await resolve({ [ENV_VAR]: "   " })).toBeUndefined();
+  });
+});
+
+describe("resolving a webhook's signing secret", () => {
+  it("reads its own variable, apart from the bearer token's", async () => {
+    const secretVar = "JAZZ_WEBHOOK_SECRET_DEPLOYS";
+    const saved = { token: process.env[ENV_VAR], secret: process.env[secretVar] };
+    process.env[ENV_VAR] = "the-token";
+    process.env[secretVar] = "the-secret";
+    try {
+      expect(await Effect.runPromise(resolveWebhookSecret("deploys"))).toBe("the-secret");
+    } finally {
+      for (const [key, value] of [
+        [ENV_VAR, saved.token],
+        [secretVar, saved.secret],
+      ] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
   });
 });

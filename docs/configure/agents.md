@@ -117,7 +117,8 @@ registered only when its name also appears in `tools`.
 - A `record` handler returns fixed text and is read-only.
 - A `command` handler spawns the argv directly, never through a shell, and writes validated arguments
   as JSON to stdin. It runs in the current working directory, uses Jazz's scrubbed environment,
-  and is always high-risk. `timeoutMs` may be 1–300000.
+  and is always high-risk: every call asks first, and runs unasked only under the `high-risk`
+  policy or when the tool is in `--auto-approve-tools`. `timeoutMs` may be 1–300000.
 
 For authenticated SaaS actions, prefer an MCP server whose schema, authentication, and errors are
 explicit. A command-backed webhook is useful when the HTTP endpoint itself is the stable interface.

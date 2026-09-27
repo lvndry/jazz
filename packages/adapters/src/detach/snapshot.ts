@@ -837,9 +837,13 @@ export async function applyDetachResult(input: {
     );
   }
   await Effect.runPromise(
-    saveConversation(withRemoteTurnsInUiTranscript(handedOff, history), undefined, {
-      fenceHeldBy: initial.handoffId,
-    }).pipe(Effect.provide(NodeFileSystem.layer)),
+    saveConversation(
+      withRemoteTurnsInUiTranscript(handedOff, withoutRemoteMemorySources(handedOff, history)),
+      undefined,
+      {
+        fenceHeldBy: initial.handoffId,
+      },
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
   return { ...diff, applied: true };
 }
@@ -859,6 +863,33 @@ async function readConversationEntry(
     throw new Error("Conversation identity mismatch.");
   }
   return history as Conversation;
+}
+
+/**
+ * The returned transcript with memory authority only where this machine granted it.
+ *
+ * A `memorySource` on a user message lets the model quote it as the basis for a memory write, so
+ * it is authority, and the remote host could have minted or edited any of them. Each message the
+ * remote kept from the handoff gets back exactly the source it left with; every other message
+ * gets none. A remote turn is still in the transcript, but nothing it says can become a memory
+ * here.
+ */
+export function withoutRemoteMemorySources(
+  handedOff: Conversation,
+  returned: Conversation,
+): Conversation {
+  const messages = returned.messages.map((message, index) => {
+    const original = handedOff.messages[index];
+    const keptFromHandoff =
+      original !== undefined &&
+      original.role === message.role &&
+      original.content === message.content;
+    const { memorySource: _remoteSource, ...rest } = message;
+    return keptFromHandoff && original.memorySource !== undefined
+      ? { ...rest, memorySource: original.memorySource }
+      : rest;
+  });
+  return { ...returned, messages };
 }
 
 /**

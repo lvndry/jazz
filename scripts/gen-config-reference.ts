@@ -163,6 +163,12 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "peers[].disclosure": "The tier you grant this peer when it asks you. Unset grants nothing.",
   "peers[].persona": "Persona your agent answers this peer with.",
   "peers[].allow": "Tools this peer may reach by name, beyond its disclosure tier.",
+  "peers[].budget.maxTokens": "Token ceiling for each run this peer starts.",
+  "peers[].budget.maxCostUSD": "Spend ceiling in US dollars for each run this peer starts.",
+  "peers[].budget.maxDurationMs":
+    "Wall-clock ceiling in milliseconds for each run this peer starts.",
+  "peers[].maxConcurrentRuns":
+    "Runs this peer may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "hosts[].name":
     "Name of a machine registered for detached conversations. See [Detached conversations](../features/detach.md).",
   "hosts[].sshTarget": "SSH config alias for the machine.",
@@ -178,6 +184,20 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "`ephemeral` starts fresh on each call; `threaded` continues one conversation.",
   "webhooks[].disclosure": "What the webhook's answers may reveal. Defaults to `internal`.",
   "webhooks[].allow": "Tools the webhook run may reach by name, beyond its disclosure tier.",
+  "webhooks[].signature.format":
+    "Authenticate each request by an `hmac-sha256` signature over its body instead of a bearer token. Set the shared secret with `jazz webhook secret <name>`.",
+  "webhooks[].signature.header":
+    "Request header holding the signature. Defaults to `x-hub-signature-256`.",
+  "webhooks[].signature.prefix":
+    "Text before the hex digest in that header. Defaults to `sha256=`.",
+  "webhooks[].deliveryIdHeader":
+    "Header carrying each delivery's id; a delivery already received is refused. Defaults to `x-github-delivery`.",
+  "webhooks[].budget.maxTokens": "Token ceiling for each run this webhook starts.",
+  "webhooks[].budget.maxCostUSD": "Spend ceiling in US dollars for each run this webhook starts.",
+  "webhooks[].budget.maxDurationMs":
+    "Wall-clock ceiling in milliseconds for each run this webhook starts.",
+  "webhooks[].maxConcurrentRuns":
+    "Runs this webhook may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "daemon.dailyCostUSD":
     "Most dollars unattended runs may spend per day, across all of them. Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. See [Daemon limits](./jazz.md#daemon-limits-and-notifications).",
   "daemon.dailyTokens":

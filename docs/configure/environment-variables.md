@@ -106,12 +106,13 @@ Web search keys: `BRAVE_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`, `PARALLEL_API
 
 Each is checked before the keyring.
 
-| Variable                    | Effect                                                                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `JAZZ_DAEMON_TOKEN`         | The daemon's bearer token.                                                                                                     |
-| `JAZZ_PEER_TOKEN_<NAME>`    | The token for one peer. `<NAME>` is the peer name in upper case, with every character outside `A-Z` and `0-9` turned into `_`. |
-| `JAZZ_PEER_TOKEN`           | Where `jazz peers set-token <name>` reads the token from, unless `--from-env` names another variable.                          |
-| `JAZZ_WEBHOOK_TOKEN_<NAME>` | The token for one webhook, named the same way.                                                                                 |
+| Variable                     | Effect                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `JAZZ_DAEMON_TOKEN`          | The daemon's bearer token.                                                                                                     |
+| `JAZZ_PEER_TOKEN_<NAME>`     | The token for one peer. `<NAME>` is the peer name in upper case, with every character outside `A-Z` and `0-9` turned into `_`. |
+| `JAZZ_PEER_TOKEN`            | Where `jazz peers set-token <name>` reads the token from, unless `--from-env` names another variable.                          |
+| `JAZZ_WEBHOOK_TOKEN_<NAME>`  | The token for one webhook, named the same way.                                                                                 |
+| `JAZZ_WEBHOOK_SECRET_<NAME>` | The signing secret for one webhook that uses `signature`, named the same way.                                                  |
 
 ## Telemetry
 

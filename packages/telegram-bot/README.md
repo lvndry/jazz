@@ -18,7 +18,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🔌 **Bring your own model**: OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
 - 🎛️ **Per-person `/model` and `/persona`**: `/model` picks from an inline keyboard of the current provider's models, or `/model openai/gpt-5.2` switches to any other provider Jazz supports outright; each user keeps their own choice.
 - ♻️ **Auto reasoning**: switching model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
-- 🛡️ **Approvals you can get through fast**: a tool needing a human sends its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one tap clears the batch. `/mode yolo` turns approvals off for that chat entirely; `/mode safe` puts them back.
+- 🛡️ **Approvals you can get through fast**: a tool needing a human sends its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one tap clears the batch. An operator's `/mode yolo` turns approvals off for that chat entirely; `/mode safe` puts them back. In a group, only the person who asked answers their own approvals.
 - 📡 **Live progress**: a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
 - ⏰ **Reminders**: `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware**: share a pin to get oriented, find nearby places, and set your timezone automatically.
@@ -66,19 +66,19 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 
 ## Commands
 
-| Command                 | What it does                                                                                                                                                                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _(any message)_         | Answered by your agent                                                                                                                                                                                                      |
-| `/model`                | Inline keyboard of the current provider's models; `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) switches you to a different provider outright                                                                  |
-| `/persona`              | Inline keyboard of available personas                                                                                                                                                                                       |
-| `/mode [safe\|yolo]`    | Show or set this chat's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking. Sticky per chat: `/new` does not reset it.                    |
-| `/new` (`/reset`)       | Start a fresh conversation: clears earlier context; keeps your model/persona                                                                                                                                                |
-| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                     |
-| _(natural language)_    | Just say it: "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself; it understands the same `<when>` formats as `/remind` (durations, clock times, `tomorrow HH:MM`, weekdays, absolute dates). |
-| `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                           |
-| `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                                  |
-| `/status`               | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                    |
-| `/help`                 | Usage                                                                                                                                                                                                                       |
+| Command                 | What it does                                                                                                                                                                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(any message)_         | Answered by your agent                                                                                                                                                                                                                                    |
+| `/model`                | Inline keyboard of the current provider's models; `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) switches you to a different provider outright                                                                                                |
+| `/persona`              | Inline keyboard of available personas                                                                                                                                                                                                                     |
+| `/mode [safe\|yolo]`    | Show or set this chat's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking, and only `TELEGRAM_OPERATOR_IDS` may turn it on. Sticky per chat: `/new` does not reset it. |
+| `/new` (`/reset`)       | Start a fresh conversation: clears earlier context; keeps your model/persona                                                                                                                                                                              |
+| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                                                   |
+| _(natural language)_    | Just say it: "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself; it understands the same `<when>` formats as `/remind` (durations, clock times, `tomorrow HH:MM`, weekdays, absolute dates).                               |
+| `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                                                         |
+| `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                                                                |
+| `/status`               | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                                                  |
+| `/help`                 | Usage                                                                                                                                                                                                                                                     |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
 that kills the run. Each answer gets **contextual follow-up buttons**: a quick
@@ -258,6 +258,7 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 | --------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN`        | none                                    | **Required.** Bot token from @BotFather.                                                                                                                                                                                                                                |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | none                                    | **Required.** Comma-separated chat ids allowed to use the bot.                                                                                                                                                                                                          |
+| `TELEGRAM_OPERATOR_IDS`     | none                                    | Comma-separated Telegram user ids allowed to turn approvals off (`/mode yolo`) and use "Always allow". Unset: nobody can, from chat.                                                                                                                                    |
 | `JAZZ_TELEGRAM_PROVIDER`    | `openai`                                | LLM provider: `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, …                                                                                                                                                                    |
 | `JAZZ_TELEGRAM_MODEL`       | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
 | `OPENAI_API_KEY` (+ others) | none                                    | API key for the default provider. Set any other provider's key too (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …, see `.env.example` for the full list) to let `/model` switch to it. Not needed for unprotected local `ollama`/`llamacpp`/`vllm`/`sglang` servers.     |
@@ -335,9 +336,11 @@ cd <repo> && git pull origin main
 cd packages/telegram-bot/src && docker compose -p jazz-telegram up -d --build
 ```
 
-**Hourly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
-rebuilds only if it changed, and rolls back if the new build fails to build or
-isn't healthy. Install it (as the deploy user):
+**Hourly auto-update:** `auto-update.sh` moves to the newest release tag
+(`vX.Y.Z`) once one is published, rebuilds only if it changed, and rolls back if
+the new build fails to build or isn't healthy. It never moves backwards. Set
+`JAZZ_DEPLOY_BRANCH=main` in the cron entry to follow every merged commit on a
+branch instead. Install it (as the deploy user):
 
 ```sh
 (crontab -l 2>/dev/null; echo "30 * * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
@@ -366,14 +369,15 @@ with the number of model rounds. The newest 200 runs per bridge are kept.
 Anything needing a human is also sent to the bridge's own chat via `notify.sh`,
 because a cron failure that only appends to a logfile is invisible: a
 checkout left on a feature branch silently skipped every update for over two
-weeks before anyone noticed. If the checkout isn't on `main`, the script parks it
-back there: stashing tracked edits (untracked files such as a local
-`docker-compose.override.yml` are left alone) and reporting both the stash and any
-commits left behind on the old branch by name, so nothing goes quietly missing.
-Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
+weeks before anyone noticed. Before moving the checkout, to a release or to the
+`JAZZ_DEPLOY_BRANCH` branch, the script stashes tracked edits (untracked files
+such as a local `docker-compose.override.yml` are left alone) and reports both the
+stash and any commits that exist only on that box by name, so nothing goes quietly
+missing.
 
-It tracks `main` (bleeding edge); the health-gated rollback guards against a bad
-commit. Check `~/jazz-autoupdate.log` for the run history.
+It tracks releases by default; `JAZZ_DEPLOY_BRANCH=main` is the bleeding edge. The
+health-gated rollback guards against a bad build either way. Check
+`~/jazz-autoupdate.log` for the run history.
 
 ## Security notes
 
@@ -415,7 +419,9 @@ deliberately **not** in the operator group, which is what makes the group bits
 one-way: the operator reads every chat, no chat reads another, and the setgid
 bit on each directory is what keeps the operator's access working as agents
 create new files. Personas stay shared and read-only; provider API keys still
-come from the environment, so every chat can still call the model.
+come from the environment, so every chat can still call the model. Nothing else
+from the bridge's environment reaches a run: the bot token, webhook secret and any
+other variable not on the allowlist in `bot-shared/src/child-env.ts` are left out.
 
 **Who can read what on the host.** The operator group is whatever group owns the
 data directory. A Docker named volume is `root:root` under `/var/lib/docker`,

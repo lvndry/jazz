@@ -10,8 +10,9 @@
  * every error is swallowed after the first, which is reported once.
  */
 
-import { appendFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { closeSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { openNestedDirectory, type PinnedDirectory } from "./sandbox-fs";
 
 /** Diagnostic fields that are safe to retain from an untrusted stream event. */
 const NUMBER_FIELDS = ["durationMs", "rounds", "iteration", "count"] as const;
@@ -102,17 +103,22 @@ export function nullRunLog(): RunLog {
   return { event: () => {}, finish: () => {}, path: "" };
 }
 
+/** Run logs are the bridge's own, readable by nobody else even inside a conversation home. */
+const RUN_LOG_DIRECTORY_MODE = 0o700;
+const RUN_LOG_FILE_MODE = 0o600;
+
 /**
  * Drop the oldest logs beyond the retention count. Names are timestamped, so a
  * lexical sort is chronological and no file needs to be stat-ed.
  */
-function pruneOldRuns(directory: string): void {
+function pruneOldRuns(directory: PinnedDirectory): void {
   try {
-    const files = readdirSync(directory)
+    const files = directory
+      .list()
       .filter((name) => name.endsWith(".ndjson"))
       .sort();
     for (const name of files.slice(0, Math.max(0, files.length - RUNS_RETAINED))) {
-      rmSync(join(directory, name), { force: true });
+      directory.remove(name);
     }
   } catch {
     // Retention is housekeeping; failing to prune must not fail a run.
@@ -123,38 +129,50 @@ function pruneOldRuns(directory: string): void {
  * Open a run log under `<dataDir>/logs/runs/`. The name carries the
  * conversation and the start time so a chat's turns sort chronologically and
  * two concurrent runs in the same chat cannot collide.
+ *
+ * `dataDir` can be a conversation home, where `logs` and `runs` are names the
+ * conversation controls, so both are opened without following a link and the
+ * file is created fresh rather than appended to by path.
  */
 export function createRunLog(
   dataDir: string,
   conversationKey: string,
   startedAt: Date = new Date(),
 ): RunLog {
-  const directory = join(dataDir, "logs", "runs");
   // Colons are legal on the filesystems this runs on but awkward to type in a
   // shell, and this path exists to be opened by a human in a hurry.
   const stamp = startedAt.toISOString().replace(/[:.]/g, "-");
   const safeKey = conversationKey.replace(/[^A-Za-z0-9_-]/g, "_");
-  const path = join(directory, `${safeKey}-${stamp}.ndjson`);
+  const fileName = `${safeKey}-${stamp}.ndjson`;
+  const path = join(dataDir, "logs", "runs", fileName);
 
-  let broken = false;
-  const append = (record: Record<string, unknown>): void => {
-    if (broken) return;
-    try {
-      appendFileSync(path, `${JSON.stringify(record)}\n`, { mode: 0o600 });
-    } catch {
-      broken = true;
-      console.error("Run log disabled after write failure");
-    }
-  };
-
+  let descriptor: number;
   try {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const directory = openNestedDirectory(dataDir, ["logs", "runs"], {
+      create: { mode: RUN_LOG_DIRECTORY_MODE },
+    });
+    try {
+      pruneOldRuns(directory);
+      descriptor = directory.createAppendOnly(fileName, RUN_LOG_FILE_MODE);
+    } finally {
+      directory.close();
+    }
   } catch {
     console.error("Run log directory unavailable");
     return nullRunLog();
   }
 
-  pruneOldRuns(directory);
+  let broken = false;
+  let closed = false;
+  const append = (record: Record<string, unknown>): void => {
+    if (broken || closed) return;
+    try {
+      writeSync(descriptor, `${JSON.stringify(record)}\n`);
+    } catch {
+      broken = true;
+      console.error("Run log disabled after write failure");
+    }
+  };
 
   const startedMs = startedAt.getTime();
   append({ at: startedAt.toISOString(), elapsedMs: 0, type: "run_start", conversationKey });
@@ -218,6 +236,8 @@ export function createRunLog(
         type: "run_finish",
         ...safeRunLogFields(outcome as Record<string, unknown>),
       });
+      closed = true;
+      closeSync(descriptor);
     },
   };
 }

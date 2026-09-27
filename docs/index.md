@@ -44,4 +44,4 @@ The [features overview](./features/index.md) explains those capabilities without
 
 ## Exact syntax
 
-Commands and flags are collected in the generated [command index](./commands.md). Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md), where examples are checked against the code.
+Commands and flags are collected in the generated [command index](./commands.md). Before updating across a minor version, read [Upgrading](./upgrading.md) for the versioning policy and how breaking changes are announced. Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md), where examples are checked against the code.
