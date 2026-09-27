@@ -399,6 +399,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     presentStatus: mock(() => Effect.void),
     writeOutput: mock(() => Effect.void),
     writeBlankLine: mock(() => Effect.void),
+    writeError: mock(() => Effect.void),
     formatToolExecutionStart: mock(() => Effect.succeed("Tool starting")),
     formatToolExecutionComplete: mock(() => Effect.succeed("Tool completed")),
     formatToolResult: mock(() => "Tool result"),

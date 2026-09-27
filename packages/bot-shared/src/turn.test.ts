@@ -429,6 +429,22 @@ describe("turn runner", () => {
     await turn;
   });
 
+  test("a chained command gets no Always allow, and the approval says why", async () => {
+    const { turn } = await startTurn();
+    current?.emit({
+      type: "approval_required",
+      toolCallId: "tc1",
+      toolName: "execute_command",
+      message: "Command: git status && rm -rf build\nDescription: tidy",
+    });
+    await Bun.sleep(5);
+    const prompt = sent.find((entry) => entry.promptId === "tc1");
+    expect(prompt?.choiceIds).not.toContain(ALWAYS_ALLOW_CHOICE_ID);
+    expect(prompt?.text).toContain("can't be always-allowed: it chains or redirects");
+    current?.finish();
+    await turn;
+  });
+
   test("always allow persists the command for an operator and is refused otherwise", async () => {
     // Wrapped, like `startTurn`: returning the turn itself would await the whole run.
     const turnAs = async (senderId: string): Promise<{ turn: Promise<void> }> => {
@@ -471,7 +487,7 @@ describe("turn runner", () => {
     const saved = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")) as {
       autoApprovedCommands?: string[];
     };
-    expect(saved.autoApprovedCommands).toEqual([extractCommandApprovalKey("ls -la")]);
+    expect(saved.autoApprovedCommands).toEqual([extractCommandApprovalKey("ls -la") ?? "no key"]);
     running()?.finish();
     await operatorTurn;
   });
@@ -634,12 +650,23 @@ describe("commandKeyFromApproval", () => {
     const command = "git status --short";
     expect(commandKeyFromApproval(approval(command))).toEqual({
       kind: "key",
-      key: extractCommandApprovalKey(command),
+      key: extractCommandApprovalKey(command) ?? "no key",
     });
     expect(extractCommandApprovalKey(command)).toContain("git status");
   });
 
-  test("a command with no key is unallowable, and anything else is not a command", () => {
+  test("a command that chains or redirects is unallowable", () => {
+    for (const command of [
+      "git status && rm -rf x",
+      "git status > ~/.bashrc",
+      "git status $(rm x)",
+    ]) {
+      expect(extractCommandApprovalKey(command)).toBeUndefined();
+      expect(commandKeyFromApproval(approval(command))).toEqual({ kind: "unallowable" });
+    }
+  });
+
+  test("anything that is not a shell command has no Always allow at all", () => {
     expect(commandKeyFromApproval(approval("   "))).toBeUndefined();
     expect(
       commandKeyFromApproval({ type: "approval_required", toolName: "web_search", message: "x" }),

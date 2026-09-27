@@ -57,6 +57,7 @@ const mockPresentationService = {
   formatToolsDetected: () => Effect.succeed("Tools detected"),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
+  writeError: () => Effect.void,
   formatToolExecutionStart: () => Effect.succeed("Starting tool"),
   formatToolExecutionComplete: () => Effect.succeed("Tool completed"),
   formatToolResult: () => "Tool result",
@@ -1077,5 +1078,138 @@ describe("a run's effective tool set as the execution boundary", () => {
 
     expect(executed).toEqual(["execute_execute_command"]);
     expect(result.success).toBe(true);
+  });
+});
+
+describe("ToolExecutor execute_command allowlist and classifier evidence", () => {
+  const shellRegistry = (command: string) =>
+    ({
+      getTool: () =>
+        Effect.succeed({
+          name: "execute_command",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "execute_execute_command",
+          riskLevel: "unknown" as const,
+        }),
+      executeTool: (name: string) =>
+        name === "execute_command"
+          ? Effect.succeed({
+              success: true,
+              result: {
+                approvalRequired: true,
+                message: `Command: ${command}`,
+                executeToolName: "execute_execute_command",
+                executeArgs: { command },
+              },
+            })
+          : Effect.succeed({ success: true, result: { stdout: "", exitCode: 0 } }),
+    }) as unknown as ToolRegistry;
+
+  const shellCall = (command: string): ToolCall => ({
+    id: "call_shell",
+    type: "function",
+    function: { name: "execute_command", arguments: JSON.stringify({ command }) },
+  });
+
+  const recordingPrompts = () => {
+    const requests: ApprovalRequest[] = [];
+    const presentation = {
+      ...mockPresentationService,
+      canPromptForApproval: () => true,
+      requestApproval: (request: ApprovalRequest) => {
+        requests.push(request);
+        return Effect.succeed({ approved: false } as const);
+      },
+    } as unknown as PresentationService;
+    return { requests, presentation };
+  };
+
+  const runShell = (
+    command: string,
+    presentation: PresentationService,
+    context: Partial<Parameters<typeof ToolExecutor.executeToolCall>[1]>,
+  ) =>
+    Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        shellCall(command),
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true, ...context },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["execute_command"]),
+      ).pipe(
+        Effect.provide(makeTestLayer({ registry: shellRegistry(command), presentation })),
+      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+
+  it.each([
+    "git status && rm -rf x",
+    "git status $(rm x)",
+    "git status `rm x`",
+    "git status | sh",
+    "git status > ~/.bashrc",
+    "git status & rm x",
+    "git status <(rm x)",
+  ])("asks for %p even with git status always approved", async (command) => {
+    const { requests, presentation } = recordingPrompts();
+    await runShell(command, presentation, { autoApprovedCommands: ["git status"] });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("asks for an environment-prefixed command whose bare form is always approved", async () => {
+    const { requests, presentation } = recordingPrompts();
+    await runShell("PAGER=x git log", presentation, { autoApprovedCommands: ["git log"] });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("runs an always-approved plain command without asking", async () => {
+    const { requests, presentation } = recordingPrompts();
+    const outcome = await runShell("git status --short", presentation, {
+      autoApprovedCommands: ["git status"],
+    });
+    expect(requests).toHaveLength(0);
+    expect(outcome.success).toBe(true);
+  });
+
+  const parentAgent = {
+    id: "agent-1",
+    name: "test",
+    config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as const;
+  const conversation = [{ role: "user" as const, content: "just check the repo" }];
+
+  it("withholds conversation evidence from the classifier inside a sub-agent", async () => {
+    const received: Array<unknown> = [];
+    const { presentation } = recordingPrompts();
+    await runShell("git status", presentation, {
+      parentAgent,
+      subagentDepth: 1,
+      conversationMessages: conversation,
+      resolveCommandRisk: (_command, conversationMessages) => {
+        received.push(conversationMessages);
+        return Effect.succeed("high-risk");
+      },
+    });
+    expect(received).toEqual([undefined]);
+  });
+
+  it("gives the top-level classifier the conversation when a person can be prompted", async () => {
+    const received: Array<unknown> = [];
+    const { presentation } = recordingPrompts();
+    await runShell("git status", presentation, {
+      parentAgent,
+      subagentDepth: 0,
+      conversationMessages: conversation,
+      resolveCommandRisk: (_command, conversationMessages) => {
+        received.push(conversationMessages);
+        return Effect.succeed("high-risk");
+      },
+    });
+    expect(received).toEqual([conversation]);
   });
 });

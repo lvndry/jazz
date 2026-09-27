@@ -59,8 +59,8 @@ function formatMissedTime(scheduledAt: Date | undefined): string {
  */
 export function promptInteractiveCatchUp() {
   return Effect.gen(function* () {
-    // Skip in non-interactive environments
-    if (!process.stdout.isTTY) {
+    const terminal = yield* TerminalServiceTag;
+    if (!terminal.isInteractive) {
       return;
     }
 
@@ -72,7 +72,6 @@ export function promptInteractiveCatchUp() {
       return;
     }
 
-    const terminal = yield* TerminalServiceTag;
     const logger = yield* LoggerServiceTag;
 
     // Show notification about pending catch-ups

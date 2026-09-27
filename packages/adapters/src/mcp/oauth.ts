@@ -4,7 +4,11 @@
  */
 
 import { toError } from "@jazz/core/utils/errors";
-import { auth, discoverOAuthServerInfo } from "@modelcontextprotocol/client";
+import {
+  auth,
+  discoverOAuthServerInfo,
+  resourceUrlFromServerUrl,
+} from "@modelcontextprotocol/client";
 import type {
   OAuthClientProvider,
   OAuthClientInformation,
@@ -19,7 +23,11 @@ import {
   keyringDelete,
   keyringGet,
   keyringSet,
+  type KeyringBackend,
 } from "@/adapters/secrets/keyring";
+
+/** Which keyring backend to use. Defaults to detection; tests pass a fixed one. */
+type BackendResolver = () => Effect.Effect<KeyringBackend, never>;
 
 /** Client name advertised to authorization servers during dynamic registration. */
 const CLIENT_NAME = "Jazz";
@@ -58,9 +66,29 @@ const CALLBACK_PORTS = [33418, 33419, 33420, 33421] as const;
  */
 const CALLBACK_TIMEOUT_MS = 300_000;
 
-/** Keyring account names. Namespaced so a server called `tokens` cannot collide. */
-function tokensAccount(serverName: string): string {
-  return `mcp.oauth.${serverName}.tokens`;
+/**
+ * The resource a server's credentials are bound to: its URL without a fragment, as the SDK
+ * canonicalizes it for the OAuth `resource` parameter.
+ */
+function canonicalResource(serverUrl: string): string {
+  return resourceUrlFromServerUrl(serverUrl).href;
+}
+
+/**
+ * Keyring account prefix for one (server name, resource URL) pair.
+ *
+ * Tokens are bound to the URL they were issued for as well as the name, because a server name is
+ * only a label in an `mcp.json` somebody may have handed you: a definition that reuses the name
+ * `linear` with its own URL must find no token, rather than receive yours. The resource is
+ * URL-encoded so its dots and slashes cannot run into the fixed suffixes below.
+ */
+function serverAccount(serverName: string, serverUrl: string): string {
+  return `mcp.oauth.${serverName}.${encodeURIComponent(canonicalResource(serverUrl))}`;
+}
+
+/** Keyring account holding a server's tokens. */
+function tokensAccount(serverName: string, serverUrl: string): string {
+  return `${serverAccount(serverName, serverUrl)}.tokens`;
 }
 
 /**
@@ -69,11 +97,11 @@ function tokensAccount(serverName: string): string {
  * Keyed by the issuer as well as the server, because the spec requires
  * credentials to be bound to the authorization server that minted them: if a
  * server moves to a different authorization server, its old registration must
- * not be reused and the client must re-register. Keying by server name alone
+ * not be reused and the client must re-register. Keying by server alone
  * would silently present the wrong credentials.
  */
-function clientAccount(serverName: string, issuer: string): string {
-  return `mcp.oauth.${serverName}.client.${encodeURIComponent(issuer)}`;
+function clientAccount(serverName: string, serverUrl: string, issuer: string): string {
+  return `${serverAccount(serverName, serverUrl)}.client.${encodeURIComponent(issuer)}`;
 }
 
 /**
@@ -82,8 +110,8 @@ function clientAccount(serverName: string, issuer: string): string {
  * Recorded so credentials can be found and cleared later without re-running
  * discovery, and so a changed authorization server is detectable.
  */
-function issuerAccount(serverName: string): string {
-  return `mcp.oauth.${serverName}.issuer`;
+function issuerAccount(serverName: string, serverUrl: string): string {
+  return `${serverAccount(serverName, serverUrl)}.issuer`;
 }
 
 /** Resolve which authorization server backs an MCP server URL. */
@@ -124,15 +152,19 @@ function readJson<T>(raw: string | undefined): T | undefined {
  * on that path. It is memoised per storage instance and recorded in the keyring
  * so a later `clearServerAuth` can find the same entry.
  */
-function createStorage(serverName: string, serverUrl: string) {
+function createStorage(
+  serverName: string,
+  serverUrl: string,
+  resolveBackend: BackendResolver = detectKeyringBackend,
+) {
   let issuerPromise: Promise<string> | undefined;
 
   async function currentIssuer(): Promise<string> {
     if (!issuerPromise) {
       issuerPromise = (async () => {
-        const backend = await Effect.runPromise(detectKeyringBackend());
+        const backend = await Effect.runPromise(resolveBackend());
         const issuer = await resolveIssuer(serverUrl);
-        await Effect.runPromise(keyringSet(backend, issuerAccount(serverName), issuer));
+        await Effect.runPromise(keyringSet(backend, issuerAccount(serverName, serverUrl), issuer));
         return issuer;
       })();
     }
@@ -141,37 +173,43 @@ function createStorage(serverName: string, serverUrl: string) {
 
   return {
     async loadTokens(): Promise<OAuthTokens | undefined> {
-      const backend = await Effect.runPromise(detectKeyringBackend());
-      const raw = await Effect.runPromise(keyringGet(backend, tokensAccount(serverName)));
+      const backend = await Effect.runPromise(resolveBackend());
+      const raw = await Effect.runPromise(
+        keyringGet(backend, tokensAccount(serverName, serverUrl)),
+      );
       return readJson<OAuthTokens>(raw);
     },
     async saveTokens(tokens: OAuthTokens): Promise<void> {
-      const backend = await Effect.runPromise(detectKeyringBackend());
+      const backend = await Effect.runPromise(resolveBackend());
       await Effect.runPromise(
-        keyringSet(backend, tokensAccount(serverName), JSON.stringify(tokens)),
+        keyringSet(backend, tokensAccount(serverName, serverUrl), JSON.stringify(tokens)),
       );
     },
     async loadClient(): Promise<OAuthClientInformation | undefined> {
-      const backend = await Effect.runPromise(detectKeyringBackend());
+      const backend = await Effect.runPromise(resolveBackend());
       const issuer = await currentIssuer();
-      const raw = await Effect.runPromise(keyringGet(backend, clientAccount(serverName, issuer)));
+      const raw = await Effect.runPromise(
+        keyringGet(backend, clientAccount(serverName, serverUrl, issuer)),
+      );
       return readJson<OAuthClientInformation>(raw);
     },
     async saveClient(info: OAuthClientInformationFull): Promise<void> {
-      const backend = await Effect.runPromise(detectKeyringBackend());
+      const backend = await Effect.runPromise(resolveBackend());
       const issuer = await currentIssuer();
       await Effect.runPromise(
-        keyringSet(backend, clientAccount(serverName, issuer), JSON.stringify(info)),
+        keyringSet(backend, clientAccount(serverName, serverUrl, issuer), JSON.stringify(info)),
       );
     },
     async forget(scope: "all" | "client" | "tokens"): Promise<void> {
-      const backend = await Effect.runPromise(detectKeyringBackend());
+      const backend = await Effect.runPromise(resolveBackend());
       if (scope === "all" || scope === "tokens") {
-        await Effect.runPromise(keyringDelete(backend, tokensAccount(serverName)));
+        await Effect.runPromise(keyringDelete(backend, tokensAccount(serverName, serverUrl)));
       }
       if (scope === "all" || scope === "client") {
         const issuer = await currentIssuer();
-        await Effect.runPromise(keyringDelete(backend, clientAccount(serverName, issuer)));
+        await Effect.runPromise(
+          keyringDelete(backend, clientAccount(serverName, serverUrl, issuer)),
+        );
       }
     },
   };
@@ -202,8 +240,9 @@ function clientMetadata(redirectUrl: string): OAuthClientMetadata {
 export function createStoredTokenProvider(
   serverName: string,
   serverUrl: string,
+  resolveBackend: BackendResolver = detectKeyringBackend,
 ): OAuthClientProvider {
-  const storage = createStorage(serverName, serverUrl);
+  const storage = createStorage(serverName, serverUrl, resolveBackend);
   // Placeholder: only used to shape the registration request when a stored
   // client exists. A provider that reaches registration is already on its way
   // to `redirectToAuthorization`, which throws.
@@ -324,29 +363,37 @@ export function authorizeServer(
 }
 
 /**
- * Forget stored tokens and registration for one server.
+ * Forget stored tokens and registration for one server at one URL.
  *
  * The client entry is keyed by issuer, so the issuer recorded at registration
  * time is what locates it. Tokens are cleared regardless.
  */
-export function clearServerAuth(serverName: string): Effect.Effect<void, never> {
+export function clearServerAuth(
+  serverName: string,
+  serverUrl: string,
+  resolveBackend: BackendResolver = detectKeyringBackend,
+): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    const backend = yield* detectKeyringBackend();
-    yield* keyringDelete(backend, tokensAccount(serverName));
+    const backend = yield* resolveBackend();
+    yield* keyringDelete(backend, tokensAccount(serverName, serverUrl));
 
-    const issuer = yield* keyringGet(backend, issuerAccount(serverName));
+    const issuer = yield* keyringGet(backend, issuerAccount(serverName, serverUrl));
     if (issuer !== undefined) {
-      yield* keyringDelete(backend, clientAccount(serverName, issuer));
-      yield* keyringDelete(backend, issuerAccount(serverName));
+      yield* keyringDelete(backend, clientAccount(serverName, serverUrl, issuer));
+      yield* keyringDelete(backend, issuerAccount(serverName, serverUrl));
     }
   });
 }
 
-/** Whether stored tokens exist for a server (does not check expiry). */
-export function hasStoredAuth(serverName: string): Effect.Effect<boolean, never> {
+/** Whether stored tokens exist for a server at this URL (does not check expiry). */
+export function hasStoredAuth(
+  serverName: string,
+  serverUrl: string,
+  resolveBackend: BackendResolver = detectKeyringBackend,
+): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
-    const backend = yield* detectKeyringBackend();
-    const raw = yield* keyringGet(backend, tokensAccount(serverName));
+    const backend = yield* resolveBackend();
+    const raw = yield* keyringGet(backend, tokensAccount(serverName, serverUrl));
     return readJson<OAuthTokens>(raw) !== undefined;
   });
 }

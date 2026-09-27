@@ -3,8 +3,8 @@
 /** Rendered checks for a long skill catalog and its narrow detail view. */
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
+import { renderForTest } from "../test-helpers";
 import { SkillBrowser } from "./SkillBrowser";
 import { filterSkills, skillDetailRows } from "../../skill-browser";
 
@@ -25,7 +25,7 @@ describe("skill browser", () => {
 
   it("windows a long list inside a 32 by 10 terminal", async () => {
     const viewport = { width: 32, height: 10 };
-    const rendered = await testRender(
+    const rendered = await renderForTest(
       <SkillBrowser
         skills={skills}
         query=""
@@ -52,7 +52,7 @@ describe("skill browser", () => {
     const rows = skillDetailRows(skill, 32);
     expect(rows.map((row) => row.text).join(" ")).not.toContain("\x1b");
     const viewport = { width: 32, height: 10 };
-    const rendered = await testRender(
+    const rendered = await renderForTest(
       <SkillBrowser
         skills={skills}
         query=""
