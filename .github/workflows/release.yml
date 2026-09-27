@@ -155,8 +155,24 @@ jobs:
               tag_name: tag,
               name: tag,
               body: releaseBody,
-              draft: false,
+              // Release Binaries publishes it once every asset is attached, so the install
+              // URL (releases/latest/download/install.sh) never points at a release without them.
+              draft: true,
               prerelease: false
             });
 
-            console.log(`Release ${tag} created successfully.`);
+            console.log(`Draft release ${tag} created; Release Binaries publishes it.`);
+
+      # Release Binaries starts when this workflow completes (workflow_run) and reads the tag
+      # from this artifact.
+      - name: Record the tag for Release Binaries
+        env:
+          NEW_TAG: ${{ needs.tag.outputs.new_tag }}
+        run: printf '%s' "$NEW_TAG" > release-tag.txt
+
+      - name: Upload the tag
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-tag
+          path: release-tag.txt
+          retention-days: 7
