@@ -24,6 +24,17 @@ function options(overrides: Partial<JazzRunOptions> = {}): JazzRunOptions {
 }
 
 describe("the jazz run command line", () => {
+  test.each(["- buy milk", "--approval-policy=high-risk", "--agent=other"])(
+    "never lets chat text %p reach option parsing",
+    (prompt) => {
+      const args = buildJazzRunArgs(options({ prompt }));
+      expect(args).not.toContain(prompt);
+      expect(args.filter((arg) => arg === "--approval-policy")).toHaveLength(1);
+      expect(args.filter((arg) => arg === "--agent")).toHaveLength(1);
+      expect(stdinFrame(options({ prompt }))).toEqual({ prompt });
+    },
+  );
+
   test("carries no message text, so it cannot be read with ps or parsed as a flag", () => {
     const args = buildJazzRunArgs(options());
     expect(args.join(" ")).not.toContain("buy milk");
