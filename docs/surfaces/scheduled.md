@@ -144,6 +144,10 @@ tail -f ~/.jazz/logs/<name>.error.log    # stderr
 jazz workflow run <name> --auto-approve  # reproduce it by hand, same policy
 ```
 
+Log files rotate at 10 MB and are deleted 14 days after their last write, so a workflow that
+has not run for two weeks has no log left. See
+[sizes and retention](../runtime-data/index.md#sizes-and-retention).
+
 That last command is the one to reach for first. It runs the identical code path the scheduler
 uses, in your terminal, where you can see it.
 

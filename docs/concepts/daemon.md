@@ -4,7 +4,7 @@ description: "The daemon is what lets Jazz act with no terminal open: serving ru
 
 # Daemon: Jazz with no terminal attached
 
-`jazz chat` and `jazz run` are one process talking to one terminal. Some things have to happen
+A chat (`jazz`, or `jazz agent chat`) and `jazz run` are one process talking to one terminal. Some things have to happen
 when nobody is typing:
 
 - a scheduled workflow firing at 6 AM,
@@ -278,17 +278,58 @@ Scope who can reach the port, not just who holds the token. See
 
 `jazz daemon` backgrounds itself and writes a pidfile under `$JAZZ_HOME`; `jazz daemon stop`
 ends it. Use `--foreground` when something else, a supervisor or a container entrypoint, expects
-to own the process.
+to own the process. Starting a goal or a loop starts a background daemon for you when none is
+running.
+
+A background daemon is not supervised: after a reboot or a crash nothing starts it again, and
+accepted goals, loops, wake triggers, reminders and job batches wait until it does. `jazz goal
+start`, `jazz loop start` and the other commands that hand work to the daemon say so when no
+service is installed.
 
 Starting on boot and restarting on crash is the host's job. `jazz daemon install` wires it into
 the OS supervisor (`systemd` on Linux, `launchd` on macOS) instead of leaving that hand-written:
 
 ```bash
-sudo jazz daemon install --serve-peers my-agent
+sudo jazz daemon install                          # goals, loops, triggers, reminders, jobs
+sudo jazz daemon install --serve-peers my-agent   # the same, and answer peers with my-agent
 sudo jazz daemon uninstall
 ```
 
-Both need root, and `install` does not report success until `/health` actually answers.
+Both need root, and `install` does not report success until `/health` actually answers. The
+service runs as you, never as root, with `JAZZ_HOME` set to your `~/.jazz`. Its token lives in
+`/etc/jazz/daemon.env` (mode `0600`): root-owned under systemd, which reads it before switching
+to your account, and owned by you under launchd, whose wrapper shell reads it as you.
+
+### Is it working?
+
+```bash
+jazz daemon status          # running? pid, supervised, last tick, runs in flight, what waits, errors
+jazz daemon status --json   # the same as one JSON envelope; exits 1 when it is not running
+jazz daemon logs -n 100     # recent output
+jazz daemon logs -f         # follow it
+```
+
+A background daemon and the launchd service write their output to `$JAZZ_HOME/logs/daemon.log`,
+which rotates with the rest of the logs directory (see
+[sizes and retention](../runtime-data/index.md#sizes-and-retention)). Under systemd the service
+logs to the journal, and `jazz daemon logs` runs `journalctl -u jazz-daemon` for you. A failed
+tick is written to the daemon's output and to `jazz.log`, and the last ten are kept in the status
+that `jazz daemon status` shows.
+
+### What is waiting on it
+
+Agents schedule work for later on their own. These commands show it and let you stop it:
+
+```bash
+jazz reminders list [--agent <agent>] [--json]    # reminders set with remind_me
+jazz reminders cancel <id>
+jazz triggers list [--agent <agent>] [--json]     # wake-ups that resume a conversation
+jazz triggers cancel <id>
+jazz jobs list [--agent <agent>] [--json]         # background job batches
+jazz jobs cancel <id>
+```
+
+Cancelling removes the host scheduler's job too, the same as when the agent cancels it itself.
 
 ---
 

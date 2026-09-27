@@ -88,7 +88,10 @@ import {
   finalizeAgentRun,
   recordLLMUsage,
   recordToolDefinitionTokens,
+  recordSideSpend,
   recordToolResultTokens,
+  runSpendReport,
+  type RunCost,
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
@@ -702,18 +705,52 @@ function closeStoppedBatch(state: LoopState, options: LoopDeps["options"], reaso
 }
 
 /**
- * What is left of a run's own budgets right now. Duration counts from the run's start, so a
- * run already past its deadline has 0 left, never a negative figure.
+ * What is left of a run's own budgets right now, never below 0. Duration counts from the run's
+ * start. Cost is left out while the run's spend cannot be priced: handing a child a figure
+ * computed from a partial total would let it spend what the parent cannot account for, and
+ * the child's own cap still applies.
  */
 function remainingRunBudget(
-  runMetrics: LoopDeps["runMetrics"],
-  maxDurationMs: number | undefined,
+  deps: Pick<
+    LoopDeps,
+    "runMetrics" | "maxDurationMs" | "maxCostUSD" | "maxTokens" | "modelMetadata"
+  >,
 ): RemainingRunBudget {
-  if (maxDurationMs === undefined) {
-    return {};
+  const { runMetrics, maxDurationMs, maxCostUSD, maxTokens, modelMetadata } = deps;
+  const remaining: { maxDurationMs?: number; maxCostUSD?: number; maxTokens?: number } = {};
+  if (maxDurationMs !== undefined) {
+    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+    remaining.maxDurationMs = Math.max(0, maxDurationMs - elapsedMs);
   }
-  const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
-  return { maxDurationMs: Math.max(0, maxDurationMs - elapsedMs) };
+  if (maxCostUSD !== undefined) {
+    const spent = computeRunCost(runMetrics, modelMetadata);
+    if (!spent.costIncomplete) {
+      remaining.maxCostUSD = Math.max(0, maxCostUSD - (spent.costUSD ?? 0));
+    }
+  }
+  if (maxTokens !== undefined) {
+    const used = runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens;
+    remaining.maxTokens = Math.max(0, maxTokens - used);
+  }
+  return remaining;
+}
+
+/**
+ * Tell a top-level run's renderer what the run has spent so far. Nested runs stay quiet: their
+ * spend is already part of the parent's figure.
+ */
+function reportRunSpend(deps: LoopDeps): Effect.Effect<void> {
+  const renderer = deps.strategy.getRenderer();
+  if (deps.options.internal === true || renderer === null) {
+    return Effect.void;
+  }
+  const spend = runSpendReport(deps.runMetrics, deps.modelMetadata);
+  return renderer.handleEvent({
+    type: "run_spend",
+    ...(spend.costUSD !== undefined ? { costUSD: spend.costUSD } : {}),
+    costIncomplete: spend.costIncomplete,
+    totalTokens: spend.totalTokens,
+  });
 }
 
 /**
@@ -857,7 +894,8 @@ function handleToolPhase(
       recordChildCostUnknown: () => {
         runMetrics.childCostUnknown = true;
       },
-      remainingRunBudget: () => remainingRunBudget(runMetrics, deps.maxDurationMs),
+      recordSideSpend: (spend: RunCost) => recordSideSpend(runMetrics, spend),
+      remainingRunBudget: () => remainingRunBudget(deps),
       attachMedia: (attachment: MessageAttachment) => {
         if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
         pendingAttachments.push(attachment);
@@ -1646,6 +1684,7 @@ function runIteration(
         provider,
       });
     }
+    yield* reportRunSpend(deps);
 
     if (completion.toolDefinitionChars != null) {
       recordToolDefinitionTokens(
@@ -1692,6 +1731,7 @@ function runIteration(
         iterationIndex,
         deps,
       );
+      yield* reportRunSpend(deps);
       if (toolPhase === "interrupted") {
         return { kind: "interrupted" } as const;
       }
@@ -1967,7 +2007,7 @@ export function executeAgentLoop(
             const iteration = runIteration(state, i, deps).pipe(
               Effect.tapError((error) => reportFailedTurn(error, state, options)),
             );
-            const remainingMs = remainingRunBudget(runMetrics, maxDurationMs).maxDurationMs;
+            const remainingMs = remainingRunBudget(deps).maxDurationMs;
             // The deadline interrupts the iteration wherever it is (a model call, a tool
             // batch, a sub-agent), so `maxDurationMs` is a wall-clock limit rather than a
             // check that only runs once an iteration has finished.

@@ -21,6 +21,7 @@ import {
   type TurnConfig,
   type TurnRunner,
 } from "./turn";
+import { runSpendFromEvent, todayUsage, type RunSpend } from "./usage-store";
 
 /** A run the test drives by hand: nothing is spawned. */
 interface FakeRun {
@@ -62,6 +63,7 @@ describe("turn runner", () => {
   const makeFakeRun = (): FakeRun => {
     let settle: (envelope: JazzEnvelope) => void = () => {};
     let killed = false;
+    let lastSpend: RunSpend | undefined;
     const decisions: { toolCallId: string; approved: boolean }[] = [];
     const answers: { requestId: string; response: string }[] = [];
     const result = new Promise<JazzEnvelope>((resolve) => {
@@ -77,6 +79,7 @@ describe("turn runner", () => {
       run: {
         result,
         cancelled: () => killed,
+        lastSpend: () => lastSpend,
         approve: async (batch) => {
           decisions.push(...batch);
         },
@@ -91,6 +94,7 @@ describe("turn runner", () => {
       decisions,
       answers,
       emit: (event) => {
+        lastSpend = runSpendFromEvent(event) ?? lastSpend;
         handlers.onEvent?.(event);
         if (event.type === "approval_required") handlers.onApprovalRequired?.(event);
         if (event.type === "user_input_required") handlers.onUserInputRequired?.(event);
@@ -213,6 +217,38 @@ describe("turn runner", () => {
     expect(reasoningAt).toBeGreaterThanOrEqual(0);
     expect(answerAt).toBeGreaterThanOrEqual(0);
     expect(reasoningAt).toBeLessThan(answerAt);
+  });
+
+  test("a failed run that reached the model is counted against the day", async () => {
+    const { turn } = await startTurn();
+    current?.finish({
+      ok: false,
+      error: "Run exceeded the 1000ms timeout.",
+      costUSD: 0.03,
+      costKnown: true,
+      tokenUsage: { totalTokens: 1_200 },
+    });
+    await turn;
+
+    expect(await todayUsage(dataDir, "test")).toMatchObject({
+      costUSD: 0.03,
+      tokens: 1_200,
+      runs: 1,
+    });
+  });
+
+  test("a cancelled run with no envelope is counted from its last spend event", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "run_spend", costUSD: 0.02, costIncomplete: false, totalTokens: 800 });
+    await Bun.sleep(5);
+    expect(runner.cancel("c1", undefined)).toBe("cancelled");
+    await turn;
+
+    expect(await todayUsage(dataDir, "test")).toMatchObject({
+      costUSD: 0.02,
+      tokens: 800,
+      runs: 1,
+    });
   });
 
   test("the shared runner appends outcome notices to the answer", async () => {

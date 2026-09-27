@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
@@ -8,12 +9,15 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
+  archiveLegacyHistory,
   saveConversation,
   loadConversation,
   loadHistory,
+  setConversationRetentionLimit,
   type Conversation,
+  type ConversationsInUse,
 } from "./conversation-history-service";
-import { conversationLogPath } from "./conversation-log";
+import { archivedConversationLogPath, conversationLogPath } from "./conversation-log";
 import { search } from "./conversation-search";
 
 let tmpDir: string;
@@ -70,7 +74,7 @@ describe("saveConversation", () => {
     expect(history.conversations[0]?.messageCount).toBe(3);
   });
 
-  test("evicts the oldest conversation, and its log with it", async () => {
+  test("archives the oldest conversation instead of deleting it", async () => {
     for (let index = 0; index <= MAX_CONVERSATION_HISTORY_PER_AGENT; index++) {
       await runEffect(
         saveConversation(makeConversation({ conversationId: `conv-${String(index)}` }), tmpDir),
@@ -85,6 +89,10 @@ describe("saveConversation", () => {
     const history = await runEffect(loadHistory("agent-1", tmpDir));
     expect(history.conversations).toHaveLength(MAX_CONVERSATION_HISTORY_PER_AGENT);
     expect(fs.existsSync(conversationLogPath("agent-1", "conv-0", tmpDir))).toBe(false);
+    const archived = gunzipSync(
+      fs.readFileSync(archivedConversationLogPath("agent-1", "conv-0", tmpDir)),
+    ).toString("utf-8");
+    expect(archived).toContain('"conversationId":"conv-0"');
   });
 
   test("keeps one agent's conversations out of another's", async () => {
@@ -93,6 +101,73 @@ describe("saveConversation", () => {
 
     expect((await runEffect(loadHistory("agent-1", tmpDir))).conversations).toHaveLength(1);
     expect((await runEffect(loadHistory("agent-2", tmpDir))).conversations).toHaveLength(1);
+  });
+});
+
+describe("conversation retention", () => {
+  const RETENTION_LIMIT = 3;
+  const nothingInUse: ConversationsInUse = () => Effect.succeed(new Set<string>());
+
+  beforeEach(() => {
+    setConversationRetentionLimit(RETENTION_LIMIT);
+  });
+
+  afterEach(() => {
+    setConversationRetentionLimit(undefined);
+  });
+
+  async function saveInOrder(count: number, conversationsInUse: ConversationsInUse) {
+    for (let index = 0; index < count; index++) {
+      const conversationId = `conv-${String(index)}`;
+      await runEffect(
+        saveConversation(makeConversation({ conversationId }), tmpDir, { conversationsInUse }),
+      );
+      const when = 1_700_000_000 + index;
+      fs.utimesSync(conversationLogPath("agent-1", conversationId, tmpDir), when, when);
+    }
+  }
+
+  test("keeps the configured number of conversations", async () => {
+    await saveInOrder(5, nothingInUse);
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations.map((conversation) => conversation.conversationId)).toEqual([
+      "conv-4",
+      "conv-3",
+      "conv-2",
+    ]);
+  });
+
+  test("never archives a conversation a goal, loop or run names", async () => {
+    const goalConversation: ConversationsInUse = () => Effect.succeed(new Set(["conv-0"]));
+    await saveInOrder(5, goalConversation);
+    expect(fs.existsSync(conversationLogPath("agent-1", "conv-0", tmpDir))).toBe(true);
+    expect(fs.existsSync(conversationLogPath("agent-1", "conv-1", tmpDir))).toBe(false);
+    expect(fs.existsSync(archivedConversationLogPath("agent-1", "conv-1", tmpDir))).toBe(true);
+  });
+
+  test("archives nothing when the goal, loop and run records cannot be read", async () => {
+    const unreadable: ConversationsInUse = () => Effect.fail(new Error("goals unreadable"));
+    await saveInOrder(5, unreadable);
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations).toHaveLength(5);
+  });
+
+  test("moves files from the pre-directory history format into the archive once", async () => {
+    const legacyIndex = path.join(tmpDir, "agent-1.json");
+    const legacySessions = path.join(tmpDir, "sessions");
+    fs.writeFileSync(legacyIndex, '{"agentId":"agent-1","conversations":[]}');
+    fs.mkdirSync(legacySessions);
+    fs.writeFileSync(path.join(legacySessions, "agent-1~conv-1.jsonl"), "{}\n");
+
+    const moved = await runEffect(archiveLegacyHistory(tmpDir));
+
+    expect(moved).toHaveLength(2);
+    expect(fs.existsSync(legacyIndex)).toBe(false);
+    expect(fs.existsSync(legacySessions)).toBe(false);
+    const legacyArchive = path.join(tmpDir, "archive", "legacy");
+    expect(fs.readFileSync(path.join(legacyArchive, "agent-1.json"), "utf-8")).toContain("agent-1");
+    expect(fs.existsSync(path.join(legacyArchive, "sessions", "agent-1~conv-1.jsonl"))).toBe(true);
+    expect(await runEffect(archiveLegacyHistory(tmpDir))).toEqual([]);
   });
 });
 

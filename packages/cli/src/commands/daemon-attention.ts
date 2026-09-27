@@ -10,17 +10,11 @@ import { daemonStatusSnapshot, pauseDaemon, resumeDaemon } from "@jazz/adapters/
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import type { WaitingItem } from "@jazz/core/daemon/attention";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
-import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { Effect } from "effect";
-import { probeDaemonOwner } from "@/cli/helpers/daemon-process";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
-
-/** How long `status` waits for a daemon to answer `/health` before calling it not running. */
-const STATUS_PROBE_MS = 1_000;
 
 const stores = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -47,30 +41,30 @@ function describeItem(item: WaitingItem): string {
   ].join("\n");
 }
 
-export function daemonStatusCommand(options: { readonly json: boolean }) {
-  return Effect.gen(function* () {
-    const status = yield* daemonStatusSnapshot();
-    const owner = yield* Effect.promise(() =>
-      probeDaemonOwner(DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT, STATUS_PROBE_MS),
-    );
-    const running = owner === getJazzInstanceId();
-    const { spendToday, dailyCaps } = status;
-    const cost =
-      spendToday.costUSD !== undefined
-        ? `$${spendToday.costUSD.toFixed(2)}${dailyCaps.costUSD !== undefined ? ` of $${dailyCaps.costUSD.toFixed(2)}` : ""}`
-        : "cost unknown";
-    const tokens = `${formatCompactCount(spendToday.totalTokens)}${dailyCaps.tokens !== undefined ? ` of ${formatCompactCount(dailyCaps.tokens)}` : ""} tokens`;
-    const lines = [
-      `Daemon: ${running ? `running on ${DEFAULT_DAEMON_HOST}:${String(DEFAULT_DAEMON_PORT)}` : owner !== undefined ? `port ${String(DEFAULT_DAEMON_PORT)} is serving another Jazz home` : "not running (jazz daemon starts it)"}`,
-      `Background work: ${status.pauseReason ?? "running"}`,
-      `Today: ${String(spendToday.runs)} unattended ${spendToday.runs === 1 ? "run" : "runs"} · ${tokens} · ${cost}`,
-      "",
-      status.waiting.length === 0
-        ? "Nothing is waiting for you."
-        : `Waiting for you (${String(status.waiting.length)}):\n${status.waiting.map(describeItem).join("\n")}`,
-    ];
-    emitEnvelope(options.json, { ok: true, running, ...status }, lines.join("\n"));
-  }).pipe(stores);
+/** Read pause, spend and waiting state with its file-backed stores. */
+export function readDaemonAttention() {
+  return daemonStatusSnapshot().pipe(stores);
+}
+
+/** Human-readable pause, spend and waiting state for the combined daemon status. */
+export function formatDaemonAttention(
+  status: Effect.Effect.Success<ReturnType<typeof daemonStatusSnapshot>>,
+): string {
+  const { spendToday, dailyCaps } = status;
+  const cost =
+    spendToday.costUSD !== undefined
+      ? `$${spendToday.costUSD.toFixed(2)}${dailyCaps.costUSD !== undefined ? ` of $${dailyCaps.costUSD.toFixed(2)}` : ""}`
+      : "cost unknown";
+  const tokens = `${formatCompactCount(spendToday.totalTokens)}${dailyCaps.tokens !== undefined ? ` of ${formatCompactCount(dailyCaps.tokens)}` : ""} tokens`;
+  const lines = [
+    `Background work: ${status.pauseReason ?? "running"}`,
+    `Today: ${String(spendToday.runs)} unattended ${spendToday.runs === 1 ? "run" : "runs"} · ${tokens} · ${cost}`,
+    "",
+    status.waiting.length === 0
+      ? "Nothing is waiting for you."
+      : `Waiting for you (${String(status.waiting.length)}):\n${status.waiting.map(describeItem).join("\n")}`,
+  ];
+  return lines.join("\n");
 }
 
 export function pauseDaemonCommand(options: { readonly json: boolean }) {

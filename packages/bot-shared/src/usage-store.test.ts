@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { readSpend } from "@jazz/core/spend/ledger";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
+import {
+  dailyCostCapBlockReason,
+  recordRunUsage,
+  recordUsage,
+  runSpend,
+  todayUsage,
+} from "./usage-store";
 
 const directories: string[] = [];
 
@@ -77,5 +83,22 @@ describe("bridge usage in the spend ledger", () => {
 
     expect(dailyCostCapBlockReason(usage, 0.5)).toBe("reached");
     expect(dailyCostCapBlockReason(usage, 0.51)).toBeUndefined();
+  });
+});
+
+describe("failed run spend", () => {
+  it("uses the last event when a signal envelope lacks spend, preserving unknown pricing in the ledger", async () => {
+    const jazzHome = temporaryJazzHome();
+    const spend = runSpend(
+      { ok: false, costUSD: 0 },
+      { costUSD: 0.25, costKnown: false, totalTokens: 800 },
+    );
+    await recordRunUsage(jazzHome, "telegram", "tg_1", spend);
+    const day = await todayUsage(jazzHome, "telegram");
+    expect(day).toMatchObject({ costUSD: 0.25, tokens: 800, runs: 1, unpricedRuns: 1 });
+    expect(dailyCostCapBlockReason(day, 1)).toBe("unpriced");
+    const machine = await Effect.runPromise(readSpend(Date.now(), jazzHome));
+    expect(machine.today.total.costUSD).toBe(0.25);
+    expect(machine.today.bySource.bot?.runs).toBe(1);
   });
 });

@@ -69,6 +69,7 @@ describe("claimed workflow execution", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  /** The runner spy has no service requirements; the layer supplies the workflow services. */
   async function execute(workflow: WorkflowMetadata = baseWorkflow) {
     const record = await Effect.runPromise(
       addRunRecord({
@@ -100,9 +101,10 @@ describe("claimed workflow execution", () => {
         workflowName: workflow.name,
         label: "weekly",
         schedule: "0 6 * * 1",
+        enabled: true,
         agent: agent.id,
       },
-    }).pipe(Effect.provide(services)) as Effect.Effect<void, Error>;
+    }).pipe(Effect.provide(services)) as unknown as Effect.Effect<void>;
     await Effect.runPromise(execution);
     return (await Effect.runPromise(loadRunHistory())).find((entry) => entry.id === record.id);
   }

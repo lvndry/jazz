@@ -9,14 +9,23 @@
  * - the `JobQueueService` methods (`enqueueBatch`, `getBatch`, `listActiveBatches`,
  *   `cancelBatch`), called from tools inside a live agent run
  * - free functions used only by the daemon's worker loop (`claimDueJobs`, `completeJob`,
- *   `reclaimExpiredLeases`, `listAgentIdsWithActiveBatches`) — these never run inside a tool
- *   call, so they aren't part of the service interface
+ *   `reclaimExpiredLeases`, `listAgentIdsWithActiveBatches`, `archiveBatch`,
+ *   `archiveCompletedBatches`). These never run inside a tool call, so they aren't part of
+ *   the service interface
+ *
+ * Only active batches stay in `<agentId>/`. Once a batch's fan-in delivery is acknowledged, the
+ * worker moves it to `.archive/<agentId>/`, where `getBatch` still finds it for
+ * `ARCHIVED_BATCH_RETENTION_MS` before it is deleted. That keeps the daemon's 5-second tick,
+ * which reads every batch file in the active directories, proportional to the work in
+ * flight rather than to every batch ever run.
  */
 
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import {
+  ARCHIVED_BATCH_RETENTION_MS,
+  COMPLETED_BATCH_ARCHIVE_GRACE_MS,
   DEFAULT_BACKOFF_INITIAL_MS,
   DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_CONCURRENCY_CAP,
@@ -61,7 +70,7 @@ import {
   requireValidStorageKey,
   withLock,
 } from "@jazz/core/utils/storage";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/daemon/runs-in-flight";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
@@ -97,6 +106,17 @@ function agentDirectory(baseDirectory: string, agentId: string): string {
 
 function batchFilePath(baseDirectory: string, agentId: string, batchId: string): string {
   return path.join(agentDirectory(baseDirectory, agentId), `${batchId}.json`);
+}
+
+/** Settled batches live apart from active ones. The leading dot keeps it out of agent ids. */
+const ARCHIVE_DIRECTORY_NAME = ".archive";
+
+function archivedAgentDirectory(baseDirectory: string, agentId: string): string {
+  return path.join(baseDirectory, ARCHIVE_DIRECTORY_NAME, agentId);
+}
+
+function archivedBatchFilePath(baseDirectory: string, agentId: string, batchId: string): string {
+  return path.join(archivedAgentDirectory(baseDirectory, agentId), `${batchId}.json`);
 }
 
 function batchLockPath(baseDirectory: string, agentId: string, batchId: string): string {
@@ -321,12 +341,19 @@ export class JobQueueServiceImpl implements JobQueueService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       yield* requireValidStorageKey(batchId, "batch id", JobQueueGuardrailViolation);
-      const batch = yield* readStateFile(
+      const active = yield* readStateFile(
         batchFilePath(baseJobBatchDirectory, agentId, batchId),
         JOB_BATCH_FILE_KIND,
         { onCorrupt: "fail" },
       );
-      return batch ?? null;
+      if (active !== undefined) return active;
+      return (
+        (yield* readStateFile(
+          archivedBatchFilePath(baseJobBatchDirectory, agentId, batchId),
+          JOB_BATCH_FILE_KIND,
+          { onCorrupt: "fail" },
+        )) ?? null
+      );
     });
   };
 
@@ -927,5 +954,111 @@ export function reclaimExpiredLeases(
     }
 
     return newlyCompleted;
+  });
+}
+
+/**
+ * Moves a batch whose fan-in resume has fired out of the active directory into the archive,
+ * then deletes archived batches for the same agent older than `ARCHIVED_BATCH_RETENTION_MS`.
+ * A batch whose fan-in has not been delivered stays where it is.
+ */
+export function archiveBatch(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  batchId: string,
+  now: number = Date.now(),
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const archived = yield* withLock(
+      batchLockPath(baseJobBatchDirectory, agentId, batchId),
+      Effect.gen(function* () {
+        const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+        const batch = yield* readBatchFile(filePath);
+        if (batch === null || batch.deliveredAt === null) {
+          return false;
+        }
+        yield* fs
+          .makeDirectory(archivedAgentDirectory(baseJobBatchDirectory, agentId), {
+            recursive: true,
+            mode: stateDirectoryMode(),
+          })
+          .pipe(Effect.mapError(toError));
+        const archivePath = archivedBatchFilePath(baseJobBatchDirectory, agentId, batchId);
+        yield* fs.rename(filePath, archivePath).pipe(Effect.mapError(toError));
+        const archivedAt = new Date(now);
+        yield* fs.utimes(archivePath, archivedAt, archivedAt).pipe(Effect.mapError(toError));
+        return true;
+      }),
+    );
+    yield* pruneArchivedBatches(baseJobBatchDirectory, agentId, now);
+    return archived;
+  });
+}
+
+function pruneArchivedBatches(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  now: number,
+): Effect.Effect<void, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = archivedAgentDirectory(baseJobBatchDirectory, agentId);
+    const names = yield* fs.readDirectory(directory);
+    for (const name of names) {
+      const filePath = path.join(directory, name);
+      const info = yield* fs.stat(filePath);
+      const modifiedAt = Option.match(info.mtime, {
+        onNone: () => now,
+        onSome: (date) => date.getTime(),
+      });
+      if (now - modifiedAt > ARCHIVED_BATCH_RETENTION_MS) {
+        yield* fs.remove(filePath);
+      }
+    }
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/**
+ * Archives every batch delivered more than `COMPLETED_BATCH_ARCHIVE_GRACE_MS` ago that is
+ * still in an active directory: one whose worker was interrupted after delivery but before it archived the
+ * batch, or one completed before batches were archived at all. Returns how many it moved.
+ */
+export function archiveCompletedBatches(
+  baseJobBatchDirectory: string,
+  now: number = Date.now(),
+): Effect.Effect<number, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const agentIds = yield* listAgentIdsWithActiveBatches(baseJobBatchDirectory);
+    let archivedCount = 0;
+    for (const agentId of agentIds) {
+      const names = yield* fs
+        .readDirectory(agentDirectory(baseJobBatchDirectory, agentId))
+        .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      for (const name of names) {
+        if (!name.endsWith(".json")) {
+          continue;
+        }
+        const batchId = name.slice(0, -".json".length);
+        const batch = yield* readBatchFile(
+          batchFilePath(baseJobBatchDirectory, agentId, batchId),
+        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        if (
+          batch === null ||
+          batch.deliveredAt === null ||
+          now - batch.deliveredAt <= COMPLETED_BATCH_ARCHIVE_GRACE_MS
+        ) {
+          continue;
+        }
+        const archived = yield* archiveBatch(baseJobBatchDirectory, agentId, batchId, now).pipe(
+          Effect.catchAll(() => Effect.succeed(false)),
+        );
+        if (archived) {
+          archivedCount++;
+        }
+      }
+    }
+    return archivedCount;
   });
 }

@@ -21,6 +21,7 @@
  */
 import { Cause, Duration, Effect } from "effect";
 import { selectSummarizerModel } from "@/core/agent/context/summarizer";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { TokenUsage } from "@/core/interfaces/telemetry";
@@ -32,8 +33,10 @@ import { parseShellCommandLine, type ShellRedirection } from "@/core/utils/shell
 import {
   emitLLMUsage,
   recordClassifierUsage,
+  recordSideSpend,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
+import { priceModelCall } from "../run/run-spend";
 
 const CLASSIFIER_TIMEOUT = Duration.seconds(8);
 const CLASSIFIER_MAX_TOKENS = 16;
@@ -370,6 +373,14 @@ export function classifyCommandRisk(
         provider: modelConfig.provider,
         model: modelConfig.model,
       });
+      const spend = yield* priceModelCall(modelConfig.provider, modelConfig.model, usage);
+      recordSideSpend(runMetrics, {
+        costUSD: spend.costUSD,
+        costIncomplete: !spend.costKnown,
+      });
+    } else if (runMetrics && !isZeroCostLocalModel(modelConfig.provider, modelConfig.model)) {
+      // A classifier call that failed or reported no usage may still have been billed.
+      recordSideSpend(runMetrics, { costUSD: undefined, costIncomplete: true });
     }
 
     const riskLevel = parseClassifierVerdict(response.content);

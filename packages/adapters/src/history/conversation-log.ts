@@ -23,15 +23,29 @@
  * - **Only what was said.** System prompts are not recorded. They are rebuilt from the
  *   persona, tools and skills on every run, so a stored copy is stale the moment it lands,
  *   and the one reader that ever saw them filtered them straight back out.
+ *
+ * The UI scrollback follows the same rule as messages. A save appends a `ui-append` event
+ * with the entries added since the last save, and writes a full `ui-transcript` snapshot only
+ * when the scrollback no longer extends what the log holds (after `/clear`, or when a resumed
+ * session re-renders it). Snapshots supersede everything before them, so the first save of a
+ * process that finds superseded UI events rewrites the log once without them.
+ *
+ * A save needs to know what the log already holds. The process that last wrote a log caches
+ * that, keyed by the file's size, modification time and inode, so a chat that saves every
+ * turn reads its log once rather than once per turn. Any other writer changes the key, and
+ * the next save reads the file again.
  */
 import { createHash } from "node:crypto";
+import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
 import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 
@@ -47,12 +61,20 @@ export const CONVERSATION_LOG_VERSION = 2;
 
 const CONVERSATIONS_DIRECTORY_NAME = "conversations";
 const CONVERSATION_LOG_EXTENSION = ".jsonl";
+const ARCHIVE_DIRECTORY_NAME = "archive";
+const ARCHIVED_LOG_EXTENSION = ".jsonl.gz";
 
 /** Characters of a message compared when checking whether a log still matches a transcript. */
 const MESSAGE_FINGERPRINT_CHARS = 12;
 
 /** Characters of the first user message used when a conversation was never given a title. */
 const DERIVED_TITLE_CHARS = 48;
+
+/** Bytes read at a time while looking for the end of a log's header line. */
+const HEADER_READ_CHUNK_BYTES = 4096;
+
+/** Logs whose append state one process keeps; a chat touches one, a daemon a handful. */
+const MAX_CACHED_APPEND_STATES = 64;
 
 function fingerprint(value: string, chars: number): string {
   return createHash("sha1").update(value).digest("hex").slice(0, chars);
@@ -77,6 +99,25 @@ export function conversationLogPath(
   return path.join(
     agentConversationsDirectory(agentId, historyDirectory),
     `${storageSafeSegment(conversationId)}${CONVERSATION_LOG_EXTENSION}`,
+  );
+}
+
+/** Directory under the history directory where archived conversations and legacy files go. */
+export function getHistoryArchiveDirectory(historyDirectory?: string): string {
+  return path.join(historyDirectory ?? getHistoryDirectory(), ARCHIVE_DIRECTORY_NAME);
+}
+
+/** Where one conversation's log is kept, gzip-compressed, once it is archived. */
+export function archivedConversationLogPath(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): string {
+  return path.join(
+    getHistoryArchiveDirectory(historyDirectory),
+    CONVERSATIONS_DIRECTORY_NAME,
+    storageSafeSegment(agentId),
+    `${storageSafeSegment(conversationId)}${ARCHIVED_LOG_EXTENSION}`,
   );
 }
 
@@ -117,9 +158,19 @@ export interface ConversationLogRewrite {
   readonly at: string;
 }
 
-/** UI-only scrollback, deliberately separate from model-facing messages. */
+/**
+ * A full snapshot of the UI-only scrollback, deliberately separate from model-facing messages.
+ * Readers replace whatever scrollback they had accumulated.
+ */
 export interface ConversationLogUiTranscript {
   readonly type: "ui-transcript";
+  readonly at: string;
+  readonly entries: readonly ConversationUiEntry[];
+}
+
+/** Scrollback entries added since the previous save. Readers append them. */
+export interface ConversationLogUiAppend {
+  readonly type: "ui-append";
   readonly at: string;
   readonly entries: readonly ConversationUiEntry[];
 }
@@ -129,7 +180,8 @@ export type ConversationLogEvent =
   | ConversationLogMessage
   | ConversationLogMeta
   | ConversationLogRewrite
-  | ConversationLogUiTranscript;
+  | ConversationLogUiTranscript
+  | ConversationLogUiAppend;
 
 export interface ConversationUiEntry {
   readonly type: TerminalOutputKind;
@@ -238,7 +290,8 @@ export function parseConversationLogLine(line: string): ConversationLogEvent | n
     }
     case "rewrite":
       return { type: "rewrite", at };
-    case "ui-transcript": {
+    case "ui-transcript":
+    case "ui-append": {
       const entries = parsed["entries"];
       if (!Array.isArray(entries)) return null;
       const accepted = entries.flatMap((entry): ConversationUiEntry[] => {
@@ -247,7 +300,7 @@ export function parseConversationLogLine(line: string): ConversationLogEvent | n
         if (!isTerminalOutputKind(type)) return [];
         return [{ type, message: entry["message"] }];
       });
-      return { type: "ui-transcript", at, entries: accepted };
+      return { type: parsed["type"], at, entries: accepted };
     }
     default:
       return null;
@@ -299,6 +352,9 @@ export function reduceConversationLog(
       case "ui-transcript":
         uiTranscript = [...event.entries];
         break;
+      case "ui-append":
+        uiTranscript.push(...event.entries);
+        break;
     }
   }
 
@@ -330,6 +386,38 @@ function readLogContent(
   logPath: string,
 ): Effect.Effect<string | null, never> {
   return fs.readFileString(logPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+}
+
+/**
+ * The first line of a file, read in small chunks so listing a directory of long logs costs
+ * their headers rather than their whole bodies. Null when the file cannot be read.
+ */
+async function readFirstLine(filePath: string): Promise<string | null> {
+  let handle: nodeFs.FileHandle | undefined;
+  try {
+    handle = await nodeFs.open(filePath, "r");
+    const chunks: Buffer[] = [];
+    let position = 0;
+    while (true) {
+      const chunk = Buffer.alloc(HEADER_READ_CHUNK_BYTES);
+      const { bytesRead } = await handle.read(chunk, 0, HEADER_READ_CHUNK_BYTES, position);
+      if (bytesRead === 0) {
+        return Buffer.concat(chunks).toString("utf-8");
+      }
+      const read = chunk.subarray(0, bytesRead);
+      const newline = read.indexOf(0x0a);
+      if (newline !== -1) {
+        chunks.push(read.subarray(0, newline));
+        return Buffer.concat(chunks).toString("utf-8");
+      }
+      chunks.push(read);
+      position += bytesRead;
+    }
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -401,9 +489,9 @@ export function listConversationLogs(
       const info = yield* fs.stat(filePath).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info || info.type !== "File") continue;
 
-      const content = yield* readLogContent(fs, filePath);
-      if (content === null) continue;
-      const header = parseConversationLogLine(content.split("\n", 1)[0] ?? "");
+      const headerLine = yield* Effect.promise(() => readFirstLine(filePath));
+      if (headerLine === null) continue;
+      const header = parseConversationLogLine(headerLine);
       if (header?.type !== "conversation") continue;
 
       infos.push({
@@ -418,6 +506,20 @@ export function listConversationLogs(
     }
 
     return infos.sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+  });
+}
+
+/** How many conversation logs an agent has, from the directory listing alone. */
+export function countConversationLogs(
+  agentId: string,
+  historyDirectory?: string,
+): Effect.Effect<number, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const names = yield* fs
+      .readDirectory(agentConversationsDirectory(agentId, historyDirectory))
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    return names.filter((name) => name.endsWith(CONVERSATION_LOG_EXTENSION)).length;
   });
 }
 
@@ -452,7 +554,44 @@ export function deleteConversationLog(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    appendStateCache.delete(logPath);
     yield* fs.remove(logPath).pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
+/**
+ * Moves one conversation's log out of the live history into the archive, gzip-compressed.
+ * The compressed copy is written atomically before the live log is removed, so a crash
+ * leaves the conversation in one place or both, never neither. Returns the archive path, or
+ * null when there was no log to archive.
+ */
+export function archiveConversationLog(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<string | null, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    const content = yield* fs.readFile(logPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    if (content === null) {
+      return null;
+    }
+    const archivePath = archivedConversationLogPath(agentId, conversationId, historyDirectory);
+    const temporaryPath = `${archivePath}.${process.pid}.tmp`;
+    yield* fs
+      .makeDirectory(path.dirname(archivePath), { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.mapError(toError));
+    yield* fs
+      .writeFile(temporaryPath, gzipSync(content), { mode: stateFileMode() })
+      .pipe(Effect.mapError(toError));
+    yield* fs.rename(temporaryPath, archivePath).pipe(
+      Effect.tapError(() => fs.remove(temporaryPath).pipe(Effect.catchAll(() => Effect.void))),
+      Effect.mapError(toError),
+    );
+    appendStateCache.delete(logPath);
+    yield* fs.remove(logPath).pipe(Effect.mapError(toError));
+    return archivePath;
   });
 }
 
@@ -461,6 +600,8 @@ interface AppendState {
   readonly lastMessageFingerprint: string;
   readonly title: string;
   readonly endedAt: string | null;
+  readonly uiEntryCount: number;
+  readonly lastUiEntryFingerprint: string;
 }
 
 function messageFingerprint(message: ChatMessage): string {
@@ -472,8 +613,75 @@ function fingerprintAt(messages: readonly ChatMessage[], index: number): string 
   return message ? messageFingerprint(message) : "";
 }
 
+function uiEntryFingerprintAt(entries: readonly ConversationUiEntry[], index: number): string {
+  const entry = entries[index];
+  return entry
+    ? `${entry.type}:${entry.message.length}:${fingerprint(entry.message, MESSAGE_FINGERPRINT_CHARS)}`
+    : "";
+}
+
 function serializeEvent(event: ConversationLogEvent): string {
   return `${JSON.stringify(event)}\n`;
+}
+
+function isUiEvent(event: ConversationLogEvent | null): boolean {
+  return event?.type === "ui-transcript" || event?.type === "ui-append";
+}
+
+/** What identifies one version of a log file on disk, so a cached append state can be trusted. */
+interface LogFileIdentity {
+  readonly size: number;
+  readonly modifiedAtMs: number;
+  readonly inode: number;
+}
+
+function sameIdentity(left: LogFileIdentity, right: LogFileIdentity): boolean {
+  return (
+    left.size === right.size &&
+    left.modifiedAtMs === right.modifiedAtMs &&
+    left.inode === right.inode
+  );
+}
+
+interface CachedAppendState {
+  readonly identity: LogFileIdentity;
+  readonly state: AppendState;
+}
+
+/**
+ * Append state for logs this process wrote last, in least-recently-saved order. See the file
+ * header for why it is safe: an entry is used only while the file on disk is byte-for-byte
+ * the one this process left behind.
+ */
+const appendStateCache = new Map<string, CachedAppendState>();
+
+function rememberAppendState(logPath: string, cached: CachedAppendState): void {
+  appendStateCache.delete(logPath);
+  appendStateCache.set(logPath, cached);
+  while (appendStateCache.size > MAX_CACHED_APPEND_STATES) {
+    const oldest = appendStateCache.keys().next();
+    if (oldest.done === true) {
+      break;
+    }
+    appendStateCache.delete(oldest.value);
+  }
+}
+
+function statLogFile(
+  fs: FileSystem.FileSystem,
+  logPath: string,
+): Effect.Effect<LogFileIdentity | null, never> {
+  return fs.stat(logPath).pipe(
+    Effect.map((info): LogFileIdentity => ({
+      size: Number(info.size),
+      modifiedAtMs: Option.match(info.mtime, {
+        onNone: () => 0,
+        onSome: (date) => date.getTime(),
+      }),
+      inode: Option.getOrElse(info.ino, () => 0),
+    })),
+    Effect.catchAll(() => Effect.succeed(null)),
+  );
 }
 
 interface LoadedAppendState {
@@ -482,34 +690,73 @@ interface LoadedAppendState {
   readonly needsLeadingNewline: boolean;
 }
 
+/**
+ * The log with every UI event that a later snapshot supersedes removed, or null when there is
+ * nothing to remove. Other lines, unreadable ones included, are kept byte for byte.
+ */
+export function collapseSupersededUiEvents(content: string): string | null {
+  const lines = content.split("\n");
+  const events = lines.map(parseConversationLogLine);
+  let lastSnapshot = -1;
+  events.forEach((event, index) => {
+    if (event?.type === "ui-transcript") {
+      lastSnapshot = index;
+    }
+  });
+  const supersededCount = events.filter(
+    (event, index) => index < lastSnapshot && isUiEvent(event),
+  ).length;
+  if (supersededCount === 0) {
+    return null;
+  }
+  return lines
+    .filter((_line, index) => index >= lastSnapshot || !isUiEvent(events[index] ?? null))
+    .join("\n");
+}
+
+function appendStateFromContent(content: string): AppendState | null {
+  const conversation = reduceConversationLog(parseConversationLog(content));
+  if (!conversation) return null;
+  const uiTranscript = conversation.uiTranscript ?? [];
+  return {
+    messageCount: conversation.messages.length,
+    lastMessageFingerprint: fingerprintAt(conversation.messages, conversation.messages.length - 1),
+    title: conversation.title,
+    endedAt: conversation.endedAt,
+    uiEntryCount: uiTranscript.length,
+    lastUiEntryFingerprint: uiEntryFingerprintAt(uiTranscript, uiTranscript.length - 1),
+  };
+}
+
 function loadAppendState(
   fs: FileSystem.FileSystem,
   logPath: string,
 ): Effect.Effect<LoadedAppendState, Error> {
   return Effect.gen(function* () {
-    const content = yield* readLogContent(fs, logPath);
-    if (content === null) return { state: null, needsLeadingNewline: false };
+    const identity = yield* statLogFile(fs, logPath);
+    const cached = appendStateCache.get(logPath);
+    if (identity !== null && cached !== undefined && sameIdentity(cached.identity, identity)) {
+      return { state: cached.state, needsLeadingNewline: false };
+    }
+    appendStateCache.delete(logPath);
+
+    const read = yield* readLogContent(fs, logPath);
+    if (read === null) return { state: null, needsLeadingNewline: false };
+
+    yield* requireReadableLogVersion(parseConversationLog(read), logPath);
+    let content = read;
+    const collapsed = collapseSupersededUiEvents(content);
+    if (collapsed !== null) {
+      yield* writeFileStringAtomic(logPath, collapsed, {
+        mode: stateFileMode(),
+      });
+      content = collapsed;
+    }
 
     // A crash can leave the last line half-written; the next append has to start on a
     // fresh line or it would corrupt an otherwise readable record too.
     const needsLeadingNewline = content.length > 0 && !content.endsWith("\n");
-    const events = parseConversationLog(content);
-    yield* requireReadableLogVersion(events, logPath);
-    const conversation = reduceConversationLog(events);
-    if (!conversation) return { state: null, needsLeadingNewline };
-
-    return {
-      state: {
-        messageCount: conversation.messages.length,
-        lastMessageFingerprint: fingerprintAt(
-          conversation.messages,
-          conversation.messages.length - 1,
-        ),
-        title: conversation.title,
-        endedAt: conversation.endedAt,
-      },
-      needsLeadingNewline,
-    };
+    return { state: appendStateFromContent(content), needsLeadingNewline };
   });
 }
 
@@ -529,7 +776,9 @@ export interface ConversationTranscriptInput {
  * Callers hand over the whole transcript — that is the shape the chat loop already has —
  * and this compares it against the log and appends the tail. When the prefix no longer
  * matches, because compaction replaced the transcript, a `rewrite` marker and the full new
- * transcript are appended instead.
+ * transcript are appended instead. The UI scrollback is compared the same way: new entries
+ * are appended as `ui-append`, and a scrollback that no longer extends the logged one is
+ * written as a fresh `ui-transcript` snapshot.
  */
 export function recordConversationTranscript(
   input: ConversationTranscriptInput,
@@ -571,6 +820,8 @@ export function recordConversationTranscript(
         lastMessageFingerprint: "",
         title: deriveConversationTitle(title, messages),
         endedAt: null,
+        uiEntryCount: 0,
+        lastUiEntryFingerprint: "",
       };
     }
 
@@ -605,14 +856,47 @@ export function recordConversationTranscript(
       );
     }
 
-    if (input.uiTranscript !== undefined) {
-      chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: input.uiTranscript }));
+    let uiEntryCount = state.uiEntryCount;
+    let lastUiEntryFingerprint = state.lastUiEntryFingerprint;
+    const uiTranscript = input.uiTranscript;
+    if (uiTranscript !== undefined) {
+      const uiPrefixHolds =
+        uiTranscript.length >= state.uiEntryCount &&
+        uiEntryFingerprintAt(uiTranscript, state.uiEntryCount - 1) === state.lastUiEntryFingerprint;
+      if (!uiPrefixHolds) {
+        chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: uiTranscript }));
+      } else if (uiTranscript.length > state.uiEntryCount) {
+        chunks.push(
+          serializeEvent({
+            type: "ui-append",
+            at: now,
+            entries: uiTranscript.slice(state.uiEntryCount),
+          }),
+        );
+      }
+      uiEntryCount = uiTranscript.length;
+      lastUiEntryFingerprint = uiEntryFingerprintAt(uiTranscript, uiTranscript.length - 1);
     }
 
     if (chunks.length > 0) {
       yield* fs
         .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
         .pipe(Effect.mapError(toError));
+    }
+
+    const identity = yield* statLogFile(fs, logPath);
+    if (identity !== null) {
+      rememberAppendState(logPath, {
+        identity,
+        state: {
+          messageCount: messages.length,
+          lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
+          title: nextTitle,
+          endedAt: endedAtChanged ? input.endedAt : state.endedAt,
+          uiEntryCount,
+          lastUiEntryFingerprint,
+        },
+      });
     }
   });
 }

@@ -116,6 +116,7 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
   return {
     result,
     cancelled: () => cancelled,
+    lastSpend: () => undefined,
     approve: (batch) => {
       decisions.push(...batch);
       return Promise.resolve();

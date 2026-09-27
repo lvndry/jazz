@@ -11,6 +11,7 @@ import {
   runContextBoundary,
   runRecordBoundary,
 } from "./agent-runner";
+import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -428,11 +429,14 @@ describe("AgentRunner", () => {
         });
       });
       try {
-        const runChild = createNestedRunExecutor({
-          topRunId: "top-run",
-          parentRunId: "parent-run",
-          sessionId: "parent-conversation",
-        });
+        const runChild = createNestedRunExecutor(
+          {
+            topRunId: "top-run",
+            parentRunId: "parent-run",
+            sessionId: "parent-conversation",
+          },
+          createAgentRunMetrics({ agent: mockAgent, conversationId: "parent-conversation" }),
+        );
         await runWithTestLayers(
           runChild({
             agent: mockAgent,
@@ -446,6 +450,32 @@ describe("AgentRunner", () => {
           sessionId: "parent-conversation",
         });
         expect(received?.conversationId).toBe("child-conversation");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("folds a nested run's spend into the parent, even when the nested run fails", async () => {
+      const parentMetrics = createAgentRunMetrics({
+        agent: mockAgent,
+        conversationId: "parent-conversation",
+      });
+      const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+        options.onRunSpend?.({ costUSD: 0.02, costIncomplete: true, totalTokens: 900 });
+        return Effect.fail(new Error("summarizer died"));
+      });
+      try {
+        const runChild = createNestedRunExecutor(
+          { topRunId: "top", parentRunId: "parent", sessionId: "session" },
+          parentMetrics,
+        );
+        await runWithTestLayers(
+          runChild({ agent: mockAgent, userInput: "summarize", conversationId: "child" }).pipe(
+            Effect.catchAll(() => Effect.void),
+          ),
+        );
+        expect(parentMetrics.sideCostUSD).toBeCloseTo(0.02, 8);
+        expect(parentMetrics.sideCostUnknown).toBe(true);
       } finally {
         spy.mockRestore();
       }

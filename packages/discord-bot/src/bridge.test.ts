@@ -1,8 +1,10 @@
+/** Discord dispatch regression tests cover authorization, shared-runner delivery, and spend. */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JazzEnvelope, JazzRun } from "@jazz/bot-shared/jazz-run";
 import { renderPlain, type OutgoingMessage } from "@jazz/bot-shared/surface";
+import { todayUsage } from "@jazz/bot-shared/usage-store";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type Bridge,
@@ -83,6 +85,7 @@ function startRun(options: { prompt: string }): JazzRun {
   return {
     result,
     cancelled: () => false,
+    lastSpend: () => undefined,
     approve: () => Promise.resolve(),
     answerQuestion: () => Promise.resolve(),
     cancel: () => settle({ ok: false, error: "cancelled" }),
@@ -130,7 +133,9 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  for (const finish of finishers) finish();
+  await until(() => !bridge.runner.busy(DM_CHANNEL));
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -171,6 +176,25 @@ describe("messages", () => {
     expect(prompts[1]).toBe("second");
     finishers[1]?.();
     await first;
+  });
+
+  test("records a failed run's spend through the shared runner", async () => {
+    const done = dispatchMessage(bridge, runtime, dm("start a paid run"));
+    await until(() => prompts.length === 1);
+    finishers[0]?.({
+      ok: false,
+      error: "provider failed",
+      costUSD: 0.25,
+      costKnown: true,
+      tokenUsage: { totalTokens: 42 },
+    });
+    await done;
+    await until(() => !bridge.runner.busy(DM_CHANNEL));
+    expect(await todayUsage(dataDir, "discord")).toMatchObject({
+      costUSD: 0.25,
+      tokens: 42,
+      runs: 1,
+    });
   });
 
   test("a message from someone not on the allowlist starts nothing", async () => {

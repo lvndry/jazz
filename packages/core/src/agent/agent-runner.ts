@@ -84,12 +84,14 @@ import {
   computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
+  recordSideSpend,
+  runSpendReport,
   telemetryErrorCategory,
+  type AgentRunMetrics,
 } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
-import { runSpendUSD } from "./run/run-spend";
 import { runToolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom";
@@ -943,9 +945,21 @@ export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundar
   };
 }
 
-/** Preserve the active trace when compaction or memory extraction starts a recursive run. */
-export function createNestedRunExecutor(parent: TelemetryTraceParent): RecursiveRunner {
-  return (options) => AgentRunner.runRecursive({ ...options, telemetryParent: parent });
+/**
+ * The runner compaction and memory extraction use for their own model runs: it keeps the
+ * active trace, and folds each nested run's spend into the parent's metrics however the nested
+ * run ends, so a summary that failed halfway is still paid for.
+ */
+export function createNestedRunExecutor(
+  parent: TelemetryTraceParent,
+  parentMetrics: AgentRunMetrics,
+): RecursiveRunner {
+  return (options) =>
+    AgentRunner.runRecursive({
+      ...options,
+      telemetryParent: parent,
+      onRunSpend: (spend) => recordSideSpend(parentMetrics, spend),
+    });
 }
 
 /**
@@ -1051,12 +1065,16 @@ export class AgentRunner {
             : {}),
         };
 
-        const runRecursive = createNestedRunExecutor({
-          topRunId: runContext.runMetrics.telemetryParent?.topRunId ?? runContext.runMetrics.runId,
-          parentRunId: runContext.runMetrics.runId,
-          sessionId:
-            runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
-        });
+        const runRecursive = createNestedRunExecutor(
+          {
+            topRunId:
+              runContext.runMetrics.telemetryParent?.topRunId ?? runContext.runMetrics.runId,
+            parentRunId: runContext.runMetrics.runId,
+            sessionId:
+              runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
+          },
+          runContext.runMetrics,
+        );
 
         const execute = shouldStream
           ? executeWithStreaming(
@@ -1083,7 +1101,7 @@ export class AgentRunner {
             conversationId: runContext.actualConversationId,
             userInput: options.userInput,
             internal: options.internal === true,
-            costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+            costSoFarUSD: () => runSpendReport(runContext.runMetrics, pricing).costUSD,
             totalTokensSoFar: () =>
               runContext.runMetrics.totalPromptTokens + runContext.runMetrics.totalCompletionTokens,
             ...(options.autoApprovePolicy !== undefined &&
@@ -1101,6 +1119,10 @@ export class AgentRunner {
           },
           execute,
         ).pipe(
+          // Every way out, including failure and interruption: a run that died still spent.
+          Effect.onExit(() =>
+            Effect.sync(() => options.onRunSpend?.(runSpendReport(runContext.runMetrics, pricing))),
+          ),
           Effect.onExit((exit) =>
             settleRunAccounting(
               accounting,

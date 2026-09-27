@@ -13,6 +13,7 @@ import * as os from "node:os";
 import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import {
+  COMPLETED_BATCH_SWEEP_INTERVAL_MS,
   DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
   WORKER_POOL_SIZE,
@@ -26,6 +27,8 @@ import { Cause, Duration, Effect, Exit, Schedule } from "effect";
 import { inFlight } from "@/adapters/daemon/runs-in-flight";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import {
+  archiveBatch,
+  archiveCompletedBatches,
   claimBatchFanIn,
   claimDueJobs,
   completeJob,
@@ -96,8 +99,13 @@ export function deliverBatchFanIn(agentId: string, batchId: string) {
       ? exit.value
       : { delivered: false, error: Cause.pretty(exit.cause), retryable: true };
     yield* settleBatchFanIn(baseDirectory, agentId, batchId, outcome);
+    if (outcome.delivered) {
+      yield* archiveBatch(baseDirectory, agentId, batchId).pipe(Effect.catchAll(() => Effect.void));
+    }
   });
 }
+
+let nextCompletedBatchSweepAtMs = 0;
 
 /** How often a running job renews its lease. */
 const JOB_LEASE_HEARTBEAT_MS = 60_000;
@@ -248,6 +256,14 @@ export function runDueJobs() {
   return Effect.gen(function* () {
     const baseDirectory = jobBatchDirectory();
     const leaseOwner = `${os.hostname()}-${process.pid}`;
+
+    const sweepStartedAt = Date.now();
+    if (sweepStartedAt >= nextCompletedBatchSweepAtMs) {
+      nextCompletedBatchSweepAtMs = sweepStartedAt + COMPLETED_BATCH_SWEEP_INTERVAL_MS;
+      yield* archiveCompletedBatches(baseDirectory, sweepStartedAt).pipe(
+        Effect.catchAll(() => Effect.succeed(0)),
+      );
+    }
 
     yield* reclaimExpiredLeases(baseDirectory, Date.now()).pipe(
       Effect.catchAll(() => Effect.succeed([])),
