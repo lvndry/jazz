@@ -269,6 +269,20 @@ describe("runDueLoops", () => {
     expect(conversation?.messages.at(-1)?.content).toBe("Still deploying.");
   });
 
+  it("starts no run while the daemon is paused, even when due", async () => {
+    const test = harness();
+    const loop = await createLoop(test);
+    const runner = scriptRunner(test, "unused");
+    try {
+      const started = await run(test, runDueLoops({ startNew: false }));
+      await Effect.runPromise(Fiber.joinAll(started));
+    } finally {
+      runner.restore();
+    }
+    expect(runner.seen).toHaveLength(0);
+    expect((await current(test, loop.loopId)).usage.runs).toBe(0);
+  });
+
   it("does not run a loop before it is due", async () => {
     const test = harness();
     await createLoop(test, { nextRunAt: new Date(Date.now() + 60_000).toISOString() });
