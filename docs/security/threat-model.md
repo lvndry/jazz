@@ -94,9 +94,10 @@ opens with the request and names the entry; amend needs a quote that names the e
 cross-scope source ledger revokes the quoted sentences, as hashed keys, before their memory is
 corrected or forgotten, so compaction cannot re-save that statement later. A malformed ledger
 pauses cited writes but never blocks a delete; the model cannot address its hidden path through
-memory tools. The runner marks terminal messages and a `jazz run` positional
-prompt as memory sources. A prompt piped on stdin and inline `--history-json` never are, so a
-webhook body relayed through `jazz run` cannot back a memory write. Callers that put untrusted
+memory tools. The runner marks terminal messages, a `jazz run` positional
+prompt, and an `--input-stdin` frame's prompt as memory sources. A prompt piped on stdin and a
+frame's `history` never are, so a webhook body relayed through `jazz run` cannot back a memory
+write. Callers that put untrusted
 text in the positional prompt are responsible for separating it before invoking Jazz.
 
 Memory discovery and recall skip symbolic links in scope roots, topic directories, and files.
