@@ -21,7 +21,11 @@ import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
-import { ChatServiceTag, type ChatService } from "@jazz/core/interfaces/chat-service";
+import {
+  ChatServiceTag,
+  type ChatService,
+  type ChatSessionEnd,
+} from "@jazz/core/interfaces/chat-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
@@ -65,6 +69,7 @@ import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
+import { classifyChatInput } from "./chat/chat-input";
 import {
   handleSpecialCommand,
   parseSpecialCommand,
@@ -109,7 +114,7 @@ export class ChatServiceImpl implements ChatService {
       ephemeral?: boolean;
     },
   ): Effect.Effect<
-    void,
+    ChatSessionEnd,
     never,
     | TerminalService
     | LoggerService
@@ -327,6 +332,9 @@ export class ChatServiceImpl implements ChatService {
       let attendedGoalId: string | undefined;
       let goalContinues = false;
 
+      let endReason: ChatSessionEnd["reason"] = "exit";
+      let messagesReceived = 0;
+
       while (chatActive) {
         let userMessage: string | undefined;
         const queued = store.peekQueue();
@@ -398,9 +406,10 @@ export class ChatServiceImpl implements ChatService {
         }
         lastTurnErrored = false;
 
+        const input = classifyChatInput(userMessage, terminal.isInteractive);
         const trimmedMessage = (userMessage ?? "").trim();
-        const lowerMessage = trimmedMessage.toLowerCase();
-        if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+        if (input.kind === "exit" || input.kind === "end-of-input") {
+          endReason = input.kind;
           if (attendedGoalId !== undefined) {
             yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
           }
@@ -432,12 +441,15 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
-        if (!userMessage || trimmedMessage.length === 0) {
-          yield* terminal.log(
-            "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
-          );
+        if (input.kind === "blank" || userMessage === undefined) {
+          if (terminal.isInteractive) {
+            yield* terminal.log(
+              "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
+            );
+          }
           continue;
         }
+        messagesReceived += 1;
 
         let messageForAgent = userMessage;
         let trustMessageAsMemorySource = goalTurn === undefined;
@@ -930,7 +942,12 @@ export class ChatServiceImpl implements ChatService {
         startedAt,
         uiTranscript: uiTranscriptFromStore(),
       });
-    }).pipe(Effect.catchAll(() => Effect.void));
+      return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
+    }).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),
+      ),
+    );
   }
 }
 
