@@ -72,12 +72,18 @@ jobs:
     name: Generate release notes & create release
     needs: tag
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The release is created with RELEASE_PAT, so GITHUB_TOKEN stays read-only in the job that
+    # runs the auto-approving release-notes agent over commit text.
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.new_tag }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -109,6 +115,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
+            --max-cost-usd 2 \
             2>&1 | tee /tmp/jazz-release-notes.txt
 
       - name: Create GitHub release
