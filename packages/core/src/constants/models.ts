@@ -46,6 +46,7 @@ export const AVAILABLE_PROVIDERS = [
   "sglang",
   "togetherai",
   "vllm",
+  "yolo_auto",
   "zhipuai",
 ] as const;
 

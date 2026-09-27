@@ -38,6 +38,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
 | `xai`        | `XAI_API_KEY`                                                     |
+| `yolo_auto`  | `YOLO_AUTO_API_KEY`                                               |
 | `zhipuai`    | `ZHIPU_API_KEY`                                                   |
 
 ## Store credentials

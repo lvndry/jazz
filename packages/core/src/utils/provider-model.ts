@@ -28,6 +28,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   togetherai: "Together AI",
   vllm: "vLLM",
   xai: "xAI",
+  yolo_auto: "Yolo-Auto",
   zhipuai: "Z.ai",
 };
 

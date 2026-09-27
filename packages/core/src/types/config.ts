@@ -333,6 +333,7 @@ export interface LLMConfig {
   readonly sglang?: SglangProviderConfig;
   readonly vllm?: VllmProviderConfig;
   readonly xai?: LLMProviderConfig;
+  readonly yolo_auto?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;
 }
 
