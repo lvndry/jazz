@@ -73,6 +73,23 @@ text; a local file edit mutates without egress. Webhook and peer runs first enfo
 ceiling and remove egress tools, then add only tools explicitly named in that caller's `allow` list.
 The receiving installation chooses its agent and policy; a peer cannot import the caller's authority.
 
+URLs the model chooses (`http_request`, `web_fetch`, `read_pdf`, and the pages `create_pdf` and
+`create_composition` render) reach public hosts only. One guarded fetch resolves each hostname,
+refuses loopback, private, link-local (including cloud metadata), CGNAT, IPv4-mapped and
+unspecified addresses in every spelling, re-checks every redirect hop, drops credential and custom
+headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches its own
+network only through the hosts listed in `network.allowPrivateHosts`.
+
+Tool results that carry someone else's words (web pages, API responses, search results, MCP output,
+peer answers, the output of every shell and custom command, files outside the working directory)
+reach the model inside a labelled `<untrusted-content>` envelope, and a standing system-prompt rule
+tells it to read them as data. Once a run has read external content, egress tools stop
+auto-approving below `high-risk` for the rest of that run and its sub-agents: they prompt, park, or
+are declined. A plain GET of a URL that already appears in the user's messages or in content the run
+read, and `web_search` (which only reaches the configured provider), stay automatic. Jazz cannot
+tell what a command read, so any `execute_command` run counts as external content: after one,
+egress below `high-risk` needs approval.
+
 A network-backed command-risk plugin is a separate egress boundary. Jazz projects only the bounded
 command string into `classify.command-risk`; it does not include conversation history, tool results,
 environment variables, or file contents. The manifest must declare command-text egress and the exact
@@ -81,7 +98,13 @@ destination, and a local operator must consent to those declarations for the cur
 ### Secrets
 
 Secrets resolve from environment variables, then the OS keyring, then a mode-`0600` local config
-fallback when no keyring is usable. Shell children lose variables whose names look credential-bearing
+fallback when no keyring is usable. Filesystem tools protect `.env`, `.env.*`, `secrets.json`,
+Jazz's global config and credential lock/temp files, resolving symlinks. Discovery and metadata
+remain available; content reads omit values and point to approved whole-file `cp`. Copies and
+moves persist destination protection in the current Jazz home's private registry, so renamed
+backups stay protected. Edit previews cannot read protected contents. This is not an OS sandbox:
+other credential names, external programs, hard links and other Jazz homes are outside this
+contract. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
 telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
 events omit command text, tool arguments, results, and prompt/completion text. The local tool audit
@@ -151,6 +174,12 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Prompt-injection immunity:** hostile content can steer actions already permitted by the toolset
   and active policy.
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
+  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and the
+  filesystem protection covers recognized credential paths and registered copies, not arbitrary
+  credentials (`~/.ssh`, cloud CLI tokens). See [Secrets and egress](./secrets-and-egress.md#read-tools-and-jazzs-secret-files).
+- **DNS rebinding:** the guarded fetch resolves a hostname before the runtime connects and
+  resolves it again to connect, so a name whose answer changes in between (a zero-TTL rebinding
+  record) can still reach a private address. IP-literal URLs and redirect targets are unaffected.
 - **Third-party correctness:** an MCP server, custom command, model provider, or chat transport may
   mishandle data after it crosses that boundary.
 - **Plugin isolation or preemption:** a trusted plugin can bypass its declared projection, network,

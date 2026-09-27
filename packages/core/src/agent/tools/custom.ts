@@ -301,7 +301,11 @@ function buildCommandTool(
             return { success: false, result: null, error: message };
           }
 
-          return { success: true, result: outcome.stdout };
+          return {
+            success: true,
+            result: outcome.stdout,
+            untrusted: { kind: "external", source: `${definition.name} command output` },
+          };
         }),
     }),
     sourceCustomToolDefinition: definition,

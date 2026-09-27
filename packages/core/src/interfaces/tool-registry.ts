@@ -167,8 +167,9 @@ export interface Tool<R = never> {
    * The axis exists because of one caller: the door that serves another person's agent
    * (`allowedToolsForPeer`). There, a tool marked here is never granted by a disclosure
    * tier — it has to be named in that peer's `allow` — because otherwise a question from a
-   * stranger could pick both the bytes and the address they go to. Everywhere else this is
-   * inert: the terminal's approval tiers read `riskLevel` and are unaffected.
+   * stranger could pick both the bytes and the address they go to. The other caller is the
+   * egress taint gate (`egress-taint.ts`): once a run has read external untrusted content, an
+   * egress tool stops auto-approving below the `high-risk` tier.
    *
    * Defaults to `false`, which is right for the overwhelming majority. What keeps a new
    * networking tool from silently defaulting into a peer's reach is not this field but the

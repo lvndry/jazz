@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { createEgressTaint } from "@/core/agent/execution/egress-taint";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { childRunAuthority } from "./child-run-authority";
 
@@ -39,5 +40,10 @@ describe("childRunAuthority", () => {
     ).toEqual(["read_file", "grep"]);
     expect(childRunAuthority(base).toolAllowlist).toEqual([]);
     expect(childRunAuthority({ ...base, unrestrictedTools: true }).toolAllowlist).toBeUndefined();
+  });
+  it("shares the parent's egress taint, so untrusted content the parent read still gates the child", () => {
+    const egressTaint = createEgressTaint();
+    expect(childRunAuthority({ ...base, egressTaint }).egressTaint).toBe(egressTaint);
+    expect(childRunAuthority(base).egressTaint).toBeUndefined();
   });
 });

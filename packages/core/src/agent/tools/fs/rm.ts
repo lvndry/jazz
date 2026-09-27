@@ -1,9 +1,11 @@
+/** Approved removal preserves the internal protection registry and its ancestors. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -47,6 +49,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
         const recurse = args.recursive === true ? " recursively" : "";
         return `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
       }),
@@ -56,6 +59,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
 
         try {
           // Basic safeguards: do not allow deleting root or home dir directly

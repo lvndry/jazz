@@ -1087,6 +1087,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect(result.success).toBe(true);
     expect(typeof result.result).toBe("string");
     expect((result.result as string).length).toBe(16 * 1024);
+    expect(result.untrusted?.kind).toBe("external");
   }, 15_000);
 
   it("scrubs a sensitive-name env var when the declaring agent has no envAllowlist, but passes it through when the declaring agent allowlists it", async () => {
