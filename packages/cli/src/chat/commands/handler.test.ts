@@ -989,3 +989,35 @@ describe("handleSpecialCommand /runPluginCommand", () => {
     expect(result).toEqual({ shouldContinue: true });
   });
 });
+
+describe("handleSpecialCommand /mode", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+    autoApprovePolicy: true,
+  };
+  const quietTerminal = Layer.succeed(TerminalServiceTag, {
+    isInteractive: false,
+    success: () => Effect.void,
+    log: () => Effect.void,
+  } as unknown as TerminalService);
+  const run = (args: string[]) =>
+    Effect.runPromise(
+      handleSpecialCommand({ type: "mode", args }, context).pipe(
+        Effect.provide(quietTerminal),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+
+  test("/mode safe returns to the low-risk tier, not to no policy", async () => {
+    expect((await run(["safe"])).newAutoApprovePolicy).toBe("low-risk");
+  });
+
+  test("/mode yolo approves everything", async () => {
+    expect((await run(["yolo"])).newAutoApprovePolicy).toBe(true);
+  });
+});

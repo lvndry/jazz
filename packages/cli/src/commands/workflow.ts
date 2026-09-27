@@ -1,6 +1,7 @@
 import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
+import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
 import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -40,7 +41,11 @@ import {
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "@jazz/core/workflows/scheduler-service";
-import { WorkflowServiceTag, type WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
+import {
+  resolveWorkflowApprovalPolicy,
+  WorkflowServiceTag,
+  type WorkflowMetadata,
+} from "@jazz/core/workflows/workflow-service";
 import {
   formatWorkflow,
   groupWorkflows,
@@ -49,7 +54,7 @@ import {
 import { Duration, Effect, Option } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
-import { formatOneShotError, formatOneShotResult } from "./run/envelope";
+import { answerOutcomeFields, formatOneShotError, formatOneShotResult } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -172,8 +177,10 @@ export function showWorkflowCommand(workflowName: string) {
       yield* terminal.log(`Default frequency: ${scheduleDisplay}`);
     }
 
-    if (workflow.metadata.autoApprove !== undefined) {
-      yield* terminal.log(`Auto-approve: ${workflow.metadata.autoApprove}`);
+    if (workflow.metadata.definitionError !== undefined) {
+      yield* terminal.error(`Cannot run: ${workflow.metadata.definitionError}`);
+    } else {
+      yield* terminal.log(`Auto-approve: ${String(workflow.metadata.autoApprove ?? false)}`);
     }
 
     if (workflow.metadata.skills && workflow.metadata.skills.length > 0) {
@@ -335,6 +342,13 @@ export function runWorkflowCommand(
       ),
     );
 
+    const approval = resolveWorkflowApprovalPolicy(workflow.metadata);
+    if (!approval.ok) {
+      yield* markFailed(approval.error);
+      return yield* Effect.fail(new Error(approval.error));
+    }
+    const autoApprovePolicy = approval.policy;
+
     // Determine which agent to use (CLI flag > workflow metadata > default)
     const agentIdentifier = options?.agent || workflow.metadata.agent || "default";
 
@@ -408,15 +422,7 @@ export function runWorkflowCommand(
       yield* terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`);
     }
 
-    // Determine auto-approve policy
-    const autoApprovePolicy =
-      options?.autoApprove === true
-        ? (workflow.metadata.autoApprove ?? true)
-        : workflow.metadata.autoApprove;
-
-    if (autoApprovePolicy) {
-      yield* say(() => terminal.info(`Auto-approve policy: ${autoApprovePolicy}`));
-    }
+    yield* say(() => terminal.info(`Auto-approve policy: ${String(autoApprovePolicy)}`));
 
     yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
@@ -455,7 +461,7 @@ export function runWorkflowCommand(
       ...(resolvedMaxCostUSD != null ? { maxCostUSD: resolvedMaxCostUSD } : {}),
       ...(resolvedMaxTokens != null ? { maxTokens: resolvedMaxTokens } : {}),
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
-      ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
       origin: {
         source: "workflow",
@@ -464,7 +470,14 @@ export function runWorkflowCommand(
           ? { deliverTo: workflow.metadata.deliver }
           : {}),
       },
-    });
+    }).pipe(
+      Effect.flatMap((response) => {
+        const verdict = judgeAnswer(response);
+        return verdict.kind === "failed"
+          ? Effect.fail(new NoUsableAnswerError(verdict))
+          : Effect.succeed(response);
+      }),
+    );
     const runResult = yield* (
       options?.timeoutMs != null
         ? runEffect.pipe(
@@ -532,6 +545,8 @@ export function runWorkflowCommand(
               ...(runResult.costCapped === true ? { costCapped: true } : {}),
               ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
               ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
+              ...answerOutcomeFields(runResult),
+              ...(runResult.stalled === true ? { stalled: true } : {}),
               tokenUsage: {
                 promptTokens,
                 completionTokens,
@@ -566,7 +581,14 @@ export function runWorkflowCommand(
   return command.pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => {
-        process.stdout.write(formatOneShotError(getErrorMessage(error), { json: true }));
+        process.stdout.write(
+          formatOneShotError(
+            getErrorMessage(error),
+            { json: true },
+            0,
+            error instanceof NoUsableAnswerError ? { code: error.code } : {},
+          ),
+        );
         process.exitCode = 1;
       }),
     ),
@@ -611,6 +633,11 @@ export function scheduleWorkflowCommand(
         }),
       ),
     );
+
+    const approval = resolveWorkflowApprovalPolicy(workflow.metadata);
+    if (!approval.ok) {
+      return yield* Effect.fail(new Error(approval.error));
+    }
 
     const cron = (options?.cron ?? workflow.metadata.schedule)?.trim();
     if (cron === undefined || cron.length === 0) {
@@ -731,13 +758,15 @@ export function scheduleWorkflowCommand(
     }
     yield* terminal.log("");
 
-    if (workflow.metadata.autoApprove) {
-      yield* terminal.info(`Auto-approve policy: ${workflow.metadata.autoApprove}`);
+    if (workflow.metadata.autoApprove !== undefined && workflow.metadata.autoApprove !== false) {
+      yield* terminal.info(`Auto-approve policy: ${String(workflow.metadata.autoApprove)}`);
     } else {
       yield* terminal.warn(
-        "No auto-approve policy set. The workflow may pause for approval during scheduled runs.",
+        "autoApprove is false or unset, so scheduled runs decline every gated tool call.",
       );
-      yield* terminal.info("Add 'autoApprove: true' or 'autoApprove: low-risk' to the workflow.");
+      yield* terminal.info(
+        "Add 'autoApprove: read-only', 'low-risk' or 'high-risk' to the workflow's frontmatter.",
+      );
     }
 
     yield* terminal.log("");

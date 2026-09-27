@@ -39,7 +39,7 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
   getGlobalUserDataDirectory,
-  getJazzHomeDirectory,
+  getGlobalConfigFilePath,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
@@ -180,7 +180,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           }
         }
 
-        const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
+        const path = this.configPath ?? getGlobalConfigFilePath();
         if (!this.configPath) {
           this.configPath = path;
           const dir = path.substring(0, path.lastIndexOf("/"));
@@ -1097,10 +1097,7 @@ function loadConfigFiles(
       };
     }
 
-    const envConfigPath = process.env["JAZZ_CONFIG_PATH"];
-    const globalConfigPath = envConfigPath
-      ? expandHome(envConfigPath)
-      : `${getJazzHomeDirectory()}/config.json`;
+    const globalConfigPath = getGlobalConfigFilePath();
 
     const global = yield* readOptionalConfigFile(fs, globalConfigPath, policy);
     const local = yield* readLocalConfigFile(fs, policy, globalConfigPath);

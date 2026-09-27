@@ -28,8 +28,17 @@ export interface WorkflowMetadata {
   readonly agent?: string;
   /** Cron schedule expression (e.g., "0 * * * *" for hourly) */
   readonly schedule?: string;
-  /** Auto-approve policy for unattended execution */
+  /**
+   * The approval policy a run of this workflow gets (see `resolveWorkflowApprovalPolicy`).
+   * Unset means `false`: every gated tool call asks, or is declined when nobody can answer.
+   */
   readonly autoApprove?: AutoApprovePolicy;
+  /**
+   * Why this workflow cannot run, when its frontmatter is invalid (an unknown `autoApprove`
+   * value). Kept in the index rather than dropping the workflow, so `workflow list` and every
+   * run path can name the problem instead of reporting the workflow missing.
+   */
+  readonly definitionError?: string;
   /** Skills to load for this workflow */
   readonly skills?: readonly string[];
   /** Whether a missed slot may be replayed after the daemon restarts. */
@@ -113,7 +122,6 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     return null;
   }
 
-  // Parse autoApprove - can be boolean or string
   const autoApprove = parseAutoApprove(data["autoApprove"]);
 
   // Parse skills array
@@ -129,7 +137,8 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     description,
     ...(typeof data["agent"] === "string" && { agent: data["agent"] }),
     ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
-    ...(autoApprove !== undefined && { autoApprove }),
+    ...(autoApprove.ok && autoApprove.policy !== undefined && { autoApprove: autoApprove.policy }),
+    ...(!autoApprove.ok && { definitionError: autoApprove.error }),
     ...(skills && skills.length > 0 && { skills }),
     ...(typeof data["catchUpOnRestart"] === "boolean" && {
       catchUpOnRestart: data["catchUpOnRestart"],
@@ -152,17 +161,60 @@ function parseDeliver(value: unknown): readonly string[] {
     .filter((name) => name.length > 0);
 }
 
+/** Every value `autoApprove` accepts, in the order the tiers widen. */
+export const WORKFLOW_AUTO_APPROVE_VALUES = [
+  false,
+  "read-only",
+  "low-risk",
+  "high-risk",
+  true,
+] as const satisfies readonly AutoApprovePolicy[];
+
+export type AutoApproveParseResult =
+  | { readonly ok: true; readonly policy: AutoApprovePolicy | undefined }
+  | { readonly ok: false; readonly error: string };
+
 /**
- * Parse autoApprove value from frontmatter.
+ * Parse an `autoApprove` frontmatter value. A missing value parses to `undefined`; anything
+ * other than the unquoted booleans and the three tier names is an error naming the valid
+ * values, so a typo such as `readonly` or a quoted `"false"` cannot quietly pick a tier.
  */
-export function parseAutoApprove(value: unknown): AutoApprovePolicy | undefined {
-  if (typeof value === "boolean") {
-    return value;
+export function parseAutoApprove(value: unknown): AutoApproveParseResult {
+  if (value === undefined) {
+    return { ok: true, policy: undefined };
   }
-  if (value === "read-only" || value === "low-risk" || value === "high-risk") {
-    return value;
+  const match = WORKFLOW_AUTO_APPROVE_VALUES.find((candidate) => candidate === value);
+  if (match !== undefined) {
+    return { ok: true, policy: match };
   }
-  return undefined;
+  const valid = WORKFLOW_AUTO_APPROVE_VALUES.map((candidate) => String(candidate)).join(", ");
+  return {
+    ok: false,
+    error: `autoApprove ${JSON.stringify(value)} is not valid. Use one of: ${valid} (true and false unquoted).`,
+  };
+}
+
+export type WorkflowApprovalPolicyResult =
+  | { readonly ok: true; readonly policy: AutoApprovePolicy }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * The approval policy a run of this workflow gets, for every path that runs one: a
+ * schedule, catch-up after a restart, `jazz workflow run` with or without `--auto-approve`.
+ * An unset `autoApprove` is `false`, which auto-approves nothing. Fails with the
+ * workflow's `definitionError` when its frontmatter is invalid, so an invalid workflow
+ * never runs.
+ */
+export function resolveWorkflowApprovalPolicy(
+  workflow: Pick<WorkflowDefinition, "name" | "autoApprove" | "definitionError">,
+): WorkflowApprovalPolicyResult {
+  if (workflow.definitionError !== undefined) {
+    return {
+      ok: false,
+      error: `Workflow "${workflow.name}" cannot run: ${workflow.definitionError}`,
+    };
+  }
+  return { ok: true, policy: workflow.autoApprove ?? false };
 }
 
 /**

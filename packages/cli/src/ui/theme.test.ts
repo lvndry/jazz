@@ -3,6 +3,9 @@ import chalk from "chalk";
 import {
   codeColor,
   getThemeVariant,
+  neutralPalette,
+  noColorRequested,
+  PALETTES,
   setThemeVariant,
   THEME,
   type ThemeColors,
@@ -214,5 +217,37 @@ describe("theme", () => {
         chalk.level = previousLevel;
       }
     });
+  });
+});
+
+describe("NO_COLOR", () => {
+  it("counts only a non-empty value as a request", () => {
+    expect(noColorRequested({ NO_COLOR: "1" })).toBe(true);
+    expect(noColorRequested({ NO_COLOR: "" })).toBe(false);
+    expect(noColorRequested({})).toBe(false);
+  });
+
+  it("paints every role with the neutral ramp and keeps the grounds", () => {
+    for (const variant of ["dark", "light"] as const) {
+      const palette = PALETTES[variant];
+      const neutral = neutralPalette(palette);
+      const ramp = new Set([palette.selected, palette.secondary, palette.muted]);
+      const grounds: readonly (keyof ThemeColors)[] = [
+        "canvas",
+        "toolBorder",
+        "surface",
+        "surfaceSoft",
+        "surfaceStrong",
+        "border",
+        "borderSoft",
+      ];
+      for (const key of Object.keys(neutral) as (keyof ThemeColors)[]) {
+        if (grounds.includes(key)) {
+          expect(neutral[key]).toBe(palette[key]);
+        } else {
+          expect(ramp.has(neutral[key]), `${variant}.${key}`).toBe(true);
+        }
+      }
+    }
   });
 });

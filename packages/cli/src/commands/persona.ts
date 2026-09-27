@@ -167,7 +167,7 @@ export function listPersonasCommand(): Effect.Effect<
 
     for (const persona of personas) {
       const isBuiltin = isBuiltinPersonaId(persona.id);
-      const tag = isBuiltin ? chalk.dim(" (built-in)") : chalk.green(" (custom)");
+      const tag = isBuiltin ? chalk.dim(" (built-in)") : " (custom)";
       const nameDisplay = chalk.bold(persona.name) + tag;
 
       yield* terminal.log(`  ${nameDisplay}`);

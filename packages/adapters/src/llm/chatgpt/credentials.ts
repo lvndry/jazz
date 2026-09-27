@@ -2,9 +2,8 @@
  * Keyring storage for the ChatGPT sign-in, and the refresh path every model request goes through.
  */
 
-import * as path from "node:path";
 import { FILE_LOCK_MAX_WAIT_MS, withFileLock } from "@jazz/core/utils/file-lock";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { getChatGptCredentialLockPath } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import {
   detectKeyringBackend,
@@ -230,7 +229,7 @@ export function createChatGPTCredentialStore(dependencies: {
 const defaultStore = createChatGPTCredentialStore({
   storage: keyringStorage,
   refresh: refreshChatGPTCredential,
-  lockPath: () => path.join(getJazzHomeDirectory(), ".chatgpt-credential.lock"),
+  lockPath: getChatGptCredentialLockPath,
 });
 
 export const loadChatGPTCredential = defaultStore.load;

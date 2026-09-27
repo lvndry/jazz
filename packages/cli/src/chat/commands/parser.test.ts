@@ -151,10 +151,8 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toContain("invalid");
     });
 
-    it("should return unknown for /exit (handled separately)", () => {
-      const result = parseSpecialCommand("/exit");
-      expect(result.type).toBe("unknown");
-      expect(result.args).toContain("exit");
+    it("should parse /exit as the exit command", () => {
+      expect(parseSpecialCommand("/exit").type).toBe("exit");
     });
 
     it("should return unknown for made-up commands", () => {
@@ -285,22 +283,48 @@ describe("parseSpecialCommand", () => {
 });
 
 describe("CHAT_COMMANDS registry", () => {
-  /** `/exit` ends the chat loop in chat-service before input reaches the parser. */
-  const COMMANDS_HANDLED_BEFORE_PARSING = new Set(["exit"]);
+  it("parses every advertised command and alias to its registered type", () => {
+    const mismatched = CHAT_COMMANDS.flatMap((command) =>
+      [command.name, ...(command.aliases ?? [])]
+        .filter((name) => parseSpecialCommand(`/${name}`).type !== command.type)
+        .map((name) => `/${name}`),
+    );
+    expect(mismatched).toEqual([]);
+  });
 
-  it("parses every advertised command to a recognized type", () => {
-    const unparsed = CHAT_COMMANDS.filter(
-      (command) =>
-        !COMMANDS_HANDLED_BEFORE_PARSING.has(command.name) &&
-        parseSpecialCommand(`/${command.name}`).type === "unknown",
-    ).map((command) => command.name);
-    expect(unparsed).toEqual([]);
+  it("gives every command and alias a unique name", () => {
+    const names = CHAT_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it("parses /memory with its arguments", () => {
     expect(parseSpecialCommand("/memory forget personal/notes.md")).toEqual({
       type: "memory",
       args: ["forget", "personal/notes.md"],
+    });
+  });
+
+  it("routes aliases to the command they name", () => {
+    expect(parseSpecialCommand("/quit").type).toBe("exit");
+    expect(parseSpecialCommand("/stats").type).toBe("info");
+    expect(parseSpecialCommand("/models gpt-5")).toEqual({ type: "model", args: ["gpt-5"] });
+  });
+});
+
+describe("a message that starts with a path", () => {
+  it("is prose when the first word has another slash", () => {
+    expect(parseSpecialCommand("/Users/me/shot.png what is this?").type).toBe("prose");
+    expect(parseSpecialCommand("/tmp/ is full").type).toBe("prose");
+  });
+
+  it("is prose when the first word exists on disk", () => {
+    expect(parseSpecialCommand("/tmp has too much in it").type).toBe("prose");
+  });
+
+  it("stays an unknown command when it is neither", () => {
+    expect(parseSpecialCommand("/definitely-not-a-command now")).toEqual({
+      type: "unknown",
+      args: ["definitely-not-a-command", "now"],
     });
   });
 });

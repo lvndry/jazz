@@ -43,7 +43,12 @@ export type Block =
    */
   | { readonly kind: "subtle"; readonly spans: readonly Span[] }
   | { readonly kind: "codeBlock"; readonly text: string; readonly language?: string }
-  | { readonly kind: "quote"; readonly text: string; readonly expandable?: boolean };
+  | { readonly kind: "quote"; readonly text: string; readonly expandable?: boolean }
+  /**
+   * Prose the model wrote, in Markdown. A surface with a dialect of its own converts it
+   * (Telegram to HTML); one that speaks Markdown passes it through.
+   */
+  | { readonly kind: "markdown"; readonly text: string };
 
 export type RichText = readonly Block[];
 
@@ -60,6 +65,7 @@ export const quote = (value: string, expandable = false): Block => ({
   text: value,
   expandable,
 });
+export const markdown = (value: string): Block => ({ kind: "markdown", text: value });
 
 /**
  * A choice put to the human: an approval, a mode, a model, a follow-up.
@@ -111,6 +117,18 @@ export interface OutgoingMessage {
   readonly replyTo?: MessageRef;
 }
 
+/**
+ * A file to send. Both forms are carried because surfaces differ in what they can take:
+ * an upload API wants the bytes, a local tool like `imsg` wants a path. The bytes were
+ * read by the core from where it confined the file, so a surface uploading them never
+ * opens the path itself.
+ */
+export interface OutgoingFile {
+  readonly path: string;
+  readonly bytes: Uint8Array<ArrayBuffer>;
+  readonly filename: string;
+}
+
 /** A surface-native message identifier, opaque to the core. */
 export type MessageRef = string;
 
@@ -155,7 +173,21 @@ export interface Surface {
   edit?(chatId: ChatId, ref: MessageRef, message: OutgoingMessage): Promise<void>;
 
   /** Only called when `attachments` is true. */
-  sendFile?(chatId: ChatId, filePath: string, caption?: string): Promise<void>;
+  sendFile?(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void>;
+
+  /**
+   * Replace the choices under an already-sent message, leaving its text alone; an empty
+   * list removes them. Only called when `buttons` and `editMessages` are both true.
+   *
+   * What a keyboard needs after it was drawn: a batch count that changed, or buttons that
+   * no longer answer anything once their prompt was settled.
+   */
+  setChoices?(
+    chatId: ChatId,
+    ref: MessageRef,
+    choices: readonly Choice[],
+    promptId?: string,
+  ): Promise<void>;
 
   /** Best-effort "the agent is working" hint; only called when `typingIndicator` is true. */
   typing?(chatId: ChatId): Promise<void>;
@@ -176,6 +208,7 @@ export function renderPlain(body: RichText): string {
         case "subtle":
           return block.spans.map((span) => span.text).join("");
         case "codeBlock":
+        case "markdown":
           return block.text;
         case "quote":
           return block.text

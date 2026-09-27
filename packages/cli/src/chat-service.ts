@@ -73,6 +73,7 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -101,6 +102,7 @@ import {
   findExceededSessionLimits,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
   initializeSession,
@@ -250,7 +252,7 @@ export class ChatServiceImpl implements ChatService {
       /** Ceilings already warned about this session, by window, so each warns once. */
       const warnedSpendCeilings = new Set<string>();
       let sessionLimits: SessionLimits = {};
-      let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
@@ -315,14 +317,13 @@ export class ChatServiceImpl implements ChatService {
 
       // Register mode switch handler for Shift+Tab toggle
       store.registerModeSwitchHandler((mode) => {
-        const newPolicy = mode === "yolo";
-        if (autoApprovePolicy !== newPolicy) {
-          autoApprovePolicy = newPolicy;
-          store.setModeIsYolo(newPolicy);
+        if (chatModeForPolicy(autoApprovePolicy) !== mode) {
+          autoApprovePolicy = policyForChatMode(mode);
+          store.setModeIsYolo(mode === "yolo");
           const message =
             mode === "yolo"
-              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
-              : "🛡️ Switched to safe mode — all tool calls require approval";
+              ? "🚀 Switched to yolo mode: all tool calls auto-approved"
+              : "🛡️ Switched to safe mode: high-risk tool calls require approval";
           store.showModeToast(message);
         }
       });
@@ -337,6 +338,9 @@ export class ChatServiceImpl implements ChatService {
       // text auto-flushes (clean-finish path) or seeds the next prompt for
       // editing (error path).
       let lastTurnErrored = false;
+
+      /** A mistyped command, put back in the composer at the next prompt. */
+      let draftToRestore: string | undefined;
 
       // The goal this chat is working toward, and whether its next turn is due. A goal turn is
       // an ordinary turn whose prompt comes from the goal instead of the user.
@@ -390,9 +394,11 @@ export class ChatServiceImpl implements ChatService {
           // call terminal.user() — the shared helper that owns rendering.
           yield* terminal.user(userMessage);
         } else {
+          const draft = queued.length > 0 ? queued : draftToRestore;
+          draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
-            ...(queued.length > 0 ? { defaultValue: queued } : {}),
+            ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
           userMessage = yield* terminal.ask("You:", askOptions).pipe(
@@ -481,7 +487,9 @@ export class ChatServiceImpl implements ChatService {
               ? specialCommand.args.join(" ").trim()
               : null;
 
-          if (passThroughMessage !== null) {
+          if (specialCommand.type === "prose") {
+            // A leading file path (a dragged file) is a message, not a command.
+          } else if (passThroughMessage !== null) {
             // Send the trailing text (e.g. "create") as the user message so the agent can guide
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
@@ -498,7 +506,7 @@ export class ChatServiceImpl implements ChatService {
               sessionLimits,
               sessionStartedAt,
               lastUsedAgentId,
-              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              autoApprovePolicy,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -609,9 +617,9 @@ export class ChatServiceImpl implements ChatService {
               startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
-              autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle
-              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
+              store.setModeIsYolo(chatModeForPolicy(autoApprovePolicy) === "yolo");
             }
             if (commandResult.newSessionLimits !== undefined) {
               sessionLimits = commandResult.newSessionLimits;
@@ -633,6 +641,10 @@ export class ChatServiceImpl implements ChatService {
               autoApprovedCommands = autoApprovedCommands.filter(
                 (c) => c !== commandResult.removeAutoApprovedCommand,
               );
+            }
+
+            if (commandResult.keepDraft === true && terminal.isInteractive) {
+              draftToRestore = userMessage;
             }
 
             if (commandResult.attendGoal !== undefined) {
@@ -659,6 +671,21 @@ export class ChatServiceImpl implements ChatService {
               continue;
             }
           }
+        }
+
+        if (goalTurn === undefined && messageForAgent === userMessage) {
+          const typedMessage = messageForAgent;
+          const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
+            agentId: agent.id,
+            conversationId,
+          });
+          const inlined = yield* Effect.tryPromise(() =>
+            inlineMentionedTextFiles(typedMessage, workingDirectory),
+          ).pipe(Effect.catchAll(() => Effect.succeed({ message: typedMessage, skipped: [] })));
+          for (const note of inlined.skipped) {
+            yield* terminal.warn(note);
+          }
+          messageForAgent = inlined.message;
         }
 
         if (Object.keys(sessionLimits).length > 0) {

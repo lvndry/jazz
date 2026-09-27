@@ -6,6 +6,7 @@ import cronParser from "cron-parser";
 import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { judgeAnswer, NoUsableAnswerError } from "@/core/agent/run/answer-outcome";
 import { DEFAULT_MAX_CATCH_UP_AGE_SECONDS } from "@/core/constants/agent";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -28,7 +29,11 @@ import {
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "@/core/workflows/scheduler-service";
-import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
+import {
+  resolveWorkflowApprovalPolicy,
+  WorkflowServiceTag,
+  type WorkflowMetadata,
+} from "@/core/workflows/workflow-service";
 import { renderWorkflowPrompt } from "@/core/workflows/workflow-utils";
 
 export interface CatchUpDecision {
@@ -352,7 +357,17 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
       agent: entry.agent,
     });
 
-    const autoApprovePolicy = workflow.autoApprove ?? true;
+    const approval = resolveWorkflowApprovalPolicy(workflow);
+    if (!approval.ok) {
+      yield* logger.error("Catch-up skipped: workflow definition is invalid", {
+        workflow: entry.workflowName,
+        error: approval.error,
+      });
+      yield* finish({ status: "failed", error: approval.error });
+      yield* notifyNotRun(approval.error);
+      return;
+    }
+    const autoApprovePolicy = approval.policy;
     const prompt = renderWorkflowPrompt(workflowContent.prompt, {
       label: entry.label,
       cron: entry.schedule,
@@ -376,6 +391,12 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
         ...(workflow.deliver !== undefined ? { deliverTo: workflow.deliver } : {}),
       },
     }).pipe(
+      Effect.flatMap((response) => {
+        const verdict = judgeAnswer(response);
+        return verdict.kind === "failed"
+          ? Effect.fail(new NoUsableAnswerError(verdict))
+          : Effect.succeed(response);
+      }),
       Effect.tap(() => finish({ status: "completed" })),
       Effect.tap((response) =>
         deliverWorkflowResult({

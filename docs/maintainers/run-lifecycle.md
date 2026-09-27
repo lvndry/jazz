@@ -135,21 +135,30 @@ finishes, and are configured via `maxCostUSD`, `maxTokens`, and `maxDurationMs`;
   unknown. It never guess-aborts a run it cannot verify the spend of.
 - **`maxTokens`** just sums `totalPromptTokens + totalCompletionTokens`. No pricing lookup, so
   it still enforces on a local/unpriced model where `maxCostUSD` cannot.
-- **`maxDurationMs`** compares wall-clock elapsed time (`Date.now() - runMetrics.startedAt`)
-  against the budget. Unlike the other two, it also gets an ephemeral pressure message inside
-  `runIteration` itself (`buildTimeBudgetPressureMessage`) at 50%, 80%, and 90% elapsed,
-  mirroring the iteration-budget nudge above.
+- **`maxDurationMs`** is a deadline. Each iteration races the time left
+  (`Date.now() - runMetrics.startedAt` against the budget) with `Effect.timeoutOption`, so it
+  interrupts a model call, a tool batch or a sub-agent in flight. Dangling tool calls are
+  closed with a note and the loop finalizes normally. It also gets an ephemeral pressure
+  message inside `runIteration` (`buildTimeBudgetPressureMessage`) at 50%, 80%, and 90%
+  elapsed, and `spawn_subagent` hands the child the time left through `remainingRunBudget`.
 
-All three share the same timing as the iteration budget: checked _between_ iterations, not a
-preemptive interrupt. A single expensive iteration: a costly tool call, or a sub-agent
-delegation that itself runs for a while: can push the total past the cap before the next
-check trips. A run stopped this way reports which cap fired on the response:
+`maxCostUSD` and `maxTokens` share the iteration budget's timing: checked _between_
+iterations, not a preemptive interrupt. A single expensive iteration (a costly tool call, or a
+sub-agent delegation that runs for a while) can push the total past the cap before the next
+check trips. A run stopped by any cap reports which one fired on the response:
 `costCapped` / `tokenCapped` / `durationCapped`.
 
-This is deliberately different from `--timeout`, which lives outside the loop entirely: the
-CLI races the whole run against a deadline (`packages/core/src/utils/run-deadline.ts`) and
-kills it with no warning to the agent. `--timeout` is the hard outer safety net;
-`maxDurationMs` is the warned, graceful budget.
+When a deadline or an interrupt stops a tool batch part-way, the loop closes it from the
+batch's ledger: completed calls keep their results, the others say whether they were
+interrupted while running or never started, and the response lists them as `stoppedToolCalls`
+([stopping a batch](./tool-lifecycle.md#stopping-a-batch)).
+
+`--timeout` lives outside the loop entirely: the CLI races the whole run against a deadline
+(`packages/core/src/utils/run-deadline.ts`) with `Effect.raceFirst` and ends it as a failure
+with no warning to the agent. Interrupting the run interrupts its tool fibers (the shell kills
+the command's process group) and the LLM stream's finalizer aborts the provider request.
+`--timeout` is the hard outer safety net; `maxDurationMs` is the warned budget that still
+returns a result.
 
 ---
 
@@ -177,7 +186,9 @@ design:
 Keying on tool _name_ alone would flag the second and third rows as meltdowns, which are
 exactly the behaviors you want. When a meltdown does trip, Jazz injects a message telling
 the agent to stop, summarize what it has, and either output or try a fundamentally
-different approach: then clears the window so it gets a fair chance.
+different approach: then clears the window so it gets a fair chance. A second meltdown after
+that nudge (`MAX_MELTDOWN_NUDGES`) stops the run: the observer warns (`onStalled`) and the
+response carries `stalled: true`.
 
 Unlike budget pressure, this message **is** stored. It's a real event in the run's history
 and the agent should keep remembering that its last approach didn't work.
@@ -268,9 +279,10 @@ Two details worth noting:
 | `Sending LLM request`                          | Top of an iteration: includes iteration number, message count, tool count |
 | `Agent decided to use tools`                   | Tool phase starting, with the chosen tool names                           |
 | `Meltdown detected: injecting recovery signal` | Guard 2 fired; the agent was looping                                      |
+| `Meltdown repeated after a recovery signal`    | Guard 2 fired again after its nudge; the run was stopped                  |
 | `Collapsed duplicate tool calls in batch`      | Guard 3 fired; identical read-only calls in one batch ran once            |
-| `Compacting context`                           | Crossed 80% of the window; a summary is being produced                    |
-| `Tool timeout: <name>`                         | A tool exceeded its timeout; returned as a failed result, not a crash     |
+| `Compacting history to preserve context...`    | Crossed 80% of the window; a summary is being produced                    |
+| `Tool execution timed out`                     | A tool exceeded its timeout; returned as a failed result, not a crash     |
 | `Agent provided final response`                | Loop exiting normally                                                     |
 | `Missing tool results for some tool calls`     | Bug: please open an issue with the log                                    |
 

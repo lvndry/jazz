@@ -13,10 +13,16 @@ describe("classifyChatInput", () => {
     expect(classifyChatInput(undefined, true)).toEqual({ kind: "blank" });
   });
 
-  test("exit words end the chat on any terminal", () => {
-    for (const word of ["/exit", "exit", " QUIT "]) {
+  test("/exit and /quit end the chat on any terminal", () => {
+    for (const word of ["/exit", " /QUIT "]) {
       expect(classifyChatInput(word, true)).toEqual({ kind: "exit" });
       expect(classifyChatInput(word, false)).toEqual({ kind: "exit" });
+    }
+  });
+
+  test("a bare exit or quit is a message", () => {
+    for (const word of ["exit", "quit"]) {
+      expect(classifyChatInput(word, true)).toEqual({ kind: "message", text: word });
     }
   });
 

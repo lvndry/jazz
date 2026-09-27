@@ -6,7 +6,11 @@ import * as path from "node:path";
 import { writeFileDurably } from "@jazz/core/utils/durable-file";
 import { withFileLock } from "@jazz/core/utils/file-lock";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import {
+  getJazzHomeDirectory,
+  getSecretsFilePath,
+  getSecretsLockPath,
+} from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
@@ -209,11 +213,11 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
 
 const SECRETS_FILE_MODE = 0o600;
 function secretsFilePath(): string {
-  return path.join(getJazzHomeDirectory(), "secrets.json");
+  return getSecretsFilePath();
 }
 
 function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
-  return withFileLock(path.join(getJazzHomeDirectory(), ".secrets.lock"), operation);
+  return withFileLock(getSecretsLockPath(), operation);
 }
 
 type SecretsFileRead =

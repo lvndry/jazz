@@ -31,6 +31,7 @@ import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeGoalNow, describePlan, goalHandle } from "@/cli/goals/describe-goal";
+import { builtinFormLines } from "./constants";
 import type { CommandContext, CommandResult } from "./types";
 
 /** Words of the objective a goal is named after. */
@@ -65,19 +66,6 @@ const HANDOFF_CHOICES: readonly { name: string; value: HandoffChoice }[] = [
 
 export const goalLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provide(makeFileGoalStoreLayer()), Effect.provide(makeFileRunStoreLayer()));
-
-const HELP = [
-  "/goal <objective>            Keep working toward an objective, turn after turn, right here",
-  "/goal                        Where this conversation's goal stands",
-  "/goal pause                  Stop after the current turn; /goal resume continues",
-  "/goal resume [note]          Continue it; the note steers the next turn",
-  "/goal clear                  Drop the goal",
-  "/goal approve|reject|answer  Answer what a goal left waiting in the background, and carry on",
-  "/goal accept|decline <goal>  Start or drop a goal Jazz proposed",
-  "/goal list                   This conversation's goals",
-  "",
-  "Esc pauses a goal. Leaving the chat offers to finish it in the background.",
-];
 
 /** This conversation's goal that is not finished, if any. */
 function openGoal(conversationId: string) {
@@ -370,7 +358,7 @@ export function handleGoalCommand(
           const terminal = yield* TerminalServiceTag;
           const goal = yield* openGoal(context.conversationId);
           if (goal === undefined) {
-            yield* Effect.forEach(HELP, (line) => terminal.log(line));
+            yield* Effect.forEach(builtinFormLines("goal"), (line) => terminal.log(line));
             return;
           }
           yield* terminal.log(yield* describeGoalNow(goal, "chat"));
@@ -379,7 +367,7 @@ export function handleGoalCommand(
     case "help":
       return done(
         Effect.flatMap(TerminalServiceTag, (terminal) =>
-          Effect.forEach(HELP, (line) => terminal.log(line)),
+          Effect.forEach(builtinFormLines("goal"), (line) => terminal.log(line)),
         ),
       );
     case "list":

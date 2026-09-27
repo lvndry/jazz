@@ -17,24 +17,36 @@ import {
 } from "@/core/interfaces/presentation";
 import {
   ToolRegistryTag,
+  type Tool,
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { GenerationInterruptedError, type ToolNotFoundError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  type ToolNotFoundError,
+  ToolTimeoutError,
+} from "@/core/types/errors";
 import type { MemoryExposure } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import {
+  type ApprovalOutcome,
   isApprovalRequiredResult,
   shouldAutoApprove,
+  type ApprovalRequiredResult,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
   type ToolRiskLevel,
+  type UntrustedProvenance,
 } from "@/core/types/tools";
+import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
+import { taintedEgressApprovalMessage, taintedEgressNeedsApproval } from "./egress-taint";
+import type { ToolBatchLedger } from "./tool-batch-ledger";
 import {
   emitToolInvocation,
   recordToolError,
@@ -63,6 +75,35 @@ function resolveToolDisplayMetadata(
   });
 }
 
+/** A tool call's arguments as the tool receives them, or why they cannot be used. */
+type ParsedToolArguments =
+  | { readonly ok: true; readonly args: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Read a tool call's arguments. A call the provider flagged invalid, arguments that are not
+ * JSON, and JSON that is not an object are all refused with the reason, so the model is told
+ * its call was malformed instead of the tool running on defaults.
+ */
+export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
+  if (toolCall.invalidReason !== undefined) {
+    return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function.arguments);
+  } catch (parseError) {
+    return {
+      ok: false,
+      error: `Invalid JSON in tool arguments: ${toError(parseError).message}`,
+    };
+  }
+  if (!isRecord(parsed)) {
+    return { ok: false, error: "Invalid tool arguments: expected a JSON object." };
+  }
+  return { ok: true, args: parsed };
+}
+
 /**
  * The conversation the command-risk classifier may read as evidence of what the
  * user asked for, or `undefined` when the command has to stand on its own.
@@ -81,6 +122,67 @@ function classifierEvidence(
     return undefined;
   }
   return context.conversationMessages;
+}
+
+type ToolGateMetadata = Pick<
+  Tool<never>,
+  "riskLevel" | "resolveRiskLevel" | "approvalExecuteToolName" | "egress"
+>;
+
+/** How much of a call's arguments a plain tool's approval prompt quotes. */
+const PLAIN_TOOL_APPROVAL_ARGS_CHARS = 600;
+
+/**
+ * The level a plain (non-approval) tool's call is gated on, or `undefined` when the call
+ * needs no gate: an approval tool is gated by the request it returns, and a plain
+ * `read-only` call runs under every policy.
+ */
+function plainToolGateRisk(
+  tool: ToolGateMetadata | undefined,
+  args: Record<string, unknown>,
+): ToolRiskLevel | undefined {
+  if (tool === undefined || tool.approvalExecuteToolName !== undefined) {
+    return undefined;
+  }
+  const riskLevel = tool.resolveRiskLevel?.(args) ?? tool.riskLevel;
+  return riskLevel === "read-only" ? undefined : riskLevel;
+}
+
+/**
+ * The approval request the executor raises on behalf of a gated plain tool. Approving it
+ * runs the tool itself with the same arguments.
+ */
+function plainToolApprovalRequest(
+  name: string,
+  args: Record<string, unknown>,
+  riskLevel: ToolRiskLevel,
+): ApprovalRequiredResult {
+  const quoted = JSON.stringify(args);
+  const clipped =
+    quoted.length > PLAIN_TOOL_APPROVAL_ARGS_CHARS
+      ? `${quoted.slice(0, PLAIN_TOOL_APPROVAL_ARGS_CHARS - 1)}…`
+      : quoted;
+  return {
+    approvalRequired: true,
+    message: `Run ${name} (${riskLevel}) with ${clipped}`,
+    executeToolName: name,
+    executeArgs: args,
+  };
+}
+
+/**
+ * Whether an approval request a tool returned is one that tool may make: its registered
+ * `approvalExecuteToolName` names the execute half the request asks to run. Any other tool
+ * output shaped like a request (an MCP server's reply, a fetched JSON document) is data.
+ */
+function isRequestBoundToTool(
+  tool: ToolGateMetadata | undefined,
+  request: ApprovalRequiredResult,
+): boolean {
+  return (
+    tool?.approvalExecuteToolName !== undefined &&
+    tool.approvalExecuteToolName === request.executeToolName
+  );
 }
 
 /** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
@@ -177,32 +279,98 @@ export class ToolExecutor {
         ? execution.pipe(
             Effect.timeoutFail({
               duration: timeoutMs,
-              onTimeout: () => {
-                const timeoutMinutes = Math.round(timeoutMs / 60000);
-                return new Error(`Operation timed out after '${timeoutMinutes}m'`);
-              },
+              onTimeout: () => new ToolTimeoutError({ toolName: name, timeoutMs }),
             }),
-            Effect.catchAll((error) => {
-              const message = toError(error).message;
-              if (message.includes("timed out")) {
-                Effect.runFork(
-                  logger.warn("Tool execution timed out", {
-                    toolName: toolMeta?.name ?? "unknown",
-                    timeoutMs,
-                  }),
-                );
-                return Effect.succeed({
+            Effect.catchTag("ToolTimeoutError", (timeout) =>
+              Effect.gen(function* () {
+                yield* logger.warn("Tool execution timed out", {
+                  toolName: toolMeta?.name ?? "unknown",
+                  timeoutMs: timeout.timeoutMs,
+                });
+                return {
                   success: false,
                   result: null,
-                  error: message,
-                } satisfies ToolExecutionResult);
-              }
-              return Effect.fail(error);
-            }),
+                  error: `Tool '${timeout.toolName}' timed out after ${formatDuration(timeout.timeoutMs)} and was stopped.`,
+                } satisfies ToolExecutionResult;
+              }),
+            ),
           )
         : execution;
 
       return result;
+    });
+  }
+
+  /**
+   * Put a tool without an approval half to a person when the run is tainted and the tool is
+   * egress (see `egress-taint.ts`).
+   *
+   * Undefined when the call needs no one. Otherwise the outcome: an answer given before a park
+   * when resuming, or whatever the presentation returns (a prompt where somebody can answer, a
+   * decline where nobody can; parking was already decided for the whole batch before anything
+   * ran).
+   */
+  static confirmTaintedEgress(
+    toolCallId: string,
+    name: string,
+    args: Record<string, unknown>,
+    toolMeta: { readonly egress: boolean; readonly riskLevel: ToolRiskLevel },
+    context: ToolExecutionContext,
+    renderer: StreamingRenderer | null,
+  ): Effect.Effect<ApprovalOutcome | undefined, never, PresentationService | LoggerService> {
+    return Effect.gen(function* () {
+      const taint = context.egressTaint;
+      if (
+        taint === undefined ||
+        !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context)
+      ) {
+        return undefined;
+      }
+      const presentationService = yield* PresentationServiceTag;
+      const logger = yield* LoggerServiceTag;
+      const message = taintedEgressApprovalMessage(name, args, taint);
+      const policy = context.getAutoApprovePolicy?.();
+
+      yield* logger.info("Egress tool needs approval: the run has read untrusted content", {
+        toolCallId,
+        autoApprovePolicy: policy,
+      });
+      context.onToolEvent?.({ kind: "approval-required", toolName: name, toolCallId });
+      if (renderer) {
+        yield* renderer.handleEvent({
+          type: "approval_required",
+          toolCallId,
+          toolName: name,
+          message,
+          riskLevel: toolMeta.riskLevel,
+          ...(policy !== undefined ? { autoApprovePolicy: String(policy) } : {}),
+        });
+      }
+
+      const outcome =
+        context.resolvedApprovals?.get(toolCallId) ??
+        (yield* presentationService.requestApproval({
+          toolCallId,
+          toolName: name,
+          message,
+          executeToolName: name,
+          executeArgs: args,
+          isAutoApproved: () => !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context),
+        }));
+
+      if (renderer) {
+        yield* renderer.handleEvent({
+          type: "approval_resolved",
+          toolCallId,
+          toolName: name,
+          approved: outcome.approved,
+          auto: false,
+        });
+      }
+      if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
+        context.onAutoApproveTool(outcome.alwaysApproveTool);
+      }
+      return outcome;
     });
   }
 
@@ -221,6 +389,8 @@ export class ToolExecutor {
     parkable = false,
     /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
     preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
+    /** Told when the call's side effect begins, so a stopped batch can say what ran. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -239,26 +409,17 @@ export class ToolExecutor {
         return { toolCallId: toolCall.id, result: null, success: false, name: "unknown" };
       }
 
-      const { name, arguments: argsString } = toolCall.function;
+      const { name } = toolCall.function;
       recordToolInvocation(runMetrics, name);
       const toolStartTime = Date.now();
       let telemetryToolName = "unknown";
 
       try {
-        // Parse arguments
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(argsString);
-        } catch (parseError) {
-          throw new Error(`Invalid JSON in tool arguments: ${toError(parseError).message}`, {
-            cause: parseError,
-          });
+        const parsedArguments = parseToolCallArguments(toolCall);
+        if (!parsedArguments.ok) {
+          throw new Error(parsedArguments.error);
         }
-
-        const args: Record<string, unknown> =
-          parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {};
+        const args = parsedArguments.args;
 
         yield* logger.logToolCall(name, args);
 
@@ -291,7 +452,8 @@ export class ToolExecutor {
         // Emit tool execution start - skip for approval tools to avoid interleaving with
         // approval UI when multiple tools run in parallel (approval wrapper returns
         // immediately; the real "Executing tool" is emitted after user approval)
-        const isApprovalTool = toolsRequiringApproval.has(name);
+        const plainGateRisk = plainToolGateRisk(toolMeta, args);
+        const isApprovalTool = toolsRequiringApproval.has(name) || plainGateRisk !== undefined;
         // The counterpart to "Tool execution succeeded"/"failed" below. Both carry the
         // tool call id, so a start with no completion — a row the live band keeps
         // spinning forever — is one grep apart from being named.
@@ -326,28 +488,72 @@ export class ToolExecutor {
           }
         }
 
-        // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
-        let result = yield* ToolExecutor.executeTool(
-          name,
-          args,
-          { ...context, toolCallId: toolCall.id },
-          toolMeta?.timeoutMs,
-        );
+        // A gated plain tool does not run yet: the executor raises the approval request
+        // for it, and the approval path applies the egress taint. An ungated plain tool
+        // still stops for tainted egress here. Everything else runs, and an approval
+        // tool's run is its proposal.
+        let result: ToolExecutionResult;
+        let pendingApproval: ApprovalRequiredResult | undefined;
+        if (plainGateRisk !== undefined) {
+          pendingApproval = plainToolApprovalRequest(name, args, plainGateRisk);
+          result = { success: true, result: pendingApproval };
+        } else {
+          const taintVerdict =
+            toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
+              ? yield* ToolExecutor.confirmTaintedEgress(
+                  toolCall.id,
+                  name,
+                  args,
+                  toolMeta,
+                  context,
+                  renderer,
+                )
+              : undefined;
+          // An approval tool's own call only builds the request; its side effect starts
+          // after approval, below.
+          if (!isApprovalTool && (taintVerdict === undefined || taintVerdict.approved)) {
+            ledger?.markStarted(toolCall.id);
+          }
+          // Pass the pre-fetched timeout to avoid a redundant getTool lookup.
+          result =
+            taintVerdict !== undefined && !taintVerdict.approved
+              ? rejectedToolResult(taintVerdict.userMessage)
+              : yield* ToolExecutor.executeTool(
+                  name,
+                  args,
+                  { ...context, toolCallId: toolCall.id },
+                  toolMeta?.timeoutMs,
+                );
+          if (isApprovalRequiredResult(result.result)) {
+            if (isRequestBoundToTool(toolMeta, result.result)) {
+              pendingApproval = result.result;
+            } else {
+              yield* logger.warn("Refused an approval request the tool is not registered to make", {
+                toolCallId: toolCall.id,
+              });
+              result = {
+                success: false,
+                result: null,
+                error: `${name} returned an approval request for ${result.result.executeToolName}, which it is not registered to propose. Nothing was run.`,
+              };
+            }
+          }
+        }
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
         let classifiedRisk: ToolRiskLevel | undefined;
 
-        // Check if this result requires approval (Cursor/Claude-style approval flow)
-        // If so, we intercept here, show approval UI (or auto-approve), and execute the follow-up tool
-        if (isApprovalRequiredResult(result.result)) {
-          const approvalResult = result.result;
+        // An approval request: show the approval UI (or auto-approve), then run the
+        // execute half.
+        if (pendingApproval !== undefined) {
+          const approvalResult = pendingApproval;
           const registry = yield* ToolRegistryTag;
 
           // Get the tool's risk level to check against auto-approve policy
           const toolInfo = yield* registry
             .getTool(name)
             .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
-          let riskLevel = toolInfo.riskLevel;
+          let riskLevel = plainGateRisk ?? toolInfo.riskLevel;
 
           const getCurrentPolicy = () => context.getAutoApprovePolicy?.();
           const autoApprovePolicy = getCurrentPolicy();
@@ -392,10 +598,20 @@ export class ToolExecutor {
             riskLevel = classifiedRisk;
           }
 
+          const taintGated = () =>
+            taintedEgressNeedsApproval({
+              toolName: name,
+              egress: "egress" in toolInfo && toolInfo.egress,
+              args: approvalResult.executeArgs,
+              policy: getCurrentPolicy(),
+              taint: context.egressTaint,
+              messages: context.conversationMessages,
+            });
+
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
+            (shouldAutoApprove(riskLevel, getCurrentPolicy()) && !taintGated()) ||
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
@@ -455,10 +671,14 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
+          const approvalMessage =
+            !isAutoApproved && context.egressTaint !== undefined && taintGated()
+              ? `${approvalResult.message}\n\n${taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)}`
+              : approvalResult.message;
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
-            message: approvalResult.message,
+            message: approvalMessage,
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
@@ -558,6 +778,7 @@ export class ToolExecutor {
 
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
+            ledger?.markStarted(toolCall.id);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
@@ -579,18 +800,9 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
             });
 
-            const rejectionMessage =
-              (outcome as { approved: false; userMessage?: string }).userMessage?.trim() ||
-              "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.";
-
-            result = {
-              success: false,
-              result: {
-                rejected: true,
-                message: rejectionMessage,
-              },
-              error: "User rejected the operation",
-            };
+            result = rejectedToolResult(
+              (outcome as { approved: false; userMessage?: string }).userMessage,
+            );
           }
         }
 
@@ -654,6 +866,9 @@ export class ToolExecutor {
         const finalResult = result.success
           ? result.result
           : { error: result.error ?? "Tool execution failed", result: result.result };
+        if (result.untrusted?.kind === "external") {
+          context.egressTaint?.mark(result.untrusted.source);
+        }
         return {
           toolCallId: toolCall.id,
           result: finalResult,
@@ -662,6 +877,7 @@ export class ToolExecutor {
           ...(result.success && result.memoryExposure !== undefined
             ? { memoryExposure: result.memoryExposure }
             : {}),
+          ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
         };
       } catch (error) {
         const toolDuration = Date.now() - toolStartTime;
@@ -731,6 +947,8 @@ export class ToolExecutor {
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
     onDetachedToolComplete?: (summary: string) => void,
+    /** Records what each call did, for a batch that is stopped before it finishes. */
+    ledger?: ToolBatchLedger,
   ): Effect.Effect<
     ToolCallOutcome[],
     Error,
@@ -755,16 +973,15 @@ export class ToolExecutor {
         { concurrency: MAX_CONCURRENT_TOOLS },
       );
       const approvalToolNameSet = new Set<string>();
+      const toolMetaByName = new Map<string, ToolGateMetadata>();
       for (let i = 0; i < uniqueToolNames.length; i++) {
         const uniqueToolName = uniqueToolNames[i];
         const toolResult = toolResults[i];
-        if (
-          uniqueToolName &&
-          toolResult &&
-          Either.isRight(toolResult) &&
-          toolResult.right.approvalExecuteToolName
-        ) {
-          approvalToolNameSet.add(uniqueToolName);
+        if (uniqueToolName && toolResult && Either.isRight(toolResult)) {
+          toolMetaByName.set(uniqueToolName, toolResult.right);
+          if (toolResult.right.approvalExecuteToolName) {
+            approvalToolNameSet.add(uniqueToolName);
+          }
         }
       }
       const toolsRequiringApproval = toolNames.filter((toolName) =>
@@ -826,30 +1043,52 @@ export class ToolExecutor {
         let firstRequest: Parameters<typeof presentationService.requestApproval>[0] | undefined;
         for (const toolCall of toolCalls) {
           const name = toolCall.function.name;
-          if (!approvalSet.has(name)) continue;
           if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
 
-          let args: Record<string, unknown> = {};
-          try {
-            const parsed: unknown = JSON.parse(toolCall.function.arguments);
-            if (isRecord(parsed)) {
-              args = parsed;
-            }
-          } catch {
-            // Unparseable arguments are the per-call path's error to report, not this one's.
+          const parsedArguments = parseToolCallArguments(toolCall);
+          // Malformed arguments are the per-call path's error to report, not this one's.
+          if (!parsedArguments.ok) {
             continue;
           }
-          // Side-effect free for an approval tool: this is the call that builds the request.
-          const probe = yield* ToolExecutor.executeTool(name, args, {
-            ...context,
-            toolCallId: toolCall.id,
-          }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-          if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
+          const args = parsedArguments.args;
 
-          const request = probe.result;
-          const toolInfo = yield* registry
-            .getTool(name)
-            .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
+          const toolMeta = toolMetaByName.get(name);
+          const plainGateRisk = plainToolGateRisk(toolMeta, args);
+          let request: ApprovalRequiredResult;
+          if (plainGateRisk !== undefined) {
+            request = plainToolApprovalRequest(name, args, plainGateRisk);
+          } else {
+            if (!approvalSet.has(name)) {
+              if (
+                toolMeta === undefined ||
+                context.egressTaint === undefined ||
+                !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context)
+              ) {
+                continue;
+              }
+              needsAnswering.push(toolCall);
+              if (needsAnswering.length === 1) {
+                firstRequest = {
+                  toolCallId: toolCall.id,
+                  toolName: name,
+                  message: taintedEgressApprovalMessage(name, args, context.egressTaint),
+                  executeToolName: name,
+                  executeArgs: args,
+                  isAutoApproved: () => false,
+                };
+              }
+              continue;
+            }
+            // Side-effect free for an approval tool: this is the call that builds the request.
+            const probe = yield* ToolExecutor.executeTool(name, args, {
+              ...context,
+              toolCallId: toolCall.id,
+            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
+            if (!isRequestBoundToTool(toolMeta, probe.result)) continue;
+            request = probe.result;
+          }
+
           const policy = context.getAutoApprovePolicy?.();
           const allowlisted =
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
@@ -857,7 +1096,7 @@ export class ToolExecutor {
 
           // Without classifying, `execute_command` stays `unknown` and parks even `git
           // status` — while the per-call path, which does classify, would let it through.
-          let riskLevel = toolInfo.riskLevel;
+          let riskLevel = plainGateRisk ?? toolMeta?.riskLevel ?? "high-risk";
           const commandArg = request.executeArgs["command"];
           const command = typeof commandArg === "string" ? commandArg : undefined;
           if (
@@ -871,7 +1110,15 @@ export class ToolExecutor {
             preclassifiedRisk.set(toolCall.id, riskLevel);
           }
 
-          if (shouldAutoApprove(riskLevel, policy) || allowlisted) {
+          const taintGated = taintedEgressNeedsApproval({
+            toolName: name,
+            egress: toolMeta?.egress === true,
+            args: request.executeArgs,
+            policy,
+            taint: context.egressTaint,
+            messages: context.conversationMessages,
+          });
+          if ((shouldAutoApprove(riskLevel, policy) && !taintGated) || allowlisted) {
             continue;
           }
 
@@ -914,127 +1161,149 @@ export class ToolExecutor {
       const park = yield* parkTheBatch;
       if (park !== undefined) return yield* Effect.fail(park);
 
-      // Limit concurrency to prevent resource exhaustion when many tools are requested.
-      // Forked as daemon fibers (not structured children of this generator) so a
-      // detached-into-the-background call survives past this function returning — a
-      // plain `Effect.fork` child gets auto-interrupted the moment its parent scope
-      // closes, which is exactly what "detach" must not do. `Fiber.interrupt`,
-      // `Fiber.join`, and `Fiber.poll` all work the same on a daemon fiber, so this
-      // changes nothing about the existing interrupt/normal-completion paths.
-      const toolFibers = yield* Effect.all(
-        toolCalls.map((toolCall) =>
-          Effect.forkDaemon(
-            // Tapped once here rather than at each of the several places a call can
-            // finish, so a new return path cannot quietly stop reporting.
-            ToolExecutor.executeToolCall(
-              toolCall,
-              context,
-              displayConfig,
-              renderer,
-              runMetrics,
-              agentId,
-              conversationId,
-              approvalSet,
-              false,
-              preclassifiedRisk,
-            ).pipe(
-              Effect.tap((outcome) =>
-                Effect.sync(() => {
-                  const returned = toolResultForProgress(outcome.result);
-                  context.onToolEvent?.({
-                    kind: "tool-finished",
-                    toolName: outcome.name,
-                    toolCallId: outcome.toolCallId,
-                    ok: outcome.success,
-                    ...(returned !== undefined
-                      ? {
-                          result: returned.text,
-                          ...(returned.truncated ? { resultTruncated: true } : {}),
-                        }
-                      : {}),
+      const settleToolBatch = (
+        toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
+      ) =>
+        Effect.gen(function* () {
+          const awaitResults = Effect.all(
+            toolFibers.map((fiber) => Fiber.join(fiber)),
+            { concurrency: "unbounded" },
+          );
+
+          // Both signals are optional and mutually exclusive per race: whichever fires first
+          // (if either does) decides how this batch resolves. Racing them against each other
+          // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
+          // the outcome type to one flat union instead of an awkward `let`-reassigned one.
+          const interruptOrBackground = interruptSignal?.pipe(
+            Effect.as({ type: "interrupt" as const }),
+          );
+          const backgroundOrInterrupt = backgroundSignal?.pipe(
+            Effect.as({ type: "background" as const }),
+          );
+          const signalEffect =
+            interruptOrBackground && backgroundOrInterrupt
+              ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
+              : (interruptOrBackground ?? backgroundOrInterrupt);
+
+          if (!signalEffect) {
+            return yield* awaitResults;
+          }
+
+          // `raceFirst`: a failed batch fails now instead of waiting on a signal that may
+          // never come.
+          const resultsOrSignal = yield* Effect.raceFirst(
+            awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
+            signalEffect,
+          );
+
+          if (resultsOrSignal.type === "interrupt") {
+            // Settle the UI before waiting on fiber interrupt, so a slow finalizer
+            // cannot leave the 30s "still running" timer armed across the next turn.
+            if (renderer && displayConfig.showToolExecution) {
+              for (let index = 0; index < toolFibers.length; index++) {
+                const fiber = toolFibers[index];
+                const toolCall = toolCalls[index];
+                if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
+                  continue;
+                }
+                const poll = yield* Fiber.poll(fiber);
+                if (
+                  Option.isNone(poll) ||
+                  (Option.isSome(poll) && Exit.isInterrupted(poll.value))
+                ) {
+                  yield* renderer.handleEvent({
+                    type: "tool_execution_complete",
+                    toolCallId: toolCall.id,
+                    result: "Interrupted by user",
+                    durationMs: 0,
+                    success: false,
+                    error: "Interrupted by user",
                   });
-                }),
+                }
+              }
+            }
+            yield* Effect.all(
+              toolFibers.map((fiber) => Fiber.interrupt(fiber)),
+              { concurrency: "unbounded" },
+            );
+            return yield* Effect.fail(
+              new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
+            );
+          }
+
+          if (resultsOrSignal.type === "background") {
+            return yield* detachInFlightToolCalls(
+              toolFibers,
+              toolCalls,
+              renderer,
+              displayConfig,
+              onDetachedToolComplete,
+            );
+          }
+
+          return resultsOrSignal.results;
+        });
+
+      /**
+       * Tool calls run as daemon fibers so a call detached into the background (Ctrl+B)
+       * outlives this batch; a plain `Effect.fork` child is interrupted as soon as its
+       * parent scope closes. Being daemons, they are not interrupted with the run on their
+       * own, so every fiber is interrupted explicitly when this batch is interrupted
+       * (`--timeout`, SIGTERM, a run deadline, a parent's race). `Fiber.interrupt` waits for
+       * each fiber's finalizers, which is what kills a running shell command's process group.
+       * Forking happens with interruption masked so no fiber can start without being tracked.
+       */
+      return yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const toolFibers = yield* Effect.all(
+            toolCalls.map((toolCall) =>
+              Effect.forkDaemon(
+                Effect.interruptible(
+                  // Tapped once here rather than at each of the several places a call can
+                  // finish, so a new return path cannot quietly stop reporting.
+                  ToolExecutor.executeToolCall(
+                    toolCall,
+                    context,
+                    displayConfig,
+                    renderer,
+                    runMetrics,
+                    agentId,
+                    conversationId,
+                    approvalSet,
+                    false,
+                    preclassifiedRisk,
+                    ledger,
+                  ).pipe(
+                    Effect.tap((outcome) =>
+                      Effect.sync(() => {
+                        ledger?.markFinished(outcome);
+                        const returned = toolResultForProgress(outcome.result);
+                        context.onToolEvent?.({
+                          kind: "tool-finished",
+                          toolName: outcome.name,
+                          toolCallId: outcome.toolCallId,
+                          ok: outcome.success,
+                          ...(returned !== undefined
+                            ? {
+                                result: returned.text,
+                                ...(returned.truncated ? { resultTruncated: true } : {}),
+                              }
+                            : {}),
+                        });
+                      }),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        { concurrency: MAX_CONCURRENT_TOOLS },
+            { concurrency: MAX_CONCURRENT_TOOLS },
+          );
+
+          return yield* restore(settleToolBatch(toolFibers)).pipe(
+            Effect.onInterrupt(() => Fiber.interruptAll(toolFibers)),
+          );
+        }),
       );
-
-      const awaitResults = Effect.all(
-        toolFibers.map((fiber) => Fiber.join(fiber)),
-        { concurrency: "unbounded" },
-      );
-
-      // Both signals are optional and mutually exclusive per race: whichever fires first
-      // (if either does) decides how this batch resolves. Racing them against each other
-      // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
-      // the outcome type to one flat union instead of an awkward `let`-reassigned one.
-      const interruptOrBackground = interruptSignal?.pipe(
-        Effect.as({ type: "interrupt" as const }),
-      );
-      const backgroundOrInterrupt = backgroundSignal?.pipe(
-        Effect.as({ type: "background" as const }),
-      );
-      const signalEffect =
-        interruptOrBackground && backgroundOrInterrupt
-          ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
-          : (interruptOrBackground ?? backgroundOrInterrupt);
-
-      if (!signalEffect) {
-        return yield* awaitResults;
-      }
-
-      const resultsOrSignal = yield* Effect.race(
-        awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
-        signalEffect,
-      );
-
-      if (resultsOrSignal.type === "interrupt") {
-        // Settle the UI before waiting on fiber interrupt: execute_command used
-        // to wrap spawn in Effect.promise, which is uninterruptible, so this
-        // wait could block until the child exited — leaving the 30s "still
-        // running" timer armed across the next turn.
-        if (renderer && displayConfig.showToolExecution) {
-          for (let index = 0; index < toolFibers.length; index++) {
-            const fiber = toolFibers[index];
-            const toolCall = toolCalls[index];
-            if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
-              continue;
-            }
-            const poll = yield* Fiber.poll(fiber);
-            if (Option.isNone(poll) || (Option.isSome(poll) && Exit.isInterrupted(poll.value))) {
-              yield* renderer.handleEvent({
-                type: "tool_execution_complete",
-                toolCallId: toolCall.id,
-                result: "Interrupted by user",
-                durationMs: 0,
-                success: false,
-                error: "Interrupted by user",
-              });
-            }
-          }
-        }
-        yield* Effect.all(
-          toolFibers.map((fiber) => Fiber.interrupt(fiber)),
-          { concurrency: "unbounded" },
-        );
-        return yield* Effect.fail(
-          new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
-        );
-      }
-
-      if (resultsOrSignal.type === "background") {
-        return yield* detachInFlightToolCalls(
-          toolFibers,
-          toolCalls,
-          renderer,
-          displayConfig,
-          onDetachedToolComplete,
-        );
-      }
-
-      return resultsOrSignal.results;
     });
   }
 }
@@ -1047,6 +1316,8 @@ export interface ToolCallOutcome {
   readonly name: string;
   /** Carried from the tool's own result so the loop never re-derives it by tool name. */
   readonly memoryExposure?: MemoryExposure;
+  /** Carried from the tool's own result; the loop frames the result it appends. */
+  readonly untrusted?: UntrustedProvenance;
 }
 
 /**
@@ -1128,7 +1399,9 @@ function detachInFlightToolCalls(
 function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
   const body = typeof outcome.result === "string" ? outcome.result : JSON.stringify(outcome.result);
   const truncated = body.length > 800 ? `${body.slice(0, 800)}…` : body;
-  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${truncated}`;
+  const shown =
+    outcome.untrusted === undefined ? truncated : frameUntrusted(truncated, outcome.untrusted);
+  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${shown}`;
 }
 
 /**
@@ -1159,4 +1432,41 @@ function isToolNameAutoApproved(
 ): boolean {
   if (!approvedTools?.length) return false;
   return approvedTools.includes(toolName);
+}
+
+/** What a declined call returns to the model, with the person's own words when they gave some. */
+function rejectedToolResult(userMessage: string | undefined): ToolExecutionResult {
+  return {
+    success: false,
+    result: {
+      rejected: true,
+      message:
+        userMessage?.trim() ||
+        "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.",
+    },
+    error: "User rejected the operation",
+  };
+}
+
+/**
+ * Whether a tool without an approval half must be put to a person before it runs, because the
+ * run is tainted and it is egress. An explicit per-tool allowlist entry still approves it.
+ */
+function plainToolNeedsTaintApproval(
+  name: string,
+  args: Record<string, unknown>,
+  egress: boolean,
+  context: ToolExecutionContext,
+): boolean {
+  return (
+    !isToolNameAutoApproved(name, context.autoApprovedTools) &&
+    taintedEgressNeedsApproval({
+      toolName: name,
+      egress,
+      args,
+      policy: context.getAutoApprovePolicy?.(),
+      taint: context.egressTaint,
+      messages: context.conversationMessages,
+    })
+  );
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
@@ -46,6 +46,7 @@ import { SkillServiceTag } from "../../skills/skill-service";
 import type { RecursiveRunner } from "../context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -156,6 +157,15 @@ function recordingObserver() {
     onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
+    onToolsDisabled: (name: string, provider: string, model: string) =>
+      Effect.sync(() => void calls.push(`tools-disabled:${name}:${provider}/${model}`)),
+    onAnswerIncomplete: (name: string, finishReason: "length" | "content-filter") =>
+      Effect.sync(() => void calls.push(`incomplete:${name}:${finishReason}`)),
+    onStalled: (name: string) => Effect.sync(() => void calls.push(`stalled:${name}`)),
+    onCompactionUnavailable: (name: string, reason: string) =>
+      Effect.sync(() => void calls.push(`compaction-unavailable:${name}:${reason}`)),
+    onContextOverflow: (name: string) =>
+      Effect.sync(() => void calls.push(`context-overflow:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onHistoryTrimmed: (name: string, messagesRemoved: number) =>
@@ -210,6 +220,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       totalCacheReadTokens: 0,
       childCostUSD: 0,
       childCostUnknown: false,
+      usageMissing: false,
       iterationSummaries: [],
       errors: [],
       metrics: {
@@ -702,6 +713,139 @@ describe("executeAgentLoop", () => {
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
   });
 
+  function longHistory(): ChatMessage[] {
+    const filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);
+    return [
+      { role: "system", content: "system prompt" },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `turn ${index}: ${filler}`,
+      })),
+    ];
+  }
+
+  it("shrinks the history and retries once when the provider says the prompt is too long", async () => {
+    const seenLengths: number[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        seenLengths.push(messages.length);
+        return seenLengths.length === 1
+          ? Effect.fail(
+              new LLMRequestError({
+                provider: "openai",
+                message: "prompt is too long",
+                statusCode: 400,
+                contextOverflow: true,
+              }),
+            )
+          : Effect.succeed({
+              completion: { id: "c2", model: "gpt-4", content: "fits now" },
+              interrupted: false,
+            });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ messages: longHistory() as any }),
+        displayConfig,
+        strategy,
+        observer,
+        summarizing,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("fits now");
+    expect(calls).toContain("context-overflow:test-agent");
+    expect(seenLengths[1]).toBeLessThan(seenLengths[0] ?? 0);
+  });
+
+  it("fails the run when the retry after an overflow is rejected too", async () => {
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.fail(
+          new LLMRequestError({
+            provider: "openai",
+            message: "prompt is too long",
+            statusCode: 400,
+            contextOverflow: true,
+          }),
+        );
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+
+    await expect(
+      Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext({ messages: longHistory() as any }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          summarizing,
+        ).pipe(Effect.provide(TestLayer)),
+      ),
+    ).rejects.toThrow("prompt is too long");
+    expect(calls).toBe(2);
+  });
+
+  it("trims instead of failing the run when the summarizer fails", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "answered" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const failingSummarizer: RecursiveRunner = () => Effect.fail(new Error("summarizer offline"));
+    const messages = longHistory();
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens: Math.ceil(usedTokens / 0.9) },
+    } as any;
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        observer,
+        failingSummarizer,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("answered");
+    expect(calls).toContain("compaction-unavailable:test-agent:summarizer offline");
+    expect(calls.some((entry) => entry.startsWith("history-trimmed:"))).toBe(true);
+  });
+
   it("tells the model to consolidate once context passes the warn threshold", () => {
     expect(buildContextPressureMessage(6_000, 10_000)).toBeNull();
     expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("CONTEXT WARNING");
@@ -935,10 +1079,11 @@ describe("executeAgentLoop", () => {
     };
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
-    // Strategy that always returns tool calls (never finishes)
+    // Strategy that always returns tool calls (never finishes), each with fresh arguments so
+    // the run is busy rather than looping.
     const strategy: CompletionStrategy = {
       shouldShowReasoning: false,
-      getCompletion: () =>
+      getCompletion: (_messages, iteration) =>
         Effect.succeed({
           completion: {
             id: "c1",
@@ -948,7 +1093,7 @@ describe("executeAgentLoop", () => {
               {
                 id: "call_1",
                 type: "function" as const,
-                function: { name: "test_tool", arguments: "{}" },
+                function: { name: "test_tool", arguments: JSON.stringify({ page: iteration }) },
               },
             ],
           },
@@ -987,7 +1132,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
 
-    await Effect.runPromise(
+    const result = await Effect.runPromise(
       executeAgentLoop(
         makeOptions({ maxIterations: 2 }),
         makeRunContext(),
@@ -999,6 +1144,7 @@ describe("executeAgentLoop", () => {
     );
 
     expect(warningCalls.some((msg) => msg.includes("iteration limit reached"))).toBe(true);
+    expect(result.iterationLimited).toBe(true);
 
     ToolExecutor.executeToolCalls = originalExecute;
   });
@@ -1118,7 +1264,7 @@ describe("executeAgentLoop", () => {
         (message) => message.role === "tool" && message.tool_call_id === "call_1",
       );
       expect(toolMessage).toBeDefined();
-      expect(toolMessage?.content).toContain("interrupted");
+      expect(toolMessage?.content).toContain("stopped by the user");
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }
@@ -1221,7 +1367,7 @@ describe("executeAgentLoop", () => {
         const last = kept?.at(-1);
         expect(last?.role).toBe("tool");
         expect(last?.tool_call_id).toBe("call_1");
-        expect(last?.content).toContain("did not finish");
+        expect(last?.content).toContain("the run failed");
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
@@ -1454,6 +1600,136 @@ describe("executeAgentLoop", () => {
     );
 
     expect(result.toolsDisabled).toBe(true);
+    expect(result.iterationLimited).toBeUndefined();
+  });
+
+  it("warns once per run when tools are dropped, however many requests drop them", async () => {
+    let call = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.sync(() => {
+          call += 1;
+          return {
+            completion:
+              call === 1
+                ? {
+                    id: "c1",
+                    model: "gpt-4",
+                    content: "",
+                    toolsDisabled: true,
+                    toolCalls: [
+                      {
+                        id: "call_1",
+                        type: "function" as const,
+                        function: { name: "test_tool", arguments: "{}" },
+                      },
+                    ],
+                  }
+                : { id: "c2", model: "gpt-4", content: "done", toolsDisabled: true },
+            interrupted: false,
+          };
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
+    );
+    const { observer, calls } = recordingObserver();
+
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+
+    expect(calls.filter((entry) => entry.startsWith("tools-disabled:"))).toHaveLength(1);
+  });
+
+  it("carries the final finish reason and flags an empty zero-token completion", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "",
+            finishReason: "stop" as const,
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.finishReason).toBe("stop");
+    expect(result.emptyCompletion).toBe(true);
+  });
+
+  it("reports a cut-off final answer to the observer", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "half an answ",
+            finishReason: "length" as const,
+            usage: { promptTokens: 5, completionTokens: 4096, totalTokens: 4101 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const { observer, calls } = recordingObserver();
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext(),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(result.finishReason).toBe("length");
+    expect(result.emptyCompletion).toBeUndefined();
+    expect(
+      calls.some((entry) => entry.startsWith("incomplete:") && entry.endsWith(":length")),
+    ).toBe(true);
   });
 
   it("returns usage from runMetrics and omits costUSD when pricing metadata is unavailable", async () => {
@@ -2416,6 +2692,59 @@ describe("executeAgentLoop cost and token caps", () => {
       }
     }
   });
+
+  it("stops a run that keeps looping after its meltdown nudge, with stalled", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+    let completions = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        completions++;
+        return Effect.succeed({
+          completion: {
+            id: `c${completions}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: `call_${completions}`,
+                type: "function" as const,
+                function: { name: "read_file", arguments: '{"path":"README.md"}' },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const { observer, calls } = recordingObserver();
+
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 100 }),
+          makeRunContext({ maxIterations: 100 }),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(response.stalled).toBe(true);
+      expect(completions).toBe(2 * MELTDOWN_WINDOW_SIZE);
+      expect(calls).toContain("stalled:test-agent");
+      expect(calls.some((entry) => entry.startsWith("limit:"))).toBe(false);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
 });
 
 /**
@@ -2499,6 +2828,139 @@ describe("dedupeToolCalls", () => {
       ["c", "a"],
       ["d", "b"],
       ["e", "a"],
+    ]);
+  });
+});
+
+describe("a tool batch stopped part-way", () => {
+  const registry = {
+    ...mockToolRegistry,
+    getTool: (name: string) => Effect.succeed({ name, approvalExecuteToolName: undefined }),
+    executeTool: (name: string) =>
+      name === "fast_tool"
+        ? Effect.succeed({ success: true, result: "fast result" })
+        : Effect.never,
+  } as any;
+  const layer = Layer.merge(TestLayer, Layer.succeed(ToolRegistryTag, registry));
+  const realMetrics = () =>
+    createAgentRunMetrics({
+      agent: makeOptions().agent,
+      conversationId: "conv-123",
+      provider: "openai",
+      model: "gpt-4",
+      maxIterations: 10,
+      maxCostUSD: undefined,
+    });
+
+  function batchStrategy(interruptAfterMs?: number): CompletionStrategy {
+    let calls = 0;
+    return {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed({
+          completion: {
+            id: `c${calls}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "fast",
+                type: "function" as const,
+                function: { name: "fast_tool", arguments: "{}" },
+              },
+              {
+                id: "slow",
+                type: "function" as const,
+                function: { name: "slow_tool", arguments: "{}" },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+      ...(interruptAfterMs !== undefined
+        ? { getInterruptSignal: () => Effect.sleep(`${interruptAfterMs} millis`) }
+        : {}),
+    };
+  }
+
+  function toolAnswers(messages: readonly ChatMessage[] | undefined) {
+    return Object.fromEntries(
+      (messages ?? [])
+        .filter((message) => message.role === "tool")
+        .map((message) => [message.tool_call_id, message.content]),
+    );
+  }
+
+  it("keeps a completed call's result and says which call was interrupted, on Esc", async () => {
+    const stopped: unknown[] = [];
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ onToolBatchStopped: (calls) => stopped.push(calls) }),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(100),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+
+    const answers = toolAnswers(response.messages);
+    expect(answers["fast"]).toContain("fast result");
+    expect(answers["slow"]).toContain("Interrupted while running (stopped by the user)");
+    expect(response.stoppedToolCalls).toEqual([
+      { id: "fast", name: "fast_tool", status: "completed" },
+      { id: "slow", name: "slow_tool", status: "interrupted" },
+    ]);
+    expect(stopped).toEqual([response.stoppedToolCalls]);
+  });
+
+  it("reports the same when the run's time budget stops the batch", async () => {
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ maxDurationMs: 300, runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+
+    const answers = toolAnswers(response.messages);
+    expect(response.durationCapped).toBe(true);
+    expect(answers["fast"]).toContain("fast result");
+    expect(answers["slow"]).toContain("the run reached its time budget");
+    expect(response.stoppedToolCalls?.map((call) => call.status)).toEqual([
+      "completed",
+      "interrupted",
+    ]);
+  });
+
+  it("tells the caller what ran when the whole run is interrupted from outside", async () => {
+    const stopped: unknown[] = [];
+    const fiber = Effect.runFork(
+      executeAgentLoop(
+        makeOptions({ onToolBatchStopped: (calls) => stopped.push(calls) }),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(),
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(layer)),
+    );
+    await Bun.sleep(150);
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(stopped).toEqual([
+      [
+        { id: "fast", name: "fast_tool", status: "completed" },
+        { id: "slow", name: "slow_tool", status: "interrupted" },
+      ],
     ]);
   });
 });

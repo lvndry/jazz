@@ -308,4 +308,60 @@ describe("runWorkflowCommand", () => {
 
     expect(process.exitCode).toBe(0);
   });
+
+  describe("approval policy", () => {
+    const layerFor = (workflow: WorkflowContent) =>
+      Layer.mergeAll(
+        Layer.succeed(TerminalServiceTag, mockTerminal),
+        Layer.succeed(WorkflowServiceTag, {
+          listWorkflows: mock(() => Effect.succeed([])),
+          loadWorkflow: mock(() => Effect.succeed(workflow)),
+        } as unknown as WorkflowService),
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(SchedulerServiceTag, mockScheduler),
+        Layer.succeed(AgentServiceTag, mockAgentService),
+        NodeFileSystem.layer,
+      );
+
+    const policyOf = async (workflow: WorkflowContent) => {
+      let runOptions: Record<string, unknown> | undefined;
+      AgentRunner.run = mock((options: Record<string, unknown>) => {
+        runOptions = options;
+        return Effect.succeed({ content: "ok" });
+      }) as unknown as typeof AgentRunner.run;
+      const program = runWorkflowCommand("code-review", {
+        autoApprove: true,
+        agent: "ci-reviewer",
+      });
+      const exit = await Effect.runPromiseExit(
+        program.pipe(Effect.provide(layerFor(workflow))) as Effect.Effect<void, unknown, never>,
+      );
+      return { exit, runOptions };
+    };
+
+    it("runs a workflow without autoApprove at false under --auto-approve", async () => {
+      const { runOptions } = await policyOf(mockWorkflow);
+      expect(runOptions?.["autoApprovePolicy"]).toBe(false);
+    });
+
+    it("runs a workflow at the tier it declares", async () => {
+      const { runOptions } = await policyOf({
+        ...mockWorkflow,
+        metadata: { ...mockWorkflow.metadata, autoApprove: "high-risk" },
+      });
+      expect(runOptions?.["autoApprovePolicy"]).toBe("high-risk");
+    });
+
+    it("refuses to run a workflow whose autoApprove is invalid", async () => {
+      const { exit, runOptions } = await policyOf({
+        ...mockWorkflow,
+        metadata: {
+          ...mockWorkflow.metadata,
+          definitionError: 'autoApprove "readonly" is not valid.',
+        },
+      });
+      expect(exit._tag).toBe("Failure");
+      expect(runOptions).toBeUndefined();
+    });
+  });
 });

@@ -404,6 +404,15 @@ server with a different `LANG`. Animation is quantised to whole cells and
 discrete colour steps, so a high-latency link degrades the frame rate and nothing
 else.
 
+### No colour
+
+`NO_COLOR` (any non-empty value) switches chalk off at startup (`ui/theme.ts`), which
+covers the classic interface, the plain presentation and every `CHALK_THEME` helper,
+since Ink renders through the same chalk instance. The fullscreen interface paints
+cells itself, so it gets `neutralPalette`: every hue replaced by its place on the
+neutral ramp, with weight and shade still carrying emphasis. Plain output reads the
+same `CHALK_THEME` tokens as the interactive interfaces, never its own hues.
+
 ### Cutting-edge terminals
 
 Terminals such as Warp, Ghostty, kitty and WezTerm offer capabilities Jazz can

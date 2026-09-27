@@ -48,6 +48,15 @@ describe("bridge reminder store", () => {
     expect(kept?.delivery).toMatchObject({ status: "failed", lastError: "chat unreachable" });
   });
 
+  it("upgrades schema-one reminders through claim and settlement without removing pending work", async () => {
+    const home = homeWith(JSON.stringify({ schemaVersion: 1, reminders: [due, later] }));
+    expect(readReminders(home, "tg_1").map((reminder) => reminder.id)).toEqual(["a", "b"]);
+    const claimed = await claimDueReminders(home, "tg_1", 10, undefined);
+    expect(claimed.map((reminder) => reminder.id)).toEqual(["a"]);
+    await settleReminder(home, "tg_1", "a", { delivered: true }, undefined);
+    expect(stored(home)).toEqual({ schemaVersion: 2, reminders: [later] });
+  });
+
   it("reads a file written before schema versions", () => {
     const home = homeWith(JSON.stringify([due]));
     expect(readReminders(home, "tg_1").map((reminder) => reminder.id)).toEqual(["a"]);

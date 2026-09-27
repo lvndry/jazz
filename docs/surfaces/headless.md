@@ -28,7 +28,7 @@ flowchart LR
 
     RUN -->|stdout| OUT["<b>Exactly one line</b><br/>the answer, or one JSON object"]
     RUN -->|stderr| ERR["Status notices<br/>tool chatter<br/>the ◉ Agent header<br/>the ✔ completed footer<br/>NDJSON progress events"]
-    RUN -->|exit code| CODE["0 = ok<br/>1 = failure"]
+    RUN -->|exit code| CODE["0 = ok<br/>1 = failure<br/>2 = parked<br/>130/143 = signal"]
 
     OUT --> PARSE["Your code:<br/>JSON.parse(stdout)"]
     ERR --> LOG["Your code:<br/>log it, or render<br/>a live progress bubble"]
@@ -80,11 +80,55 @@ _and_ on failure.
 
 ```jsonc
 // failure
-{ "ok": false, "error": "Run exceeded the 300000ms timeout.", "costUSD": 0.0041 }
+{ "ok": false, "error": "Run exceeded the 300000ms timeout.", "code": "failed", "costUSD": 0.0041 }
 ```
 
 Note that the failure envelope still reports `costUSD`: a run that timed out still
 spent money, and an unattended deployment needs to account for it.
+
+`code` says why a run failed, so a script can branch without parsing `error`:
+
+| `code`             | Meaning                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `failed`           | The run errored: provider, tool, configuration, or timeout                                                          |
+| `empty_response`   | The model returned an empty completion with zero tokens: usually a misconfigured or overloaded provider             |
+| `no_answer`        | The model stopped for a reason other than `stop` (for example `length`) before writing anything; see `finishReason` |
+| `content_filtered` | The provider's content filter withheld the answer                                                                   |
+| `interrupted`      | SIGINT or SIGTERM stopped the run; `signal` names which                                                             |
+
+A run that finishes without a usable answer is a failure, never `ok:true` with an empty
+`answer`.
+
+### What else the envelope tells you
+
+These fields appear on the success envelope only when they apply:
+
+| Field                                         | Meaning                                                                                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `finishReason`                                | Why the model stopped writing the answer: `stop`, `length`, `tool-calls`, `other`, or `unknown`                                                                                  |
+| `truncated`                                   | `true` when the answer was cut off at the model's output limit (`finishReason: "length"`). The answer is still returned, and stderr carries a warning                            |
+| `iterationLimited`                            | `true` when the run used every allowed iteration (`--max-iterations`) without a final answer                                                                                     |
+| `toolsDisabled`                               | `true` when the agent has tools but none were sent, because Jazz does not know the model supports tool calling. The agent could only talk. stderr carries a warning with the fix |
+| `costCapped`, `tokenCapped`, `durationCapped` | `true` when a run budget stopped the run early                                                                                                                                   |
+
+Jazz assumes a cloud model supports tools when neither its catalog nor your config says
+otherwise, so a newly released model keeps its tools. A local server's model gets tools once
+the server reports them. When Jazz cannot tell, override it with
+`jazz config set 'llm.capabilityOverrides.<provider>."<model>".supportsTools' true`.
+
+### Exit codes
+
+| Code  | Meaning                                                                         |
+| ----- | ------------------------------------------------------------------------------- |
+| `0`   | An answer was produced                                                          |
+| `1`   | The run failed, or finished without a usable answer (see `code`)                |
+| `2`   | The run is parked on an approval (`--park`); resume it with `jazz runs approve` |
+| `130` | SIGINT (Ctrl+C) stopped the run                                                 |
+| `143` | SIGTERM stopped the run                                                         |
+
+On SIGINT or SIGTERM, `--json` stdout still carries exactly one envelope:
+`{"ok":false,"error":"interrupted","code":"interrupted","signal":"SIGTERM",...}`. The shutdown
+notice goes to stderr. A second signal exits at once with the same code and envelope.
 
 Successful envelopes also include `costKnown`. When pricing metadata is unavailable,
 `costUSD` remains `0` for compatibility and `costKnown` is `false`; consumers must not
@@ -273,22 +317,22 @@ Unattended runs have nobody to ask, so `--approval-policy` decides in advance. T
 above the tier are **declined**: the agent gets a refusal it can reason about and route
 around, rather than hanging forever on a prompt nobody will answer.
 
-| Policy      | Auto-approves                                                     |
-| ----------- | ----------------------------------------------------------------- |
-| _(omitted)_ | Nothing. Every gated tool is declined.                            |
-| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`    |
-| `low-risk`  | + work-state/todo writes, subagents, low-risk classified commands |
-| `high-risk` | + file writes, shell commands, git commit and push                |
+| Policy      | Auto-approves                                                      |
+| ----------- | ------------------------------------------------------------------ |
+| _(omitted)_ | Nothing. Every gated tool is declined.                             |
+| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`     |
+| `low-risk`  | + memory writes, reminders, triggers, low-risk classified commands |
+| `high-risk` | + file writes, shell commands, git commit and push                 |
 
-Omitting the policy really does grant nothing here. The interactive default auto-approves
-read-only and low-risk tools, but that is a statement about prompts it is not worth showing
-a person: with nobody to show, an absent policy falls back to declining everything. Shell
+Omitting the policy grants nothing, here and in the interactive terminal alike: with nobody to
+ask, every gated call is declined. To run everything unasked, pass `--approval-policy high-risk`
+explicitly (see [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo)). Shell
 commands under `read-only` and `low-risk` are admitted per command by the
 [classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
 `git log` through without also unlocking `git push`.
 
-> ⚠️ **`low-risk` is narrower than it sounds.** It includes durable work-state, memory,
-> reminders, triggers, and subagents, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
+> ⚠️ **`low-risk` is narrower than it sounds.** It includes memory, reminders and
+> triggers, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See the [tool inventory](../tools/index.md#what-is-not-a-built-in-tool).

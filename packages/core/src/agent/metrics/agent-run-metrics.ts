@@ -72,6 +72,11 @@ export interface AgentRunMetrics {
   childCostUSD: number;
   /** True once any nested run spent tokens whose pricing was unavailable. */
   childCostUnknown: boolean;
+  /**
+   * True once a model call in this run returned without reporting its token usage, so the
+   * token totals, and any cost computed from them, undercount real spend.
+   */
+  usageMissing: boolean;
   llmRetryCount: number;
   lastError?: TelemetryErrorCategory;
   toolCalls: number;
@@ -140,6 +145,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalCacheWriteTokens: 0,
     childCostUSD: 0,
     childCostUnknown: false,
+    usageMissing: false,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,
@@ -214,6 +220,7 @@ export function computeRunCost(
     | "totalCacheReadTokens"
     | "childCostUSD"
     | "childCostUnknown"
+    | "usageMissing"
     | "decisionCostUSD"
     | "decisionCostUnknown"
     | "provider"
@@ -241,10 +248,11 @@ export function computeRunCost(
         )
       : undefined;
 
+  const isFreeLocalModel = isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
   const ownCostUnknown =
-    ownCostUSD === undefined &&
-    metrics.totalPromptTokens + metrics.totalCompletionTokens > 0 &&
-    !isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
+    !isFreeLocalModel &&
+    ((ownCostUSD === undefined && metrics.totalPromptTokens + metrics.totalCompletionTokens > 0) ||
+      metrics.usageMissing);
 
   return {
     costUSD,

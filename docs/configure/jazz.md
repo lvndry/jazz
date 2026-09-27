@@ -73,13 +73,13 @@ Run `jazz config validate` for the same diagnostics and a non-zero exit status, 
 | `maxIterations`         |   `100` | Reason-and-act cycles for a top-level run                                                                     |
 | `maxSubagentIterations` |    `30` | Reason-and-act cycles for each delegated child run                                                            |
 | `maxSubagentDepth`      |     `3` | Delegation levels below the top-level run; `0` disables delegation                                            |
-| `maxRetries`            |    `10` | Retries after transient model-provider failures                                                               |
+| `maxRetries`            |    `10` | Retries per model call after transient provider failures, shared by streaming and its fallback                |
 | `editor`                |         | Editor for `jazz persona edit` / `jazz mcp add`, e.g. `code --wait`; falls back to `$VISUAL`, `$EDITOR`, `vi` |
 | `maxCostUSD`            |   unset | Own and delegated model spend in US dollars                                                                   |
 | `maxTokens`             |   unset | Own prompt and completion tokens; child tokens are not included                                               |
 | `maxDurationMs`         |   unset | Wall-clock budget with model warnings before termination                                                      |
 
-Cost, token, and duration limits are checked between iterations. One model call or tool phase can cross a limit before Jazz stops the next iteration. An external `--timeout` is a separate hard deadline around the entire run.
+Cost and token limits are checked between iterations. One model call or tool phase can cross them before Jazz stops the next iteration. The duration limit is a deadline: when it passes, Jazz interrupts whatever is running (a model call, a shell command, a sub-agent), closes any unfinished tool call, and returns what the run had so far. Sub-agents run under what is left of it. An external `--timeout` is a separate hard deadline around the entire run that ends it as a failure.
 
 Command-line and workflow values override application defaults for that run.
 
@@ -118,9 +118,20 @@ Both values are fractions of the effective model context window. Jazz requires `
 
 ## Webhooks and peers
 
-`webhooks` defines authenticated, fixed-prompt HTTP doors served by `jazz daemon`. Each entry names an agent and may narrow conversation persistence, disclosure, and allowed tools. Manage its bearer token with `jazz webhook`, not in JSON. [Wake an agent from another system with a webhook](../guides/webhook-endpoint.md) has a complete entry and the request that fires it.
+`webhooks` defines authenticated, fixed-prompt HTTP doors served by `jazz daemon`. Each entry names an agent and may narrow conversation persistence, disclosure, and allowed tools. `signature` (`{ "format": "hmac-sha256", "header"?, "prefix"? }`) authenticates by a signature over the body instead of a bearer token, and `deliveryIdHeader` names the header a repeated delivery is recognized by. Manage the bearer token and signing secret with `jazz webhook`, not in JSON. [Wake an agent from another system with a webhook](../guides/webhook-endpoint.md) has a complete entry and the request that fires it.
 
 `peers` lists remote Jazz agents this installation has explicitly chosen to trust. Peer credentials belong in the keyring. See [Agent-to-agent](../concepts/agent-to-agent.md).
+
+Both take the same per-door limits:
+
+| Key                    | Meaning                                                                                              |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `budget.maxTokens`     | Token cap on each run the door starts. Falls back to the top-level `maxTokens`                       |
+| `budget.maxCostUSD`    | Cost cap on each run. Falls back to the top-level `maxCostUSD`                                       |
+| `budget.maxDurationMs` | Wall-clock cap on each run. Falls back to the top-level `maxDurationMs`                              |
+| `maxConcurrentRuns`    | Runs the door may have in flight at once, default 4. A request past it gets `429` with `Retry-After` |
+
+Two entries in one list whose names differ only in case or punctuation (`a.b` and `A_b`) read the same credential environment variable, so the second is refused when the config loads.
 
 ## Daemon limits and notifications
 

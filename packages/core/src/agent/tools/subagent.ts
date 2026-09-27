@@ -21,8 +21,11 @@ import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { childRunAuthority } from "./child-run-authority";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import { judgeAnswer } from "../run/answer-outcome";
+import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -31,6 +34,31 @@ const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
+
+/**
+ * Which limit stopped a sub-agent before its final answer, read from the
+ * response's flags. `undefined` when it finished on its own.
+ */
+function subagentStopReason(
+  response: Pick<
+    AgentResponse,
+    "iterationLimited" | "costCapped" | "tokenCapped" | "durationCapped"
+  >,
+): string | undefined {
+  if (response.iterationLimited === true) {
+    return "iteration limit";
+  }
+  if (response.costCapped === true) {
+    return "cost cap";
+  }
+  if (response.tokenCapped === true) {
+    return "token cap";
+  }
+  if (response.durationCapped === true) {
+    return "time budget";
+  }
+  return undefined;
+}
 
 /**
  * The child was told it is a one-shot run with nobody to ask, so a bare user turn
@@ -206,6 +234,7 @@ const summarizeContextSchema = z.object({});
  * - Delegate specialised tasks to lightweight sub-agents (codebase exploration, deep research, etc.)
  * - Explicitly compact the current context window on demand
  */
+
 export function createSubagentTools(): Tool<ToolRequirements>[] {
   // We cast to Tool<ToolRequirements>[] because the tools' handlers depend on
   // services (ToolRegistry, etc.) that are provided by the agent execution runtime
@@ -220,7 +249,10 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
         "Delegate a self-contained task to a child agent with a fresh context; only its final answer comes back. Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting stops at depth 3.",
       parameters: spawnSubagentSchema,
       hidden: false,
-      riskLevel: "low-risk",
+      // Spawning grants nothing: the child holds at most this run's tools under this run's
+      // policy (`childRunAuthority`), and every call it makes is gated as if made here.
+      peerGrantRequired: true,
+      riskLevel: "read-only",
       validate: makeZodValidator(spawnSubagentSchema),
       handler: (args: SpawnSubagentArgs, context) =>
         Effect.gen(function* () {
@@ -265,6 +297,15 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
                 error: `Invalid resultSchema: ${schemaErrors.join("; ")}`,
               };
             }
+          }
+
+          const remainingBudget = context.remainingRunBudget?.() ?? {};
+          if (remainingBudget.maxDurationMs !== undefined && remainingBudget.maxDurationMs <= 0) {
+            return {
+              success: false,
+              result: null,
+              error: "No time is left in this run's budget to delegate. Finish with what you have.",
+            };
           }
 
           yield* logger.info("Spawning sub-agent", {
@@ -339,6 +380,9 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               },
             }),
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
+            ...(remainingBudget.maxDurationMs !== undefined
+              ? { maxDurationMs: remainingBudget.maxDurationMs }
+              : {}),
             ephemeralRegionId: regionId,
             ...(presentation.takeEphemeralRegionMessage
               ? {
@@ -351,18 +395,8 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                   },
                 }
               : {}),
-            // Cap the child at the parent's own effective tools.
-            ...(context.effectiveToolNames
-              ? { toolAllowlist: [...context.effectiveToolNames] }
-              : {}),
+            ...childRunAuthority(context),
             subagentDepth: currentDepth + 1,
-            ...(context.getAutoApprovePolicy
-              ? { autoApprovePolicy: context.getAutoApprovePolicy }
-              : {}),
-            ...(context.autoApprovedCommands
-              ? { autoApprovedCommands: context.autoApprovedCommands }
-              : {}),
-            ...(context.autoApprovedTools ? { autoApprovedTools: context.autoApprovedTools } : {}),
             ...(context.onAutoApproveCommand
               ? { onAutoApproveCommand: context.onAutoApproveCommand }
               : {}),
@@ -414,9 +448,10 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           if (childCostUnknown) context.recordChildCostUnknown?.();
 
           let result = response.content;
-          if (!result?.trim() && response.messages?.length) {
+          const stoppedAt = subagentStopReason(response);
+          if (stoppedAt !== undefined) {
             const parts: string[] = [];
-            for (const msg of response.messages) {
+            for (const msg of response.messages ?? []) {
               if (
                 msg.role === "assistant" &&
                 typeof msg.content === "string" &&
@@ -425,8 +460,14 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                 parts.push(msg.content.trim());
               }
             }
-            if (parts.length > 0) {
-              result = `[Sub-agent reached iteration limit. Partial results below]\n\n${parts.join("\n\n")}`;
+            result =
+              parts.length > 0
+                ? `[Sub-agent stopped at its ${stoppedAt} before finishing. Partial results below]\n\n${parts.join("\n\n")}`
+                : `[Sub-agent stopped at its ${stoppedAt} before finishing, with no output]`;
+          } else {
+            const verdict = judgeAnswer(response);
+            if (verdict.kind === "failed") {
+              result = `[Sub-agent produced no answer: ${verdict.message}]`;
             }
           }
 

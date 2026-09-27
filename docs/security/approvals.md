@@ -19,15 +19,48 @@ goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat ask
 or the one granted when starting a loop (`jazz loop start --approval-policy <tier>`, or the
 question `/loop` asks).
 
-| Policy      | Runs without asking                                                     |
-| ----------- | ----------------------------------------------------------------------- |
-| `false`     | Nothing. A gated call is declined and the agent continues or reports it |
-| `read-only` | Reads, searches, web requests                                           |
-| `low-risk`  | Adds todos, work state, subagents, and shell commands judged low-risk   |
-| `high-risk` | Adds everything gated: writes, edits, deletes, `execute_command`        |
+| Policy           | Runs without asking                                                         |
+| ---------------- | --------------------------------------------------------------------------- |
+| `false` or unset | Nothing. A gated call asks, or is declined when nobody can answer           |
+| `read-only`      | Reads, searches, web requests                                               |
+| `low-risk`       | Adds memory writes, reminders, triggers, and shell commands judged low-risk |
+| `high-risk`      | Adds everything gated: writes, edits, deletes, `execute_command`            |
 
 Anything above the active policy is gated: in front of a person it asks, and unattended it is
-declined or [parked](#with-nobody-there).
+declined or [parked](#with-nobody-there). That holds for every tool whose level is above
+`read-only`, whether or not it has a proposal half. A plain `read-only` tool (`read_file`,
+`web_search`) runs under every policy; removing it from the agent is how you deny it. That
+includes the agent's own bookkeeping (`manage_todos`, `update_work_state`, `manage_scratchpad`)
+and `spawn_subagent`: a sub-agent runs under its parent's policy, allowlists and tools, so
+spawning one grants nothing new.
+
+With no policy set, nothing runs unasked. `jazz run` without `--approval-policy`, a workflow
+without `autoApprove`, a woken trigger or goal without a granted tier: each asks for every gated
+call, or declines it when nobody can answer.
+
+Interactive chat is different because you are at the keyboard. Its **safe mode** is the
+`low-risk` tier: the classifier runs on each shell command, read-only and low-risk tools and
+commands proceed, and anything high-risk asks. Chat starts in safe mode, and `/mode safe`,
+Shift+Tab and the fullscreen toggle all return to it. **Yolo** mode is `high-risk`.
+
+## Running fully unattended (yolo)
+
+`high-risk` (also written `true`) approves every tool call without asking, shell included.
+Nothing turns it on for you. Each surface has one explicit switch:
+
+| Surface                | How to opt in                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| A workflow             | `autoApprove: high-risk` (or `true`) in its `WORKFLOW.md` frontmatter                     |
+| `jazz run`             | `jazz run --agent <id> --approval-policy high-risk "…"`                                   |
+| `jazz workflow run`    | the workflow's `autoApprove`; `--auto-approve` runs it headless at that tier              |
+| Interactive terminal   | Shift+Tab to yolo mode for this session                                                   |
+| A chat bot, one chat   | send `/mode yolo` in that conversation (`/mode safe` turns it back off)                   |
+| A chat bot, every chat | start the bridge with `JAZZ_APPROVAL_POLICY=high-risk` (default `low-risk`)               |
+| A goal or loop         | grant `high-risk` when accepting it (`jazz goal accept <id> --approval-policy high-risk`) |
+
+`--auto-approve` on `jazz workflow run` does not raise the tier by itself: a workflow with no
+`autoApprove` still runs at `false`. Before opting in, trim the agent's tools, set a spend cap
+(`maxCostUSD`), and read [Unattended runs](./unattended-runs.md).
 
 ## Gated tools act in two phases
 
@@ -37,6 +70,15 @@ it would do, including a real diff for an edit. Only after approval does Jazz in
 
 So you see the exact diff before a file is written. And a declined call leaves nothing half-done,
 because the first phase only produced a proposal.
+
+Only the tool registered for an `execute_*` half can ask for it. Output from any other tool
+that is shaped like an approval request (an MCP server's reply, a fetched JSON document) is
+refused, and nothing runs. MCP results are always nested under `content` or
+`structuredContent`, so a server cannot produce one at all.
+
+A plain tool above `read-only` (`manage_memory`, `create_pdf`, a custom command tool, an
+`http_request` other than `GET` or `HEAD`) has no proposal half. The executor asks with the
+tool's name, level and arguments, and runs the tool once approved.
 
 ## Shell commands are classified individually
 
@@ -113,6 +155,13 @@ When the work genuinely needs a decision, `--park` saves the run instead, exits 
 
 A resumed run keeps the policy and the `--auto-approve-tools` list it started with. Answering one
 approval never widens the rest of the run to the default, and never drops a tier it was granted.
+It also keeps the rest of its boundary: a tool list a webhook or peer narrowed it to, tools it
+withheld, and its token, cost and time caps, of which it gets only what earlier segments left.
+
+Over the daemon's HTTP API, approving or answering a parked run also needs the operator token
+(`X-Jazz-Operator-Token`), so an agent that read the daemon token cannot approve its own run.
+Rejecting needs only the daemon token. See
+[granting authority over HTTP](../concepts/daemon.md#granting-authority-over-http).
 
 Park only where somebody will actually look. A [notify channel](../configure/notifications.md)
 brings every parked approval to your phone; from a Telegram or Discord bridge the operator can

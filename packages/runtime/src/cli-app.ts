@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
@@ -23,6 +24,7 @@ import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { securePrivateHome } from "@jazz/core/utils/private-home";
+import type { ShutdownSignal } from "@jazz/core/utils/process";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
@@ -54,6 +56,8 @@ interface CliRunOptions {
   readonly skipUpdateCheck?: boolean;
   /** Live until the user leaves. Print-and-exit commands omit this. */
   readonly session?: boolean;
+  /** Report a run a shutdown signal stopped, for commands with a one-envelope stdout. */
+  readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -82,6 +86,16 @@ async function runCliAction(
     console.error("Fatal error:", error);
     throw error;
   }
+}
+
+/**
+ * The one stdout envelope of a `--json` run that a signal stopped: `ok:false`
+ * with `error` and `code` set to `interrupted`, plus which signal it was.
+ */
+function printInterruptedEnvelope(signal: ShutdownSignal): void {
+  process.stdout.write(
+    formatOneShotError("interrupted", { json: true }, 0, { code: "interrupted", signal }),
+  );
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -145,7 +159,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-duration-ms <ms>",
-      "Abort the run once elapsed wall-clock time reaches this many milliseconds. The agent gets pressure nudges at 50/80/90% elapsed, then the run stops between iterations.",
+      "Stop the run once elapsed wall-clock time reaches this many milliseconds, wherever it is: a model call or a running tool is interrupted. The agent gets pressure nudges at 50/80/90% elapsed. Sub-agents run under what is left.",
       parsePositiveInt("--max-duration-ms"),
     )
     .option(
@@ -376,7 +390,11 @@ function registerRunCommand(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: true, skipUpdateCheck: true },
+          {
+            skipCatchUp: true,
+            skipUpdateCheck: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );
@@ -908,8 +926,9 @@ function registerDetachCommands(program: Command): void {
 }
 
 /**
- * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
- * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ * Register `jazz webhook token|forget-token|secret|forget-secret`: minting a webhook's bearer
+ * token or signing secret instead of asking somebody to invent one, the way
+ * `jazz daemon set-token` already does for the daemon.
  */
 function registerWebhookCommands(program: Command): void {
   const webhookCommand = program
@@ -933,6 +952,29 @@ function registerWebhookCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("secret <name>")
+    .description(
+      "Generate and store the secret a webhook's sender signs bodies with (GitHub's webhook secret), printing it once",
+    )
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookSecretCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-secret <name>")
+    .description("Remove a webhook's stored signing secret")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookSecretCommand(name)),
         cliRuntimeOptions(program),
       ),
     );
@@ -1661,6 +1703,28 @@ function registerDaemonCommand(program: Command): void {
     .action(() =>
       runCliAction(
         () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetDaemonTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("operator-token")
+    .description(
+      "Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve a run), store it in the OS keyring, and print it once",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setOperatorTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-operator-token")
+    .description("Remove the operator token, so the daemon grants nothing over HTTP")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetOperatorTokenCommand()),
         cliRuntimeOptions(program),
       ),
     );
@@ -2797,7 +2861,12 @@ function registerWorkflowCommands(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json, session: true },
+          {
+            skipCatchUp: isWorkflowRunCommand,
+            skipUpdateCheck: json,
+            session: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );

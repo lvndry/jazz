@@ -5,9 +5,16 @@ import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { EgressRefusedError, egressPolicyForContext, readBodyWithinBudget } from "./guarded-fetch";
 import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
+
+/** A page's raw body is read up to this many bytes before extraction; the rest is dropped. */
+const MAX_WEB_FETCH_BYTES = 5 * 1024 * 1024;
+
+/** Covers connecting, redirects and reading the body. */
+const WEB_FETCH_TIMEOUT_MS = 30_000;
 
 // Non-HTML bodies are returned as raw text, so the tool supports any textual type: every
 // `text/*` subtype, the common textual `application/*` types, and structured-syntax suffixes
@@ -62,11 +69,12 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     // A GET is still a send: the model writes the URL, so anything it knows can ride out in
     // the path or query string, and the reply comes back for it to read.
     egress: true,
-    description: "Fetch a known URL's main content as markdown. JavaScript does not run.",
+    description:
+      "Fetch a known public URL's main content as markdown. JavaScript does not run. Private and local hosts need the agent's network.allowPrivateHosts.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
-    handler: (args: WebFetchArgs, _context: ToolExecutionContext) =>
+    handler: (args: WebFetchArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const maxLength = args.max_length ?? DEFAULT_MAX_CONTENT_LENGTH;
@@ -93,32 +101,63 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
           urlScheme: parsedUrl.protocol.slice(0, -1),
         });
 
-        const response = yield* Effect.tryPromise({
-          try: (signal) => fetchWithUserAgentFallback(args.url, { signal }),
-          catch: (error) => new Error(`Failed to fetch ${args.url}: ${toError(error).message}`),
-        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS);
+        const fetched = yield* Effect.tryPromise({
+          try: async () => {
+            const { response, url } = await fetchWithUserAgentFallback(args.url, {
+              signal: controller.signal,
+              policy: egressPolicyForContext(context),
+            });
+            if (!response.ok) {
+              await response.body?.cancel().catch(() => undefined);
+              return { kind: "status", response } as const;
+            }
+            const contentType = response.headers.get("content-type") ?? "";
+            if (!isSupportedContentType(contentType)) {
+              await response.body?.cancel().catch(() => undefined);
+              return { kind: "unsupported", contentType } as const;
+            }
+            const read = await readBodyWithinBudget(response, MAX_WEB_FETCH_BYTES);
+            return {
+              kind: "ok",
+              url,
+              contentType,
+              body: new TextDecoder("utf-8", { fatal: false }).decode(read.bytes),
+              bodyTruncated: read.truncated,
+            } as const;
+          },
+          catch: (error) =>
+            error instanceof Error && error.name === "AbortError"
+              ? new Error(`Fetching ${args.url} timed out after ${String(WEB_FETCH_TIMEOUT_MS)}ms.`)
+              : error instanceof EgressRefusedError
+                ? error
+                : new Error(`Failed to fetch ${args.url}: ${toError(error).message}`),
+        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))), Effect.either);
 
-        if (!response.ok) {
+        if (fetched._tag === "Left") {
+          return {
+            success: false,
+            result: null,
+            error: fetched.left.message,
+          } satisfies ToolExecutionResult;
+        }
+        if (fetched.right.kind === "status") {
+          const { response } = fetched.right;
           return {
             success: false,
             result: null,
             error: `HTTP ${response.status} ${response.statusText} for ${args.url}`,
           } satisfies ToolExecutionResult;
         }
-
-        const contentType = response.headers.get("content-type") ?? "";
-        if (!isSupportedContentType(contentType)) {
+        if (fetched.right.kind === "unsupported") {
           return {
             success: false,
             result: null,
-            error: `Unsupported content type "${contentType}" for ${args.url}`,
+            error: `Unsupported content type "${fetched.right.contentType}" for ${args.url}`,
           } satisfies ToolExecutionResult;
         }
-
-        const body = yield* Effect.tryPromise({
-          try: () => response.text(),
-          catch: (error) => new Error(`Failed to read response body: ${toError(error).message}`),
-        });
+        const { body, contentType, bodyTruncated } = fetched.right;
 
         const isHtml = contentType.includes("text/html");
         let title = "";
@@ -164,7 +203,9 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
             total_length: totalLength,
             truncated,
             ...(truncated ? { next_offset: offset + content.length } : {}),
+            ...(bodyTruncated ? { body_truncated_at_bytes: MAX_WEB_FETCH_BYTES } : {}),
           },
+          untrusted: { kind: "external", source: `web_fetch ${fetched.right.url}` },
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {

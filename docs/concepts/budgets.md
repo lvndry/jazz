@@ -67,13 +67,20 @@ A failed envelope still carries `costUSD`, because a run that timed out still sp
 unattended deployment has to account for it. `jazz workflow history <name>` shows the same
 figures per scheduled run.
 
-## Caps are checked between iterations
+## When a cap stops the run
 
-None of these is a preemptive interrupt. Jazz checks them between iterations, so one model call
-or tool phase can cross a cap before the next iteration stops.
+`maxIterations`, `maxCostUSD` and `maxTokens` are checked between iterations, so one model call
+or tool phase can cross them before the next iteration stops. Budget `--max-cost-usd` with that
+in mind.
 
-Budget `--max-cost-usd` with that in mind. Use `--timeout` when you need a hard deadline around
-the whole run rather than a soft checkpoint inside it.
+`maxDurationMs` is a deadline. When it passes, Jazz interrupts whatever is running: the model
+call is aborted, a shell command is killed with every process it started, and a sub-agent stops
+with it. Unfinished tool calls are closed with a note, and the run returns what it had with
+`durationCapped: true`. A sub-agent is given only the time its parent has left, so delegating
+work never extends the deadline.
+
+`--timeout` is a harder wall around the whole run, including start-up. It ends the run as a
+failure, with the same cleanup: running commands are killed and the provider request is aborted.
 
 The agent is warned as a budget fills rather than only being cut off. Cost, token and duration
 budgets nudge it at 50, 80 and 90%; iterations nudge at 70 and 90%. The messages are ephemeral,
