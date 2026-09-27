@@ -433,7 +433,12 @@ export async function dispatchMessage(
     );
     return;
   }
-  if (!shouldRespond(bridge.config, context)) return;
+  if (
+    !shouldRespond(bridge.config, context) &&
+    !bridge.runner.awaitsReplyFrom(message.channel_id, message.author.id)
+  ) {
+    return;
+  }
 
   const attachments = message.attachments ?? [];
   const stripped = stripBotMention(message.content, runtime.botUserId);

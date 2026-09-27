@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JazzEnvelope, JazzRun } from "@jazz/bot-shared/jazz-run";
+import type { JazzEnvelope, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import { renderPlain, type OutgoingMessage } from "@jazz/bot-shared/surface";
 import { todayUsage } from "@jazz/bot-shared/usage-store";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -25,6 +25,8 @@ let prompts: string[];
 let finishers: ((envelope?: JazzEnvelope) => void)[];
 let sent: OutgoingMessage[];
 let bridge: Bridge;
+let runHandlers: JazzRunHandlers;
+let questionAnswers: { requestId: string; response: string }[];
 
 function fakeSurface(): DiscordSurface {
   return {
@@ -75,7 +77,8 @@ function config(): BridgeConfig {
   };
 }
 
-function startRun(options: { prompt: string }): JazzRun {
+function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): JazzRun {
+  runHandlers = handlers;
   prompts.push(options.prompt);
   let settle: (envelope: JazzEnvelope) => void = () => {};
   const result = new Promise<JazzEnvelope>((resolve) => {
@@ -87,7 +90,10 @@ function startRun(options: { prompt: string }): JazzRun {
     cancelled: () => false,
     lastSpend: () => undefined,
     approve: () => Promise.resolve(),
-    answerQuestion: () => Promise.resolve(),
+    answerQuestion: (requestId, response) => {
+      questionAnswers.push({ requestId, response });
+      return Promise.resolve();
+    },
     cancel: () => settle({ ok: false, error: "cancelled" }),
   };
 }
@@ -123,6 +129,8 @@ beforeEach(() => {
       },
     }),
   );
+  runHandlers = {};
+  questionAnswers = [];
   prompts = [];
   finishers = [];
   sent = [];
@@ -140,6 +148,74 @@ afterEach(async () => {
 });
 
 const runtime = { botUserId: BOT, applicationId: BOT };
+
+describe("guild questions", () => {
+  const OTHER = "300000000000000001";
+  let allowedUsers: Set<string>;
+
+  beforeEach(() => {
+    allowedUsers = new Set([OWNER, OTHER]);
+    bridge = createBridge(
+      {
+        ...config(),
+        createThreads: false,
+        allowedUserIds: allowedUsers,
+        allowedChannelIds: new Set([DM_CHANNEL]),
+      },
+      fakeSurface(),
+      {
+        startRun,
+        fetchChannel: () =>
+          Promise.resolve({ type: 0, parentId: undefined, guildId: "400000000000000001" }),
+      },
+    );
+  });
+
+  async function askQuestion(): Promise<{ turn: Promise<void> }> {
+    const turn = dispatchMessage(bridge, runtime, dm(`<@${BOT}> create a note`));
+    await until(() => prompts.length === 1);
+    runHandlers.onUserInputRequired?.({
+      type: "user_input_required",
+      requestId: "q1",
+      question: "What should the file be called?",
+    });
+    await until(() => bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER));
+    return { turn };
+  }
+
+  test("the requester can answer without another mention, then chatter is gated again", async () => {
+    const { turn } = await askQuestion();
+    await dispatchMessage(bridge, runtime, dm("notes.md"));
+    expect(questionAnswers).toEqual([{ requestId: "q1", response: "notes.md" }]);
+    expect(bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER)).toBe(false);
+    finishers[0]?.();
+    await turn;
+    await dispatchMessage(bridge, runtime, dm("unaddressed chatter"));
+    expect(prompts).toEqual(["create a note"]);
+  });
+
+  test("a pending question does not bypass sender or channel authorization", async () => {
+    const { turn } = await askQuestion();
+    await dispatchMessage(bridge, runtime, dm("someone else's answer", { author: { id: OTHER } }));
+    await dispatchMessage(
+      bridge,
+      runtime,
+      dm(`<@${BOT}> outsider answer`, { author: { id: "500000000000000001" } }),
+    );
+    await dispatchMessage(
+      bridge,
+      runtime,
+      dm(`<@${BOT}> wrong channel`, { channel_id: "600000000000000001" }),
+    );
+    allowedUsers.delete(OWNER);
+    await dispatchMessage(bridge, runtime, dm("revoked requester's answer"));
+    expect(questionAnswers).toEqual([]);
+    expect(bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER)).toBe(true);
+    finishers[0]?.();
+    await turn;
+    expect(prompts).toEqual(["create a note"]);
+  });
+});
 
 describe("messages", () => {
   test("parked-run commands retain operator authorization without starting an agent", async () => {

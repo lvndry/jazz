@@ -155,7 +155,10 @@ the bot records it as unpriced and pauses later requests until the next UTC day.
 **Servers vs DMs.** In a server the bot only answers when mentioned, when you
 reply to it, or in a thread it already joined (`DISCORD_REQUIRE_MENTION=1`,
 the default). An `@mention` in a channel starts a thread so the rest of the
-room is not the conversation. DMs skip mention-gating.
+room is not the conversation. While a run is waiting for an answer or approval, its
+requester can reply in the same channel without another mention, even with
+`DISCORD_CREATE_THREADS=0`. Allowlists still apply, and other people remain mention-gated.
+Once no prompts remain, the exception ends. DMs skip mention-gating.
 
 **Timezone.** Reminder times are resolved per channel: an explicit `/tz`
 choice, the container's `TZ`, then UTC. Each `jazz run` is invoked with

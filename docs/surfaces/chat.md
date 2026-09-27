@@ -140,6 +140,11 @@ DM the bot, or `@mention` it in an allowlisted channel. For the account-creation
 table and mention-gating details, see
 [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
+When the agent is waiting for your answer or approval, you can reply in the same channel
+without mentioning it again, including with `DISCORD_CREATE_THREADS=0`. Only the person
+who started that run gets this exception; user, channel, and guild allowlists still apply.
+Once the pending prompts are answered, ordinary mention-gating resumes.
+
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
 | Feature                   | How it works                                                                                                                                                                                                                                                                                                                                      |
