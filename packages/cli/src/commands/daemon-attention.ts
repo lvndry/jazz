@@ -12,6 +12,7 @@ import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
 import type { WaitingItem } from "@jazz/core/daemon/attention";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { Effect } from "effect";
@@ -85,7 +86,17 @@ export function pauseDaemonCommand(options: { readonly json: boolean }) {
   );
 }
 
+/**
+ * Why a Jazz agent may not resume the daemon: resuming after a pause at the daily cap lifts the
+ * cap, which is the operator's decision about spend. Pausing grants nothing, so it stays allowed.
+ */
+export const AGENT_RESUME_REFUSAL =
+  "Resuming the daemon is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
+
 export function resumeDaemonCommand(options: { readonly json: boolean }) {
+  if (isAgentStartedProcess()) {
+    return Effect.sync(() => failEnvelope(options.json, AGENT_RESUME_REFUSAL));
+  }
   return resumeDaemon().pipe(
     Effect.map((state) =>
       emitEnvelope(
