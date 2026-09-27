@@ -41,6 +41,7 @@ import {
 import { join } from "node:path";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { bridgeConfigContent } from "./bridge-config-file";
+import { parseFlag } from "./bridge-env";
 import { type ChildEnvOptions, childEnvironment } from "./child-env";
 import { type FileOwner, type Ownership, type PinnedDirectory, withDirectory } from "./sandbox-fs";
 
@@ -96,14 +97,6 @@ export interface ChatSandbox {
   readonly isolated: boolean;
 }
 
-function isDisabledFlag(raw: string): boolean {
-  return ["0", "false", "off", "no"].includes(raw);
-}
-
-function isEnabledFlag(raw: string): boolean {
-  return ["1", "true", "on", "yes"].includes(raw);
-}
-
 let isolationDecision: boolean | undefined;
 
 /**
@@ -116,15 +109,15 @@ let isolationDecision: boolean | undefined;
 export function chatIsolationEnabled(): boolean {
   if (isolationDecision !== undefined) return isolationDecision;
 
-  const flag = process.env["JAZZ_BOT_CHAT_ISOLATION"]?.trim().toLowerCase() ?? "";
-  if (isDisabledFlag(flag)) {
+  const flag = parseFlag(process.env["JAZZ_BOT_CHAT_ISOLATION"]);
+  if (flag === false) {
     isolationDecision = false;
     return isolationDecision;
   }
 
   const missing = missingIsolationRequirement();
   if (missing !== null) {
-    if (isEnabledFlag(flag)) {
+    if (flag === true) {
       console.error(
         `JAZZ_BOT_CHAT_ISOLATION is on but ${missing}. Every conversation will share one data directory and one uid.`,
       );

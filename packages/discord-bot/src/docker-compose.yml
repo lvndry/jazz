@@ -6,6 +6,9 @@ services:
     image: jazz-discord-bridge:latest
     container_name: jazz-discord
     restart: always
+    # A real init as PID 1: it forwards docker stop's SIGTERM to the bridge, which then
+    # drains its runs, and reaps the agent processes the bridge starts.
+    init: true
     env_file: .env
     # Who the bridge runs as. Leave unset (root) to get per-conversation
     # sandboxes — which is what you want here, since allowing a guild means

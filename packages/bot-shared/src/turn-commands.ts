@@ -49,6 +49,36 @@ export const PERSONA_PROMPT_ID = "command:persona";
 export const MODE_PROMPT_ID = "command:mode";
 export const REMINDERS_PROMPT_ID = "command:reminders";
 
+/** Every command name this module answers, `/stop` included (the runner handles that one). */
+const COMMAND_NAMES: ReadonlySet<string> = new Set([
+  "help",
+  "start",
+  "new",
+  "reset",
+  "incognito",
+  "status",
+  "model",
+  "persona",
+  "mode",
+  "tz",
+  "timezone",
+  "remind",
+  "reminders",
+  "stop",
+  "cancel",
+]);
+
+/** Commands that answer at once, even mid-run. `/remind` starts a run, so it waits. */
+const IMMEDIATE_COMMAND_NAMES: ReadonlySet<string> = new Set([
+  "help",
+  "start",
+  "status",
+  "new",
+  "reset",
+  "stop",
+  "cancel",
+]);
+
 const COMMAND_PROMPT_IDS: ReadonlySet<string> = new Set([
   MODEL_PROMPT_ID,
   PERSONA_PROMPT_ID,
@@ -104,6 +134,13 @@ export interface CommandChoices {
 export interface Commands {
   /** Returns whether the text was a command and has been dealt with. */
   handle(message: InboundMessage): Promise<boolean>;
+  /** Whether the text is one of the commands this runner answers. */
+  isCommand(text: string): boolean;
+  /**
+   * Whether the text is a command answered even while a run is in flight: it is about the
+   * conversation, not a request for the agent, so it should not wait for the answer.
+   */
+  answersImmediately(text: string): boolean;
   /** Whether a tapped prompt id belongs to a picker. */
   owns(promptId: string): boolean;
   /** A tap on a picker drawn by one of the commands above. */
@@ -180,6 +217,7 @@ export function createCommands(context: CommandContext): Commands {
     plainLine("/reminders — list your reminders"),
     plainLine("/tz Europe/Paris — timezone reminders resolve in"),
     plainLine("/status — model, mode, timezone, today's usage"),
+    plainLine("/stop — stop the answer in progress"),
     ...(config.incognitoFile === undefined
       ? []
       : [plainLine("/incognito — keep this conversation in memory only, until /new")]),
@@ -514,6 +552,8 @@ export function createCommands(context: CommandContext): Commands {
 
   return {
     owns: (promptId) => COMMAND_PROMPT_IDS.has(promptId),
+    isCommand: (text) => COMMAND_NAMES.has(parseCommand(text)?.command ?? ""),
+    answersImmediately: (text) => IMMEDIATE_COMMAND_NAMES.has(parseCommand(text)?.command ?? ""),
 
     async handle(message: InboundMessage): Promise<boolean> {
       const parsed = parseCommand(message.text);

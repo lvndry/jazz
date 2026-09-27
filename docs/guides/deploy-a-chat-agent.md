@@ -351,6 +351,18 @@ Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp
 
 ---
 
+## Keeping a bridge healthy
+
+Every bridge answers `/stop` to end the answer in progress, and `/status`, `/help` and `/new`
+straight away even while a run is going. Telegram and Discord serve `/health` on their
+`PORT`; it turns `503` when the bot stops reaching its platform (a revoked token, a poll
+conflict, a gateway that will not stay up), which is what the compose health check and
+`auto-update.sh`'s rollback read. iMessage, WhatsApp and Photon serve the same check when
+`JAZZ_BRIDGE_HEALTH_PORT` is set. A stop or restart drains: people with a run in flight are
+told it was stopped, and Telegram still answers what was sent while it was down.
+
+---
+
 ## Operators
 
 Being on an allowlist lets someone talk to the agent. It does not let them widen what the

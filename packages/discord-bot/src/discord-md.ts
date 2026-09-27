@@ -7,27 +7,19 @@
  * role-less pings that Discord still delivers even with that flag.
  */
 
-import type { RichText, Span } from "@jazz/bot-shared/surface";
+import { type RichText, type Span, splitForSurface } from "@jazz/bot-shared/surface";
 
 const DISCORD_SPLIT_LENGTH = 1900;
 
+/** Split under Discord's cap, keeping code fences balanced in every chunk. */
 export function splitForDiscord(text: string): string[] {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
     return ["(empty response)"];
   }
-
-  const chunks: string[] = [];
-  let remaining = trimmed;
-  while (remaining.length > DISCORD_SPLIT_LENGTH) {
-    const window = remaining.slice(0, DISCORD_SPLIT_LENGTH);
-    const lastNewline = window.lastIndexOf("\n");
-    const splitAt = lastNewline > DISCORD_SPLIT_LENGTH * 0.5 ? lastNewline : window.length;
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt);
-  }
-  chunks.push(remaining);
-  return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
+  return splitForSurface(trimmed, DISCORD_SPLIT_LENGTH)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 0);
 }
 
 /** Neutralise @everyone / @here without changing the visible text much. */

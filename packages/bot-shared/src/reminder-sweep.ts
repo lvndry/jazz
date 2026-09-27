@@ -6,6 +6,10 @@
  * them: a reminder only becomes a message because a bridge process sweeps for
  * due ones on an interval, which is what this does.
  *
+ * Delivery is at least once: a reminder is removed only after its message went out,
+ * so a platform that is down for a sweep gets it on the next one. A reminder for a
+ * conversation this bridge cannot address is left alone for the bridge that can.
+ *
  * The Telegram and Discord bridges each carried a copy differing in two lines —
  * how an agent id decodes back to a conversation, and how the text is marked up.
  * Both are injected here, so a new surface gets reminders by supplying those.
@@ -17,7 +21,7 @@ import {
   listChatSandboxes,
   sandboxOwnership,
 } from "./chat-sandbox";
-import { reminderAgentIds, takeDueReminders } from "./reminder-store";
+import { acknowledgeReminders, dueReminders, reminderAgentIds } from "./reminder-store";
 import type { Ownership } from "./sandbox-fs";
 import { bold, type ChatId, line, plainLine, type RichText, text } from "./surface";
 
@@ -80,7 +84,8 @@ function reminderBody(reminderText: string, late: boolean): RichText {
   ];
 }
 
-async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
+/** One sweep: deliver what is due now. Exported for tests; the bridge uses the interval. */
+export async function sweepRemindersOnce(options: ReminderSweepOptions): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
@@ -91,12 +96,21 @@ async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
         // directory owns the reminders this one cannot address.
         const chatId = options.decodeScope(agentId);
         if (chatId === undefined) continue;
-        const due = await takeDueReminders(target.home, agentId, now, target.ownership);
-        for (const reminder of due) {
-          await options.send(
-            chatId,
-            reminderBody(reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS),
-          );
+        // Delivered first and removed after, one at a time: a send that fails leaves that
+        // reminder for the next sweep, and the ones after it still go out.
+        for (const reminder of dueReminders(target.home, agentId, now)) {
+          try {
+            await options.send(
+              chatId,
+              reminderBody(reminder.text, now - reminder.fireAt > DELAYED_THRESHOLD_MS),
+            );
+          } catch (error) {
+            console.error(
+              `Could not deliver reminder ${reminder.id} to ${chatId}: ${String(error)}`,
+            );
+            continue;
+          }
+          await acknowledgeReminders(target.home, agentId, [reminder.id], target.ownership);
         }
       }
     }
@@ -107,7 +121,7 @@ async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
 
 export function startReminderSweep(options: ReminderSweepOptions): void {
   const sweep = (): void => {
-    void fireDueReminders(options).catch((error) =>
+    void sweepRemindersOnce(options).catch((error) =>
       console.error(`Reminder sweep failed: ${String(error)}`),
     );
   };

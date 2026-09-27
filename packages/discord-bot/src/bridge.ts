@@ -16,6 +16,7 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
+import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { ensureChatSandbox, SANDBOX_UMASK, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 import {
   compositionIdFromPath,
@@ -28,10 +29,12 @@ import {
   removeSuggestAgents,
   SUGGESTION_PROMPT_PREFIX,
 } from "@jazz/bot-shared/dynamic-suggestions";
+import { createHealthState, type HealthState, healthResponse } from "@jazz/bot-shared/health";
 import { saveInboundMedia } from "@jazz/bot-shared/inbound-media";
 import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { line, plainLine, subtle, text } from "@jazz/bot-shared/surface";
 import {
   type ChoiceOutcome,
@@ -102,6 +105,13 @@ const REASONING_MAX_PARTS = 4;
  */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Discord asks for a heartbeat about every 41 seconds and acknowledges each one, so a
+ * working gateway beats at least that often. Three missed acknowledgements is a gateway
+ * that is not getting through.
+ */
+const GATEWAY_STALE_AFTER_MS = 3 * 45_000;
+
 interface ChannelMeta {
   readonly type: number;
   readonly parentId: string | undefined;
@@ -146,12 +156,6 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value.trim();
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(): BridgeConfig {
@@ -205,6 +209,7 @@ function loadConfig(): BridgeConfig {
 /** Everything the gateway handlers need, built once at start. */
 export interface Bridge {
   readonly config: BridgeConfig;
+  readonly health: HealthState;
   readonly surface: DiscordSurface;
   readonly runner: TurnRunner;
   readonly compositions: CompositionLinks;
@@ -631,7 +636,7 @@ function startHealthServer(bridge: Bridge): void {
     fetch(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
-        return new Response("ok", { status: 200 });
+        return healthResponse(bridge.health);
       }
       const compositionId =
         request.method === "GET" ? compositionIdFromPath(url.pathname) : undefined;
@@ -722,6 +727,7 @@ export function createBridge(
     surface,
     runner,
     compositions,
+    health: createHealthState(GATEWAY_STALE_AFTER_MS),
     channels: new Map(),
     fetchChannel:
       seams.fetchChannel ??
@@ -769,7 +775,9 @@ export function startBridge(): void {
 
   let runtime: Runtime | undefined;
 
-  connectGateway(config.botToken, {
+  const gateway = connectGateway(config.botToken, {
+    onHealthy: () => bridge.health.beat(),
+    onFatal: (code, why) => bridge.health.fail(`gateway closed with ${code}: ${why}`),
     onReady(info) {
       runtime = { botUserId: info.userId, applicationId: info.applicationId };
       syncAgentDisplayName(config.jazzHome, config.baseAgentId, info.username);
@@ -802,4 +810,6 @@ export function startBridge(): void {
       );
     },
   });
+
+  installShutdown({ runner: bridge.runner, stopIntake: () => gateway.stop() });
 }

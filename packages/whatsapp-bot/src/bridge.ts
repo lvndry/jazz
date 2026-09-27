@@ -18,11 +18,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { envFlag, envPositiveInt } from "@jazz/bot-shared/bridge-env";
+import { createHealthState, startHealthOnlyServer } from "@jazz/bot-shared/health";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import qrcode from "qrcode-terminal";
 import { type AccessConfig, decideAccess, normalizeJid, parseJidList } from "./access";
@@ -46,6 +49,10 @@ const ALLOW_LIST_ATTEMPTS = 3;
 /** The seed agent the bridge makes for itself when `--agent` names none. */
 const DEFAULT_BASE_AGENT_ID = "whatsapp";
 
+/** How often the connection is checked, and how long it may be down before it is unhealthy. */
+const CONNECTION_CHECK_MS = 15_000;
+const CONNECTION_STALE_AFTER_MS = 90_000;
+
 /** Chats already reported as refused, so the log says each thing once. */
 const loggedRejections = new Set<string>();
 
@@ -66,12 +73,6 @@ interface BridgeConfig extends AccessConfig {
   readonly model: string;
   readonly reasoning: string;
   readonly showReasoning: boolean;
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 /** Where an answered allow-list is kept, so the question is asked once. */
@@ -390,10 +391,17 @@ export async function startBridge(): Promise<void> {
     send: (chatId, body) => runner.send(chatId, body),
   });
 
-  const shutdown = (): void => {
-    connection.close();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  const health = createHealthState(CONNECTION_STALE_AFTER_MS);
+  const beat = setInterval(() => {
+    if (connection.isOpen()) health.beat();
+  }, CONNECTION_CHECK_MS);
+  beat.unref?.();
+  const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);
+  const stopHealth = healthPort > 0 ? startHealthOnlyServer(healthPort, health) : undefined;
+
+  installShutdown({
+    runner,
+    stopIntake: () => connection.close(),
+    afterDrain: () => stopHealth?.(),
+  });
 }

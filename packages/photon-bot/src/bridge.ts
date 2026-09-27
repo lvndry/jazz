@@ -16,13 +16,22 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { backoffDelay } from "@jazz/bot-shared/backoff";
+import { envFlag, envPositiveInt } from "@jazz/bot-shared/bridge-env";
 import { normalizeHandle, parseHandleList } from "@jazz/bot-shared/handles";
+import { createHealthState, startHealthOnlyServer } from "@jazz/bot-shared/health";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
+import {
+  readRecordStore,
+  recordStorePath,
+  writeRecordStore,
+} from "@jazz/bot-shared/scoped-record-store";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
+import { installShutdown } from "@jazz/bot-shared/shutdown";
 import type { ChatId } from "@jazz/bot-shared/surface";
 import { createTurnRunner } from "@jazz/bot-shared/turn";
 import { Spectrum } from "spectrum-ts";
@@ -237,9 +246,8 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     provider: process.env["JAZZ_PHOTON_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_PHOTON_MODEL"]?.trim() || "gpt-5.4",
     reasoning: process.env["JAZZ_REASONING"]?.trim() || "medium",
-    showReasoning: !["0", "false", "off", "no"].includes(
-      process.env["JAZZ_PHOTON_SHOW_REASONING"]?.trim().toLowerCase() ?? "",
-    ),
+    // Off by default, like iMessage: every reasoning part is another notification on a phone.
+    showReasoning: envFlag("JAZZ_PHOTON_SHOW_REASONING", false),
   };
 }
 
@@ -389,6 +397,18 @@ export async function startBridge(): Promise<void> {
   // A space is only addressable once it has spoken: Photon's shared line
   // cannot open a conversation the other side did not start.
   const spaces = new Map<ChatId, { send(text: string): Promise<unknown> }>();
+  const knownSpaces = createSpaceStore(config.jazzHome);
+
+  /**
+   * The space for a conversation, looked up again by id when this process has not seen it
+   * speak yet: after a restart the map is empty, and a reminder for that space would
+   * otherwise never find it.
+   */
+  const hydrateSpace = async (chatId: ChatId): Promise<void> => {
+    if (spaces.has(chatId)) return;
+    const platform = (imessage as unknown as (spectrum: unknown) => PhotonSpaces)(app);
+    spaces.set(chatId, await platform.space.get(chatId));
+  };
 
   const surface = createPhotonSurface({ resolveSpace: (chatId) => spaces.get(chatId) });
   const runner = createTurnRunner({
@@ -410,11 +430,28 @@ export async function startBridge(): Promise<void> {
 
   startReminderSweep({
     dataDir: config.jazzHome,
-    decodeScope: (agentId) =>
-      agentId.startsWith("ph_")
-        ? [...spaces.keys()].find((id) => agentIdForSpace(id) === agentId)
-        : undefined,
-    send: (chatId, body) => runner.send(chatId, body),
+    decodeScope: (agentId) => knownSpaces.spaceFor(agentId),
+    send: async (chatId, body) => {
+      await hydrateSpace(chatId);
+      await runner.send(chatId, body);
+    },
+  });
+
+  const health = createHealthState(STREAM_STALE_AFTER_MS);
+  let streaming = false;
+  let receiving = true;
+  const beat = setInterval(() => {
+    if (streaming) health.beat();
+  }, STREAM_CHECK_MS);
+  beat.unref?.();
+  const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);
+  const stopHealth = healthPort > 0 ? startHealthOnlyServer(healthPort, health) : undefined;
+  installShutdown({
+    runner,
+    stopIntake: () => {
+      receiving = false;
+    },
+    afterDrain: () => stopHealth?.(),
   });
 
   console.error(
@@ -422,35 +459,92 @@ export async function startBridge(): Promise<void> {
       `${await describeLines(config)}`,
   );
 
-  for await (const [space, message] of app.messages) {
-    if (message.direction !== "inbound") continue;
+  // The message stream is Photon's connection. When it ends or throws the bridge
+  // reconnects with backoff rather than exiting quietly with nothing listening.
+  let failures = 0;
+  while (receiving) {
+    try {
+      streaming = true;
+      for await (const [space, message] of app.messages) {
+        failures = 0;
+        if (!receiving) break;
+        if (message.direction !== "inbound") continue;
 
-    // The sender id is the handle Photon delivers on: the only field the SDK
-    // types guarantee. The provider's space carries a phone and a dm/group
-    // flag too, but only behind an index signature typed for actions, so
-    // reading them would be an unchecked cast.
-    //
-    // ponytail: DM-only allow-list, no group rule. Every other bridge refuses
-    // to speak in a group just because a member is allowed; here that needs
-    // the space's `type`, which wants a live account to confirm. Add the group
-    // check once one is available.
-    const sender = message.sender?.id;
-    if (sender === undefined || !config.allowedHandles.has(normalizeHandle(sender))) {
-      // Never answered: a reply would tell a stranger something automated reads
-      // this line.
-      console.error(`Ignored a message from ${sender ?? "an unknown sender"}.`);
-      continue;
+        // The sender id is the handle Photon delivers on: the only field the SDK
+        // types guarantee. The provider's space carries a phone and a dm/group
+        // flag too, but only behind an index signature typed for actions, so
+        // reading them would be an unchecked cast.
+        //
+        // ponytail: DM-only allow-list, no group rule. Every other bridge refuses
+        // to speak in a group just because a member is allowed; here that needs
+        // the space's `type`, which wants a live account to confirm. Add the group
+        // check once one is available.
+        const sender = message.sender?.id;
+        if (sender === undefined || !config.allowedHandles.has(normalizeHandle(sender))) {
+          // Never answered: a reply would tell a stranger something automated reads
+          // this line.
+          console.error(`Ignored a message from ${sender ?? "an unknown sender"}.`);
+          continue;
+        }
+
+        const chatId: ChatId = space.id;
+        const senderId = normalizeHandle(sender);
+        spaces.set(chatId, space);
+        knownSpaces.remember(agentIdForSpace(chatId), chatId);
+        void promptFrom(message, config.jazzHome)
+          .then(async (prompt) => {
+            // A reaction or a read receipt carries nothing to answer.
+            if (prompt.length === 0) return;
+            await runner.handle({ chatId, senderId, text: prompt });
+          })
+          .catch((error: unknown) =>
+            console.error(`Failed to handle ${message.id}: ${String(error)}`),
+          );
+      }
+      streaming = false;
+      if (!receiving) break;
+      console.error("Photon's message stream ended.");
+    } catch (error) {
+      streaming = false;
+      console.error(`Photon's message stream failed: ${String(error)}`);
     }
-
-    const chatId: ChatId = space.id;
-    const senderId = normalizeHandle(sender);
-    spaces.set(chatId, space);
-    void promptFrom(message, config.jazzHome)
-      .then(async (prompt) => {
-        // A reaction or a read receipt carries nothing to answer.
-        if (prompt.length === 0) return;
-        await runner.handle({ chatId, senderId, text: prompt });
-      })
-      .catch((error: unknown) => console.error(`Failed to handle ${message.id}: ${String(error)}`));
+    const delayMs = backoffDelay(failures, STREAM_BACKOFF);
+    failures += 1;
+    console.error(`Reconnecting to Photon in ${delayMs}ms.`);
+    await Bun.sleep(delayMs);
   }
+}
+
+/** The part of a Spectrum platform instance this bridge uses to look a space up by id. */
+interface PhotonSpaces {
+  readonly space: { get(id: string): Promise<{ send(text: string): Promise<unknown> }> };
+}
+
+/** How often the stream is checked, how long it may be down, and the reconnect backoff. */
+const STREAM_CHECK_MS = 15_000;
+const STREAM_STALE_AFTER_MS = 90_000;
+const STREAM_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
+
+const SPACES_FILE = "ph-spaces.json";
+
+/**
+ * Agent id → the Spectrum space id it came from, kept on disk.
+ *
+ * `agentIdForSpace` is lossy (it replaces characters a file name cannot hold), so a
+ * reminder's agent id cannot be turned back into a space id; this remembers the pair.
+ */
+export function createSpaceStore(jazzHome: string): {
+  remember(agentId: string, spaceId: string): void;
+  spaceFor(agentId: string): string | undefined;
+} {
+  const path = recordStorePath(jazzHome, SPACES_FILE);
+  let cache = readRecordStore<string>(path) ?? {};
+  return {
+    remember(agentId, spaceId) {
+      if (cache[agentId] === spaceId) return;
+      cache = { ...cache, [agentId]: spaceId };
+      writeRecordStore(path, cache);
+    },
+    spaceFor: (agentId) => cache[agentId],
+  };
 }

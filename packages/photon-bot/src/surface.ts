@@ -41,8 +41,9 @@ export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
     async send(chatId: ChatId, message: OutgoingMessage): Promise<MessageRef | undefined> {
       const space = options.resolveSpace(chatId);
       // A space we have never seen cannot be addressed: Photon's free tier
-      // refuses to open a conversation the other person did not start.
-      if (space === undefined) return undefined;
+      // refuses to open a conversation the other person did not start. Thrown, not
+      // dropped, so a reminder for it stays queued instead of counting as sent.
+      if (space === undefined) throw new Error(`No Photon space for ${chatId} yet`);
 
       for (const chunk of splitForSurface(renderForIMessage(message), IMESSAGE_CHUNK_CHARS)) {
         if (chunk.trim().length === 0) continue;
