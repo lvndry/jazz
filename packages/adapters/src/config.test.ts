@@ -107,6 +107,14 @@ describe("AgentConfigService", () => {
     expect(mockFS.rename).toHaveBeenCalledWith(expect.any(String), configPath);
   });
 
+  it("trims a pasted API key before storing it", async () => {
+    const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/config.json", mockFS);
+
+    await Effect.runPromise(service.set("llm.openai.api_key", "  sk-pasted\n"));
+
+    expect(await Effect.runPromise(service.get("llm.openai.api_key"))).toBe("sk-pasted");
+  });
+
   it("writes and reads a quoted path segment as one key, dots included", async () => {
     const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/config.json", mockFS);
     const path = 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools';

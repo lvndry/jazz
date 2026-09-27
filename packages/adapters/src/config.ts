@@ -156,14 +156,16 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    * dies instead of being written as a setting nothing will ever read. `jazz config set`, which
    * does take input, converts and refuses values before they get here.
    *
-   * Secrets are routed to the keyring when one is usable. A secret whose root names a list has no
-   * structural home at all, and clearing any value is a delete rather than an assignment, so no
-   * empty parent objects are left behind in the file.
+   * Secrets are trimmed (a pasted key often ends in a newline) and routed to the keyring when one
+   * is usable. A secret whose root names a list has no structural home at all, and clearing any
+   * value is a delete rather than an assignment, so no empty parent objects are left behind in the
+   * file.
    */
-  set<A>(key: string, value: A): Effect.Effect<void, never> {
+  set<A>(key: string, rawValue: A): Effect.Effect<void, never> {
     return Effect.gen(
       function* (this: AgentConfigServiceImpl) {
         const secret = isSecretPath(key);
+        const value = secret && typeof rawValue === "string" ? rawValue.trim() : rawValue;
         if (!secret) {
           const check = checkConfigWrite(key, value);
           if (!check.ok) {
