@@ -16,6 +16,7 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
+import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { ensureChatSandbox, SANDBOX_UMASK, sandboxOwnership } from "@jazz/bot-shared/chat-sandbox";
 import {
   compositionIdFromPath,
@@ -146,12 +147,6 @@ function requireEnv(name: string): string {
     throw new Error(`Missing required environment variable ${name}`);
   }
   return value.trim();
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(): BridgeConfig {

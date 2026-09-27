@@ -18,6 +18,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
@@ -66,12 +67,6 @@ interface BridgeConfig extends AccessConfig {
   readonly model: string;
   readonly reasoning: string;
   readonly showReasoning: boolean;
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 /** Where an answered allow-list is kept, so the question is asked once. */

@@ -20,6 +20,7 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { defaultJazzBinary, runningAsJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
@@ -137,12 +138,6 @@ function serviceArgs(): readonly string[] {
   if (runningAsJazzBinary()) return ["imessage"];
   // Started with `bun`, so the service runs the same script entry point.
   return [join(dirname(fileURLToPath(import.meta.url)), "main.ts")];
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(interactive: boolean): BridgeConfig {

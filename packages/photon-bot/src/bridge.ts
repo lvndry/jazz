@@ -16,6 +16,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { envFlag } from "@jazz/bot-shared/bridge-env";
 import { normalizeHandle, parseHandleList } from "@jazz/bot-shared/handles";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
@@ -237,9 +238,8 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     provider: process.env["JAZZ_PHOTON_PROVIDER"]?.trim() || "openai",
     model: process.env["JAZZ_PHOTON_MODEL"]?.trim() || "gpt-5.4",
     reasoning: process.env["JAZZ_REASONING"]?.trim() || "medium",
-    showReasoning: !["0", "false", "off", "no"].includes(
-      process.env["JAZZ_PHOTON_SHOW_REASONING"]?.trim().toLowerCase() ?? "",
-    ),
+    // Off by default, like iMessage: every reasoning part is another notification on a phone.
+    showReasoning: envFlag("JAZZ_PHOTON_SHOW_REASONING", false),
   };
 }
 

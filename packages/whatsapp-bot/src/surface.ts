@@ -12,6 +12,7 @@
  * acknowledgement, then the answer — is the right shape here.
  */
 
+import { markdownToWhatsApp } from "@jazz/bot-shared/markdown-dialects";
 import {
   type ChatId,
   type MessageRef,
@@ -66,7 +67,7 @@ export function renderForWhatsApp(message: OutgoingMessage): string {
         case "codeBlock":
           return `\`\`\`\n${block.text}\n\`\`\``;
         case "markdown":
-          return block.text;
+          return markdownToWhatsApp(block.text);
         case "quote":
           return block.text
             .split("\n")
