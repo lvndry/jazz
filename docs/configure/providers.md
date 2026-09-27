@@ -50,6 +50,8 @@ Jazz resolves a provider key in this order:
 
 The configuration wizard writes secrets to macOS Keychain or libsecret when available. On a host without a keyring it falls back to the protected Jazz secrets file. `jazz config show` redacts resolved secrets.
 
+To set a key by hand, run `jazz config set <provider>` (for example `jazz config set anthropic`) and paste the key when asked, so it never lands in your shell history. Jazz trims a pasted key and, for providers with a free endpoint to ask (OpenAI, Anthropic, Gemini, OpenRouter, xAI, Cerebras, DeepSeek, Fireworks, Groq, Mistral, Together AI), checks it before saving: a key the provider rejects is asked for again. A provider pointed at a custom `base_url` is not checked.
+
 For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llmApiKeys` exists.
 
 ## ChatGPT subscription

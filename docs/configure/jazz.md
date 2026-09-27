@@ -56,7 +56,7 @@ A write changes only the key you set, and only in the global file. Values merged
 
 ## Mistakes in a configuration file
 
-Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, or an invalid safety invariant is reported and ignored; valid siblings still load, and Jazz continues with the setting's default. If the JSON itself is malformed, Jazz reports it and uses defaults for that file rather than refusing to start:
+Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, an invalid safety invariant, or malformed JSON stops every command with exit code `1` and names each problem, rather than running on defaults that could quietly drop your limits and approvals. A `--config` path that does not exist stops the command the same way:
 
 ```console
 jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
@@ -64,7 +64,7 @@ jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
   maxRetrys: not a setting — did you mean maxRetries?
 ```
 
-Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer. A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
+Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer; it runs on a broken file, and it also checks every agent file (see [`jazz config`](../commands.md#jazz-config)). A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
 
 ## Run budgets
 

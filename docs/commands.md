@@ -93,14 +93,14 @@ Full contract, examples, and a complete bridge implementation:
 
 ## `jazz agent`
 
-| Command                             | Purpose                                                                                        |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `jazz agent list`                   | List all agents; `--can image\|audio\|video` filters to the ones that can generate that medium |
-| `jazz agent create`                 | Create an agent (interactive)                                                                  |
-| `jazz agent show <agentId>`         | Show an agent's details                                                                        |
-| `jazz agent edit <agentId>`         | Edit an agent                                                                                  |
-| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation                              |
-| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name                                       |
+| Command                             | Purpose                                                                                                                                                                                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz agent list`                   | List all agents; `--can image\|audio\|video` filters to the ones that can generate that medium. `--json` prints one document. Agent files that cannot be read, or name an unknown provider or reasoning level, are reported on stderr (under `problems` in JSON) |
+| `jazz agent create`                 | Create an agent (interactive)                                                                                                                                                                                                                                    |
+| `jazz agent show <agentId>`         | Show an agent's details                                                                                                                                                                                                                                          |
+| `jazz agent edit <agentId>`         | Edit an agent                                                                                                                                                                                                                                                    |
+| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation                                                                                                                                                                                                |
+| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name. `--continue` picks up the agent's most recent saved conversation; add `--conversation <id>` for a specific one                                                                                         |
 
 `agent chat` accepts `--stream` / `--no-stream`, `--max-iterations <n>`, and `--ephemeral`.
 
@@ -111,7 +111,7 @@ Full contract, examples, and a complete bridge implementation:
 | Command                          | Purpose                                                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz workflow create`           | Create a new workflow interactively                                                                                             |
-| `jazz workflow list`             | List available workflows (global and local)                                                                                     |
+| `jazz workflow list`             | List available workflows (global and local); `--json` prints one document                                                       |
 | `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                           |
 | `jazz workflow run <name>`       | Run once. See flags below                                                                                                       |
 | `jazz workflow schedule <name>`  | Install a schedule: the workflow's own frequency, or `--cron "<expr>"` for another. `--as <label>` names it                     |
@@ -161,7 +161,7 @@ Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 | Command               | Purpose                                                                                                                                       |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header`, and optional `--trusted` |
-| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                               |
+| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools; `--json` prints one document without env values or headers                   |
 | `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                   |
 | `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                          |
 | `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                             |
@@ -469,7 +469,7 @@ for both paths.
 
 | Command                            | Purpose                                                                                              |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `jazz persona list`                | List personas (built-in + custom)                                                                    |
+| `jazz persona list`                | List personas (built-in + custom); `--json` prints one document                                      |
 | `jazz persona create`              | Create a custom persona (interactive)                                                                |
 | `jazz persona show <identifier>`   | Show a persona by name or id                                                                         |
 | `jazz persona edit <identifier>`   | Edit a custom persona                                                                                |
@@ -491,6 +491,7 @@ See [Personas](./concepts/personas.md).
 
 | Command                     | Purpose                                                                                               |
 | --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `jazz skill list`           | List the skills agents can load, by source; `--json` prints one document                              |
 | `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                  |
 | `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                         |
 | `jazz skill install <name>` | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh` |
@@ -548,6 +549,14 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 | `jazz config validate`          | Check config files without starting the application |
 | `jazz config get <key>`         | Get one value                                       |
 | `jazz config set <key> [value]` | Set one value                                       |
+
+`config validate` also checks every agent file: one that cannot be read, or names a provider or
+reasoning level Jazz does not know, fails the check with exit code `1`; a tool name no built-in
+provides is a warning, since an MCP server, plugin, or custom tool may supply it. `config set`
+refuses a key Jazz does not read, including an API key for a provider that does not exist
+(`llm.opneai.api_key`), and trims pasted keys. `jazz config set <provider>` with no value prompts
+for the key, so it never lands in your shell history, and checks it with the provider where
+there is a free endpoint to ask.
 
 See [Configuration](./configure/jazz.md).
 
