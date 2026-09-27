@@ -16,8 +16,8 @@ import { computePluginConsentDigest } from "@jazz/core/agent/plugins/consent";
 import { PluginNotInstalledError } from "@jazz/core/types/errors";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import {
+  copySourceTree,
   describeGitHubSource,
-  EXCLUDED_DIRECTORIES,
   hashSourceTree,
   isLocalSourceDirectory,
   materializeGitHubSource,
@@ -27,6 +27,7 @@ import {
 import type { PluginManifest } from "./manifest-schema";
 import { prepareSourceManifest } from "./plugin-author";
 import { PluginSecretStore, type PluginSecretStatus } from "./secret-store";
+import { scanPluginImportGraph, verifySourceInstall } from "./source-integrity";
 import {
   PluginStateStore,
   type PluginLockRecord,
@@ -209,10 +210,11 @@ export class PluginRegistryServiceImpl {
   }
 
   /**
-   * Install a plugin from a source repository — a GitHub `owner/repo` (downloaded over HTTPS, no
+   * Install a plugin from a source repository: a GitHub `owner/repo` (downloaded over HTTPS, no
    * local `git`) or a local directory holding a `jazz-plugin.json`. The source tree is hashed and
-   * that hash is the digest the operator trusts; no code is bundled or executed. The plugin lands
-   * untrusted and disabled.
+   * that hash is the digest the operator trusts. The install is refused when the tree holds a
+   * symlink or special file, or when the entry's import graph reaches outside the tree. No code is
+   * bundled or executed. The plugin lands untrusted and disabled.
    */
   async addFromSource(spec: SourceSpec): Promise<PluginLifecycleResult> {
     const prepared = await this.materializeSource(spec);
@@ -221,12 +223,12 @@ export class PluginRegistryServiceImpl {
         if (state.plugins[prepared.manifest.id]) {
           throw new Error(`Plugin is already installed: ${prepared.manifest.id}`);
         }
-        const committed = await this.installer.commitSourceTree(prepared.root, prepared.digest);
+        await this.installer.commitSourceTree(prepared.root, prepared.digest);
         const record: PluginStateRecord = {
           current: {
             manifest: prepared.manifest,
             source: prepared.sourceLabel,
-            artifactPath: path.join(committed, prepared.entry),
+            artifactPath: this.installer.sourceEntryPath(prepared.digest, prepared.entry),
             installedAt: new Date().toISOString(),
             kind: "source",
           },
@@ -321,13 +323,13 @@ export class PluginRegistryServiceImpl {
             },
           };
         }
-        const committed = await this.installer.commitSourceTree(prepared.root, prepared.digest);
+        await this.installer.commitSourceTree(prepared.root, prepared.digest);
         const record: PluginStateRecord = {
           ...existing,
           current: {
             manifest: prepared.manifest,
             source: prepared.sourceLabel,
-            artifactPath: path.join(committed, prepared.entry),
+            artifactPath: this.installer.sourceEntryPath(prepared.digest, prepared.entry),
             installedAt: new Date().toISOString(),
             kind: "source",
           },
@@ -363,7 +365,10 @@ export class PluginRegistryServiceImpl {
     return undefined;
   }
 
-  /** Fetch and hash a source tree into a temp/local dir, ready to commit. Caller runs cleanup(). */
+  /**
+   * Fetch or copy a source tree into a private snapshot, hash it, and scan its import graph, ready
+   * to commit. Caller runs cleanup().
+   */
   private async materializeSource(spec: SourceSpec): Promise<PreparedSource> {
     // Always work in a private snapshot so the tree that is hashed is exactly the tree that is
     // committed. A GitHub source is downloaded into it; a local directory is copied into it, so a
@@ -379,18 +384,14 @@ export class PluginRegistryServiceImpl {
         await materializeGitHubSource(spec.github, temporary, this.options.fetchImpl);
         sourceLabel = describeGitHubSource(spec.github);
       } else if (spec.localDirectory !== undefined) {
-        await fs.cp(spec.localDirectory, temporary, {
-          recursive: true,
-          dereference: false,
-          errorOnExist: false,
-          filter: (candidate) => !EXCLUDED_DIRECTORIES.has(path.basename(candidate)),
-        });
+        await copySourceTree(spec.localDirectory, temporary);
         sourceLabel = pathToFileURL(path.resolve(spec.localDirectory)).toString();
       } else {
         throw new Error("A source install requires a GitHub source or a local directory");
       }
       const digest = await hashSourceTree(temporary);
       const { manifest, entry } = await prepareSourceManifest(temporary, digest);
+      await scanPluginImportGraph(temporary, entry);
       return { manifest, entry, digest, sourceLabel, root: temporary, cleanup };
     } catch (error) {
       await cleanup();
@@ -705,14 +706,21 @@ export class PluginRegistryServiceImpl {
     return this.options.hasLoadedDigest?.(digest) === true;
   }
 
-  /** Verify an installed plugin against its digest: a source-tree hash, or a bundled-artifact hash. */
+  /**
+   * Verify an installed plugin with the same checks the loader applies before importing it: a
+   * confined entry, the source-tree or bundled-artifact hash, and an import graph that stays inside
+   * the digest-addressed directory.
+   */
   private async verifyInstalled(record: PluginLockRecord): Promise<boolean> {
     if (record.kind === "source") {
       try {
-        return (
-          (await hashSourceTree(this.installer.sourcePath(record.manifest.sha256))) ===
-          record.manifest.sha256
-        );
+        await verifySourceInstall({
+          sourceRoot: this.installer.sourcePath(record.manifest.sha256),
+          entry: record.manifest.artifact,
+          digest: record.manifest.sha256,
+          artifactPath: record.artifactPath,
+        });
+        return true;
       } catch {
         return false;
       }

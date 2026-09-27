@@ -4,12 +4,14 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { AgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { PluginNotInstalledError } from "@jazz/core/types/errors";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { parsePluginManifest } from "./manifest-schema";
 import { PluginModuleLoader } from "./module-loader";
-import { PluginRegistryServiceImpl } from "./plugin-registry-service";
+import { pluginConsentDigest, PluginRegistryServiceImpl } from "./plugin-registry-service";
 import { PluginRuntimeServiceImpl } from "./plugin-runtime-service";
 
 async function packageFixture(
@@ -101,6 +103,57 @@ describe("PluginRegistryServiceImpl", () => {
       (await freshProcessView.disable("com.jazz.test.lifecycle", "default")).restartRequired,
     ).toBe(true);
     expect((await freshProcessView.remove("com.jazz.test.lifecycle")).restartRequired).toBe(true);
+  });
+
+  test("refuses a packed artifact that imports code outside its digest directory", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-packed-import-"));
+    const payload = path.join(root, "payload.mjs");
+    await fs.writeFile(payload, "export {};\n");
+    const importing = `import ${JSON.stringify(payload)};\nexport default { apiVersion: 1, register() {} };\n`;
+    const fixture = await packageFixture(root, "1.0.0", importing);
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    await expect(registry.add(fixture.manifestPath)).rejects.toThrow(
+      "resolves outside the plugin directory",
+    );
+
+    const artifact = registry.installer.artifactPath(fixture.digest);
+    await fs.mkdir(path.dirname(artifact), { recursive: true });
+    await fs.writeFile(artifact, importing);
+    const manifest = parsePluginManifest(
+      JSON.parse(await fs.readFile(fixture.manifestPath, "utf8")),
+    );
+    await registry.stateStore.transact((state) => ({
+      state: {
+        ...state,
+        plugins: {
+          [manifest.id]: {
+            current: {
+              manifest,
+              source: pathToFileURL(fixture.manifestPath).toString(),
+              artifactPath: artifact,
+              installedAt: new Date().toISOString(),
+            },
+            trustedDigests: [fixture.digest],
+            consentGrants: [
+              { digest: pluginConsentDigest(manifest), grantedAt: new Date().toISOString() },
+            ],
+            enabledAgentIds: ["default"],
+            enabledForAllAgents: false,
+            activatedDigests: [],
+            storedSecretNames: [],
+          },
+        },
+      },
+      result: undefined,
+    }));
+    expect((await registry.inspect(manifest.id)).artifactValid).toBe(false);
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    await expect(loader.loadEnabledForAgent("default")).rejects.toThrow(
+      "resolves outside the plugin directory",
+    );
   });
 
   test("updates and rollbacks disabled, preserving digest grants", async () => {
