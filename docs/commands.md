@@ -270,8 +270,8 @@ fallback, and prints it once. A non-loopback daemon refuses to start if no token
 stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
 one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-peers).
 
-A request that grants authority (accepting a goal, starting or resuming a loop, approving or
-answering a parked run) also needs the operator token in `X-Jazz-Operator-Token`. It lives only in
+A request that grants authority (accepting or resuming a goal, starting or resuming a loop,
+approving or answering a parked run, and any write to an agent or persona) also needs the operator token in `X-Jazz-Operator-Token`. It lives only in
 the OS keyring, so an agent that read the daemon token from disk cannot use it to grant itself
 more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
 See [Daemon](./concepts/daemon.md#granting-authority-over-http).

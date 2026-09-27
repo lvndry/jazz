@@ -56,7 +56,8 @@ One process, several jobs, most of them opt-in:
 - **Runs loops.** `POST /loops` starts one (`agentId`, `prompt`, `every`, absolute `workingDirectory`, optional `timezone`, `name`, `approvalPolicy`, `maxRuns`), and versioned `POST /loops/:loop/{pause,resume,cancel}` routes control it. `GET /loops` and `GET /loops/:loop` read state. Each tick starts the loops that are due; if the daemon is stopped, loops wait and their missed runs collapse into one.
 - **Serves the agent catalogue.** `GET`/`POST`/`DELETE` on `/agents`, `/personas`, plus
   `/catalog`, `/models` and `/tools`. This is what an agent editor talks to, so a UI never has to
-  parse JSON files on disk or reimplement validation.
+  parse JSON files on disk or reimplement validation. Writes need the
+  [operator token](#granting-authority-over-http).
 - **Owns the schedule ticker**, when `scheduler.mode` is `in-process`. Schedules normally ride the
   OS scheduler, which only fires while the machine is awake. The daemon's ticker is the
   alternative on a host you leave running. See [Scheduled runs](../surfaces/scheduled.md).
@@ -149,14 +150,23 @@ replay it to accept its own goal at `high-risk` or approve its own parked run.
 So the requests that grant authority need a second credential, the **operator token**, in
 `X-Jazz-Operator-Token`:
 
-| Request                                          | Needs the operator token     |
-| ------------------------------------------------ | ---------------------------- |
-| `POST /goals/:id/accept`                         | yes                          |
-| `POST /loops` (start a loop)                     | yes                          |
-| `POST /loops/:loop/resume`                       | yes                          |
-| `POST /runs/:id/answer` that approves or answers | yes                          |
-| `POST /runs/:id/answer` that rejects             | no, the daemon token will do |
-| pause, cancel, and every read                    | no                           |
+| Request                                                  | Needs the operator token     |
+| -------------------------------------------------------- | ---------------------------- |
+| `POST /goals/:id/accept`, `POST /goals/:id/resume`       | yes                          |
+| `POST /loops` (start a loop), `POST /loops/:loop/resume` | yes                          |
+| `POST /runs/:id/answer` that approves or answers         | yes                          |
+| `POST`, `PATCH`, `DELETE` on `/agents` and `/personas`   | yes                          |
+| `POST /runs/:id/answer` that rejects                     | no, the daemon token will do |
+| `POST /runs`, `POST /goals` (a proposal), pause, cancel  | no                           |
+| every read                                               | no                           |
+
+Every write to an agent or a persona counts, whichever field it touches. An agent's config
+decides what all of its runs may do (tools, MCP servers, model and provider, memory scopes,
+custom commands) and a persona's tool profile narrows or widens that, so there is no field an
+agent could safely rewrite for itself. The daemon has no routes that write the Jazz config,
+register a webhook or peer, or enable a plugin; those are CLI-only. Redeeming a peer invite is
+authenticated by the invite's one-time secret and grants only the tier the operator chose when
+creating it.
 
 ```bash
 jazz daemon operator-token          # generate, store in the OS keyring, print once

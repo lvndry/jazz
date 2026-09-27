@@ -222,6 +222,17 @@ function authorized(request: Request, token: string | undefined): boolean {
   return tokenMatches(token, presented);
 }
 
+/** Routes whose writes change what an agent's runs may do. See `makeHandler`. */
+const CAPABILITY_WRITE_PATHS: readonly string[] = [
+  "/agents",
+  "/agents/*",
+  "/personas",
+  "/personas/*",
+];
+
+/** Methods that change a resource. */
+const WRITE_METHODS: readonly string[] = ["POST", "PUT", "PATCH", "DELETE"];
+
 /**
  * Why this request may not grant authority, or `undefined` when it may.
  *
@@ -432,6 +443,23 @@ export function makeHandler(
     );
   }
 
+  // An agent's config and a persona's tool profile decide what every run of that agent may do:
+  // its tools, MCP servers, model and provider, memory scopes, custom commands. So every write to
+  // either is a grant, and needs the operator token like any other. Gating the whole write rather
+  // than picking fields keeps a field added later from arriving ungated. Reads stay open.
+  for (const path of CAPABILITY_WRITE_PATHS) {
+    app.use(path, async (context, next) => {
+      if (WRITE_METHODS.includes(context.req.method)) {
+        const refusal = operatorGrantRefusal(context.req.raw, options);
+        if (refusal !== undefined) {
+          return refusal;
+        }
+      }
+      await next();
+      return undefined;
+    });
+  }
+
   app.get("/agents", () => runEffect(listAgents()));
   app.post("/agents", async (context) => {
     const body = await agentWriteBody(context.req.raw);
@@ -595,8 +623,9 @@ async function goalControlRoute(
   options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
-  // Accepting starts the goal's cycles, and may grant them a policy: the operator's decision.
-  if (action === "accept") {
+  // Accepting starts the goal's cycles and may grant them a policy, and resuming restarts them
+  // under the policy they were granted: both are the operator's decision.
+  if (action === "accept" || action === "resume") {
     const refusal = operatorGrantRefusal(request, options);
     if (refusal !== undefined) {
       return refusal;

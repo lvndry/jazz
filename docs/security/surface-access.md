@@ -16,9 +16,9 @@ The four surfaces answer them differently, and the differences are not arbitrary
 | **Daemon**   | a client of the daemon | one bearer token; grants also need the operator token | the agent's own toolset               |
 | **Peer**     | one agent identity     | a per-peer token, or an invite                        | `disclosure`, `allow`, and its budget |
 
-Read the daemon row twice. Its token can start runs and edit agents. Granting authority (accepting
-a goal, starting or resuming a loop, approving or answering a parked run) also needs the operator
-token, which lives only in the OS keyring.
+Read the daemon row twice. Its token can start runs. Granting authority (accepting or resuming a
+goal, starting or resuming a loop, approving or answering a parked run, and any write to an agent
+or persona) also needs the operator token, which lives only in the OS keyring.
 
 Peers and webhooks do not use it. A credential that can approve a file write is a much larger
 grant than one that can ask a question.
