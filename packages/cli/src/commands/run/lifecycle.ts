@@ -15,6 +15,7 @@ import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { Effect } from "effect";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
@@ -187,6 +188,9 @@ export function answerRunCommand(options: {
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
+    // The resumed run renders like `jazz run`: stdout carries only the result (one envelope
+    // with --json), never the agent's progress.
+    Effect.provide(makeOneShotPresentationServiceLayer(new Set())),
   );
 }
 
