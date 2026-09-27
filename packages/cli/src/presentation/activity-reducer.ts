@@ -559,6 +559,7 @@ export function reduceEvent(
     }
 
     case "usage_update":
+    case "run_spend":
     case "approval_required":
     case "approval_resolved":
     case "subagent_start":

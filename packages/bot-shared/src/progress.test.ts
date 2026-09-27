@@ -196,3 +196,44 @@ describe("accumulated run state", () => {
     expect(reporter.reasoningLog()).toBe("Let me check that");
   });
 });
+
+describe("between events", () => {
+  test("the last event inside the throttle window is still drawn", async () => {
+    const { surface, recorded } = fakeSurface();
+    const reporter = createProgressReporter({
+      surface,
+      chatId: "c1",
+      runLog: nullRunLog(),
+      editIntervalMs: 30,
+      tickMs: 60_000,
+    });
+    await reporter.start();
+    reporter.onEvent({ type: "tool_execution_start", toolName: "web_search" });
+    // Arrives inside the window: without a trailing redraw this never reaches the screen.
+    reporter.onEvent({ type: "tool_execution_start", toolName: "read_file" });
+    await Bun.sleep(80);
+    expect(recorded.at(-1)?.text).toContain("read_file");
+    await reporter.finish([plainLine("done")]);
+  });
+
+  test("an append-only surface hears it is still working with no events at all", async () => {
+    const { surface, recorded } = fakeSurface({ editMessages: false });
+    const reporter = createProgressReporter({
+      surface,
+      chatId: "c1",
+      runLog: nullRunLog(),
+      tickMs: 10,
+    });
+    const realNow = Date.now;
+    await reporter.start();
+    try {
+      // Pretend the first quiet interval has passed.
+      Date.now = () => realNow() + 46_000;
+      await Bun.sleep(40);
+      expect(recorded.some((entry) => entry.text.includes("Still working"))).toBe(true);
+    } finally {
+      Date.now = realNow;
+      await reporter.finish([plainLine("done")]);
+    }
+  });
+});

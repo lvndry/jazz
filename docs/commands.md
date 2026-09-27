@@ -69,7 +69,7 @@ memory write; plain piped stdin is treated as untrusted text.
 | `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                          |
 | `--propose-goals`              | off          | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                 |
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
-| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
+| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated)                                             |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
 | `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
@@ -338,18 +338,19 @@ the OS keyring, so an agent that read the daemon token from disk cannot use it t
 more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
 See [Daemon](./concepts/daemon.md#granting-authority-over-http).
 
-| Command                             | Purpose                                                                                                                                                                                                                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
-| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                     |
-| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                       |
-| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                           |
-| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
-| `jazz daemon status`                | Whether the daemon is running or paused, what unattended runs spent today against the daily caps, and everything waiting for you with the command that answers it. `--json`                                                                                                                 |
-| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                      |
-| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                 |
-| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
-| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
+| Command                             | Purpose                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                                         |
+| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                                        |
+| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                                          |
+| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                                              |
+| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                                              |
+| `jazz daemon status`                | Whether this home’s daemon is running and supervised, its last tick and pending work, pause state, today’s spend against the daily caps, and everything waiting for you. `--json`; exits 1 when not running                                                                                                    |
+| `jazz daemon logs`                  | Print recent daemon output; `-n, --lines <n>` and `-f, --follow`                                                                                                                                                                                                                                               |
+| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                                         |
+| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                                    |
+| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time: a client config written before the daemon has ever run, or an
@@ -358,9 +359,33 @@ ephemeral container whose `$JAZZ_HOME` doesn't survive to the next deploy.
 See [Setting up peers](./guides/connect-peers.md) for a full walkthrough, and
 [Agent-to-agent](./concepts/agent-to-agent.md) for the tier model this exists to serve.
 
+A background daemon writes its output to `$JAZZ_HOME/logs/daemon.log`. Without an installed
+service, nothing restarts it after a reboot; `jazz goal` and `jazz loop` say so when they hand it
+work. See [Running it persistently](./concepts/daemon.md#running-it-persistently).
+
 `jazz wake-trigger fire --agent <agentId> --id <id>` is internal plumbing, not something you run
 by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wake trigger without
-`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers).
+`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers). `jazz reminder fire`
+and `jazz job run` are the same kind of plumbing for reminders and job batches.
+
+---
+
+## `jazz reminders`, `jazz triggers`, `jazz jobs`
+
+What agents have scheduled to happen later, across every agent unless `--agent <id-or-name>`
+narrows it.
+
+| Command                      | Purpose                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `jazz reminders list`        | Reminders set with `remind_me`, soonest first. `--agent`, `--json`                         |
+| `jazz reminders cancel <id>` | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz triggers list`         | Wake triggers that will resume a conversation, soonest first. `--agent`, `--json`          |
+| `jazz triggers cancel <id>`  | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz jobs list`             | Background job batches still active, with each batch's jobs by status. `--agent`, `--json` |
+| `jazz jobs cancel <id>`      | Cancel a batch's jobs that have not started; running jobs finish. `--agent`                |
+
+`--json` prints one envelope: `{"ok":true,"reminders":[…]}`, `{"ok":true,"triggers":[…]}`, or
+`{"ok":true,"batches":[…]}`.
 
 ---
 

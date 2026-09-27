@@ -35,6 +35,7 @@ const EVENT_CATEGORY_TYPES = {
     "command_risk_classified",
   ],
   subagent: ["subagent_start", "subagent_complete", "subagent_result"],
+  spend: ["run_spend"],
 } as const satisfies Record<string, readonly StreamEvent["type"][]>;
 
 type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;

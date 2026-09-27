@@ -6,6 +6,7 @@
  * and the same lack of buttons. Kept here so both render identically.
  */
 
+import { markdownToPlainText } from "./markdown-dialects";
 import { type OutgoingMessage, renderChoicesAsText, type SurfaceCapabilities } from "./surface";
 
 /**
@@ -50,8 +51,9 @@ export function renderForIMessage(message: OutgoingMessage): string {
             .map((span) => (span.kind === "code" ? `“${span.text}”` : span.text))
             .join("");
         case "codeBlock":
-        case "markdown":
           return block.text;
+        case "markdown":
+          return markdownToPlainText(block.text);
         case "quote":
           return block.text
             .split("\n")

@@ -6,6 +6,8 @@
  * INTERACTION_CREATE / GUILD_CREATE. Compression is off so payloads stay JSON.
  */
 
+import { backoffDelay } from "@jazz/bot-shared/backoff";
+
 export const DISCORD_API_BASE = "https://discord.com/api/v10";
 export const DISCORD_USER_AGENT = "DiscordBot (https://github.com/lvndry/jazz, 1.0)";
 
@@ -56,7 +58,16 @@ export interface DiscordMessage {
   readonly author: DiscordUser;
   readonly mentions?: readonly DiscordUser[];
   readonly referenced_message?: { readonly author?: DiscordUser };
+  readonly attachments?: readonly DiscordAttachment[];
   readonly message_reference?: { readonly message_id?: string };
+}
+
+export interface DiscordAttachment {
+  readonly id: string;
+  readonly filename: string;
+  readonly url: string;
+  readonly size?: number;
+  readonly content_type?: string;
 }
 
 export interface DiscordInteractionOption {
@@ -95,7 +106,39 @@ export interface GatewayHandlers {
   onMessage(message: DiscordMessage): void;
   onInteraction(interaction: DiscordInteraction): void;
   onGuildCreate(guildId: string): void;
+  /** The gateway acknowledged a heartbeat or finished (re)connecting: the link works. */
+  onHealthy?(): void;
+  /** Discord closed with a code that no reconnect can fix; the gateway has stopped. */
+  onFatal?(code: number, reason: string): void;
 }
+
+/**
+ * Close codes Discord documents as final: an invalid token (4004), a shard or sharding the
+ * bot needs (4010, 4011), an invalid API version (4012), and invalid or disallowed intents
+ * (4013, 4014, the last being a Message Content intent not enabled in the portal).
+ * Reconnecting on these only burns the daily session-start limit.
+ */
+const FATAL_CLOSE_CODES: ReadonlySet<number> = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
+
+const FATAL_CLOSE_EXPLANATIONS: Readonly<Record<number, string>> = {
+  4004: "the token was rejected; check DISCORD_BOT_TOKEN",
+  4010: "the shard is invalid",
+  4011: "the bot is in too many guilds and needs sharding",
+  4012: "the gateway API version is invalid",
+  4013: "the requested intents are invalid",
+  4014: "an intent is not enabled for this bot; turn on Message Content in the developer portal",
+};
+
+/** Reconnect backoff: jittered, from one second up to a minute. */
+const RECONNECT_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
+
+/**
+ * How long a REST call may take. Without a bound a half-open connection holds the call for
+ * Bun's five-minute default, and with it whatever conversation was waiting on it.
+ */
+const REST_TIMEOUT_MS = 20_000;
+/** An upload carries a file, so it gets longer. */
+const UPLOAD_TIMEOUT_MS = 60_000;
 
 interface GatewayPayload {
   readonly op: number;
@@ -114,6 +157,13 @@ const OP_HELLO = 10;
 const OP_HEARTBEAT_ACK = 11;
 
 const REST_MAX_RETRIES = 3;
+
+/**
+ * Methods safe to send twice. A network failure leaves the outcome unknown: Discord may
+ * already have posted the message, so retrying a POST can post it twice. Every other method
+ * here names its target and lands in the same state however often it arrives.
+ */
+const RETRY_SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "PUT", "PATCH", "DELETE"]);
 
 /** Bounds on the HELLO payload's heartbeat_interval, to survive a malformed or hostile value. */
 const MIN_HEARTBEAT_INTERVAL_MS = 1_000;
@@ -173,9 +223,13 @@ export async function discordRequest(
 
     let response: Response;
     try {
-      response = await fetch(`${DISCORD_API_BASE}${path}`, init);
+      response = await fetch(`${DISCORD_API_BASE}${path}`, {
+        ...init,
+        signal: AbortSignal.timeout(body instanceof FormData ? UPLOAD_TIMEOUT_MS : REST_TIMEOUT_MS),
+      });
     } catch (error) {
       lastError = error;
+      if (!RETRY_SAFE_METHODS.has(method)) break;
       await sleep(1000 * (attempt + 1));
       continue;
     }
@@ -273,7 +327,7 @@ export async function getOriginalInteraction(
 ): Promise<{ id: string; channel_id?: string } | undefined> {
   const response = await fetch(
     `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
-    { headers: { "user-agent": DISCORD_USER_AGENT } },
+    { headers: { "user-agent": DISCORD_USER_AGENT }, signal: AbortSignal.timeout(REST_TIMEOUT_MS) },
   );
   const payload = (await response.json().catch(() => undefined)) as
     { id?: string; channel_id?: string } | undefined;
@@ -313,6 +367,7 @@ export async function interactionCallback(
     `${DISCORD_API_BASE}/interactions/${interactionId}/${interactionToken}/callback`,
     {
       method: "POST",
+      signal: AbortSignal.timeout(REST_TIMEOUT_MS),
       headers: { "content-type": "application/json", "user-agent": DISCORD_USER_AGENT },
       body: JSON.stringify(body),
     },
@@ -332,6 +387,7 @@ export async function editOriginalInteraction(
     `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
     {
       method: "PATCH",
+      signal: AbortSignal.timeout(REST_TIMEOUT_MS),
       headers: { "content-type": "application/json", "user-agent": DISCORD_USER_AGENT },
       body: JSON.stringify({ allowed_mentions: NO_MENTIONS, ...body }),
     },
@@ -339,6 +395,44 @@ export async function editOriginalInteraction(
   if (!response.ok) {
     const payload = await response.text().catch(() => "");
     console.error(`Discord interaction edit failed: ${response.status} ${payload}`);
+  }
+}
+
+/** Remove the placeholder a deferred interaction left, once the real reply went out. */
+export async function deleteOriginalInteraction(
+  applicationId: string,
+  interactionToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    {
+      method: "DELETE",
+      headers: { "user-agent": DISCORD_USER_AGENT },
+      signal: AbortSignal.timeout(REST_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok && response.status !== 404) {
+    console.error(`Discord interaction delete failed: ${response.status}`);
+  }
+}
+
+/** A message only the clicker sees, after the interaction was already acknowledged. */
+export async function ephemeralFollowup(
+  applicationId: string,
+  interactionToken: string,
+  content: string,
+): Promise<void> {
+  const response = await fetch(
+    `${DISCORD_API_BASE}/webhooks/${applicationId}/${interactionToken}`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(REST_TIMEOUT_MS),
+      headers: { "content-type": "application/json", "user-agent": DISCORD_USER_AGENT },
+      body: JSON.stringify({ content, flags: FLAG_EPHEMERAL, allowed_mentions: NO_MENTIONS }),
+    },
+  );
+  if (!response.ok) {
+    console.error(`Discord followup failed: ${response.status}`);
   }
 }
 
@@ -438,6 +532,7 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
   let resumeUrl: string | undefined;
   let heartbeatAcked = true;
   let identifyAfterInvalidSession = false;
+  let reconnectAttempts = 0;
 
   function clearHeartbeat(): void {
     if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
@@ -516,6 +611,7 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
       const userId = ready.user?.id;
       const applicationId = ready.application?.id ?? userId;
       if (typeof userId === "string" && typeof applicationId === "string") {
+        handlers.onHealthy?.();
         handlers.onReady({
           userId,
           applicationId,
@@ -525,6 +621,7 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
       return;
     }
     if (eventName === "RESUMED") {
+      handlers.onHealthy?.();
       console.log("Discord gateway session resumed");
       return;
     }
@@ -561,6 +658,8 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
       }
       case OP_HEARTBEAT_ACK:
         heartbeatAcked = true;
+        reconnectAttempts = 0;
+        handlers.onHealthy?.();
         break;
       case OP_HEARTBEAT:
         sendHeartbeat();
@@ -620,12 +719,20 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
     ws.addEventListener("close", (event) => {
       clearHeartbeat();
       if (stopped) return;
-      const delay = event.code === 4004 ? 60_000 : 2_000;
-      if (event.code === 4004) {
-        console.error("Discord gateway rejected the token (4004). Check DISCORD_BOT_TOKEN.");
-      } else {
-        console.warn(`Discord gateway closed (${event.code} ${event.reason}) — reconnecting`);
+      if (FATAL_CLOSE_CODES.has(event.code)) {
+        stopped = true;
+        const why = FATAL_CLOSE_EXPLANATIONS[event.code] ?? event.reason;
+        console.error(
+          `Discord gateway closed with ${event.code}: ${why}. Not reconnecting; fix it and restart the bridge.`,
+        );
+        handlers.onFatal?.(event.code, why);
+        return;
       }
+      const delay = backoffDelay(reconnectAttempts, RECONNECT_BACKOFF);
+      reconnectAttempts += 1;
+      console.warn(
+        `Discord gateway closed (${event.code} ${event.reason}) — reconnecting in ${delay}ms`,
+      );
       setTimeout(() => {
         void open();
       }, delay);

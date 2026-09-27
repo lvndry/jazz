@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   isSenderAllowed,
   messageMentionsUser,
-  parseCommand,
   parseSnowflakeList,
   shouldRespond,
   stripBotMention,
@@ -193,22 +192,5 @@ describe("mentions", () => {
   it("strips the bot mention and leaves the rest", () => {
     expect(stripBotMention(`<@${BOT}>  what's the weather`, BOT)).toBe("what's the weather");
     expect(stripBotMention(`<@!${BOT}> status`, BOT)).toBe("status");
-  });
-});
-
-describe("parseCommand", () => {
-  it("parses a slash command with args", () => {
-    expect(parseCommand("/remind 30m pizza")).toEqual({
-      command: "remind",
-      args: "30m pizza",
-    });
-  });
-
-  it("strips a bot username suffix", () => {
-    expect(parseCommand("/help@JazzBot")).toEqual({ command: "help", args: "" });
-  });
-
-  it("returns undefined for ordinary text", () => {
-    expect(parseCommand("remind me later")).toBeUndefined();
   });
 });

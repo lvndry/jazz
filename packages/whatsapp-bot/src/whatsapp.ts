@@ -14,6 +14,7 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { backoffDelay } from "@jazz/bot-shared/backoff";
 import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
 import type { OutgoingFile } from "@jazz/bot-shared/surface";
 import makeWASocket, {
@@ -204,11 +205,13 @@ export interface Connection {
   /** Save an inbound attachment to `directory`, returning its path. */
   saveMedia(message: WhatsAppMessage, directory: string): Promise<string | undefined>;
   readonly selfJid: string | undefined;
+  /** Whether the socket is connected right now, for a health check. */
+  isOpen(): boolean;
   close(): void;
 }
 
-/** How long to wait before reconnecting after a non-terminal disconnect. */
-const RECONNECT_DELAY_MS = 3_000;
+/** Reconnect backoff after a non-terminal disconnect: jittered, one second up to a minute. */
+const RECONNECT_BACKOFF = { baseMs: 1_000, maxMs: 60_000 } as const;
 
 export async function connect(options: ConnectionOptions): Promise<Connection> {
   mkdirSync(options.authDir, { recursive: true });
@@ -221,6 +224,8 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
   let socket: WASocket | undefined;
   let selfJid: string | undefined;
   let closed = false;
+  let open = false;
+  let reconnectAttempts = 0;
 
   const start = (): void => {
     if (closed) return;
@@ -242,17 +247,27 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
         options.onQr(update.qr);
       }
       if (update.connection === "open") {
+        open = true;
+        reconnectAttempts = 0;
         selfJid = socket?.user?.id;
         options.onReady(selfJid ?? "unknown");
       }
       if (update.connection === "close") {
+        open = false;
         const statusCode = (update.lastDisconnect?.error as { output?: { statusCode?: number } })
           ?.output?.statusCode;
         if (statusCode === DisconnectReason.loggedOut) {
           options.onLoggedOut();
           return;
         }
-        if (!closed) setTimeout(start, RECONNECT_DELAY_MS);
+        if (!closed) {
+          const delayMs = backoffDelay(reconnectAttempts, RECONNECT_BACKOFF);
+          reconnectAttempts += 1;
+          console.error(
+            `WhatsApp disconnected (${String(statusCode)}); reconnecting in ${delayMs}ms.`,
+          );
+          setTimeout(start, delayMs);
+        }
       }
     });
 
@@ -327,6 +342,7 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
       await Bun.write(path, bytes as Uint8Array);
       return path;
     },
+    isOpen: () => open,
     close: () => {
       closed = true;
       void socket?.end(undefined);

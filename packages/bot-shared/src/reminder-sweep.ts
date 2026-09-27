@@ -6,6 +6,10 @@
  * them: a reminder only becomes a message because a bridge process sweeps for
  * due ones on an interval, which is what this does.
  *
+ * Delivery is at least once: a reminder is removed only after its message went out,
+ * so a platform that is down for a sweep gets it on the next one. A reminder for a
+ * conversation this bridge cannot address is left alone for the bridge that can.
+ *
  * The Telegram and Discord bridges each carried a copy differing in two lines —
  * how an agent id decodes back to a conversation, and how the text is marked up.
  * Both are injected here, so a new surface gets reminders by supplying those.
@@ -128,7 +132,8 @@ function reminderBody(reminderText: string, late: boolean): RichText {
   ];
 }
 
-async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
+/** One sweep: deliver what is due now. Exported for tests; the bridge uses the interval. */
+export async function sweepRemindersOnce(options: ReminderSweepOptions): Promise<void> {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
@@ -145,7 +150,7 @@ async function fireDueReminders(options: ReminderSweepOptions): Promise<void> {
 
 export function startReminderSweep(options: ReminderSweepOptions): void {
   const sweep = (): void => {
-    void fireDueReminders(options).catch((error) =>
+    void sweepRemindersOnce(options).catch((error) =>
       console.error(`Reminder sweep failed: ${String(error)}`),
     );
   };

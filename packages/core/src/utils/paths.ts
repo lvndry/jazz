@@ -106,6 +106,18 @@ export function getGlobalUserDataDirectory(): string {
 }
 
 /**
+ * Subdirectory of `$JAZZ_HOME/logs` holding each launchd one-shot job's stdout and stderr.
+ * Kept apart from workflow logs so the logs sweep can drop them a day after they fire
+ * without matching on file names a workflow could also use.
+ */
+export const ONE_SHOT_LOGS_DIRECTORY_NAME = "one-shot";
+
+/** Where launchd one-shot reminder and wake-trigger jobs write their stdout and stderr. */
+export function getOneShotJobLogsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "logs", ONE_SHOT_LOGS_DIRECTORY_NAME);
+}
+
+/**
  * Returns the directory for per-agent conversation history.
  */
 export function getHistoryDirectory(): string {

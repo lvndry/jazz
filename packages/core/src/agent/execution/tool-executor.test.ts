@@ -137,6 +137,8 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     totalCacheWriteTokens: 0,
     childCostUSD: 0,
     childCostUnknown: false,
+    sideCostUSD: 0,
+    sideCostUnknown: false,
     usageMissing: false,
     llmRetryCount: 0,
     toolCalls: 0,

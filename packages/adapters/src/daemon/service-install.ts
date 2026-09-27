@@ -28,6 +28,16 @@
  * a newline or shell metacharacter would either break systemd's `EnvironmentFile` line format
  * or, worse, get executed by the shell that sources it on launchd. Refusing a malformed token
  * is the fix; escaping around one that shouldn't exist is not.
+ *
+ * Who owns that file differs by supervisor. systemd reads `EnvironmentFile=` itself, as root,
+ * before dropping to `User=`, so the file stays root-owned. launchd has no such directive: the
+ * wrapper shell that sources the file already runs as `UserName`, so on macOS the file is
+ * owned by the invoking user (still `0600`), or the daemon could never read its own token.
+ *
+ * Serving peers is optional. Without `--serve-peers` the unit is a plain supervised daemon:
+ * goals, loops, wake triggers, reminders and job batches keep running across reboots without
+ * opening the peer door. Output goes to the journal under systemd and to
+ * `$JAZZ_HOME/logs/daemon.log` under launchd, the same file a background daemon writes.
  */
 
 import { randomBytes } from "node:crypto";
@@ -55,7 +65,12 @@ export function detectInitSystem(): InitSystem {
   return "unsupported";
 }
 
-const SYSTEMD_UNIT_PATH = "/etc/systemd/system/jazz-daemon.service";
+/** The systemd unit name, also the journal identifier its output is logged under. */
+export const SYSTEMD_SERVICE_NAME = "jazz-daemon";
+const SYSTEMD_UNIT_PATH = `/etc/systemd/system/${SYSTEMD_SERVICE_NAME}.service`;
+const DAEMON_LOG_FILENAME = "daemon.log";
+const PRIVATE_FILE_MODE = 0o600;
+const PRIVATE_DIRECTORY_MODE = 0o700;
 const LAUNCHD_PLIST_PATH = "/Library/LaunchDaemons/com.jazz.daemon.plist";
 const DAEMON_ENV_FILE_PATH = "/etc/jazz/daemon.env";
 const DAEMON_ENV_FILE_MODE = 0o600;
@@ -74,9 +89,17 @@ export function serviceAlreadyInstalled(initSystem: InitSystem): boolean {
   return unitPath !== undefined && existsSync(unitPath);
 }
 
+/** Whether a supervisor (systemd or launchd) restarts the daemon after a reboot or crash. */
+export function isDaemonSupervised(): boolean {
+  return serviceAlreadyInstalled(detectInitSystem());
+}
+
 export interface InvokingUser {
   readonly username: string;
   readonly home: string;
+  /** Numeric ids, so files written as root for this user can be handed to them. */
+  readonly uid: number;
+  readonly gid: number;
 }
 
 /**
@@ -127,12 +150,59 @@ export function resolveInvokingUser(): Effect.Effect<InvokingUser, ServiceInstal
         new ServiceInstallError(`Could not resolve a home directory for "${username}".`),
       );
     }
-    return { username, home };
+    const uid = yield* numericId(username, "-u");
+    const gid = yield* numericId(username, "-g");
+    return { username, home, uid, gid };
   });
 }
 
+function numericId(
+  username: string,
+  flag: "-u" | "-g",
+): Effect.Effect<number, ServiceInstallError> {
+  return execCommand("id", [flag, username]).pipe(
+    Effect.mapError(
+      (error) =>
+        new ServiceInstallError(
+          `Could not look up ${username}'s ids (id ${flag}): ${error.message}`,
+        ),
+    ),
+    Effect.flatMap((output) => {
+      const parsed = Number.parseInt(output.trim(), 10);
+      return Number.isInteger(parsed) && parsed >= 0
+        ? Effect.succeed(parsed)
+        : Effect.fail(
+            new ServiceInstallError(`Could not look up ${username}'s ids: got "${output.trim()}".`),
+          );
+    }),
+  );
+}
+
+/** `$JAZZ_HOME` the service runs with: the invoking user's default Jazz home. */
+export function serviceJazzHome(user: Pick<InvokingUser, "home">): string {
+  return path.join(user.home, ".jazz");
+}
+
+/** Where the launchd service, and a background daemon, write their output. */
+export function daemonLogPath(jazzHome: string): string {
+  return path.join(jazzHome, "logs", DAEMON_LOG_FILENAME);
+}
+
+/**
+ * The owner the env file needs so the process that reads it can: root for systemd, which
+ * reads `EnvironmentFile=` before dropping privileges, and the invoking user for launchd,
+ * whose wrapper shell sources it as `UserName`.
+ */
+export function envFileOwner(
+  initSystem: InitSystem,
+  user: Pick<InvokingUser, "uid" | "gid">,
+): { readonly uid: number; readonly gid: number } | undefined {
+  return initSystem === "launchd" ? { uid: user.uid, gid: user.gid } : undefined;
+}
+
 export interface ServiceInstallOptions {
-  readonly agentId: string;
+  /** Agent that answers peers; omitted for a daemon that serves no peers. */
+  readonly peerAgent?: string | undefined;
   readonly host: string;
   readonly port: number;
   readonly token: string;
@@ -140,33 +210,39 @@ export interface ServiceInstallOptions {
   readonly user: InvokingUser;
 }
 
-export function buildSystemdUnit(options: ServiceInstallOptions): string {
-  const execStart = [
+function daemonArguments(options: ServiceInstallOptions): readonly string[] {
+  return [
     ...options.invocation,
     "daemon",
     "--foreground",
-    "--serve-peers",
-    options.agentId,
+    ...(options.peerAgent !== undefined ? ["--serve-peers", options.peerAgent] : []),
     "--host",
     options.host,
     "--port",
     String(options.port),
-  ]
-    .map(escapeShellArg)
-    .join(" ");
+  ];
+}
+
+export function buildSystemdUnit(options: ServiceInstallOptions): string {
+  const execStart = daemonArguments(options).map(escapeShellArg).join(" ");
 
   return [
     "[Unit]",
-    "Description=jazz daemon (peer-serving)",
+    options.peerAgent !== undefined
+      ? "Description=jazz daemon (peer-serving)"
+      : "Description=jazz daemon",
     "After=network.target",
     "",
     "[Service]",
     "Type=simple",
     `User=${options.user.username}`,
-    `Environment=JAZZ_HOME=${path.join(options.user.home, ".jazz")}`,
+    `Environment=JAZZ_HOME=${serviceJazzHome(options.user)}`,
     `EnvironmentFile=${DAEMON_ENV_FILE_PATH}`,
     `ExecStart=${execStart}`,
     "Restart=on-failure",
+    "StandardOutput=journal",
+    "StandardError=journal",
+    `SyslogIdentifier=${SYSTEMD_SERVICE_NAME}`,
     "",
     "[Install]",
     "WantedBy=multi-user.target",
@@ -175,27 +251,17 @@ export function buildSystemdUnit(options: ServiceInstallOptions): string {
 }
 
 export function buildLaunchdPlist(options: ServiceInstallOptions): string {
-  const programArgs = [
-    ...options.invocation,
-    "daemon",
-    "--foreground",
-    "--serve-peers",
-    options.agentId,
-    "--host",
-    options.host,
-    "--port",
-    String(options.port),
-  ];
   // launchd has no `EnvironmentFile=` equivalent, so the token file is sourced by a small shell
   // wrapper before exec'ing the real command — the same "wrap in bash -c" idiom
   // `generateLaunchdPlist` already uses elsewhere in this codebase, just sourcing a secret
   // instead of printing a log header. It runs as `UserName` below, same as the shell it wraps.
-  const commandString = programArgs.map(escapeShellArg).join(" ");
+  const commandString = daemonArguments(options).map(escapeShellArg).join(" ");
   const wrappedArgs = [
     "/bin/bash",
     "-c",
     `set -a; source ${escapeShellArg(DAEMON_ENV_FILE_PATH)}; set +a; exec ${commandString}`,
   ];
+  const jazzHome = serviceJazzHome(options.user);
 
   return plist.build({
     Label: LAUNCHD_LABEL,
@@ -203,9 +269,11 @@ export function buildLaunchdPlist(options: ServiceInstallOptions): string {
     ProgramArguments: wrappedArgs,
     RunAtLoad: true,
     KeepAlive: true,
+    StandardOutPath: daemonLogPath(jazzHome),
+    StandardErrorPath: daemonLogPath(jazzHome),
     EnvironmentVariables: {
       PATH: getLaunchdPath(),
-      JAZZ_HOME: path.join(options.user.home, ".jazz"),
+      JAZZ_HOME: jazzHome,
     },
   });
 }
@@ -254,7 +322,17 @@ export function isSafeToken(token: string): boolean {
   return /^[A-Za-z0-9_.-]+$/.test(token);
 }
 
-function writeEnvFile(token: string): Effect.Effect<void, ServiceInstallError> {
+/**
+ * Writes the token env file at `filePath` with mode `0600`, owned by `owner` when given (see
+ * the file header for which supervisor needs which owner).
+ */
+export function writeEnvFile(
+  token: string,
+  options: {
+    readonly filePath: string;
+    readonly owner?: { readonly uid: number; readonly gid: number } | undefined;
+  },
+): Effect.Effect<void, ServiceInstallError> {
   if (!isSafeToken(token)) {
     return Effect.fail(
       new ServiceInstallError(
@@ -266,16 +344,43 @@ function writeEnvFile(token: string): Effect.Effect<void, ServiceInstallError> {
   }
   return Effect.tryPromise({
     try: async () => {
-      await nodeFs.mkdir(path.dirname(DAEMON_ENV_FILE_PATH), { recursive: true, mode: 0o755 });
-      await nodeFs.writeFile(DAEMON_ENV_FILE_PATH, `JAZZ_DAEMON_TOKEN=${token}\n`, {
+      await nodeFs.mkdir(path.dirname(options.filePath), { recursive: true, mode: 0o755 });
+      await nodeFs.writeFile(options.filePath, `JAZZ_DAEMON_TOKEN=${token}\n`, {
         mode: DAEMON_ENV_FILE_MODE,
       });
       // writeFile's `mode` only applies to a newly-created file — chmod again in case the
       // file already existed with a wider mode from a previous install.
-      await nodeFs.chmod(DAEMON_ENV_FILE_PATH, DAEMON_ENV_FILE_MODE);
+      await nodeFs.chmod(options.filePath, DAEMON_ENV_FILE_MODE);
+      if (options.owner !== undefined) {
+        await nodeFs.chown(options.filePath, options.owner.uid, options.owner.gid);
+      }
     },
     catch: (error) =>
-      new ServiceInstallError(`Could not write ${DAEMON_ENV_FILE_PATH}: ${String(error)}`),
+      new ServiceInstallError(`Could not write ${options.filePath}: ${String(error)}`),
+  });
+}
+
+/**
+ * Creates the user's logs directory and daemon log before launchd opens it. launchd opens
+ * `StandardOutPath` as root, so a file it had to create itself would be root-owned, and the
+ * user's own log rotation could then never truncate it.
+ */
+export function prepareDaemonLog(
+  user: Pick<InvokingUser, "home" | "uid" | "gid">,
+): Effect.Effect<void, ServiceInstallError> {
+  const jazzHome = serviceJazzHome(user);
+  const logPath = daemonLogPath(jazzHome);
+  return Effect.tryPromise({
+    try: async () => {
+      for (const directory of [jazzHome, path.dirname(logPath)]) {
+        await nodeFs.mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+        await nodeFs.chown(directory, user.uid, user.gid);
+      }
+      const handle = await nodeFs.open(logPath, "a", PRIVATE_FILE_MODE);
+      await handle.close();
+      await nodeFs.chown(logPath, user.uid, user.gid);
+    },
+    catch: (error) => new ServiceInstallError(`Could not prepare ${logPath}: ${String(error)}`),
   });
 }
 
@@ -323,8 +428,8 @@ export function waitForDaemonHealthy(
 
     const diagnosticCommand =
       initSystem === "systemd"
-        ? "journalctl -u jazz-daemon -n 50 --no-pager"
-        : `log show --predicate 'process == "jazz"' --last 5m`;
+        ? `journalctl -u ${SYSTEMD_SERVICE_NAME} -n 50 --no-pager`
+        : "jazz daemon logs -n 50";
 
     return yield* Effect.fail(
       new ServiceInstallError(
@@ -366,7 +471,10 @@ export function installService(
       );
     }
 
-    yield* writeEnvFile(fullOptions.token);
+    yield* writeEnvFile(fullOptions.token, {
+      filePath: DAEMON_ENV_FILE_PATH,
+      owner: envFileOwner(initSystem, user),
+    });
 
     if (initSystem === "systemd") {
       yield* Effect.tryPromise({
@@ -377,18 +485,19 @@ export function installService(
       yield* execCommand("systemctl", ["daemon-reload"]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
-      yield* execCommand("systemctl", ["enable", "jazz-daemon"]).pipe(
+      yield* execCommand("systemctl", ["enable", SYSTEMD_SERVICE_NAME]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
       // `enable` alone does not restart an already-running unit — `restart` both starts it
       // fresh and picks up a changed ExecStart/env file on a re-install.
-      yield* execCommand("systemctl", ["restart", "jazz-daemon"]).pipe(
+      yield* execCommand("systemctl", ["restart", SYSTEMD_SERVICE_NAME]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
       yield* waitForDaemonHealthy(fullOptions, initSystem);
       return { initSystem, unitPath: SYSTEMD_UNIT_PATH };
     }
 
+    yield* prepareDaemonLog(user);
     yield* Effect.tryPromise({
       try: () => nodeFs.writeFile(LAUNCHD_PLIST_PATH, buildLaunchdPlist(fullOptions), "utf-8"),
       catch: (error) =>
@@ -413,7 +522,7 @@ export function uninstallService(): Effect.Effect<void, ServiceInstallError> {
 
     const initSystem = detectInitSystem();
     if (initSystem === "systemd") {
-      yield* execCommand("systemctl", ["disable", "--now", "jazz-daemon"]).pipe(
+      yield* execCommand("systemctl", ["disable", "--now", SYSTEMD_SERVICE_NAME]).pipe(
         Effect.catchAll(() => Effect.void),
       );
       yield* Effect.tryPromise({

@@ -7,6 +7,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
+  collapseSupersededUiEvents,
   deleteConversationLog,
   deriveConversationTitle,
   conversationLogPath,
@@ -218,6 +219,181 @@ describe("recordConversationTranscript", () => {
       { type: "user", message: "/info" },
       { type: "log", message: "Conversation info" },
     ]);
+  });
+});
+
+describe("UI scrollback growth", () => {
+  const TURN_PADDING = " ".repeat(200);
+  const ANSWER_PADDING = "x".repeat(800);
+
+  /** One chat turn: about a kilobyte of messages and the same again of scrollback. */
+  function turnsOfChat(turns: number) {
+    const messages: ChatMessage[] = [];
+    const uiTranscript: { type: "user" | "info"; message: string }[] = [];
+    for (let turn = 0; turn < turns; turn++) {
+      messages.push(userMessage(`question ${turn}${TURN_PADDING}`));
+      messages.push(assistantMessage(`answer ${turn}${ANSWER_PADDING}`));
+      uiTranscript.push({ type: "user", message: `question ${turn}${TURN_PADDING}` });
+      uiTranscript.push({ type: "info", message: `answer ${turn}${ANSWER_PADDING}` });
+    }
+    return { messages, uiTranscript };
+  }
+
+  test("a log grows linearly with the turns of a chat that saves every turn", async () => {
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    const sizes = new Map<number, number>();
+    const { messages, uiTranscript } = turnsOfChat(200);
+    for (let turn = 1; turn <= 200; turn++) {
+      await runEffect(
+        recordConversationTranscript(
+          {
+            ...record(messages.slice(0, turn * 2)),
+            uiTranscript: uiTranscript.slice(0, turn * 2),
+          },
+          tmpDir,
+        ),
+      );
+      if (turn % 50 === 0) {
+        sizes.set(turn, fs.statSync(logPath).size);
+      }
+    }
+
+    const at100 = sizes.get(100) ?? 0;
+    const at200 = sizes.get(200) ?? 0;
+    // Twice the turns is twice the bytes, give or take the header; every snapshot appended
+    // whole would make it four times.
+    expect(at200 / at100).toBeLessThan(2.1);
+    // About 2KB of content per turn (messages plus their scrollback lines).
+    expect(at200).toBeLessThan(200 * 2_600);
+
+    const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(loaded?.uiTranscript).toEqual(uiTranscript);
+    expect(loaded?.messages).toEqual(messages);
+  });
+
+  test("appends new scrollback entries and snapshots a scrollback that was cleared", async () => {
+    const first = [{ type: "user" as const, message: "hi" }];
+    const second = [...first, { type: "info" as const, message: "hello" }];
+    const cleared = [{ type: "info" as const, message: "fresh start" }];
+    for (const uiTranscript of [first, second, cleared]) {
+      await runEffect(
+        recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
+      );
+    }
+
+    const uiLines = logLines().filter((line) => line.includes('"type":"ui-'));
+    expect(uiLines.map((line) => (JSON.parse(line) as { type: string }).type)).toEqual([
+      "ui-append",
+      "ui-append",
+      "ui-transcript",
+    ]);
+    const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(loaded?.uiTranscript).toEqual(cleared);
+  });
+
+  test("an unchanged scrollback appends nothing", async () => {
+    const uiTranscript = [{ type: "user" as const, message: "hi" }];
+    await runEffect(
+      recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
+    );
+    const before = logLines().length;
+    await runEffect(
+      recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
+    );
+    expect(logLines().length).toBe(before);
+  });
+
+  test("the first save collapses snapshots an older Jazz appended whole on every save", async () => {
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    const header = JSON.stringify({
+      type: "conversation",
+      version: 2,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+      title: "Trip planning",
+    });
+    const snapshots = [1, 2, 3].map((count) =>
+      JSON.stringify({
+        type: "ui-transcript",
+        at: "2026-08-01T10:00:00.000Z",
+        entries: Array.from({ length: count }, (_unused, index) => ({
+          type: "user",
+          message: `line ${index}`,
+        })),
+      }),
+    );
+    const message = JSON.stringify({
+      type: "message",
+      at: "2026-08-01T10:00:00.000Z",
+      message: userMessage("hi"),
+    });
+    fs.writeFileSync(logPath, [header, message, ...snapshots, ""].join("\n"));
+
+    const legacy = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(legacy?.uiTranscript?.length).toBe(3);
+
+    const nextScrollback = [
+      ...(legacy?.uiTranscript ?? []),
+      { type: "info" as const, message: "more" },
+    ];
+    await runEffect(
+      recordConversationTranscript(
+        { ...record([userMessage("hi")]), uiTranscript: nextScrollback },
+        tmpDir,
+      ),
+    );
+
+    const types = logLines().map((line) => (JSON.parse(line) as { type: string }).type);
+    expect(types).toEqual(["conversation", "message", "ui-transcript", "ui-append"]);
+    const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(loaded?.uiTranscript).toEqual(nextScrollback);
+    expect(loaded?.messages).toEqual([userMessage("hi")]);
+  });
+
+  test("collapsing keeps every non-UI line, unreadable ones included", () => {
+    const content = [
+      '{"type":"ui-transcript","at":"t","entries":[]}',
+      "not json",
+      '{"type":"ui-append","at":"t","entries":[]}',
+      '{"type":"ui-transcript","at":"t","entries":[{"type":"user","message":"x"}]}',
+      "",
+    ].join("\n");
+    expect(collapseSupersededUiEvents(content)).toBe(
+      [
+        "not json",
+        '{"type":"ui-transcript","at":"t","entries":[{"type":"user","message":"x"}]}',
+        "",
+      ].join("\n"),
+    );
+    expect(
+      collapseSupersededUiEvents('{"type":"ui-transcript","at":"t","entries":[]}\n'),
+    ).toBeNull();
+  });
+
+  test("a save after another process appended reads the log again", async () => {
+    await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    fs.appendFileSync(
+      logPath,
+      `${JSON.stringify({ type: "message", at: "2026-08-01T10:00:00.000Z", message: assistantMessage("from elsewhere") })}\n`,
+    );
+
+    await runEffect(
+      recordConversationTranscript(
+        record([userMessage("hi"), assistantMessage("from elsewhere"), userMessage("next")]),
+        tmpDir,
+      ),
+    );
+
+    const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(loaded?.messages.map((entry) => entry.content)).toEqual([
+      "hi",
+      "from elsewhere",
+      "next",
+    ]);
+    expect(messageLineCount()).toBe(3);
   });
 });
 

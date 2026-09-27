@@ -59,3 +59,8 @@ export function inFlight<A, E, R>(
     () => Effect.sync(() => runsInFlight.delete(runId)),
   );
 }
+
+/** How many claimed runs this process is executing right now. */
+export function runsInFlightCount(): number {
+  return runsInFlight.size;
+}

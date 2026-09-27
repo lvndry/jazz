@@ -58,19 +58,22 @@ is the same thing.
 
 ## Configuration
 
-| Variable                     | Default                | What it does                                                                                 |
-| ---------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
-| `PHOTON_PROJECT_ID`          | _(asked on first run)_ | Project id from app.photon.codes.                                                            |
-| `PHOTON_PROJECT_SECRET`      | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                       |
-| `PHOTON_ALLOWED_HANDLES`     | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.  |
-| `PHOTON_OPERATOR_HANDLES`    | _(none)_               | Handles allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.          |
-| `JAZZ_HOME`                  | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                     |
-| `JAZZ_PHOTON_AGENT`          | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
-| `JAZZ_APPROVAL_POLICY`       | `low-risk`             | Tier above which tools stop and ask.                                                         |
-| `JAZZ_AUTO_APPROVE_TOOLS`    | _(none)_               | Tool names that never prompt, whatever the policy.                                           |
-| `JAZZ_RUN_TIMEOUT_MS`        | `300000`               | Per-turn timeout.                                                                            |
-| `JAZZ_DAILY_COST_CAP_USD`    | `0` (off)              | Spend ceiling across all chats per day.                                                      |
-| `JAZZ_PHOTON_SHOW_REASONING` | on                     | Send the run's reasoning under the answer.                                                   |
+| Variable                       | Default                | What it does                                                                                                       |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `PHOTON_PROJECT_ID`            | _(asked on first run)_ | Project id from app.photon.codes.                                                                                  |
+| `PHOTON_PROJECT_SECRET`        | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                                             |
+| `PHOTON_ALLOWED_HANDLES`       | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.                        |
+| `PHOTON_OPERATOR_HANDLES`      | _(none)_               | Handles allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.                                |
+| `JAZZ_HOME`                    | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                                           |
+| `JAZZ_PHOTON_AGENT`            | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                       |
+| `JAZZ_APPROVAL_POLICY`         | `low-risk`             | Tier above which tools stop and ask.                                                                               |
+| `JAZZ_AUTO_APPROVE_TOOLS`      | _(none)_               | Tool names that never prompt, whatever the policy.                                                                 |
+| `JAZZ_RUN_TIMEOUT_MS`          | `300000`               | Per-turn timeout.                                                                                                  |
+| `JAZZ_DAILY_COST_CAP_USD`      | `0` (off)              | Spend ceiling across all chats per day.                                                                            |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS` | `4`                    | Agent runs in flight at once across every chat; the rest wait for a slot and are told so.                          |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES` | `5`                    | Messages that may wait behind a chat's current run; more are dropped with a reply.                                 |
+| `JAZZ_BRIDGE_HEALTH_PORT`      | _(none)_               | Serve `GET /health` on `127.0.0.1:<port>`: `200` while the connection works, `503` once it has been down for 90 s. |
+| `JAZZ_PHOTON_SHOW_REASONING`   | off                    | Send the run's reasoning under the answer. Off by default: each part is another notification.                      |
 
 ## Attachments
 

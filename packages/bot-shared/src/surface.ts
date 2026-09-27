@@ -252,27 +252,69 @@ export function matchChoice(choices: readonly Choice[], reply: string): Choice |
   return choices.find((choice) => choice.label.toLowerCase() === lowered);
 }
 
+/** A Markdown code fence line: ``` optionally followed by a language. */
+const FENCE_LINE = /^\s*```(.*)$/;
+/** Room kept at the end of a chunk for the fence that closes a cut code block. */
+const FENCE_CLOSE = "\n```";
+
+/**
+ * The language of the code fence still open at the end of `text`, `""` for one opened with
+ * no language, or undefined when every fence is closed. `openAtStart` is the fence carried in.
+ */
+function openFenceAt(text: string, openAtStart: string | undefined): string | undefined {
+  let open = openAtStart;
+  for (const row of text.split("\n")) {
+    const match = FENCE_LINE.exec(row);
+    if (match === null) continue;
+    open = open === undefined ? (match[1] ?? "").trim() : undefined;
+  }
+  return open;
+}
+
 /**
  * Split rendered text into sendable chunks under `limit`.
  *
  * Prefers a paragraph break, then a line break, then a space, and only cuts
- * mid-word when a single word is longer than the limit. Surfaces whose markup
- * spans lines (Telegram HTML) split their own blocks before calling this.
+ * mid-word when a single word is longer than the limit. A cut inside a ``` code
+ * block closes the fence at the end of the chunk and reopens it, with its language,
+ * at the start of the next, so the code stays code and the prose after it does not
+ * turn into code. Surfaces whose markup spans lines (Telegram HTML) split their
+ * source before converting it.
  */
 export function splitForSurface(rendered: string, limit: number): string[] {
   if (rendered.length <= limit) return [rendered];
 
   const chunks: string[] = [];
   let remaining = rendered;
-  while (remaining.length > limit) {
-    const window = remaining.slice(0, limit);
-    const cut = ["\n\n", "\n", " "]
-      .map((separator) => window.lastIndexOf(separator))
-      .find((index) => index > limit * 0.5);
-    const end = cut ?? limit;
-    chunks.push(remaining.slice(0, end).trimEnd());
-    remaining = remaining.slice(end).trimStart();
+  let carried: string | undefined;
+  for (;;) {
+    const text = carried === undefined ? remaining : `\`\`\`${carried}\n${remaining}`;
+    if (text.length <= limit) {
+      if (text.trim().length > 0) chunks.push(text);
+      break;
+    }
+    const cutWithin = (budget: number): number => {
+      const window = text.slice(0, budget);
+      const cut = ["\n\n", "\n", " "]
+        .map((separator) => window.lastIndexOf(separator))
+        .find((index) => index > budget * 0.5);
+      return cut ?? budget;
+    };
+    let end = cutWithin(limit);
+    let open = openFenceAt(text.slice(0, end), undefined);
+    // Room for the closing fence is only taken when the cut lands inside code.
+    if (open !== undefined) {
+      end = cutWithin(limit - FENCE_CLOSE.length);
+      open = openFenceAt(text.slice(0, end), undefined);
+    }
+    let chunk = text.slice(0, end).trimEnd();
+    if (open !== undefined) chunk += FENCE_CLOSE;
+    chunks.push(chunk);
+    const rest = text.slice(end);
+    // Inside code, only the line break at the cut goes: leading spaces are indentation.
+    remaining = open === undefined ? rest.trimStart() : rest.replace(/^\n+/, "");
+    carried = open;
+    if (remaining.length === 0) break;
   }
-  if (remaining.length > 0) chunks.push(remaining);
   return chunks;
 }

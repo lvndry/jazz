@@ -10,8 +10,8 @@
  * `usage.ts` — these are file-store concerns and shouldn't need the whole bridge to be testable.
  */
 
-import { join } from "node:path";
-import { type Ownership, type PinnedDirectory, withDirectory } from "@jazz/bot-shared/sandbox-fs";
+import { saveInboundMedia } from "@jazz/bot-shared/inbound-media";
+import type { Ownership } from "@jazz/bot-shared/sandbox-fs";
 
 /**
  * Telegram's own hard limit on `getFile` downloads. Larger files simply cannot be fetched
@@ -19,13 +19,11 @@ import { type Ownership, type PinnedDirectory, withDirectory } from "@jazz/bot-s
  */
 const TELEGRAM_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 
-/** Files older than this are deleted on the next download. See `pruneMediaDir`. */
-const MEDIA_RETENTION_MS = 24 * 60 * 60 * 1000;
+/** Bounds on the two calls a download makes, so a stalled one fails instead of hanging. */
+const FILE_INFO_TIMEOUT_MS = 20_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const MEDIA_DIRECTORY = "tg-media";
-/** A mode for media the bridge keeps in its own data directory. */
-const DEFAULT_DIRECTORY_MODE = 0o750;
-const DEFAULT_FILE_MODE = 0o640;
 
 /**
  * Telegram file objects, across the message fields that can carry media.
@@ -208,33 +206,6 @@ function extensionFor(telegramFilePath: string, mimeType: string | undefined): s
   }
 }
 
-/**
- * Delete media older than the retention window.
- *
- * Downloaded media accumulates indefinitely otherwise: every voice note ever sent stays on the
- * host. A day is long enough that a path mentioned earlier in a live conversation still
- * resolves, and short enough that the directory does not grow without bound. Jazz itself
- * degrades an unreadable attachment to a text note, so an expired file is not a crash.
- */
-function pruneMediaDir(directory: PinnedDirectory, nowMs: number): void {
-  let entries: string[];
-  try {
-    entries = directory.list();
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    try {
-      const modifiedAt = directory.modifiedAt(entry);
-      if (modifiedAt !== undefined && nowMs - modifiedAt > MEDIA_RETENTION_MS) {
-        directory.remove(entry);
-      }
-    } catch {
-      // A file vanishing mid-prune is fine; anything else is not worth failing a download over.
-    }
-  }
-}
-
 export type DownloadOutcome =
   { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string };
 
@@ -272,6 +243,7 @@ export async function downloadTelegramFile(
   let telegramFilePath: string;
   try {
     const response = await fetch(`${apiBase}/bot${botToken}/getFile`, {
+      signal: AbortSignal.timeout(FILE_INFO_TIMEOUT_MS),
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file_id: fileId }),
@@ -291,7 +263,9 @@ export async function downloadTelegramFile(
 
   let bytes: Uint8Array;
   try {
-    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`);
+    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`, {
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
     if (!download.ok) {
       return { ok: false, reason: `downloading the file failed with status ${download.status}` };
     }
@@ -300,29 +274,21 @@ export async function downloadTelegramFile(
     return { ok: false, reason: `downloading the file failed: ${String(error)}` };
   }
 
+  let path: string;
   try {
-    withDirectory(dataDir, {}, (home) => {
-      const media = home.directory(MEDIA_DIRECTORY, {
-        create: {
-          owner: ownership?.owner,
-          mode: ownership?.directoryMode ?? DEFAULT_DIRECTORY_MODE,
-        },
-      });
-      try {
-        pruneMediaDir(media, nowMs);
-        media.writeBytes(fileName, bytes, {
-          owner: ownership?.owner,
-          mode: ownership?.fileMode ?? DEFAULT_FILE_MODE,
-        });
-      } finally {
-        media.close();
-      }
+    path = saveInboundMedia({
+      home: dataDir,
+      directoryName: MEDIA_DIRECTORY,
+      fileName,
+      bytes,
+      ownership,
+      nowMs,
     });
   } catch (error) {
     return { ok: false, reason: `saving the file failed: ${String(error)}` };
   }
 
-  return { ok: true, path: join(dataDir, MEDIA_DIRECTORY, fileName) };
+  return { ok: true, path };
 }
 
 /**

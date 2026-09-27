@@ -8,6 +8,10 @@
  * ("telegram", "discord", ...), and its cap counts only that origin. The cost itself comes
  * pre-computed from `jazz run --json`'s `costUSD`; the child run is told not to record itself
  * (see `bridgeRunEnv`), so nothing is counted twice.
+ * Every run that reached the model is recorded, failed, timed-out and cancelled ones
+ * included: they spent money, and a daily cap that only counted answers would let a
+ * failing agent spend without limit. {@link runSpend} decides what a run spent from its
+ * envelope, or from the last `run_spend` event when the run left no envelope.
  */
 
 import { recordSpend, readSpend } from "@jazz/core/spend/ledger";
@@ -87,4 +91,88 @@ export function capBlockMessage(reason: "unpriced" | "reached", capUSD: number):
   return reason === "unpriced"
     ? "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model."
     : `⚠️ Daily cost cap ($${capUSD.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`;
+}
+
+/** What one run spent, as the usage store records it. */
+export interface RunSpend {
+  readonly costUSD: number;
+  readonly costKnown: boolean;
+  readonly totalTokens: number;
+}
+
+/** The spend fields of a `jazz run --json` envelope, success or failure. */
+export interface SpendEnvelope {
+  readonly ok: boolean;
+  readonly costUSD?: number;
+  readonly costKnown?: boolean;
+  readonly tokenUsage?: { readonly totalTokens?: number };
+}
+
+/** A `run_spend` event's fields, as the bridges parse them from `--events spend`. */
+export interface RunSpendEvent {
+  readonly type: string;
+  readonly costUSD?: number;
+  readonly costIncomplete?: boolean;
+  readonly totalTokens?: number;
+}
+
+/** The spend a `run_spend` event reports, or undefined for any other event. */
+export function runSpendFromEvent(event: RunSpendEvent): RunSpend | undefined {
+  if (event.type !== "run_spend") {
+    return undefined;
+  }
+  return {
+    costUSD: event.costUSD ?? 0,
+    costKnown: event.costIncomplete !== true && event.costUSD !== undefined,
+    totalTokens: event.totalTokens ?? 0,
+  };
+}
+
+/**
+ * What a run spent: the envelope's figure when it carries one (every success, and failures
+ * that reached the model), otherwise the last `run_spend` event seen, otherwise nothing.
+ */
+export function runSpend(
+  envelope: SpendEnvelope,
+  lastEventSpend: RunSpend | undefined,
+): RunSpend | undefined {
+  if (envelope.ok || envelope.costKnown !== undefined) {
+    return {
+      costUSD: envelope.costUSD ?? 0,
+      costKnown: envelope.costKnown !== false,
+      totalTokens: envelope.tokenUsage?.totalTokens ?? 0,
+    };
+  }
+  return lastEventSpend;
+}
+
+/** A run's spend as the fields of a failure envelope, for a run whose own envelope is missing. */
+export function spendFields(
+  spend: RunSpend | undefined,
+): Pick<SpendEnvelope, "costUSD" | "costKnown" | "tokenUsage"> {
+  return spend === undefined
+    ? {}
+    : {
+        costUSD: spend.costUSD,
+        costKnown: spend.costKnown,
+        tokenUsage: { totalTokens: spend.totalTokens },
+      };
+}
+
+/** Record a run's spend, whatever way it ended; a run that spent nothing knowable is skipped. */
+export async function recordRunUsage(
+  dataDir: string,
+  origin: string,
+  agentId: string,
+  spend: RunSpend | undefined,
+): Promise<void> {
+  if (spend === undefined) {
+    return;
+  }
+  await recordUsage(dataDir, origin, {
+    agentId,
+    costUSD: spend.costUSD,
+    tokens: spend.totalTokens,
+    costKnown: spend.costKnown,
+  });
 }
