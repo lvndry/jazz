@@ -48,7 +48,6 @@ describe("continuedSessionOptions", () => {
           agentId: agent.id,
           startedAt: new Date().toISOString(),
           endedAt: new Date().toISOString(),
-          messageCount: 2,
           messages: [
             { role: "user", content: "add milk" },
             { role: "assistant", content: "Added." },

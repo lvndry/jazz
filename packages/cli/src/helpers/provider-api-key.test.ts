@@ -53,7 +53,7 @@ describe("ensureProviderApiKey", () => {
   it("does not check a key for a provider pointed at a custom endpoint", async () => {
     const { terminal, configService, saved } = setup(["sk-proxy"], {
       llm: { openai: { base_url: "http://proxy.local/v1" } },
-    } as Partial<AppConfig>);
+    } as unknown as Partial<AppConfig>);
     const checkKey = mock(async () => "rejected" as const);
 
     await ensureProviderApiKey({

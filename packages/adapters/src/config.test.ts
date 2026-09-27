@@ -112,7 +112,8 @@ describe("AgentConfigService", () => {
 
     await Effect.runPromise(service.set("llm.openai.api_key", "  sk-pasted\n"));
 
-    expect(await Effect.runPromise(service.get("llm.openai.api_key"))).toBe("sk-pasted");
+    const stored: unknown = await Effect.runPromise(service.get("llm.openai.api_key"));
+    expect(stored).toBe("sk-pasted");
   });
 
   it("writes and reads a quoted path segment as one key, dots included", async () => {
