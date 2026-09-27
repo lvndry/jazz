@@ -11,7 +11,7 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -678,5 +678,117 @@ describe("the order approvals are asked in, and who each answer belongs to", () 
 
     expect(executedTargets).toEqual([]);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+});
+
+describe("the boundary a remote door's run started inside", () => {
+  const REMOTE = {
+    toolAllowlist: ["danger"],
+    withholdInteractiveTools: true,
+    disablePersistence: true,
+    remoteCaller: { door: "webhook" as const, name: "deploys" },
+    ingestUserInputPaths: false,
+    maxCostUSD: 5,
+    maxTokens: 10_000,
+  };
+
+  async function parkRemote(store: InMemoryRunStore, layers: ReturnType<typeof makeLayers>) {
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "conv-remote",
+        stream: false,
+        parkWhenUnattended: true,
+        ...REMOTE,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    const parked = (await Effect.runPromise(store.list()))[0];
+    if (parked === undefined) {
+      throw new Error("expected a parked run");
+    }
+    return parked;
+  }
+
+  it("is recorded with the parked run", async () => {
+    const store = new InMemoryRunStore();
+    const parked = await parkRemote(store, makeLayers(store));
+
+    expect(parked.boundary).toEqual({
+      toolAllowlist: ["danger"],
+      withholdInteractiveTools: true,
+      disablePersistence: true,
+      remoteCaller: { door: "webhook", name: "deploys" },
+      budget: { maxTokens: 10_000, maxCostUSD: 5 },
+    });
+  });
+
+  it("is applied again when the run resumes, with only the budget that is left", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(
+      store.save({ ...parked, costUSD: 2, totalTokens: 4_000, activeDurationMs: 10 }),
+    );
+
+    let resumedWith: Parameters<typeof AgentRunner.run>[0] | undefined;
+    const spy = spyOn(AgentRunner, "run").mockImplementation((options) => {
+      resumedWith = options;
+      return Effect.succeed({ content: "done", conversationId: "conv-remote" });
+    });
+    try {
+      await Effect.runPromise(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+          maxCostUSD: 10,
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(resumedWith?.toolAllowlist).toEqual(["danger"]);
+    expect(resumedWith?.withholdInteractiveTools).toBe(true);
+    expect(resumedWith?.disablePersistence).toBe(true);
+    expect(resumedWith?.remoteCaller).toEqual({ door: "webhook", name: "deploys" });
+    expect(resumedWith?.ingestUserInputPaths).toBe(false);
+    expect(resumedWith?.maxCostUSD).toBe(3);
+    expect(resumedWith?.maxTokens).toBe(6_000);
+  });
+
+  it("refuses a remote run whose tool boundary was not recorded, and leaves it parked", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(
+      store.save({ ...parked, boundary: { remoteCaller: { door: "webhook", name: "deploys" } } }),
+    );
+
+    const refusal = await Effect.runPromise(
+      resumeRun({
+        runId: parked.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers), Effect.flip) as Effect.Effect<Error, unknown>,
+    );
+
+    expect(refusal.message).toContain("tool boundary was not recorded");
+    expect((await Effect.runPromise(store.get(parked.runId)))?.state.kind).toBe("input-required");
+  });
+
+  it("refuses a run whose budget the earlier segments already spent", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(store.save({ ...parked, costUSD: 5 }));
+
+    const refusal = await Effect.runPromise(
+      resumeRun({
+        runId: parked.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers), Effect.flip) as Effect.Effect<Error, unknown>,
+    );
+
+    expect(refusal.message).toContain("cost budget is spent");
   });
 });
