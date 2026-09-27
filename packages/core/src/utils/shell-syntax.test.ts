@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { commandBaseName, parseShellCommandLine } from "./shell-syntax";
+import { parseShellCommandLine } from "./shell-syntax";
 
 function wordsOf(command: string): string[][] {
   return parseShellCommandLine(command).commands.map((simpleCommand) =>
@@ -127,12 +127,5 @@ describe("parseShellCommandLine", () => {
 
   it("treats a # inside a word as text", () => {
     expect(wordsOf("echo a#b")).toEqual([["echo", "a#b"]]);
-  });
-});
-
-describe("commandBaseName", () => {
-  it("returns the last path segment", () => {
-    expect(commandBaseName("/usr/bin/curl")).toBe("curl");
-    expect(commandBaseName("curl")).toBe("curl");
   });
 });

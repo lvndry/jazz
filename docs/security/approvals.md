@@ -49,16 +49,15 @@ When the verdict would change the outcome, Jazz asks a model to classify that sp
 Before any model is asked, Jazz reads the command the way the shell will and marks it
 `high-risk` outright when it contains:
 
+- an unterminated quote or expansion
 - command or process substitution: `$(...)`, backticks, `$((...))`, `<(...)`, `>(...)`
 - a redirection that reads or writes a file (discarding output to `/dev/null` and `2>&1` are
   fine)
-- input piped into a shell or interpreter (`| sh`, `| python3`, `| xargs`), `eval`, `source`,
-  or inline code (`bash -c`, `python3 -c`, `node -e`)
 - a command name built from a variable (`$EDITOR notes.md`)
-- a network client (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync` and similar), or a DNS lookup
-  of an expanded name (`dig $USER.example.com`)
 
-No classifier or [policy plugin](../configure/plugins.md) verdict can lower those.
+No classifier or [policy plugin](../configure/plugins.md) verdict can lower those. The check is
+about syntax only and knows no program names: what a particular program does (`curl`, `sh -c`,
+`| xargs`) is for the classifier or the policy plugin to judge.
 
 Three properties of the classifier itself are worth knowing:
 
