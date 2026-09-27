@@ -22,7 +22,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
-import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
+import { AI_SDK_MAX_RETRIES } from "@jazz/core/constants/agent";
 import {
   isLocalServerProvider,
   type LocalServerProvider,
@@ -68,7 +68,6 @@ import {
   type ReasoningControlSurface,
   type ReasoningSelection,
 } from "@jazz/core/types/model-capabilities";
-import type { ToolCall } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
@@ -92,7 +91,6 @@ import {
   createGateway,
   generateText,
   Output,
-  stepCountIs,
   streamText,
   jsonSchema,
   NoSuchProviderError,
@@ -141,7 +139,12 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
-import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+import {
+  resolveStreamIdleTimeoutMs,
+  StreamProcessor,
+  toCompletionFinishReason,
+} from "./stream-processor";
+import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
 export function safeLLMErrorMetadata(
@@ -358,9 +361,13 @@ export function toCoreMessages(
   providerName?: ProviderName,
   resolvedAttachments?: ResolvedAttachments,
 ): ModelMessage[] {
+  // An ephemeral nudge (context, budget, cost, time pressure) rides as a trailing user message
+  // but does not start a new turn. Counting it would put every reasoning part of the current
+  // tool loop "before the last user message" and drop it from the replay.
   let lastUserMessageIndex = -1;
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-    if (messages[messageIndex]?.role === "user") {
+    const message = messages[messageIndex];
+    if (message?.role === "user" && message.kind !== "ephemeral") {
       lastUserMessageIndex = messageIndex;
       break;
     }
@@ -2045,7 +2052,7 @@ class AISDKService implements LLMService {
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           abortSignal: signal,
-          stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+          stopWhen: SDK_STOP_CONDITIONS,
         });
         Effect.runFork(
           this.logger.debug(
@@ -2124,39 +2131,18 @@ class AISDKService implements LLMService {
           );
 
           if (filteredToolCalls.length > 0) {
-            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => {
-              const toolCall: ToolCall = {
-                id: tc.toolCallId,
-                type: "function" as const,
-                function: {
-                  name: tc.toolName,
-                  arguments: JSON.stringify(tc.input ?? {}),
-                },
-              };
-
-              // Preserve thought_signature for Google/Gemini models if present
-              // The AI SDK includes it in providerMetadata.google.thoughtSignature
-              if ("providerMetadata" in tc && tc.providerMetadata) {
-                const providerMetadata = tc.providerMetadata as {
-                  google?: { thoughtSignature?: string };
-                };
-                if (providerMetadata?.google?.thoughtSignature) {
-                  (toolCall as { thought_signature?: string }).thought_signature =
-                    providerMetadata.google.thoughtSignature;
-                }
-              }
-
-              return toolCall;
-            });
+            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => toJazzToolCall(tc));
           }
         }
 
         const reasoningParts = extractReasoningParts(result.response.messages, providerName);
 
+        const finishReason = toCompletionFinishReason(result.finishReason);
         const resultObj: ChatCompletionResponse = {
           id: shortUUID.generate(),
           model: responseModel,
           content,
+          ...(finishReason !== undefined ? { finishReason } : {}),
           ...(reasoningParts ? { reasoningParts } : {}),
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
@@ -2394,7 +2380,7 @@ class AISDKService implements LLMService {
                     ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
                     ...(providerOptions ? { providerOptions } : {}),
                     abortSignal: abortController.signal,
-                    stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                    stopWhen: SDK_STOP_CONDITIONS,
                     // The stream carries the error to the processor, which reports and retries
                     // it; without this the SDK also dumps the raw error object to stderr.
                     onError: ({ error }) => {

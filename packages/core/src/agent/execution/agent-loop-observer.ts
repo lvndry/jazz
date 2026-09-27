@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { PresentationService } from "@/core/interfaces/presentation";
+import { formatDuration } from "@/core/utils/duration";
 
 /**
  * Lifecycle events the agent loop emits. Kept separate from PresentationService
@@ -29,6 +30,12 @@ export interface AgentLoopObserver {
     elapsedMs: number,
   ): Effect.Effect<void, never, never>;
   onEmptyResponse(agentName: string): Effect.Effect<void, never, never>;
+  /** The agent kept repeating the same tool calls after being told to change approach. */
+  onStalled(agentName: string): Effect.Effect<void, never, never>;
+  /** Compaction was needed but could not run or failed; older history is trimmed instead. */
+  onCompactionUnavailable(agentName: string, reason: string): Effect.Effect<void, never, never>;
+  /** The provider rejected a request as too long for the model; history is shrunk to retry. */
+  onContextOverflow(agentName: string): Effect.Effect<void, never, never>;
   /** The agent runs on a local server whose real context window Jazz could not determine. */
   onContextWindowUnknown(agentName: string, advice: string): Effect.Effect<void, never, never>;
   /**
@@ -79,10 +86,25 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
     onDurationCapReached: (agentName, maxDurationMs, elapsedMs) =>
       presentation.presentWarning(
         agentName,
-        `time budget reached (${Math.round(elapsedMs / 60_000)} min elapsed, limit ${Math.round(maxDurationMs / 60_000)} min) - run stopped`,
+        `time budget reached (${formatDuration(elapsedMs)} elapsed, limit ${formatDuration(maxDurationMs)}) - run stopped`,
       ),
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
+    onCompactionUnavailable: (agentName, reason) =>
+      presentation.presentWarning(
+        agentName,
+        `could not compact the conversation (${reason}) - trimming older messages instead`,
+      ),
+    onContextOverflow: (agentName) =>
+      presentation.presentWarning(
+        agentName,
+        "the model rejected the request as too long for its context - shrinking history and retrying once",
+      ),
+    onStalled: (agentName) =>
+      presentation.presentWarning(
+        agentName,
+        "kept repeating the same tool calls after being told to change approach - run stopped",
+      ),
     onContextWindowUnknown: (agentName, advice) => presentation.presentWarning(agentName, advice),
     onHistoryTrimmed: (agentName, messagesRemoved) =>
       presentation.presentWarning(

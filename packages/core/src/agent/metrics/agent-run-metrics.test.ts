@@ -304,6 +304,14 @@ describe("computeRunCost", () => {
     expect(costIncomplete).toBe(false);
   });
 
+  it("reports the cost as incomplete when a model call returned no usage", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 1_000;
+    metrics.usageMissing = true;
+
+    expect(computeRunCost(metrics, pricing).costIncomplete).toBe(true);
+  });
+
   it("prices zero tokens as zero cost when pricing is known", () => {
     const metrics = createMetrics();
     const { costUSD, costIncomplete } = computeRunCost(metrics, pricing);

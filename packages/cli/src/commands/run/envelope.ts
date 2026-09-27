@@ -55,6 +55,8 @@ export interface OneShotSuccess {
   readonly tokenCapped?: boolean;
   /** True when the run stopped early because it hit a configured --max-duration-ms budget. */
   readonly durationCapped?: boolean;
+  /** True when the run was stopped for repeating the same tool calls without progress. */
+  readonly stalled?: boolean;
   /** The calls of a tool batch the run stopped part-way, and what became of each. */
   readonly stoppedToolCalls?: readonly StoppedToolCall[];
   readonly tokenUsage: OneShotTokenUsage;
@@ -113,6 +115,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ...(result.costCapped ? { costCapped: true } : {}),
     ...(result.tokenCapped ? { tokenCapped: true } : {}),
     ...(result.durationCapped ? { durationCapped: true } : {}),
+    ...(result.stalled ? { stalled: true } : {}),
     ...(result.stoppedToolCalls ? { stoppedToolCalls: result.stoppedToolCalls } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,

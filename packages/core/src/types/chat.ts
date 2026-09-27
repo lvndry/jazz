@@ -8,10 +8,16 @@ import type { ReasoningSelection } from "@/core/types/model-capabilities";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
+/** Why the model stopped generating, as the AI SDK reports it. */
+export type CompletionFinishReason =
+  "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other" | "unknown";
+
 export interface ChatCompletionResponse {
   id: string;
   model: string;
   content: string;
+  /** Why generation stopped. `"length"` means the answer was cut off at the token limit. */
+  finishReason?: CompletionFinishReason;
   /**
    * Reasoning / chain-of-thought text emitted by the model, when the provider
    * exposes it as a separate channel (e.g. OpenAI-compatible servers returning

@@ -2006,6 +2006,28 @@ describe("toCoreMessages - reasoning replay", () => {
     });
   });
 
+  it("keeps replaying the tool loop's reasoning when a pressure nudge trails the request", () => {
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_parts: [reasoningPart],
+          tool_calls: [
+            { id: "t1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
+        },
+        { role: "tool", content: "sunny", name: "get_weather", tool_call_id: "t1" },
+        { role: "user", content: "context is at 72%", kind: "ephemeral" },
+      ],
+      "anthropic",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string }>;
+    expect(assistantContent.map((part) => part.type)).toEqual(["reasoning", "tool-call"]);
+  });
+
   it("does not replay parts on assistant messages before the last user message", () => {
     const result = toCoreMessages(
       [
