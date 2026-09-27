@@ -60,4 +60,15 @@ describe("makeUserVisibleLlmRetrySchedule", () => {
     expect(notices[0]).toContain("network issue");
     expect(notices[0]).toContain("attempt 1 of up to 2");
   }, 20_000);
+
+  it("names the underlying error, not just its category", async () => {
+    const transient = new LLMRequestError({
+      provider: "chatgpt",
+      message: "Unsupported provider\n    at selectModel (ai-sdk-service.ts:1043)",
+    });
+    const notices = await Effect.runPromise(collectNotices(1, transient));
+
+    expect(notices[0]).toContain("network issue (Unsupported provider)");
+    expect(notices[0]).not.toContain("selectModel");
+  }, 20_000);
 });

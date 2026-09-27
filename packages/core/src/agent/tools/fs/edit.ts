@@ -1,9 +1,14 @@
+/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
+import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
+import { secretPathReason } from "@/core/utils/secret-paths";
+import { withLock } from "@/core/utils/storage";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
@@ -13,6 +18,8 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { writeFileAtomically } from "./atomic-replace";
+import { fileSnapshot } from "./file-snapshot";
 import { normalizeFilterPattern } from "./utils";
 
 /**
@@ -156,34 +163,17 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("replace_lines"),
-      startLine: z
-        .number()
-        .int()
-        .positive()
-        .describe("First line to replace, 1-based and inclusive. Use the numbers from read_file."),
-      endLine: z.number().int().positive().describe("Last line to replace, 1-based and inclusive."),
-      content: z
-        .string()
-        .describe(
-          "Text that replaces the startLine–endLine range. Do not include the `N|` prefix from read_file.",
-        ),
+      startLine: z.number().int().positive().describe("First line, 1-based, inclusive."),
+      endLine: z.number().int().positive().describe("Last line, inclusive."),
+      content: z.string().describe("Replacement text."),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
     }),
   z.object({
     type: z.literal("replace_pattern"),
-    pattern: z
-      .string()
-      .min(1)
-      .describe(
-        "Text to find. A plain string matches literally. Prefix with re: for a regex. Use this for a short single-line swap (rename a variable, change quotes). For multi-line or structural edits, use replace_lines. Nested quantifiers such as (a+)+ are rejected.",
-      ),
-    replacement: z
-      .string()
-      .describe(
-        "Text to put in place of each match. Literal text — $1 and similar are not expanded.",
-      ),
+    pattern: z.string().min(1).describe("Literal single-line text, or re:<regex>."),
+    replacement: z.string().describe("Literal text; $1 is not expanded."),
     count: z
       .number()
       .int()
@@ -191,9 +181,7 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .refine((v) => v === undefined || v === -1 || v >= 1, {
         message: "count must be a positive integer or -1 (all). Got 0 or invalid negative value.",
       })
-      .describe(
-        "How many matches to replace. Default 1 (the first match only). Pass -1 to replace every match.",
-      ),
+      .describe("Matches to replace: omit for the first, -1 for all."),
   }),
   z.object({
     type: z.literal("insert"),
@@ -201,18 +189,14 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .number()
       .int()
       .nonnegative()
-      .describe("Insert after this line. 0 means before the first line. 5 means after line 5."),
-    content: z.string().describe("Text to insert. Do not include the `N|` prefix from read_file."),
+      .describe("Insert after this line; 0 inserts before line 1."),
+    content: z.string().describe("Text to insert."),
   }),
   z
     .object({
       type: z.literal("delete_lines"),
-      startLine: z
-        .number()
-        .int()
-        .positive()
-        .describe("First line to delete, 1-based and inclusive."),
-      endLine: z.number().int().positive().describe("Last line to delete, 1-based and inclusive."),
+      startLine: z.number().int().positive().describe("First line, 1-based, inclusive."),
+      endLine: z.number().int().positive().describe("Last line, inclusive."),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
@@ -224,14 +208,16 @@ const editFileParameters = z
     path: z
       .string()
       .min(1)
-      .describe(
-        "File to edit. Absolute or relative to the session working directory. The file must already exist.",
-      ),
+      .describe("Existing file, absolute or relative to the working directory."),
+    snapshot: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/)
+      .describe("Snapshot from your latest read_file of this file."),
     edits: z
       .array(editOperationSchema)
       .min(1)
       .describe(
-        "One or more edits, applied in the order given: replace_lines, replace_pattern, insert, or delete_lines. After each edit, later line numbers refer to the file as it now is.",
+        "Applied in order; each edit's line numbers refer to the file after the previous edits.",
       ),
   })
   .strict();
@@ -240,6 +226,15 @@ export type EditOperation = z.infer<typeof editOperationSchema>;
 export type EditFileArgs = z.infer<typeof editFileParameters>;
 
 type EditFileDeps = FileSystem.FileSystem | FileSystemContextService;
+
+/** A stale read is recoverable by reading the file again, without asking for approval. */
+function staleFileResult(path: string) {
+  return {
+    success: false,
+    result: { errorType: "StaleFileError", path },
+    error: `File changed since read_file: ${path}. Read the file again, inspect the current lines, and retry edit_file with its new snapshot. No edit was applied.`,
+  } as const;
+}
 
 /**
  * Result of applying an edit operation
@@ -500,10 +495,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
     name: "edit_file",
     disclosure: "private",
     description:
-      "Change part of a file that already exists. To create a new file, use write_file. You can pass several edits in one call; they run one after another. If an earlier edit inserts or deletes lines, later edits must use the line numbers of the file as it is after those edits — not the numbers from the original read_file. " +
-      "Use this whenever you are changing an existing file. Do not use this to create a file (write_file), to rewrite the whole file after a failed edit (read the errorType and retry), or to run sed via execute_command. " +
-      "Prefer replace_pattern with a unique literal substring. Omit count to replace the first match only; pass count: -1 to replace all. Use replace_lines, insert, or delete_lines when you have exact 1-based line numbers from read_file. The `N|` prefix on those lines is metadata — do not copy it into content. " +
-      "insert.line: 0 puts text before line 1; N puts text after line N. replace_pattern accepts a short single-line literal or a re:<regex>. The replacement is literal text, not a regex substitution — $1 is not expanded.",
+      "Change part of an existing file; to create one, use write_file. Call read_file first and pass its snapshot; if the file changed, read it again. Use replace_pattern with a unique substring for small changes and line-based edits for multi-line ones. Copy only the text after read_file's `N|` prefix into content. After a failed edit, read errorType, fix the edit and retry.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),
@@ -512,6 +504,17 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
 
         const fs = yield* FileSystem.FileSystem;
         const fileExists = yield* fs
@@ -524,7 +527,20 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
 
         // Use Effect.catchAll instead of try/catch — yield* propagates Effect
         // failures through the Effect error channel, NOT through JS exceptions.
-        const fileContentResult = yield* fs.readFileString(target).pipe(
+        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
+        if (canonicalTargetResult._tag === "Left") {
+          const err = new FileNotFoundError({ path: target });
+          return {
+            skipApproval: true,
+            toolResult: {
+              success: false,
+              result: { errorType: "FileNotFoundError", path: target },
+              error: err.message,
+            },
+          };
+        }
+        const canonicalTarget = canonicalTargetResult.right;
+        const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
           Effect.map((content) => ({ ok: true as const, content })),
           Effect.catchAll((error) => Effect.succeed({ ok: false as const, error: String(error) })),
         );
@@ -534,6 +550,9 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         }
 
         const fileContent = fileContentResult.content;
+        if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
+          return { skipApproval: true, toolResult: staleFileResult(target) };
+        }
         const lines = fileContent.split("\n");
         const totalLines = lines.length;
 
@@ -617,12 +636,19 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-
-        const fileExists = yield* fs
-          .exists(target)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
-
-        if (!fileExists) {
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
+        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
+        if (canonicalTargetResult._tag === "Left") {
           const err = new FileNotFoundError({ path: target });
           return {
             success: false,
@@ -630,85 +656,115 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             error: err.message,
           };
         }
+        const canonicalTarget = canonicalTargetResult.right;
 
-        // Read file content — use Effect.catchAll to properly catch Effect failures.
-        // A JS try/catch around yield* does NOT catch Effect-level failures.
-        const fileContentResult = yield* fs.readFileString(target).pipe(
-          Effect.map((content) => ({ ok: true as const, content })),
-          Effect.catchAll((error) => Effect.succeed({ ok: false as const, error: String(error) })),
+        // The lock serializes Jazz edit_file calls from separate agents and processes.
+        // Keep validation and mutation inside it; a lock around only the write still loses edits.
+        return yield* withLock(
+          `${canonicalTarget}.jazz-edit.lock`,
+          Effect.gen(function* () {
+            const fileExists = yield* fs
+              .exists(canonicalTarget)
+              .pipe(Effect.catchAll(() => Effect.succeed(false)));
+
+            if (!fileExists) {
+              const err = new FileNotFoundError({ path: target });
+              return {
+                success: false,
+                result: { errorType: "FileNotFoundError", path: target },
+                error: err.message,
+              };
+            }
+
+            // Read file content — use Effect.catchAll to properly catch Effect failures.
+            // A JS try/catch around yield* does NOT catch Effect-level failures.
+            const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
+              Effect.map((content) => ({ ok: true as const, content })),
+              Effect.catchAll((error) =>
+                Effect.succeed({ ok: false as const, error: String(error) }),
+              ),
+            );
+
+            if (!fileContentResult.ok) {
+              const err = new FileReadError({ path: target, cause: fileContentResult.error });
+              return {
+                success: false,
+                result: { errorType: "FileReadError", path: target },
+                error: err.message,
+              };
+            }
+
+            const fileContent = fileContentResult.content;
+            if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
+              return staleFileResult(target);
+            }
+            const lines = fileContent.split("\n");
+
+            // Apply edits using the shared helper function.
+            // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here.
+            try {
+              const { resultLines, appliedEdits } = applyEdits(lines, args.edits);
+
+              const newContent = resultLines.join("\n");
+
+              // Old content or new, never a truncated file, however the call is stopped.
+              const writeResult = yield* writeFileAtomically(fs, canonicalTarget, newContent).pipe(
+                Effect.map(() => ({ ok: true as const })),
+                Effect.catchAll((error) =>
+                  Effect.succeed({ ok: false as const, error: String(error) }),
+                ),
+              );
+
+              if (!writeResult.ok) {
+                const err = new FileWriteError({ path: target, cause: writeResult.error });
+                return {
+                  success: false,
+                  result: { errorType: "FileWriteError", path: target },
+                  error: err.message,
+                };
+              }
+
+              const { diff, wasTruncated } = generateDiffWithMetadata(
+                fileContent,
+                newContent,
+                target,
+              );
+              const needsExpansion =
+                wasTruncated ||
+                newContent.length > FILE_MUTATION_PREVIEW_CHARS ||
+                diff.length > FILE_MUTATION_PREVIEW_CHARS;
+              const fullDiff = needsExpansion
+                ? generateDiff(fileContent, newContent, target, {
+                    maxLines: Number.POSITIVE_INFINITY,
+                    fullPatch: true,
+                  })
+                : "";
+
+              return {
+                success: true,
+                result: {
+                  path: target,
+                  editsApplied: appliedEdits.map((e) => e.description),
+                  totalEdits: args.edits.length,
+                  originalLines: lines.length,
+                  newLines: resultLines.length,
+                  diff,
+                  wasTruncated,
+                  fullDiff,
+                },
+              };
+            } catch (error) {
+              // Extract structured error info from tagged errors so the LLM can
+              // programmatically distinguish between error types and take appropriate action
+              const errorType = extractErrorType(error);
+              return {
+                success: false,
+                result: { errorType, path: target },
+                error: toError(error).message,
+              };
+            }
+          }),
         );
-
-        if (!fileContentResult.ok) {
-          const err = new FileReadError({ path: target, cause: fileContentResult.error });
-          return {
-            success: false,
-            result: { errorType: "FileReadError", path: target },
-            error: err.message,
-          };
-        }
-
-        const fileContent = fileContentResult.content;
-        const lines = fileContent.split("\n");
-
-        // Apply edits using the shared helper function.
-        // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here.
-        try {
-          const { resultLines, appliedEdits } = applyEdits(lines, args.edits);
-
-          const newContent = resultLines.join("\n");
-
-          // Write file — use Effect.catchAll to properly catch Effect failures
-          const writeResult = yield* fs.writeFileString(target, newContent).pipe(
-            Effect.map(() => ({ ok: true as const })),
-            Effect.catchAll((error) =>
-              Effect.succeed({ ok: false as const, error: String(error) }),
-            ),
-          );
-
-          if (!writeResult.ok) {
-            const err = new FileWriteError({ path: target, cause: writeResult.error });
-            return {
-              success: false,
-              result: { errorType: "FileWriteError", path: target },
-              error: err.message,
-            };
-          }
-
-          const { diff, wasTruncated } = generateDiffWithMetadata(fileContent, newContent, target);
-          const needsExpansion =
-            wasTruncated ||
-            newContent.length > FILE_MUTATION_PREVIEW_CHARS ||
-            diff.length > FILE_MUTATION_PREVIEW_CHARS;
-          const fullDiff = needsExpansion
-            ? generateDiff(fileContent, newContent, target, {
-                maxLines: Number.POSITIVE_INFINITY,
-                fullPatch: true,
-              })
-            : "";
-
-          return {
-            success: true,
-            result: {
-              path: target,
-              editsApplied: appliedEdits.map((e) => e.description),
-              totalEdits: args.edits.length,
-              originalLines: lines.length,
-              newLines: resultLines.length,
-              diff,
-              wasTruncated,
-              fullDiff,
-            },
-          };
-        } catch (error) {
-          // Extract structured error info from tagged errors so the LLM can
-          // programmatically distinguish between error types and take appropriate action
-          const errorType = extractErrorType(error);
-          return {
-            success: false,
-            result: { errorType, path: target },
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
       }),
   };
 

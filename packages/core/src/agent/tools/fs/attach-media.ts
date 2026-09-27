@@ -23,6 +23,7 @@ import {
   rejectAttachmentReason,
 } from "@/core/types/attachment";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { probeMediaShape } from "@/core/utils/media-probe";
 
 /**
@@ -84,7 +85,7 @@ export async function attachMediaFile(
   try {
     byteSize = (await stat(filePath)).size;
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = toError(error).message;
     return {
       kind: "failed",
       result: { success: false, result: null, error: `${filePath} could not be read: ${detail}` },

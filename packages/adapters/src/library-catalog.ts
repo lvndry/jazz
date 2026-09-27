@@ -16,7 +16,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { NetworkError, ValidationError } from "@jazz/core/types/errors";
+import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { Effect, Option } from "effect";
 
@@ -182,9 +184,9 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
 
   private async writeDiskCache(entries: readonly TEntry[]): Promise<void> {
     const path = this.cachePath();
-    await mkdir(dirname(path), { recursive: true });
+    await mkdir(dirname(path), { recursive: true, mode: stateDirectoryMode() });
     const snapshot: CachedIndex<TEntry> = { fetchedAt: Date.now(), entries };
-    await writeFile(path, JSON.stringify(snapshot), "utf8");
+    await writeFile(path, JSON.stringify(snapshot), { encoding: "utf-8", mode: stateFileMode() });
   }
 
   private async fetchText(url: string): Promise<string> {
@@ -319,9 +321,7 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
           catch: (error) =>
             new NetworkError({
               url: sourceUrl,
-              reason: `Could not download ${kind} "${entry.name}": ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              reason: `Could not download ${kind} "${entry.name}": ${toError(error).message}`,
               suggestion: "Check your connection and try again.",
             }),
         });

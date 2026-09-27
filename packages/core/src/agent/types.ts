@@ -1,11 +1,15 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
+import type { FinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import type { ToolProgressEvent } from "@/core/types/tools";
+import type { WorkspaceContextInput } from "@/core/types/plugin";
+import type { RemoteCaller } from "@/core/types/remote-door";
+import type { EgressTaint, StoppedToolCall, ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
   AutoApprovePolicy,
@@ -25,6 +29,27 @@ import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
  * including the agent configuration, user input, conversation context, and execution settings.
  *
  */
+/**
+ * What a run takes from the chat it runs in: the live approval mode, the approvals remembered
+ * this session and how new ones are remembered, messages typed while it works, and the stream
+ * setting. A chat builds these once, fresh per run, for its own turns and for a goal's cycles run
+ * in front of the user, so a cycle behaves like any other turn of that chat.
+ */
+export type ChatTurnOptions = Pick<
+  AgentRunnerOptions,
+  | "stream"
+  | "autoApprovePolicy"
+  | "autoApprovedCommands"
+  | "autoApprovedTools"
+  | "onAutoApproveCommand"
+  | "onAutoApproveTool"
+  | "checkQueuedMessage"
+  | "onDetachedToolComplete"
+>;
+
+/** A durable controller that starts runs on its own: a loop or a goal. */
+export type RunStarter = "loop" | "goal";
+
 export interface AgentRunnerOptions {
   /**
    * The agent to execute.
@@ -49,6 +74,20 @@ export interface AgentRunnerOptions {
    * same as scanned ones.
    */
   readonly initialAttachments?: readonly MessageAttachment[];
+  /**
+   * Scan `userInput` for local media paths and attach the files they name. On unless set to
+   * `false`. A remote door sets `false`, because its caller's text naming a path on this machine
+   * must never upload that file to a provider.
+   */
+  readonly ingestUserInputPaths?: boolean;
+  /**
+   * Who started this run through a remote door, when it was not the operator.
+   *
+   * A run with a remote caller gets no operator context (standing preferences, AGENTS.md) and
+   * never attaches files from paths in its input. The run record keeps the caller, so a resumed
+   * run keeps that boundary.
+   */
+  readonly remoteCaller?: RemoteCaller;
   /**
    * Which conversation this turn belongs to.
    *
@@ -142,6 +181,23 @@ export interface AgentRunnerOptions {
    */
   readonly autoApprovedTools?: readonly string[];
   /**
+   * Whether a person on this surface is shown the goals the agent proposes and can accept them.
+   * Only then does the run get `propose_goal`; anywhere else a proposal would sit unseen while
+   * the rest of the run lost its tools.
+   */
+  readonly offersGoalProposals?: boolean;
+  /**
+   * What started this run when it is not a person: a loop's runs get `end_loop`, a goal's
+   * cycles get `report_goal_cycle`, and no other run gets either.
+   */
+  readonly startedBy?: RunStarter;
+  /**
+   * Which entry point started this run, for the spend ledger, the spend ceilings and the
+   * notify channel. Unset reads as `{ source: "run" }`: unattended, so a reached ceiling
+   * refuses it. Ignored for internal runs, whose cost is part of their parent's.
+   */
+  readonly origin?: RunOrigin;
+  /**
    * Hard ceiling on this run's toolset, intersected after personas and built-in
    * categories resolve. Sub-agents inherit their parent's tools this way.
    */
@@ -162,6 +218,12 @@ export interface AgentRunnerOptions {
    * process resumes from. Off by default, and never set for sub-agent runs.
    */
   readonly parkWhenUnattended?: boolean;
+  /**
+   * Told once when a tool batch is stopped part-way, however it is stopped (Esc, a deadline,
+   * `--timeout`, SIGTERM), with what became of each call. A caller whose run is interrupted
+   * gets no response, so this is where it learns what ran.
+   */
+  readonly onToolBatchStopped?: (calls: readonly StoppedToolCall[]) => void;
   /** Told what the run is doing while it does it. See `ToolExecutionContext.onToolEvent`. */
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /**
@@ -196,16 +258,22 @@ export interface AgentRunnerOptions {
   /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
   /**
+   * The parent run's taint, handed to a sub-agent so both share one verdict on whether
+   * external untrusted content has entered the run. Unset starts a fresh one from history.
+   */
+  readonly egressTaint?: EgressTaint;
+  /**
    * Callback invoked when the user chooses "always approve" for a specific tool
    * from the approval prompt.
    */
   readonly onAutoApproveTool?: (toolName: string) => void;
   /**
-   * Optional callback polled between tool-call batches (before the next LLM
-   * call) to inject a queued user message into the running conversation.
+   * Optional callback polled at the start of an iteration, before its LLM call,
+   * to inject a queued user message into the running conversation.
    * When it returns a non-empty string, that string is appended as a user
    * message so the agent can incorporate mid-run guidance immediately.
-   * Not called for internal (sub-agent) runs.
+   * `spawn_subagent` sets it on the child to deliver messages the user addressed to
+   * that sub-agent; other internal runs (compaction, extraction) leave it unset.
    */
   readonly checkQueuedMessage?: () => string | undefined;
   /**
@@ -213,7 +281,7 @@ export interface AgentRunnerOptions {
    * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a
    * human-readable summary of the outcome. The default CLI wiring appends it to the
    * same queue `checkQueuedMessage` drains, so it surfaces at the next tool-phase
-   * boundary if this run is still going, or at the start of the next turn otherwise —
+   * iteration if this run is still going, or at the start of the next turn otherwise —
    * whichever comes first. Not called for internal (sub-agent) runs.
    */
   readonly onDetachedToolComplete?: (summary: string) => void;
@@ -305,9 +373,29 @@ export interface AgentResponse {
    */
   readonly artifacts?: readonly GeneratedArtifact[];
   /**
-   * Indicates tools were provided but disabled for the selected model.
+   * Tools were configured but none were sent, because Jazz does not know the
+   * model supports tool calling. Every surface shows this loudly: the agent
+   * cannot act, only talk.
    */
   readonly toolsDisabled?: boolean;
+  /**
+   * Why the model stopped producing the final answer. `length` means the answer
+   * was cut off; `content-filter` means the provider withheld it.
+   */
+  readonly finishReason?: FinishReason;
+  /**
+   * True when the run used every allowed iteration (`maxIterations`) without a
+   * final answer. `content` is then empty, so callers read this flag instead of
+   * guessing from the missing text.
+   */
+  readonly iterationLimited?: boolean;
+  /**
+   * True when the final model call returned no visible text and reported zero
+   * completion tokens: the provider answered, but with nothing.
+   */
+  readonly emptyCompletion?: boolean;
+  /** Set when the user stopped the run (Esc, Ctrl+C) before it finished. */
+  readonly interrupted?: boolean;
   /**
    * The full message list used for this turn, including system, user, assistant, and tool messages.
    * Pass this back on the next turn to retain context across approvals and multi-step tasks.
@@ -354,6 +442,17 @@ export interface AgentResponse {
    * that point — a partial result, same as hitting any other cap.
    */
   readonly durationCapped?: boolean;
+  /**
+   * True when the run was stopped because the agent kept repeating the same tool calls after
+   * it had already been told once to change approach. The answer is whatever it had produced.
+   */
+  readonly stalled?: boolean;
+  /**
+   * Set when the run ended with a tool batch stopped part-way (Esc, the run's time budget):
+   * each of its calls, and whether it completed, was interrupted while running, or never
+   * started. The transcript's tool results say the same to the model.
+   */
+  readonly stoppedToolCalls?: readonly StoppedToolCall[];
 }
 
 /**
@@ -383,6 +482,8 @@ export interface AgentRunContext {
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
   readonly initialProviderAdvisory?: string;
+  /** Provider-only ambient workspace context, refreshed before every model request. */
+  readonly workspaceContext?: (input: WorkspaceContextInput) => Effect.Effect<string | undefined>;
   /**
    * Decision-advised clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
    * leaving the deterministic clearer in charge.

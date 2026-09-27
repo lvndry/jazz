@@ -465,6 +465,7 @@ function PromptComponent({
             options={prompt.options?.choices ?? []}
             pageSize={PICKER_WINDOW_SIZE}
             onSelect={(value) => prompt.resolve(value)}
+            onTypedAnswer={prompt.options?.resolveTypedAnswer}
             onCancel={() => prompt.reject?.()}
           />
         )}

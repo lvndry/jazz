@@ -20,6 +20,7 @@ import type {
   RegistrySkillEntry,
   RegistrySkillMetadata,
 } from "@jazz/core/types/skill-registry";
+import { toError } from "@jazz/core/utils/errors";
 import { getGlobalSkillsDirectory } from "@jazz/core/utils/paths";
 import chalk from "chalk";
 import { Effect } from "effect";
@@ -181,7 +182,7 @@ export function installSkillCommand(
 
     const existing = yield* Effect.tryPromise({
       try: () => lstat(target.directory),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     }).pipe(Effect.catchAll(() => Effect.succeed(null)));
     if (existing !== null) {
       return yield* Effect.fail(
@@ -217,7 +218,7 @@ export function installSkillCommand(
         new FileSystemError({
           path: target.path,
           operation: "write",
-          reason: error instanceof Error ? error.message : String(error),
+          reason: toError(error).message,
           suggestion: "Check that ~/.jazz/skills is writable and the name is not already taken.",
         }),
     });

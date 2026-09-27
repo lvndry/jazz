@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { decideDaemonToken, formatDaemonTokenProvisionFailure } from "./daemon";
+import {
+  decideDaemonToken,
+  describeDaemonStart,
+  formatDaemonTokenProvisionFailure,
+} from "./daemon";
 
 describe("daemon token-provisioning failures", () => {
   it("directs headless peer servers to the persistent-service installer", () => {
@@ -58,5 +62,18 @@ describe("what a daemon serves behind", () => {
     expect(decision.token).toBeUndefined();
     expect(decision.notice).toContain("no credential");
     expect(decision.notice).toContain("JAZZ_DISABLE_KEYRING");
+  });
+});
+
+describe("describeDaemonStart", () => {
+  it("says the work started only when a daemon for this home is on it", () => {
+    expect(describeDaemonStart("Goal g1", { kind: "running" })).toContain(
+      "daemon is working on it",
+    );
+    expect(describeDaemonStart("Goal g1", { kind: "started", pid: 42 })).toContain("pid 42");
+    expect(describeDaemonStart("Goal g1", { kind: "port-taken", port: 4747 })).toContain(
+      "not serving this Jazz home",
+    );
+    expect(describeDaemonStart("Goal g1", { kind: "unavailable" })).toContain("run `jazz daemon`");
   });
 });

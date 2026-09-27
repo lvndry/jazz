@@ -45,7 +45,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
         reasoning: {
           kind: "effort",
           efforts: ["low", "medium", "high"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
       },
@@ -57,7 +57,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
         reasoning: {
           kind: "manual",
           minimumBudgetTokens: 1024,
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "anthropic.messages.extended-thinking",
         },
       },
@@ -67,7 +67,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
     default: {
       reasoning: {
         kind: "toggle",
-        canDisable: true,
+        canDisableReasoning: true,
         transport: "ollama.chat.think",
       },
     },
@@ -76,12 +76,48 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
     default: {
       reasoning: {
         kind: "toggle",
-        canDisable: true,
-        transport: "llamacpp.chat.enable-thinking",
+        canDisableReasoning: true,
+        transport: "openai-compatible.chat.template-enable-thinking",
+      },
+    },
+  },
+  vllm: {
+    default: {
+      reasoning: {
+        kind: "effort",
+        efforts: ["low", "medium", "high"],
+        canDisableReasoning: true,
+        transport: "openai-compatible.chat.reasoning-effort",
+      },
+    },
+  },
+  sglang: {
+    default: {
+      reasoning: {
+        kind: "effort",
+        efforts: ["low", "medium", "high"],
+        canDisableReasoning: true,
+        transport: "openai-compatible.chat.reasoning-effort",
       },
     },
   },
 } as const satisfies ModelCapabilityRegistry;
+
+/**
+ * Providers Jazz reaches through `createOpenAICompatible`. Each accepts every
+ * `openai-compatible.*` transport, because those encode the chat-completions
+ * wire rather than a vendor. NVIDIA NIM and OrcaRouter ship no built-in profile:
+ * NIM rejects unknown top-level request fields, so a guessed control fails the
+ * request instead of being ignored. Operators opt a model in through
+ * `capabilityOverrides`.
+ */
+const OPENAI_COMPATIBLE_CHAT_PROVIDERS: ReadonlySet<ProviderName> = new Set([
+  "llamacpp",
+  "vllm",
+  "sglang",
+  "nvidia",
+  "orcarouter",
+]);
 
 /**
  * A config parser should reject transport/provider mismatches before this
@@ -92,8 +128,12 @@ export function isTransportValidForProvider(
   provider: ProviderName,
   transport: ReasoningTransport,
 ): boolean {
+  if (transport.startsWith("openai-compatible.")) {
+    return OPENAI_COMPATIBLE_CHAT_PROVIDERS.has(provider);
+  }
   switch (provider) {
     case "openai":
+    case "chatgpt":
       return transport === "openai.responses.reasoning-effort";
     case "anthropic":
       return (
@@ -102,11 +142,6 @@ export function isTransportValidForProvider(
       );
     case "ollama":
       return transport === "ollama.chat.think";
-    case "llamacpp":
-      return (
-        transport === "llamacpp.chat.enable-thinking" ||
-        transport === "llamacpp.chat.thinking-budget"
-      );
     default:
       return false;
   }

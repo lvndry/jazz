@@ -24,29 +24,16 @@ import type {
   SkillRouteInput,
   SkillRouteOutcome,
 } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
-import { PLUGIN_MANIFEST_METADATA_FIELDS, parsePluginManifest } from "./manifest-schema";
+import { parsePluginManifest, parsePluginSourceManifest } from "./manifest-schema";
 import { PluginSecretStore } from "./secret-store";
+import { isRuntimeBuiltin } from "./source-integrity";
 
 const NATIVE_OR_ASSET_INPUT =
   /\.(?:node|wasm|css|html|sqlite|db|png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
-const BUILTIN_IMPORT = /^(?:node:|bun:)/;
-
-interface SourceManifest {
-  readonly schemaVersion?: 1;
-  readonly id: string;
-  readonly name: string;
-  readonly version: string;
-  readonly hostApi: 1;
-  readonly entry?: string;
-  readonly hooks: readonly string[];
-  readonly policyHooks: readonly string[];
-  readonly decisionProviders: readonly string[];
-  readonly network: { readonly destinations: readonly string[] };
-  readonly dataSent: readonly string[];
-  readonly secrets: readonly unknown[];
-}
 
 export interface PackPluginOptions {
   readonly pluginDirectory: string;
@@ -101,43 +88,25 @@ function fail(message: string): never {
   throw new Error(`Cannot pack Jazz plugin: ${message}`);
 }
 
-function record(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    fail("jazz-plugin.json must contain an object");
-  }
-  return value as Record<string, unknown>;
+export interface PreparedSourceManifest {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
 }
 
-async function readSourceManifest(pluginDirectory: string): Promise<SourceManifest> {
+/**
+ * Read and validate `jazz-plugin.json` with the install-time source-manifest parser, which also
+ * confines `entry` to a safe relative path. The returned manifest carries a placeholder digest.
+ */
+async function readSourceManifest(pluginDirectory: string): Promise<PreparedSourceManifest> {
   let decoded: unknown;
   try {
     decoded = JSON.parse(
       await fs.readFile(path.join(pluginDirectory, "jazz-plugin.json"), "utf8"),
     ) as unknown;
   } catch (error) {
-    fail(`invalid jazz-plugin.json (${error instanceof Error ? error.message : String(error)})`);
+    throw new Error(`invalid jazz-plugin.json (${toError(error).message})`, { cause: error });
   }
-  const source = record(decoded);
-  const allowed = new Set([...PLUGIN_MANIFEST_METADATA_FIELDS, "policyHooks", "entry"]);
-  const unknown = Object.keys(source).filter((key) => !allowed.has(key));
-  if (unknown.length > 0) fail(`manifest contains unknown field(s): ${unknown.join(", ")}`);
-  // Reuse the install boundary for all metadata by supplying pack-generated fields.
-  const { entry: _entry, ...installMetadata } = source;
-  parsePluginManifest({
-    ...installMetadata,
-    schemaVersion: source["schemaVersion"] ?? 1,
-    artifact: "./plugin.mjs",
-    sha256: "0".repeat(64),
-  });
-  if (source["entry"] !== undefined && typeof source["entry"] !== "string") {
-    fail("entry must be a string");
-  }
-  return source as unknown as SourceManifest;
-}
-
-export interface PreparedSourceManifest {
-  readonly manifest: PluginManifest;
-  readonly entry: string;
+  return parsePluginSourceManifest(decoded);
 }
 
 /**
@@ -149,16 +118,8 @@ export async function prepareSourceManifest(
   pluginDirectory: string,
   digest: string,
 ): Promise<PreparedSourceManifest> {
-  const source = await readSourceManifest(pluginDirectory);
-  const entry = source.entry ?? "src/index.ts";
-  const { entry: _entry, ...installMetadata } = source as unknown as Record<string, unknown>;
-  const manifest = parsePluginManifest({
-    ...installMetadata,
-    schemaVersion: source.schemaVersion ?? 1,
-    artifact: entry,
-    sha256: digest,
-  });
-  return { manifest, entry };
+  const { manifest, entry } = await readSourceManifest(pluginDirectory);
+  return { manifest: { ...manifest, sha256: digest }, entry };
 }
 
 function resolveInside(root: string, relativePath: string): string {
@@ -179,14 +140,14 @@ function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
   for (const [inputPath, input] of Object.entries(result.metafile.inputs)) {
     if (NATIVE_OR_ASSET_INPUT.test(inputPath)) fail(`unsupported input: ${inputPath}`);
     for (const imported of input.imports) {
-      if (imported.external === true && !BUILTIN_IMPORT.test(imported.path)) {
+      if (imported.external === true && !isRuntimeBuiltin(imported.path)) {
         fail(`runtime import is not self-contained: ${imported.path}`);
       }
     }
   }
   for (const output of Object.values(result.metafile.outputs)) {
     for (const imported of output.imports) {
-      if (!BUILTIN_IMPORT.test(imported.path)) {
+      if (!isRuntimeBuiltin(imported.path)) {
         fail(`emitted runtime import is not self-contained: ${imported.path}`);
       }
     }
@@ -195,8 +156,8 @@ function inspectBuild(result: Bun.BuildOutput): Bun.BuildArtifact {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const module = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const module = value;
   return (
     module["apiVersion"] === 1 &&
     typeof module["register"] === "function" &&
@@ -222,8 +183,10 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
   if (!directory?.isDirectory() || directory.isSymbolicLink()) {
     fail("pluginDirectory must be a real directory, not a symlink");
   }
-  const source = await readSourceManifest(pluginDirectory);
-  const entrypoint = resolveInside(pluginDirectory, source.entry ?? "src/index.ts");
+  const source = await readSourceManifest(pluginDirectory).catch((error: unknown) =>
+    fail(toError(error).message),
+  );
+  const entrypoint = resolveInside(pluginDirectory, source.entry);
   const entry = await fs.lstat(entrypoint).catch(() => undefined);
   if (!entry?.isFile() || entry.isSymbolicLink())
     fail("entry must be a regular file, not a symlink");
@@ -260,13 +223,7 @@ export async function packPlugin(options: PackPluginOptions): Promise<PackedPlug
   const digestPath = path.join(releaseDirectory, "plugin.mjs.sha256");
   await atomicWrite(digestPath, `${sha256}  plugin.mjs\n`);
   const catalogEntryPath = path.join(releaseDirectory, "catalog-entry.json");
-  const { entry: _entry, ...metadata } = source;
-  const manifest = parsePluginManifest({
-    ...metadata,
-    schemaVersion: metadata.schemaVersion ?? 1,
-    artifact: "./plugin.mjs",
-    sha256,
-  });
+  const manifest: PluginManifest = { ...source.manifest, artifact: "./plugin.mjs", sha256 };
   await atomicWrite(catalogEntryPath, `${JSON.stringify(manifest, null, 2)}\n`);
   return { artifactPath, digestPath, catalogEntryPath, sha256 };
 }
@@ -405,6 +362,7 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   const tools = new Set<string>();
   const commands = new Set<string>();
   const lifecycleEvents = new Set<string>();
+  let registeredWorkspace = false;
   const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
   const declaredCommands = new Set(manifest.commands.map((command) => command.name));
   const declaredLifecycle = new Set<string>(manifest.lifecycleHooks);
@@ -460,6 +418,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         lifecycleEvents.add(registration.event);
       },
     },
+    workspace: {
+      register: () => {
+        if (registeredWorkspace) fail("workspace context was registered more than once");
+        registeredWorkspace = true;
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
@@ -469,6 +433,9 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   assertSameMembers("tool", [...declaredTools], tools);
   assertSameMembers("command", [...declaredCommands], commands);
   assertSameMembers("lifecycle event", [...declaredLifecycle], lifecycleEvents);
+  if (registeredWorkspace !== (manifest.workspace === true)) {
+    fail("workspace registration does not match manifest declaration");
+  }
   return {
     manifest,
     registeredHooks: [...hooks].sort(),

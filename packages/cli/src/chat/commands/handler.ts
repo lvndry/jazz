@@ -1,10 +1,18 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversationOrNull,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
-import { AgentRunner, resolveLlamaCppServerModel } from "@jazz/core/agent/agent-runner";
+import {
+  AgentRunner,
+  resolveLlamaCppServerModel,
+  resolveSglangServerModel,
+  resolveVllmServerModel,
+} from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { resolveContextThresholds } from "@jazz/core/agent/context/context-thresholds";
@@ -20,9 +28,9 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
-import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell-tools";
+import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -57,28 +65,60 @@ import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-serv
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
+import { clampReasoningSelection } from "@jazz/core/types/model-capabilities";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
+import { toError } from "@jazz/core/utils/errors";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { buildModelChoices } from "@jazz/core/utils/provider-picker";
+import { closestMatch, formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
+import {
+  chatModeForPolicy,
+  policyForChatMode,
+  type ChatApprovalMode,
+} from "@/cli/chat/approval-mode";
 import { describeTier } from "@/cli/commands/peers";
 import {
-  CLI_REASONING_EFFORTS,
+  cancelDetachTransfer,
+  commitDetachTransfer,
+  DetachCommitError,
+  prepareDetachTransfer,
+} from "@/cli/detach/orchestrator";
+import {
+  describeReasoningAdjustment,
   isCliReasoningValue,
   promptForReasoningSelection,
+  reasoningChoicesFor,
   reasoningSelectionFromCliValue,
   reasoningSelectionToCliValue,
+  type CliReasoningValue,
 } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
-import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
+import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
+import { store } from "@/cli/ui/store";
+import { getThemeVariant, PADDING_BUDGET, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
-import { CHAT_COMMANDS } from "./constants";
+import { truncate } from "@/cli/utils/string-utils";
+import {
+  CHAT_COMMANDS,
+  commandFormLines,
+  commandSignature,
+  findBuiltinCommand,
+  findCommand,
+  registeredCommands,
+  SHELL_ESCAPE_FORM,
+  suggestCommand,
+  type ChatCommandInfo,
+} from "./constants";
+import { handleGoalCommand } from "./goal";
+import { handleLoopCommand } from "./loop";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -127,11 +167,19 @@ export function handleSpecialCommand(
       case "fork":
         return yield* handleForkCommand(terminal, conversationHistory);
 
+      case "detach":
+        return yield* handleDetachCommand(terminal, context, command.args);
+
       case "help":
         return yield* handleHelpCommand(terminal, command.args);
 
       case "limit":
         return yield* handleLimitCommand(terminal, agent, context, command.args);
+
+      case "goal":
+        return yield* handleGoalCommand(context, command.args);
+      case "loop":
+        return yield* handleLoopCommand(context, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);
@@ -158,6 +206,12 @@ export function handleSpecialCommand(
 
       case "reasoning":
         return yield* handleReasoningCommand(terminal, agent, command.args);
+
+      case "model":
+        return yield* handleModelCommand(terminal, agent, command.args);
+
+      case "exit":
+        return { shouldContinue: false };
 
       case "config":
         return yield* handleConfigCommand(terminal, agent, command.args);
@@ -229,6 +283,124 @@ export function handleSpecialCommand(
       default:
         return { shouldContinue: true };
     }
+  });
+}
+
+/** Move the current conversation only after a reviewed snapshot receives a remote start receipt. */
+function handleDetachCommand(
+  terminal: TerminalService,
+  context: CommandContext,
+  args: readonly string[],
+): Effect.Effect<CommandResult, never, FileSystemContextService> {
+  return Effect.gen(function* () {
+    const hostName = args[0];
+    if (hostName === undefined || args.length !== 1) {
+      yield* terminal.warn("Usage: /detach <registered-host>. Run jazz hosts list to see hosts.");
+      return { shouldContinue: true };
+    }
+    if (context.queuedAfterCommand) {
+      yield* terminal.warn(
+        "Messages are queued after /detach. Clear or send them before moving this conversation.",
+      );
+      return { shouldContinue: true };
+    }
+    if (!terminal.isInteractive) {
+      yield* terminal.error("/detach needs an interactive terminal to review the transfer.");
+      return { shouldContinue: true };
+    }
+
+    const continuation = yield* terminal.ask("What should Jazz continue doing on the host?", {
+      cancellable: true,
+      simple: true,
+      validate: (value) => value.trim().length > 0 || "Enter a continuation instruction.",
+    });
+    if (continuation === undefined) {
+      yield* terminal.info("Detach cancelled. This conversation remains local.");
+      return { shouldContinue: true };
+    }
+
+    const fileSystemContext = yield* FileSystemContextServiceTag;
+    const cwd = yield* fileSystemContext.getCwd({
+      agentId: context.agent.id,
+      conversationId: context.conversationId,
+    });
+    const prepared = yield* Effect.either(
+      Effect.tryPromise(() =>
+        prepareDetachTransfer({
+          agentId: context.agent.id,
+          conversationId: context.conversationId,
+          history: context.conversationHistory,
+          hostName,
+          cwd,
+          continuation: continuation.trim(),
+        }),
+      ),
+    );
+    if (prepared._tag === "Left") {
+      yield* terminal.error(`Could not prepare detach: ${String(prepared.left)}`);
+      return { shouldContinue: true };
+    }
+
+    const preview = prepared.right;
+    yield* terminal.log(`Host: ${preview.hostName}`);
+    yield* terminal.log(
+      `Transfer: ${preview.manifest.entries.length} files, ${Math.ceil(preview.bytes / 1024)} KiB`,
+    );
+    yield* terminal.log("The snapshot includes this repository's Git HEAD and history.");
+    for (const entry of preview.manifest.entries.slice(0, 12)) {
+      yield* terminal.log(`  ${JSON.stringify(entry.relativePath)}`);
+    }
+    if (preview.manifest.entries.length > 12) {
+      yield* terminal.log(`  …and ${preview.manifest.entries.length - 12} more files`);
+    }
+    for (const warning of preview.warnings) yield* terminal.warn(warning);
+    yield* terminal.log(
+      `Credentials: ${preview.credentialNames.length > 0 ? preview.credentialNames.join(", ") : "none"}`,
+    );
+    yield* terminal.log(
+      `Remote limits: ${preview.approvalPolicy} approvals, $${preview.maxCostUSD} cost, ` +
+        `${Math.round(preview.maxDurationMs / 3_600_000)}h, ${preview.maxIterations} iterations`,
+    );
+    yield* terminal.log(`Continue: ${preview.continuation}`);
+    const approved = yield* terminal.confirm(
+      `Copy this state to ${preview.hostName} and continue there?`,
+      false,
+    );
+    if (approved !== true) {
+      const canceled = yield* Effect.either(Effect.tryPromise(() => cancelDetachTransfer(preview)));
+      if (canceled._tag === "Left") {
+        yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.left)}`);
+      }
+      yield* terminal.info("Detach cancelled. This conversation remains local.");
+      return { shouldContinue: true };
+    }
+
+    yield* terminal.info("Transferring and starting the remote run…");
+    const committed = yield* Effect.either(
+      Effect.tryPromise({
+        try: () => commitDetachTransfer(preview),
+        catch: (error) => error,
+      }),
+    );
+    if (committed._tag === "Left") {
+      yield* terminal.error(`Detach did not complete: ${String(committed.left)}`);
+      if (committed.left instanceof DetachCommitError && committed.left.localMayContinue) {
+        yield* terminal.info(
+          "The transfer stopped before remote ownership. This conversation is still local.",
+        );
+        return { shouldContinue: true };
+      }
+      yield* terminal.warn(
+        `Check jazz detach status ${preview.handoffId} before retrying; remote ownership may be uncertain.`,
+      );
+      return { shouldContinue: false };
+    }
+    const receipt = committed.right;
+    yield* terminal.success(`Remote run ${receipt.state} on ${receipt.hostName}.`);
+    yield* terminal.log("You can close this terminal; the remote host owns the conversation.");
+    yield* terminal.log(`Watch and reply: jazz detach attach ${receipt.handoffId}`);
+    yield* terminal.log(`Bring it back:   jazz detach reclaim ${receipt.handoffId}`);
+    return { shouldContinue: false };
   });
 }
 
@@ -505,71 +677,119 @@ function handleThemeCommand(
   });
 }
 
-/** Keyboard shortcuts surfaced in /help. Keep in sync with App.tsx bindings. */
-const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: string]> = [
-  ["Esc Esc", "Interrupt the current generation"],
-  ["Shift+Tab", "Toggle safe/yolo approval mode"],
-  ["Ctrl+R", "Expand collapsed reasoning (repeat for earlier blocks)"],
-  ["Ctrl+O", "Expand the last truncated diff or tool output"],
-  ["Tab", "Complete the highlighted slash command"],
-  ["Up/Down", "Recall previously sent messages (empty input)"],
-  ["Shift+Enter", "Insert a newline for a multi-line message"],
-  ["Esc", "Clear the current draft"],
-  ["Up (agent busy)", "Recall queued messages for editing"],
-  ["Ctrl+X (agent busy)", "Clear the message queue"],
-];
+/** Width of the command column in /help. */
+const HELP_COMMAND_COLUMN = 34;
+/** The row indent `fmt.commandRow` adds. */
+const HELP_ROW_INDENT = 3;
+/** Width assumed when the terminal does not report one. */
+const DEFAULT_TERMINAL_COLUMNS = 80;
 
 /**
- * Handle /help command. Rendered from CHAT_COMMANDS (the same list that
- * powers autocomplete) so the two can never drift. `/help <command>` shows
- * that command's usage detail.
+ * One /help row that fits the terminal: a label longer than the command column
+ * is cut to it (the full form is under `/help <command>`), and the description
+ * is cut to what is left of the line.
+ */
+function helpRow(label: string, description: string, terminalColumns: number): string {
+  const lineWidth = Math.max(HELP_COMMAND_COLUMN + 10, terminalColumns - PADDING_BUDGET);
+  const fittedLabel = truncate(label, HELP_COMMAND_COLUMN - 2);
+  const descriptionWidth = lineWidth - HELP_ROW_INDENT - HELP_COMMAND_COLUMN;
+  return fmt.commandRow(fittedLabel, truncate(description, descriptionWidth), HELP_COMMAND_COLUMN);
+}
+
+/**
+ * Handle /help. The command list comes from CHAT_COMMANDS and the registered
+ * skill, MCP prompt and plugin commands (the same lists autocomplete and the
+ * parser use), and the keys from the keymap of the interface that is running.
+ * `/help <command>` shows every form of one command.
  */
 function handleHelpCommand(
   terminal: TerminalService,
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
+    const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
     const requested = args[0]?.toLowerCase().replace(/^\//, "");
     if (requested !== undefined) {
-      const command = CHAT_COMMANDS.find((candidate) => candidate.name === requested);
-      if (!command) {
-        yield* terminal.warn(`Unknown command "/${requested}". Run /help for the full list.`);
+      const command = findCommand(requested);
+      if (command === undefined) {
+        const suggestion = suggestCommand(requested);
+        yield* terminal.warn(
+          suggestion === undefined
+            ? `Unknown command "/${requested}". Run /help for the full list.`
+            : `Unknown command "/${requested}". Did you mean /${suggestion.name}?`,
+        );
         return { shouldContinue: true };
       }
       yield* terminal.log(fmt.heading(`/${command.name}`));
-      yield* terminal.log(
-        fmt.keyValueCompact("Usage", `/${command.name}${command.usage ? ` ${command.usage}` : ""}`),
-      );
+      yield* terminal.log(fmt.keyValueCompact("Usage", commandSignature(command)));
       yield* terminal.log(fmt.keyValueCompact("Description", command.description));
+      if (command.aliases !== undefined && command.aliases.length > 0) {
+        yield* terminal.log(
+          fmt.keyValueCompact("Also", command.aliases.map((alias) => `/${alias}`).join(", ")),
+        );
+      }
+      if (command.source !== undefined) {
+        yield* terminal.log(fmt.keyValueCompact("From", COMMAND_SOURCE_LABEL[command.source]));
+      }
+      const builtin = findBuiltinCommand(command.name);
+      const formLines = builtin === undefined ? [] : commandFormLines(builtin);
+      if (formLines.length > 0) {
+        yield* terminal.log(fmt.blank());
+        yield* Effect.forEach(formLines, (line) => terminal.log(line));
+      }
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
+    const commandRows = (entries: readonly ChatCommandInfo[]): string =>
+      entries
+        .map((command) => helpRow(commandSignature(command), command.description, terminalColumns))
+        .join("\n");
+
     yield* terminal.log(fmt.heading("Available Commands"));
+    yield* terminal.log(commandRows(CHAT_COMMANDS));
     yield* terminal.log(
-      CHAT_COMMANDS.map((command) =>
-        fmt.commandRow(
-          `/${command.name}${command.usage ? ` ${command.usage}` : ""}`,
-          command.description,
-          34,
-        ),
-      ).join("\n"),
+      helpRow(
+        SHELL_ESCAPE_FORM,
+        "Run a shell command and give its output to the agent",
+        terminalColumns,
+      ),
     );
-    yield* terminal.log(
-      fmt.commandRow("! <command>", "Run a shell command and give its output to the agent", 34),
-    );
+
+    const registered = registeredCommands();
+    const sections: readonly (readonly [string, readonly ChatCommandInfo[]])[] = [
+      ["Skills", registered.skills],
+      ["MCP Prompts", registered.mcpPrompts],
+      ["Plugin Commands", registered.plugins],
+    ];
+    for (const [title, entries] of sections) {
+      if (entries.length === 0) {
+        continue;
+      }
+      yield* terminal.log(fmt.blank());
+      yield* terminal.log(fmt.heading(title));
+      yield* terminal.log(commandRows(entries));
+    }
+
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.heading("Keyboard Shortcuts"));
     yield* terminal.log(
-      KEYBOARD_SHORTCUTS.map(([keys, description]) => fmt.commandRow(keys, description, 34)).join(
-        "\n",
-      ),
+      KEYMAPS[activeKeymapMode()]
+        .map((binding) => helpRow(bindingLabel(binding), binding.action, terminalColumns))
+        .join("\n"),
     );
     yield* terminal.log(fmt.footer("Run /help <command> for details on a specific command."));
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
+
+/** How /help names where a registered command comes from. */
+const COMMAND_SOURCE_LABEL: Readonly<Record<NonNullable<ChatCommandInfo["source"]>, string>> = {
+  skill: "a skill",
+  "mcp-prompt": "an MCP server prompt",
+  plugin: "a plugin",
+};
 
 /**
  * Handle /tools command - List agent tools by category
@@ -844,9 +1064,7 @@ function handleSwitchCommand(
               yield* terminal.info("Use '/agents' to see all available agents.");
               yield* terminal.log("");
             } else {
-              yield* terminal.error(
-                `Error loading agent: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              yield* terminal.error(`Error loading agent: ${toError(error).message}`);
               yield* terminal.log("");
             }
             return { success: false as const };
@@ -1027,16 +1245,26 @@ function handleCompactCommand(
     // The same window a run compacts against, so the recent messages kept verbatim are
     // the same share of it.
     const provider = agent.config.llmProvider;
+    const localConfig =
+      provider === "llamacpp" || provider === "vllm" || provider === "sglang"
+        ? (yield* (yield* AgentConfigServiceTag).appConfig).llm
+        : undefined;
+    const servedVllm =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, localConfig)
+        : undefined;
+    const servedSglang =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, localConfig)
+        : undefined;
     const advertisedContextWindow = yield* getModelContextWindowEffect(
-      agent.config.llmModel,
+      servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel,
       provider,
     );
-    const llamacppConfig =
-      provider === "llamacpp" ? (yield* (yield* AgentConfigServiceTag).appConfig).llm : undefined;
     const servedContextWindow =
       provider === "llamacpp"
-        ? (yield* resolveLlamaCppServerModel(llamacppConfig)).contextWindow
-        : undefined;
+        ? (yield* resolveLlamaCppServerModel(localConfig)).contextWindow
+        : (servedVllm?.contextWindow ?? servedSglang?.contextWindow);
     const contextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
@@ -1200,7 +1428,7 @@ function handleCopyCommand(
 
     yield* Effect.tryPromise({
       try: () => copyToClipboard(lastResponse),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     }).pipe(
       Effect.flatMap(() =>
         Effect.all([
@@ -1232,10 +1460,8 @@ function handleReasoningCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   args: string[],
-): Effect.Effect<CommandResult, never, never> {
-  const validValues = [...CLI_REASONING_EFFORTS, "disable"] as const;
-
-  const applyValue = (value: (typeof validValues)[number]): CommandResult => {
+): Effect.Effect<CommandResult, never, LLMService> {
+  const applyValue = (value: CliReasoningValue): CommandResult => {
     // Session-only: override the in-memory agent config without persisting it.
     const newAgent = {
       ...agent,
@@ -1245,25 +1471,45 @@ function handleReasoningCommand(
   };
 
   return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const control = yield* llmService.resolveReasoningControl(
+      agent.config.llmProvider,
+      agent.config.llmModel,
+    );
+    const modelLabel = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+    const supported = reasoningChoicesFor(control, agent.config.reasoning);
+
     if (args.length > 0) {
       const value = args[0] ?? "";
       if (args.length !== 1 || !isCliReasoningValue(value)) {
-        yield* terminal.error(`Invalid reasoning level. Use: ${validValues.join(", ")}`);
+        yield* terminal.error(`Invalid reasoning level. Use: ${supported.join(", ")}`);
         yield* terminal.log("");
         return { shouldContinue: true };
       }
-      yield* terminal.success(`Reasoning set to: ${value} (this session only)`);
+      const adjustment = describeReasoningAdjustment(value, control);
+      const effective = reasoningSelectionToCliValue(clampReasoningSelection(value, control));
+      if (adjustment) {
+        yield* terminal.warn(`${modelLabel}: ${adjustment}.`);
+      } else if (control.kind === "unsupported" && value !== "disable") {
+        yield* terminal.warn(`${modelLabel} does not reason, so this level has no effect.`);
+      }
+      yield* terminal.success(`Reasoning set to: ${effective} (this session only)`);
       yield* terminal.log("");
-      return applyValue(value);
+      return applyValue(effective);
+    }
+
+    if (control.kind === "unsupported") {
+      yield* terminal.info(`${modelLabel} does not reason, so there is no level to set.`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
     }
 
     if (terminal.isInteractive) {
       const selected = yield* Effect.promise(() =>
-        promptForReasoningSelection(
-          terminal,
-          agent.config.reasoning,
-          "Set reasoning effort for this session:",
-        ),
+        promptForReasoningSelection(terminal, agent.config.reasoning, {
+          prompt: "Set reasoning effort for this session:",
+          control,
+        }),
       );
       if (!selected) {
         yield* terminal.log("");
@@ -1275,13 +1521,105 @@ function handleReasoningCommand(
       return applyValue(value);
     }
 
+    const adjustment = describeReasoningAdjustment(agent.config.reasoning, control);
+    const current = reasoningSelectionToCliValue(agent.config.reasoning);
     yield* terminal.log(fmt.heading("Reasoning Effort (this session)"));
     yield* terminal.log(
-      fmt.keyValueCompact("Current", reasoningSelectionToCliValue(agent.config.reasoning)),
+      fmt.keyValueCompact("Current", adjustment ? `${current} (${adjustment})` : current),
     );
-    yield* terminal.info(`Levels: ${validValues.join(", ")}`);
+    yield* terminal.info(`Levels: ${supported.join(", ")}`);
+    if (control.kind === "unknown") {
+      yield* terminal.info(`Jazz cannot confirm which of these ${modelLabel} accepts.`);
+    }
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /model: change the agent's model for this session only, on the
+ * agent's own provider. `/model <id>` sets it directly; bare `/model` opens a
+ * picker, or prints the current model and a few others on a terminal that
+ * cannot prompt. The agent file keeps its model (`jazz agent edit` changes that).
+ */
+function handleModelCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const provider = agent.config.llmProvider;
+    const current = `${provider}/${agent.config.llmModel}`;
+    const providerInfo = yield* llmService.getProvider(provider).pipe(Effect.either);
+    const models = providerInfo._tag === "Right" ? providerInfo.right.supportedModels : [];
+
+    const applyModel = (modelId: string) =>
+      Effect.gen(function* () {
+        if (modelId === agent.config.llmModel) {
+          yield* terminal.info(`Already using ${current}.`);
+          yield* terminal.log("");
+          return { shouldContinue: true } satisfies CommandResult;
+        }
+        const newAgent = { ...agent, config: { ...agent.config, llmModel: modelId } };
+        yield* terminal.success(`Model set to ${provider}/${modelId} (this session only)`);
+        const modelMeta = yield* Effect.promise(() => getModelsDevMetadata(modelId, provider));
+        if (modelMeta && !modelMeta.supportsTools && (agent.config.tools?.length ?? 0) > 0) {
+          yield* terminal.warn(
+            `${modelId} does not support tools, so this agent's tools are unavailable until you switch back.`,
+          );
+        }
+        yield* terminal.log("");
+        return { shouldContinue: true, newAgent } satisfies CommandResult;
+      });
+
+    const requested = args.join(" ").trim();
+    if (requested.length > 0) {
+      const modelId = requested.startsWith(`${provider}/`)
+        ? requested.slice(provider.length + 1)
+        : requested;
+      if (models.length > 0 && !models.some((model) => model.id === modelId)) {
+        const suggestion = closestMatch(
+          modelId,
+          models.map((model) => model.id),
+        );
+        yield* terminal.error(
+          suggestion === undefined
+            ? `${provider} has no model "${modelId}". Run /model to pick one.`
+            : `${provider} has no model "${modelId}". Did you mean ${suggestion}?`,
+        );
+        yield* terminal.log("");
+        return { shouldContinue: true, keepDraft: true };
+      }
+      return yield* applyModel(modelId);
+    }
+
+    if (models.length === 0) {
+      yield* terminal.log(fmt.keyValueCompact("Model", current));
+      yield* terminal.info(`Jazz could not list ${provider}'s models. Use /model <model-id>.`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    if (!terminal.isInteractive) {
+      yield* terminal.log(fmt.keyValueCompact("Model", current));
+      yield* terminal.info(`Use /model <model-id>, e.g. /model ${models[0]?.id ?? ""}`);
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+
+    const selected = yield* terminal.search<string>(
+      `Model for this session (now ${agent.config.llmModel}):`,
+      {
+        choices: buildModelChoices(provider, models),
+        placeholder: "Type to filter models…",
+      },
+    );
+    if (selected === undefined) {
+      yield* terminal.log("");
+      return { shouldContinue: true };
+    }
+    return yield* applyModel(selected);
   });
 }
 
@@ -1845,17 +2183,24 @@ function handleRunMcpPromptCommand(
 }
 
 /**
- * Handle unknown command
+ * Handle an unknown command: say so, suggest the closest command, and keep the
+ * draft so a typo is one edit away instead of a retype.
  */
 function handleUnknownCommand(
   terminal: TerminalService,
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    yield* terminal.error(`Unknown command: /${args.join(" ")}`);
-    yield* terminal.info("Type '/help' to see available commands.");
+    const typed = args[0] ?? "";
+    yield* terminal.error(`Unknown command: /${typed}`);
+    const suggestion = typed.length > 0 ? suggestCommand(typed) : undefined;
+    yield* terminal.info(
+      suggestion === undefined
+        ? "Type '/help' to see available commands."
+        : `Did you mean /${suggestion.name}? Type '/help' to see available commands.`,
+    );
     yield* terminal.log("");
-    return { shouldContinue: true };
+    return { shouldContinue: true, keepDraft: true };
   });
 }
 
@@ -1906,9 +2251,7 @@ function handleResumeCommand(
 
     // The listing carries no transcript, so the chosen conversation is read now rather
     // than every conversation being read to draw the picker.
-    const conversation = yield* loadConversation(agent.id, selected.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(agent.id, selected.conversationId);
     if (!conversation) {
       yield* terminal.info("That conversation could no longer be read.");
       return { shouldContinue: true };
@@ -1929,16 +2272,28 @@ function handleResumeCommand(
 }
 
 /**
- * Handle /skills command - List and view skills
+ * Handle /skills. Interactive terminals browse a bounded catalog; headless
+ * callers retain the complete printable inventory.
  */
 function handleSkillsCommand(
   terminal: TerminalService,
 ): Effect.Effect<CommandResult, Error, SkillService> {
   return Effect.gen(function* () {
     const skillService = yield* SkillServiceTag;
-    const { builtin, global, agents, local } = yield* skillService.listSkillsBySource();
+    const { builtin, global, agents, local, plugin } = yield* skillService.listSkillsBySource();
 
-    const totalCount = builtin.length + global.length + agents.length + local.length;
+    const totalCount =
+      builtin.length + global.length + agents.length + local.length + plugin.length;
+
+    if (terminal.isInteractive) {
+      const skills = [...builtin, ...global, ...agents, ...local, ...plugin].sort(
+        (a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
+      );
+      yield* Effect.async<void>((resume) => {
+        store.setActiveMenu({ kind: "skills", skills }, () => resume(Effect.void));
+      });
+      return { shouldContinue: true };
+    }
 
     if (totalCount === 0) {
       yield* terminal.warn("No skills found.");
@@ -1995,6 +2350,16 @@ function handleSkillsCommand(
       yield* terminal.log(fmt.blank());
     }
 
+    if (plugin.length > 0) {
+      sourcesCount++;
+      const sorted = [...plugin].sort((a, b) => a.name.localeCompare(b.name));
+      yield* terminal.log(fmt.section("Plugin", plugin.length, "skill"));
+      for (const s of sorted) {
+        yield* terminal.log(fmt.itemWithDesc(s.name, s.description));
+      }
+      yield* terminal.log(fmt.blank());
+    }
+
     yield* terminal.log(
       fmt.footer(
         `Total: ${totalCount} ${totalCount === 1 ? "skill" : "skills"} across ${sourcesCount} ${sourcesCount === 1 ? "source" : "sources"}`,
@@ -2017,9 +2382,7 @@ function handleInfoCommand(
   return Effect.gen(function* () {
     yield* terminal.log(fmt.heading("Session Info"));
 
-    const conversation = yield* loadConversation(agent.id, context.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(agent.id, context.conversationId);
     yield* terminal.log(fmt.keyValueCompact("Conversation", context.conversationId));
     yield* terminal.log(fmt.keyValueCompact("Title", conversation?.title ?? "(not saved yet)"));
     yield* terminal.log(fmt.blank());
@@ -2141,7 +2504,8 @@ function resolveMcpServerStatus(
     const enabled = config.enabled !== false;
     const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
     const usesOAuth = isHttpConfig(config) && !config.headers;
-    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+    const storedAuth =
+      usesOAuth && isHttpConfig(config) ? yield* hasStoredAuth(config.name, config.url) : false;
 
     const kind: McpStatusKind = !enabled
       ? "disabled"
@@ -2230,10 +2594,12 @@ function mcpServerActions(status: McpServerStatus): readonly { name: string; val
   if (status.usesOAuth && status.hasStoredAuth) {
     actions.push({ name: "Forget stored credentials", value: "logout" });
   }
-  actions.push({
-    name: status.config.trusted === true ? "Untrust" : "Trust",
-    value: "toggle-trust",
-  });
+  if (status.config.definedIn !== "project") {
+    actions.push({
+      name: status.config.trusted === true ? "Untrust" : "Trust",
+      value: "toggle-trust",
+    });
+  }
   actions.push({ name: "Disable", value: "disable" });
   actions.push({ name: "Back", value: "back" });
   return actions;
@@ -2305,7 +2671,8 @@ function runMcpServerAction(
         return;
       }
       case "logout": {
-        yield* clearServerAuth(config.name);
+        if (!isHttpConfig(config)) return;
+        yield* clearServerAuth(config.name, config.url);
         yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
         return;
       }
@@ -2547,16 +2914,8 @@ function handleModeCommand(
       return { shouldContinue: true, removeAutoApprovedCommand: pattern };
     }
 
-    if (modeArg === "safe") {
-      yield* terminal.success("Switched to safe mode — all tool calls require approval");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: false as const };
-    }
-
-    if (modeArg === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
+    if (modeArg === "safe" || modeArg === "yolo") {
+      return yield* switchChatMode(terminal, modeArg);
     }
 
     if (modeArg) {
@@ -2574,15 +2933,17 @@ function handleModeCommand(
         "Tip: /mode allow <cmd> auto-approves a command prefix; /mode disallow removes it.",
       ),
     );
-    const isSafe = !currentPolicy;
-    const isYolo = currentPolicy === true || currentPolicy === "high-risk";
-    const selected = yield* terminal.select<string>("Select tool approval mode:", {
+    const current = chatModeForPolicy(currentPolicy);
+    const selected = yield* terminal.select<ChatApprovalMode>("Select tool approval mode:", {
       choices: [
         {
-          name: `safe — require approval for every tool call${isSafe ? " (current)" : ""}`,
+          name: `safe: ask before high-risk tool calls${current === "safe" ? " (current)" : ""}`,
           value: "safe",
         },
-        { name: `yolo — auto-approve all tool calls${isYolo ? " (current)" : ""}`, value: "yolo" },
+        {
+          name: `yolo: auto-approve all tool calls${current === "yolo" ? " (current)" : ""}`,
+          value: "yolo",
+        },
       ],
     });
 
@@ -2610,15 +2971,22 @@ function handleModeCommand(
       return { shouldContinue: true };
     }
 
-    if (selected === "yolo") {
-      yield* terminal.success("Switched to yolo mode — all tool calls auto-approved");
-      yield* terminal.log("");
-      return { shouldContinue: true, newAutoApprovePolicy: true as const };
-    }
+    return yield* switchChatMode(terminal, selected);
+  });
+}
 
-    yield* terminal.success("Switched to safe mode — all tool calls require approval");
+function switchChatMode(
+  terminal: TerminalService,
+  mode: ChatApprovalMode,
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    yield* terminal.success(
+      mode === "yolo"
+        ? "Switched to yolo mode: all tool calls auto-approved"
+        : "Switched to safe mode: high-risk tool calls require approval",
+    );
     yield* terminal.log("");
-    return { shouldContinue: true, newAutoApprovePolicy: false as const };
+    return { shouldContinue: true, newAutoApprovePolicy: policyForChatMode(mode) };
   });
 }
 
@@ -2688,19 +3056,6 @@ function estimateMessageTokens(message: ChatMessage): number {
   }
 
   return contentTokens + toolTokens + 4;
-}
-
-/**
- * Format token count for display (e.g., 18000 -> "18k", 150000 -> "150k")
- */
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${(tokens / 1_000_000).toFixed(1)}M`;
-  }
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return tokens.toString();
 }
 
 /**
@@ -2952,7 +3307,7 @@ function handleContextCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService> {
+): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
     const configService = yield* AgentConfigServiceTag;
@@ -2961,11 +3316,21 @@ function handleContextCommand(
 
     // Get model information
     const provider = agent.config.llmProvider;
-    const modelId = agent.config.llmModel;
+    const servedVllm =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const servedSglang =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const modelId = servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel;
     const advertisedContextWindow = yield* getModelContextWindowEffect(modelId, provider);
+    const serverContextWindow = servedVllm?.contextWindow ?? servedSglang?.contextWindow;
     const effectiveContextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
+      ...(serverContextWindow !== undefined && { serverContextWindow }),
       ...(typeof agent.config.numCtx === "number" && {
         pinnedContextWindow: agent.config.numCtx,
       }),
@@ -3015,32 +3380,32 @@ function handleContextCommand(
     const modelDisplay = `${provider}/${modelId}`;
     const modelMaxTokens = effectiveContextWindow.modelMaxTokens;
     const runtimeWindowNote = effectiveContextWindow.cappedByAgent
-      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatTokenCount(modelMaxTokens)}` : ""}`
+      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatCompactCount(modelMaxTokens)}` : ""}`
       : modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
-        ? ` · runtime window, model max ${formatTokenCount(modelMaxTokens)}`
+        ? ` · runtime window, model max ${formatCompactCount(modelMaxTokens)}`
         : "";
-    const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
+    const usageDisplay = `${formatCompactCount(adjustedUsage.totalUsed)}/${formatCompactCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
 
     yield* terminal.log(`   ${gridRows[0]}   ${modelDisplay} · ${usageDisplay}`);
     yield* terminal.log(`   ${gridRows[1]}`);
     yield* terminal.log(`   ${gridRows[2]}   Estimated usage by category`);
     yield* terminal.log(
-      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatTokenCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
+      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatCompactCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatTokenCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
+      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatCompactCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatTokenCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
+      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatCompactCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatTokenCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
+      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatCompactCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatTokenCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
+      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatCompactCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
     );
     yield* terminal.log(
-      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatTokenCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
+      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatCompactCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
     );
     yield* terminal.log(`   ${gridRows[9]}`);
     yield* terminal.log("");

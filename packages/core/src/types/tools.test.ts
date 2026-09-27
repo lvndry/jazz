@@ -1,20 +1,38 @@
 import { describe, expect, it } from "bun:test";
-import { shouldAutoApprove, type AutoApprovePolicy, type ToolRiskLevel } from "./tools";
+import {
+  isApprovalPolicyLevel,
+  shouldAutoApprove,
+  type AutoApprovePolicy,
+  type ToolRiskLevel,
+} from "./tools";
+
+describe("isApprovalPolicyLevel", () => {
+  it("accepts the three risk levels", () => {
+    expect(isApprovalPolicyLevel("read-only")).toBe(true);
+    expect(isApprovalPolicyLevel("low-risk")).toBe(true);
+    expect(isApprovalPolicyLevel("high-risk")).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    expect(isApprovalPolicyLevel("all")).toBe(false);
+    expect(isApprovalPolicyLevel("")).toBe(false);
+  });
+});
 
 describe("shouldAutoApprove", () => {
   describe("no policy (undefined)", () => {
-    it("auto-approves read-only and low-risk, and nothing above them", () => {
-      expect(shouldAutoApprove("read-only", undefined)).toBe(true);
-      expect(shouldAutoApprove("low-risk", undefined)).toBe(true);
+    it("auto-approves nothing", () => {
+      expect(shouldAutoApprove("read-only", undefined)).toBe(false);
+      expect(shouldAutoApprove("low-risk", undefined)).toBe(false);
       expect(shouldAutoApprove("high-risk", undefined)).toBe(false);
       expect(shouldAutoApprove("unknown", undefined)).toBe(false);
     });
   });
 
   describe("policy: false", () => {
-    it("auto-approves read-only and low-risk, and nothing above them", () => {
-      expect(shouldAutoApprove("read-only", false)).toBe(true);
-      expect(shouldAutoApprove("low-risk", false)).toBe(true);
+    it("auto-approves nothing", () => {
+      expect(shouldAutoApprove("read-only", false)).toBe(false);
+      expect(shouldAutoApprove("low-risk", false)).toBe(false);
       expect(shouldAutoApprove("high-risk", false)).toBe(false);
       expect(shouldAutoApprove("unknown", false)).toBe(false);
     });

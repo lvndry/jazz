@@ -12,7 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
-import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -22,6 +22,8 @@ import {
   type LLMService,
   type LlamaCppServerModel,
   type OllamaShowExtras,
+  type SglangServerModel,
+  type VllmServerModel,
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -40,12 +42,23 @@ import type { ActivePreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import {
+  guardRunStart,
+  type RunAccountingInput,
+  settleRunAccounting,
+} from "@/core/spend/run-accounting";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
-import { DEFAULT_PLUGIN_HOOK_TIMEOUT_MS, type SkillRouteOutcome } from "@/core/types/plugin";
+import {
+  DEFAULT_PLUGIN_HOOK_TIMEOUT_MS,
+  type SkillRouteOutcome,
+  type WorkspaceContextInput,
+} from "@/core/types/plugin";
+import { runBudgetOptions } from "@/core/types/remote-door";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -61,20 +74,25 @@ import {
   type CompactionProgressObserver,
   type RecursiveRunner,
 } from "./context/summarizer";
+import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
+import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
+import { createEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
+  computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
   telemetryErrorCategory,
 } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
-import { toolDenials } from "./tools/agent-tool-resolution";
+import { runToolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
-import { registerCustomToolsForAgent } from "./tools/custom-tools";
+import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerPeerTools } from "./tools/register-tools";
@@ -224,6 +242,40 @@ export function resolveLlamaCppServerModel(
 }
 
 /**
+ * Read the model vLLM is serving at run start and its context limit.
+ *
+ * A server can change between runs. Keep the configured ID if still advertised; otherwise
+ * use the first served entry. A failed lookup leaves the saved model and context estimate
+ * in place so the server can still handle the request or report an explicit error.
+ */
+export function resolveVllmServerModel(
+  preferredModelId: string,
+  llmConfig?: LLMConfig,
+): Effect.Effect<VllmServerModel, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("vllm", llmConfig);
+    return yield* llmService
+      .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+  });
+}
+
+/** Refresh SGLang's served ID and context at each run; keep saved values if lookup fails. */
+export function resolveSglangServerModel(
+  preferredModelId: string,
+  llmConfig?: LLMConfig,
+): Effect.Effect<SglangServerModel, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("sglang", llmConfig);
+    return yield* llmService
+      .fetchSglangServerModel(baseUrl, preferredModelId, llmConfig?.sglang?.api_key)
+      .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
+  });
+}
+
+/**
  * The agent's tracked working directory, or the process cwd when no filesystem context exists.
  *
  * The agent can `cd` mid-session, so this is not the same as `process.cwd()` — which matters
@@ -243,18 +295,61 @@ function resolveAgentWorkingDirectory(
   });
 }
 
-function resolveProjectInstructions(
+/** Which of the operator's own inputs a run receives. See {@link runContextBoundary}. */
+export interface RunContextBoundary {
+  /** Scan `userInput` for local media paths and attach the files they name. */
+  readonly ingestsUserInputPaths: boolean;
+  /** Render the AGENTS.md files found for the working directory into the system prompt. */
+  readonly injectsProjectInstructions: boolean;
+  /** Render the operator's standing memory preferences into the system prompt. */
+  readonly injectsPreferences: boolean;
+}
+
+/**
+ * Which of the operator's own inputs this run receives.
+ *
+ * A run for a remote caller (a webhook or a peer) receives none of them. Preferences and
+ * AGENTS.md describe the operator, which a `public` caller must never learn, and a path in the
+ * caller's text names a file on this machine that the caller has no right to have uploaded.
+ *
+ * The summarizer gets no AGENTS.md and no path ingestion: its "user input" is a rendered
+ * transcript, so a media path a tool printed would be scanned as though the user had asked for
+ * it, and it has no project to honor.
+ */
+export function runContextBoundary(
   persona: string,
+  options: Pick<AgentRunnerOptions, "ingestUserInputPaths" | "remoteCaller">,
+): RunContextBoundary {
+  const operatorIsCaller = options.remoteCaller === undefined;
+  const isSummarizer = persona === "summarizer";
+  return {
+    ingestsUserInputPaths:
+      operatorIsCaller && !isSummarizer && options.ingestUserInputPaths !== false,
+    injectsProjectInstructions: operatorIsCaller && !isSummarizer,
+    injectsPreferences: operatorIsCaller,
+  };
+}
+
+function resolveProjectInstructions(
+  boundary: RunContextBoundary,
   agentId: string,
   options: AgentRunnerOptions,
 ): Effect.Effect<readonly ProjectInstructionFile[], never> {
   return Effect.gen(function* () {
-    if (persona === "summarizer") return [];
+    if (!boundary.injectsProjectInstructions) return [];
 
     const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
     return yield* Effect.sync(() => discoverProjectInstructions(workingDirectory));
   });
 }
+
+/**
+ * The answer a new run gives a call its history left unanswered, such as a parked approval
+ * whose resume failed. That resume may have run the tool before failing, so the text does
+ * not claim either way.
+ */
+const UNANSWERED_HISTORY_TOOL_RESULT =
+  "No result was recorded for this tool call: the run that requested it ended first. It may or may not have run; check its effects before relying on them.";
 
 /**
  * Resolve a `maxCostUSD`/`maxTokens`-style cap: unlike `maxIterations`, neither has a
@@ -310,16 +405,36 @@ function initializeAgentRun(
     const appConfig = yield* configService.appConfig;
 
     const actualConversationId = conversationId || generateConversationId();
-    const history: ChatMessage[] = options.conversationHistory || [];
+    const history: ChatMessage[] =
+      options.isResume === true
+        ? (options.conversationHistory ?? [])
+        : closeUnansweredToolCalls(
+            options.conversationHistory ?? [],
+            UNANSWERED_HISTORY_TOOL_RESULT,
+          );
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
-    // llama.cpp serves whatever model is loaded and can change between runs, so the stored id is
-    // only a hint. Ask the server what it is actually serving; the resolved model and window then
-    // flow into metrics, the footer, and context accounting. A pinned numCtx still wins later.
+    // Local servers can change models between runs. The live model and window flow into
+    // metrics, the footer, and context accounting; the saved ID is a fallback.
     const servedLlamaCppModel =
       provider === "llamacpp" ? yield* resolveLlamaCppServerModel(appConfig.llm) : undefined;
-    const model = servedLlamaCppModel?.modelId ?? agent.config.llmModel;
-    const serverContextWindow = servedLlamaCppModel?.contextWindow;
+    const servedVllmModel =
+      provider === "vllm"
+        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const servedSglangModel =
+      provider === "sglang"
+        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        : undefined;
+    const model =
+      servedLlamaCppModel?.modelId ??
+      servedVllmModel?.modelId ??
+      servedSglangModel?.modelId ??
+      agent.config.llmModel;
+    const serverContextWindow =
+      servedLlamaCppModel?.contextWindow ??
+      servedVllmModel?.contextWindow ??
+      servedSglangModel?.contextWindow;
 
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is
@@ -500,7 +615,7 @@ function initializeAgentRun(
 
     // Both scopes of denial, after everything that grants. Neither is undoable below: the
     // allowlist and carve-outs that follow can only narrow further.
-    const denied = toolDenials(agent, toolProfile);
+    const denied = runToolDenials(agent, toolProfile, options);
     combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
 
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
@@ -591,7 +706,8 @@ function initializeAgentRun(
     // filesystem-context service is available (the agent can `cd` mid-session),
     // otherwise the process cwd. The summarizer compresses transcripts and has
     // no project to honor, so it never gets them.
-    const projectInstructions = yield* resolveProjectInstructions(persona, agent.id, options);
+    const boundary = runContextBoundary(persona, options);
+    const projectInstructions = yield* resolveProjectInstructions(boundary, agent.id, options);
     if (projectInstructions.length > 0) {
       yield* logger.debug("AGENTS.md instruction files loaded", {
         count: projectInstructions.length,
@@ -600,11 +716,7 @@ function initializeAgentRun(
 
     // Attachment ingestion needs the agent's cwd to resolve relative paths the user typed, and
     // the model's modalities to know which of them are worth sending.
-    //
-    // Never for the summarizer: its "user input" is a rendered transcript, so any media path a
-    // *tool* printed would be scanned as though the user had asked for it. Attaching files on
-    // the strength of tool output is exactly what path ingestion must not do.
-    const ingestsAttachments = persona !== "summarizer";
+    const ingestsAttachments = boundary.ingestsUserInputPaths;
     const attachmentWorkingDirectory = ingestsAttachments
       ? yield* resolveAgentWorkingDirectory(agent.id, options)
       : undefined;
@@ -615,10 +727,9 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
-    const activePreferences = yield* resolveActivePreferences(
-      agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
-      logger,
-    );
+    const activePreferences = boundary.injectsPreferences
+      ? yield* resolveActivePreferences(agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE], logger)
+      : [];
     const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
     const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
     const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
@@ -698,6 +809,7 @@ function initializeAgentRun(
       memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
+      egressTaint: options.egressTaint ?? createEgressTaint(history),
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {
@@ -787,6 +899,12 @@ function initializeAgentRun(
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {
+            workspaceContext: (input: WorkspaceContextInput) =>
+              pluginSession.value.runWorkspace(input),
+          }
+        : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
             reduceToolResults: buildAdvisedReducer({
               goal: userInput,
               provider,
@@ -809,6 +927,20 @@ function initializeAgentRun(
       knownSkills: relevantSkills,
     };
   });
+}
+
+/** A run whose caller named no entry point is treated as an unattended `jazz run`. */
+const DEFAULT_RUN_ORIGIN: RunOrigin = { source: "run" };
+/** The limits a parked record must restore on resume, from the options the run started with. */
+export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundary {
+  const budget = runBudgetOptions(options);
+  return {
+    ...(options.toolAllowlist !== undefined ? { toolAllowlist: options.toolAllowlist } : {}),
+    ...(options.withholdInteractiveTools === true ? { withholdInteractiveTools: true } : {}),
+    ...(options.disablePersistence === true ? { disablePersistence: true } : {}),
+    ...(options.remoteCaller !== undefined ? { remoteCaller: options.remoteCaller } : {}),
+    ...(Object.keys(budget).length > 0 ? { budget } : {}),
+  };
 }
 
 /** Preserve the active trace when compaction or memory extraction starts a recursive run. */
@@ -865,9 +997,28 @@ export class AgentRunner {
   > {
     return Effect.scoped(
       Effect.gen(function* () {
+        if (options.conversationId && options.internal !== true) {
+          yield* Effect.tryPromise({
+            try: () =>
+              assertConversationWritable(options.agent.id, options.conversationId as string),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
+        }
         // Get services
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
+
+        const accounting: RunAccountingInput = {
+          agentId: options.agent.id,
+          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          internal: options.internal === true,
+          appConfig,
+          freeLocalModel: isZeroCostLocalModel(
+            options.agent.config.llmProvider,
+            options.agent.config.llmModel,
+          ),
+        };
+        yield* guardRunStart(accounting);
 
         // Initialize run context
         const runContext = yield* initializeAgentRun(options);
@@ -933,8 +1084,36 @@ export class AgentRunner {
             userInput: options.userInput,
             internal: options.internal === true,
             costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+            totalTokensSoFar: () =>
+              runContext.runMetrics.totalPromptTokens + runContext.runMetrics.totalCompletionTokens,
+            ...(options.autoApprovePolicy !== undefined &&
+            typeof options.autoApprovePolicy !== "function"
+              ? { approvalPolicy: options.autoApprovePolicy }
+              : {}),
+            ...(options.autoApprovedTools !== undefined
+              ? { autoApprovedTools: options.autoApprovedTools }
+              : {}),
+            ...(options.maxIterations !== undefined
+              ? { maxIterations: options.maxIterations }
+              : {}),
+            workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
+            boundary: runRecordBoundary(options),
           },
           execute,
+        ).pipe(
+          Effect.onExit((exit) =>
+            settleRunAccounting(
+              accounting,
+              {
+                ...computeRunCost(runContext.runMetrics, pricing),
+                totalTokens:
+                  runContext.runMetrics.totalPromptTokens +
+                  runContext.runMetrics.totalCompletionTokens,
+              },
+              exit,
+              options.runId ?? runContext.runMetrics.runId,
+            ),
+          ),
         );
       }),
     );

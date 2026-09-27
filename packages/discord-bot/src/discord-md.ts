@@ -7,6 +7,8 @@
  * role-less pings that Discord still delivers even with that flag.
  */
 
+import type { RichText, Span } from "@jazz/bot-shared/surface";
+
 const DISCORD_SPLIT_LENGTH = 1900;
 
 export function splitForDiscord(text: string): string[] {
@@ -47,4 +49,44 @@ export function threadNameFromPrompt(prompt: string): string {
  */
 export function spoilerBlock(text: string): string {
   return `||${text.replace(/\|\|/g, "|​|")}||`;
+}
+
+/**
+ * Render the shared core's `RichText` in Discord's markdown dialect.
+ *
+ * The only mark Discord has that the others lack is subtext (`-# `), which is what a
+ * `subtle` block is for.
+ */
+export function renderDiscordMarkdown(body: RichText): string {
+  const renderSpans = (spans: readonly Span[]): string =>
+    spans
+      .map((span) => {
+        if (span.kind === "bold") {
+          return `**${span.text}**`;
+        }
+        if (span.kind === "code") {
+          return `\`${span.text}\``;
+        }
+        return span.text;
+      })
+      .join("");
+  return body
+    .map((block) => {
+      switch (block.kind) {
+        case "line":
+          return renderSpans(block.spans);
+        case "subtle":
+          return `-# ${renderSpans(block.spans)}`;
+        case "markdown":
+          return block.text;
+        case "codeBlock":
+          return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
+        case "quote":
+          return block.text
+            .split("\n")
+            .map((row) => `> ${row}`)
+            .join("\n");
+      }
+    })
+    .join("\n");
 }

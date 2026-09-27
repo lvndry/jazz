@@ -13,7 +13,8 @@
 
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { toError, writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { toError } from "@jazz/core/utils/errors";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 const LEDGER_FILENAME = ".source-ledger.json";
@@ -99,21 +100,15 @@ function readLedger(
   });
 }
 
-function writeLedger(
-  fs: FileSystem.FileSystem,
-  memoryDirectory: string,
-  ledger: SourceLedger,
-): Effect.Effect<void, Error> {
+function writeLedger(memoryDirectory: string, ledger: SourceLedger): Effect.Effect<void, Error> {
   const trackedClaims = Object.keys(ledger.sentenceKeysByPath).length;
   if (trackedClaims > MAX_TRACKED_CLAIMS) {
     return Effect.fail(new Error("Memory source ledger tracks too many entries."));
   }
   const revokedSentenceKeys = ledger.revokedSentenceKeys.slice(-MAX_REVOKED_SENTENCE_KEYS);
   return writeFileStringAtomic(
-    fs,
     ledgerPath(memoryDirectory),
     `${JSON.stringify({ ...ledger, revokedSentenceKeys })}\n`,
-    { tempPrefix: "memory-source-ledger" },
   );
 }
 
@@ -157,7 +152,7 @@ export function recordClaimSentences(
     const superseded = (ledger.sentenceKeysByPath[relativePath] ?? []).filter(
       (key) => !kept.has(key),
     );
-    yield* writeLedger(fs, memoryDirectory, {
+    yield* writeLedger(memoryDirectory, {
       sentenceKeysByPath: { ...ledger.sentenceKeysByPath, [relativePath]: [...kept] },
       revokedSentenceKeys: withRevoked(ledger.revokedSentenceKeys, superseded),
     });
@@ -189,7 +184,7 @@ export function revokeClaimSentencesUnder(
     if (revokedNow.length === 0) {
       return;
     }
-    yield* writeLedger(fs, memoryDirectory, {
+    yield* writeLedger(memoryDirectory, {
       sentenceKeysByPath: remaining,
       revokedSentenceKeys: withRevoked(ledger.revokedSentenceKeys, revokedNow),
     });
@@ -221,7 +216,7 @@ export function moveClaimSentences(
       }
     }
     if (changed) {
-      yield* writeLedger(fs, memoryDirectory, {
+      yield* writeLedger(memoryDirectory, {
         sentenceKeysByPath: moved,
         revokedSentenceKeys: ledger.revokedSentenceKeys,
       });

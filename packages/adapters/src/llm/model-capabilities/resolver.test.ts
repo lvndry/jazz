@@ -7,7 +7,7 @@ import { resolveModelCapabilities } from "./resolver";
 const effort: ReasoningControlSurface = {
   kind: "effort",
   efforts: ["low", "high"],
-  canDisable: true,
+  canDisableReasoning: true,
   transport: "openai.responses.reasoning-effort",
 };
 
@@ -56,7 +56,7 @@ describe("resolveModelCapabilities", () => {
         reasoning: {
           kind: "effort",
           efforts: ["medium"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
         supportsTools: false,
@@ -65,7 +65,7 @@ describe("resolveModelCapabilities", () => {
         reasoning: {
           kind: "effort",
           efforts: ["xhigh"],
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "openai.responses.reasoning-effort",
         },
         supportsTools: true,
@@ -94,7 +94,7 @@ describe("resolveModelCapabilities", () => {
       operator: {
         reasoning: {
           kind: "toggle",
-          canDisable: true,
+          canDisableReasoning: true,
           transport: "ollama.chat.think",
         },
       },
@@ -104,11 +104,71 @@ describe("resolveModelCapabilities", () => {
     expect(result.source.reasoning).toBe("catalog");
   });
 
+  test("accepts an openai-compatible transport for any OpenAI-compatible provider", () => {
+    const override: ReasoningControlSurface = {
+      kind: "toggle",
+      canDisableReasoning: true,
+      transport: "openai-compatible.chat.template-enable-thinking",
+    };
+
+    const nvidia = resolveModelCapabilities({
+      provider: "nvidia",
+      modelId: "qwen/qwen3.5-122b-a10b",
+      operator: { reasoning: override },
+    });
+    expect(nvidia.reasoning).toEqual(override);
+    expect(nvidia.source.reasoning).toBe("operator");
+
+    const openai = resolveModelCapabilities({
+      provider: "openai",
+      modelId: "gpt-5.1",
+      operator: { reasoning: override },
+    });
+    expect(openai.source.reasoning).not.toBe("operator");
+  });
+
+  test("ships no built-in NVIDIA NIM reasoning control", () => {
+    const result = resolveModelCapabilities({
+      provider: "nvidia",
+      modelId: "deepseek-ai/deepseek-v4-flash",
+      catalog: { supportsReasoning: true },
+    });
+
+    expect(result.reasoning).toEqual({ kind: "unknown" });
+  });
+
   test("returns unknown rather than unsupported when no source makes a claim", () => {
     const result = resolve({ modelId: "unknown" });
 
     expect(result.reasoning).toEqual({ kind: "unknown" });
     expect(result.supportsTools).toBe(false);
     expect(result.source).toEqual({ reasoning: "unknown", tools: "provider-default" });
+  });
+
+  test("assumes a cloud model nothing describes takes tools", () => {
+    for (const provider of ["anthropic", "openai", "openrouter", "gemini"] as const) {
+      const result = resolveModelCapabilities({ provider, modelId: "brand-new-model" });
+
+      expect(result.supportsTools).toBe(true);
+      expect(result.source.tools).toBe("assumed");
+    }
+  });
+
+  test("keeps a catalog's tool verdict over the cloud assumption", () => {
+    const result = resolveModelCapabilities({
+      provider: "openai",
+      modelId: "text-only-model",
+      catalog: { supportsTools: false },
+    });
+
+    expect(result.supportsTools).toBe(false);
+    expect(result.source.tools).toBe("catalog");
+  });
+
+  test("leaves a local server's unknown model unknown", () => {
+    const result = resolveModelCapabilities({ provider: "llamacpp", modelId: "unprobed.gguf" });
+
+    expect(result.supportsTools).toBeUndefined();
+    expect(result.source.tools).toBe("unknown");
   });
 });

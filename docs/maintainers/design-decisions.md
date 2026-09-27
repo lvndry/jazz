@@ -260,7 +260,7 @@ answers.
 ### Vercel AI SDK as the provider port
 
 **Decision.** One adapter (`ai-sdk-service.ts`) behind the `LLMService` interface, giving 18
-providers including local Ollama and llama.cpp.
+providers including self-hosted Ollama, llama.cpp, vLLM, and SGLang.
 
 **Alternatives rejected.** Hand-written clients per provider: every new provider becomes a
 project, and streaming plus tool-calling plus reasoning quirks get reimplemented each time.
@@ -284,8 +284,7 @@ is worse than none. Requiring the network: breaks airgapped installs, which are 
 deployment.
 
 **Cost accepted.** A brand-new model may be missing from the catalog; Jazz falls back to
-provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all:
-model lists, context windows, and tool support are read from the local server.
+provider-reported metadata and a 128k default. Ollama, llama.cpp, vLLM, and SGLang need no catalog to list models. Ollama and llama.cpp report additional capabilities; vLLM and SGLang model lists can report context length but cannot verify whether tool parsing is enabled on the server.
 
 📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../getting-started/local-models.md)
 
@@ -330,7 +329,7 @@ the playbook stays in the conversation as the `load_skill` tool result.
 **Cost accepted.** Two extra round trips before the agent starts working with a skill. Later
 turns must follow a playbook that lives in transcript history, not in the system prompt.
 
-📄 [`skill-tools.ts`](../../packages/core/src/agent/tools/skill-tools.ts) · [Skills loading](../concepts/skills.md)
+📄 [`skill.ts`](../../packages/core/src/agent/tools/skill.ts) · [Skills loading](../concepts/skills.md)
 
 ### Deferred tool schemas
 
@@ -349,7 +348,7 @@ run. Names/summaries must stay visible in the prompt regardless: hiding them ent
 push the model toward replicating a listed tool with `execute_command` instead of discovering
 it, which `execute_command`'s own description now warns against explicitly.
 
-📄 [`search-tools-tool.ts`](../../packages/core/src/agent/tools/search-tools-tool.ts) · [Tools reference](../tools/index.md)
+📄 [`search-tools.ts`](../../packages/core/src/agent/tools/search-tools.ts) · [Tools reference](../tools/index.md)
 
 ---
 

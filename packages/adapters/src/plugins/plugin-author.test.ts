@@ -74,6 +74,32 @@ describe("packPlugin", () => {
     ).toEqual([]);
   });
 
+  test("allows a bare Node builtin emitted by Bun while bundling", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-pack-builtin-"));
+    await fs.mkdir(path.join(root, "src"));
+    await fs.writeFile(
+      path.join(root, "src/index.ts"),
+      'import { pathToFileURL } from "url"; void pathToFileURL; export default { apiVersion: 1, register() {} } as const;\n',
+    );
+    await fs.writeFile(
+      path.join(root, "jazz-plugin.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "com.jazz.test.builtin",
+        name: "Builtin pack test",
+        version: "1.0.0",
+        hostApi: 1,
+        hooks: [],
+        decisionProviders: [],
+        network: { destinations: [] },
+        dataSent: [],
+        secrets: [],
+      }),
+    );
+    const packed = await packPlugin({ pluginDirectory: root });
+    expect(packed.sha256).toHaveLength(64);
+  });
+
   test("rejects an opaque runtime import", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-pack-dynamic-"));
     await fs.mkdir(path.join(root, "src"));

@@ -1,40 +1,33 @@
+/** Approved whole-file transfers keep bytes out of tool results and preserve secret protection. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { replacePathAtomically } from "./atomic-replace";
+import { protectFileTransfer } from "./protected-transfer";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
  * Move or rename files and directories tool.
- * Uses fs.rename - equivalent to mv (same filesystem).
+ * A rename where it can be one; replacing a destination or crossing filesystems stages the
+ * result and swaps it in, so an interrupted move leaves a complete destination or no change.
  * Uses defineApprovalTool to create approval + execution pair.
  */
 
 const mvParameters = z
   .object({
-    source: z
-      .string()
-      .min(1)
-      .describe(
-        "File or directory to move. Absolute or relative to the session working directory.",
-      ),
-    destination: z
-      .string()
-      .min(1)
-      .describe(
-        "Exact destination path. If this is an existing directory, the source is not moved into it — unlike shell mv.",
-      ),
-    force: z
-      .boolean()
-      .optional()
-      .describe("Overwrite the destination if it already exists. Default false."),
+    source: z.string().min(1).describe("File or directory to move."),
+    destination: z.string().min(1).describe("Final path, including the name."),
+    force: z.boolean().optional().describe("Delete an existing destination first."),
   })
   .strict();
 
@@ -49,8 +42,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
   const config: ApprovalToolConfig<MvDeps, MvArgs> = {
     name: "mv",
     disclosure: "public",
-    description:
-      "Rename or move a file or directory on the same filesystem. destination is the exact target path: if it is an existing directory, the source is not moved into it (unlike shell mv). force deletes the destination first. Moves across devices fail; use execute_command for those.",
+    description: "Rename or move a file or directory within one filesystem.",
     tags: ["filesystem", "write"],
     parameters: mvParameters,
     validate: makeZodValidator(mvParameters),
@@ -64,6 +56,11 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
+        yield* Effect.try({
+          try: () => assertNotProtectionStateMutation(destination),
+          catch: toError,
+        });
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(source), catch: toError });
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
         return `About to move: ${source}\n       to: ${destination}${overwrite}`;
       }),
@@ -112,18 +109,19 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           };
         }
 
-        // When force is true and destination exists, remove it first — rename() does not overwrite on Unix
-        if (destExists && args.force === true) {
-          yield* fs.remove(destination, { recursive: true });
-        }
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(source), catch: toError });
+        yield* Effect.tryPromise({
+          try: () => protectFileTransfer(source, destination),
+          catch: toError,
+        });
 
-        return yield* fs.rename(source, destination).pipe(
+        return yield* moveAtomically(fs, source, destination, destExists).pipe(
           Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),
           Effect.catchAll((error) =>
             Effect.succeed({
               success: false,
               result: null,
-              error: `mv failed: ${error instanceof Error ? error.message : String(error)}`,
+              error: `mv failed: ${toError(error).message}`,
             }),
           ),
         );
@@ -131,4 +129,54 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
   };
 
   return defineApprovalTool<MvDeps, MvArgs>(config);
+}
+
+/** `rename` failing because source and destination are on different filesystems. */
+function isCrossDeviceError(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | undefined)?.cause;
+  return (error as { code?: unknown } | undefined)?.code === "EXDEV" || cause?.code === "EXDEV";
+}
+
+/**
+ * Move `source` to `destination` so that it ends complete or unchanged. A plain rename onto a
+ * free destination is already atomic. Replacing an existing destination, or crossing
+ * filesystems (a copy, then removing the source), goes through {@link replacePathAtomically},
+ * with the source removed in the same uninterruptible step as the swap.
+ */
+function moveAtomically(
+  fs: FileSystem.FileSystem,
+  source: string,
+  destination: string,
+  destinationExists: boolean,
+): Effect.Effect<void, Error> {
+  const direct = destinationExists
+    ? Effect.fail(new Error("destination exists"))
+    : fs.rename(source, destination).pipe(Effect.mapError(toError));
+  return direct.pipe(
+    Effect.catchAll((error) => {
+      if (!destinationExists && !isCrossDeviceError(error)) {
+        return Effect.fail(error);
+      }
+      let copied = false;
+      return replacePathAtomically(
+        fs,
+        destination,
+        (stagingPath) =>
+          fs.rename(source, stagingPath).pipe(
+            Effect.catchAll((renameError) => {
+              if (!isCrossDeviceError(renameError)) {
+                return Effect.fail(toError(renameError));
+              }
+              copied = true;
+              return fs.copy(source, stagingPath).pipe(Effect.mapError(toError));
+            }),
+          ),
+        Effect.suspend(() =>
+          copied
+            ? fs.remove(source, { recursive: true }).pipe(Effect.mapError(toError))
+            : Effect.void,
+        ),
+      );
+    }),
+  );
 }

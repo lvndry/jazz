@@ -20,10 +20,17 @@ import {
 } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import {
+  SkillServiceTag,
+  type SkillService,
+  type SkillsBySource,
+} from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { reasoningChoicesFor } from "@/cli/helpers/reasoning";
+import { store } from "@/cli/ui/store";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
 
@@ -91,6 +98,80 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+describe("handleSpecialCommand /skills", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+  };
+  const inventory: SkillsBySource = {
+    builtin: [
+      {
+        name: "calendar",
+        description: "Manage events",
+        source: "builtin" as const,
+        path: "/calendar",
+      },
+    ],
+    global: [],
+    agents: [],
+    local: [],
+    plugin: [{ name: "research", description: "Read papers", source: "plugin" as const, path: "" }],
+  };
+  const skillService: SkillService = {
+    listSkills: () => Effect.succeed([...inventory.builtin, ...inventory.plugin]),
+    listSkillsBySource: () => Effect.succeed(inventory),
+    loadSkill: () => Effect.die("unused"),
+    loadSkillSection: () => Effect.die("unused"),
+  };
+
+  test("publishes one interactive catalog including plugin skills", async () => {
+    const layer = Layer.merge(
+      Layer.succeed(TerminalServiceTag, { isInteractive: true } as TerminalService),
+      Layer.succeed(SkillServiceTag, skillService),
+    );
+    const pending = Effect.runPromise(
+      handleSpecialCommand({ type: "skills", args: [] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.getActiveMenuSnapshot()).toEqual({
+      kind: "skills",
+      skills: [...inventory.builtin, ...inventory.plugin],
+    });
+    store.completePrompt({ kind: "exit" });
+    expect(await pending).toEqual({ shouldContinue: true });
+  });
+
+  test("prints the complete inventory for a non-interactive terminal", async () => {
+    const lines: string[] = [];
+    const layer = Layer.merge(
+      Layer.succeed(TerminalServiceTag, {
+        isInteractive: false,
+        log: (message: string) =>
+          Effect.sync(() => {
+            lines.push(message);
+            return undefined;
+          }),
+      } as unknown as TerminalService),
+      Layer.succeed(SkillServiceTag, skillService),
+    );
+    await Effect.runPromise(
+      handleSpecialCommand({ type: "skills", args: [] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+    expect(lines.join("\n")).toContain("calendar");
+    expect(lines.join("\n")).toContain("research");
+    expect(store.getActiveMenuSnapshot()).toBeNull();
+  });
+});
+
 describe("handleSpecialCommand resume", () => {
   test("sets resetStartedAt on the result when a conversation is successfully resumed", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
@@ -110,7 +191,6 @@ describe("handleSpecialCommand resume", () => {
       get: () => Effect.succeed(undefined),
       set: () => Effect.void,
       load: () => Effect.succeed({}),
-      persist: () => Effect.void,
     } as unknown as JazzStateService);
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
@@ -155,7 +235,6 @@ describe("handleSpecialCommand resume", () => {
       get: () => Effect.succeed(undefined),
       set: () => Effect.void,
       load: () => Effect.succeed({}),
-      persist: () => Effect.void,
     } as unknown as JazzStateService);
     const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
 
@@ -179,6 +258,38 @@ describe("handleSpecialCommand resume", () => {
 
     expect(result).toEqual({ shouldContinue: true });
     expect(info).toHaveBeenCalled();
+  });
+});
+
+describe("handleSpecialCommand /detach", () => {
+  test("refuses a handoff while later messages are still queued", async () => {
+    const warnings: string[] = [];
+    const terminal = {
+      isInteractive: true,
+      warn: (message: string) => {
+        warnings.push(message);
+        return Effect.void;
+      },
+    } as unknown as TerminalService;
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationId: "test-session",
+      conversationHistory: [{ role: "user", content: "Keep working" }],
+      queuedAfterCommand: true,
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 1,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "detach", args: ["nightbox"] }, context).pipe(
+        Effect.provide(Layer.succeed(TerminalServiceTag, terminal)),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result.shouldContinue).toBe(true);
+    expect(warnings).toEqual([
+      "Messages are queued after /detach. Clear or send them before moving this conversation.",
+    ]);
   });
 });
 
@@ -268,78 +379,116 @@ describe("handleSpecialCommand /reasoning", () => {
     sessionStartedAt: new Date(),
   };
 
-  test("sets reasoning effort for this session without persisting it", async () => {
-    const success = mock(() => Effect.void);
-    const mockTerminal: Partial<TerminalService> = {
+  const lowToHigh = {
+    kind: "effort",
+    transport: "openai-compatible.chat.reasoning-effort",
+    efforts: ["low", "medium", "high"],
+    canDisableReasoning: true,
+  } as const;
+
+  function reasoningTerminal(overrides: Partial<TerminalService> = {}) {
+    return {
       isInteractive: false,
       select: mock(() => Effect.succeed(undefined)) as TerminalService["select"],
-      success,
-      log: mock(() => Effect.succeed(undefined)),
-      error: mock(() => Effect.void),
-      info: mock(() => Effect.void),
-    };
-    const terminalLayer = Layer.succeed(
-      TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
-    );
-
-    const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "reasoning", args: ["high"] }, baseContext).pipe(
-        Effect.provide(terminalLayer),
-      ) as Effect.Effect<CommandResult, unknown, never>,
-    );
-
-    expect(result.newAgent?.config.reasoning).toBe("high");
-    // The change is session-scoped: the original agent object is untouched.
-    expect(baseContext.agent.config.reasoning).toBe("disable");
-    expect(success).toHaveBeenCalled();
-  });
-
-  test("rejects an invalid level and leaves the agent unchanged", async () => {
-    const error = mock(() => Effect.void);
-    const mockTerminal: Partial<TerminalService> = {
-      isInteractive: false,
-      select: mock(() => Effect.succeed(undefined)) as TerminalService["select"],
-      log: mock(() => Effect.succeed(undefined)),
-      error,
-      info: mock(() => Effect.void),
-    };
-    const terminalLayer = Layer.succeed(
-      TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
-    );
-
-    const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "reasoning", args: ["bogus"] }, baseContext).pipe(
-        Effect.provide(terminalLayer),
-      ) as Effect.Effect<CommandResult, unknown, never>,
-    );
-
-    expect(result.newAgent).toBeUndefined();
-    expect(error).toHaveBeenCalled();
-  });
-
-  test("opens the picker in interactive mode and applies the chosen level", async () => {
-    const mockTerminal: Partial<TerminalService> = {
-      isInteractive: true,
-      select: mock(() => Effect.succeed("medium")) as unknown as TerminalService["select"],
       success: mock(() => Effect.void),
       log: mock(() => Effect.succeed(undefined)),
       error: mock(() => Effect.void),
       info: mock(() => Effect.void),
-    };
-    const terminalLayer = Layer.succeed(
-      TerminalServiceTag,
-      mockTerminal as unknown as TerminalService,
-    );
+      warn: mock(() => Effect.void),
+      ...overrides,
+    } satisfies Partial<TerminalService>;
+  }
 
-    const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "reasoning", args: [] }, baseContext).pipe(
-        Effect.provide(terminalLayer),
+  function runReasoning(
+    args: string[],
+    terminal: Partial<TerminalService>,
+    control: Parameters<typeof reasoningChoicesFor>[0] = { kind: "unknown" },
+  ): Promise<CommandResult> {
+    const llmService: Partial<LLMService> = {
+      resolveReasoningControl: () => Effect.succeed(control ?? { kind: "unknown" }),
+    };
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, terminal as unknown as TerminalService),
+      Layer.succeed(LLMServiceTag, llmService as unknown as LLMService),
+    );
+    return Effect.runPromise(
+      handleSpecialCommand({ type: "reasoning", args }, baseContext).pipe(
+        Effect.provide(layers),
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
+  }
+
+  test("sets reasoning effort for this session without persisting it", async () => {
+    const terminal = reasoningTerminal();
+
+    const result = await runReasoning(["high"], terminal);
+
+    expect(result.newAgent?.config.reasoning).toBe("high");
+    // The change is session-scoped: the original agent object is untouched.
+    expect(baseContext.agent.config.reasoning).toBe("disable");
+    expect(terminal.success).toHaveBeenCalled();
+  });
+
+  test("rejects an invalid level and leaves the agent unchanged", async () => {
+    const terminal = reasoningTerminal();
+
+    const result = await runReasoning(["bogus"], terminal);
+
+    expect(result.newAgent).toBeUndefined();
+    expect(terminal.error).toHaveBeenCalled();
+  });
+
+  test("opens the picker in interactive mode and applies the chosen level", async () => {
+    const terminal = reasoningTerminal({
+      isInteractive: true,
+      select: mock(() => Effect.succeed("medium")) as unknown as TerminalService["select"],
+    });
+
+    const result = await runReasoning([], terminal);
 
     expect(result.newAgent?.config.reasoning).toBe("medium");
+  });
+
+  test("offers only the levels the model accepts", async () => {
+    const select = mock(() => Effect.succeed("high"));
+    const terminal = reasoningTerminal({
+      isInteractive: true,
+      select: select as unknown as TerminalService["select"],
+    });
+
+    await runReasoning([], terminal, lowToHigh);
+
+    const [, options] = select.mock.calls[0] as unknown as [
+      string,
+      { choices: { value: string }[] },
+    ];
+    expect(options.choices.map((choice) => choice.value)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "disable",
+    ]);
+  });
+
+  test("applies and announces the level the model runs a typed unsupported level at", async () => {
+    const terminal = reasoningTerminal();
+
+    const result = await runReasoning(["max"], terminal, lowToHigh);
+
+    expect(result.newAgent?.config.reasoning).toBe("high");
+    expect(terminal.warn).toHaveBeenCalledWith(
+      expect.stringContaining("does not support max; it runs at high"),
+    );
+  });
+
+  test("skips the picker for a model that does not reason", async () => {
+    const terminal = reasoningTerminal({ isInteractive: true });
+
+    const result = await runReasoning([], terminal, { kind: "unsupported" });
+
+    expect(result.newAgent).toBeUndefined();
+    expect(terminal.select).not.toHaveBeenCalled();
+    expect(terminal.info).toHaveBeenCalledWith(expect.stringContaining("does not reason"));
   });
 });
 
@@ -494,6 +643,51 @@ describe("handleSpecialCommand /compact", () => {
       spy.mockRestore();
     }
   });
+
+  test("accounts against the currently served vLLM model's window during manual compaction", async () => {
+    const vllmAgent: Agent = {
+      ...testAgent,
+      config: { ...testAgent.config, llmProvider: "vllm", llmModel: "org/selected" },
+    };
+    let receivedContextWindow: number | undefined;
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (_messages, _agent, _conversationId, contextWindowTokens) => {
+        receivedContextWindow = contextWindowTokens;
+        return Effect.succeed(undefined) as unknown as ReturnType<
+          typeof AgentRunner.compactHistory
+        >;
+      },
+    );
+    const mockLLMService: Partial<LLMService> = {
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: () => Effect.succeed({ modelId: "org/live", contextWindow: 32768 }),
+    };
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, {
+        info: () => Effect.void,
+        success: () => Effect.void,
+        warn: () => Effect.void,
+        error: () => Effect.void,
+        log: () => Effect.succeed(undefined),
+      } as unknown as TerminalService),
+      Layer.succeed(LLMServiceTag, mockLLMService as LLMService),
+      Layer.succeed(AgentConfigServiceTag, {
+        appConfig: Effect.succeed({}),
+      } as unknown as AgentConfigService),
+      mockPresentationLayer(),
+    );
+
+    try {
+      await Effect.runPromise(
+        handleSpecialCommand({ type: "compact", args: [] }, { ...context, agent: vllmAgent }).pipe(
+          Effect.provide(layers),
+        ) as Effect.Effect<CommandResult, unknown, never>,
+      );
+      expect(receivedContextWindow).toBe(32768);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
 describe("handleSpecialCommand /tools", () => {
@@ -534,6 +728,7 @@ describe("handleSpecialCommand /tools", () => {
     };
     const mockLLMService: Partial<LLMService> = {
       supportsNativeWebSearch: () => Effect.succeed(false),
+      resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
     };
 
     const layers = Layer.mergeAll(
@@ -748,6 +943,8 @@ describe("handleSpecialCommand /runPluginCommand", () => {
         openSession: () => Effect.die("unused"),
         listAgentTools: () => Effect.succeed([]),
         runAgentTool: () => Effect.succeed({ content: "" }),
+        prepareAgentTool: () => Effect.succeed({ message: "Review plugin call", prepared: null }),
+        executePreparedAgentTool: () => Effect.succeed({ content: "done" }),
         listAgentCommands: () => Effect.succeed([]),
         runAgentCommand,
         listAllPersonas: () => Effect.succeed([]),
@@ -790,5 +987,37 @@ describe("handleSpecialCommand /runPluginCommand", () => {
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
     expect(result).toEqual({ shouldContinue: true });
+  });
+});
+
+describe("handleSpecialCommand /mode", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+    autoApprovePolicy: true,
+  };
+  const quietTerminal = Layer.succeed(TerminalServiceTag, {
+    isInteractive: false,
+    success: () => Effect.void,
+    log: () => Effect.void,
+  } as unknown as TerminalService);
+  const run = (args: string[]) =>
+    Effect.runPromise(
+      handleSpecialCommand({ type: "mode", args }, context).pipe(
+        Effect.provide(quietTerminal),
+      ) as Effect.Effect<CommandResult, Error, never>,
+    );
+
+  test("/mode safe returns to the low-risk tier, not to no policy", async () => {
+    expect((await run(["safe"])).newAutoApprovePolicy).toBe("low-risk");
+  });
+
+  test("/mode yolo approves everything", async () => {
+    expect((await run(["yolo"])).newAutoApprovePolicy).toBe(true);
   });
 });

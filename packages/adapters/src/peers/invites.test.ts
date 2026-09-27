@@ -170,7 +170,7 @@ describe("listInvites", () => {
   });
 });
 
-/** A minimal fake config service, upsert-testable the same way `peer-tools.test.ts` fakes one. */
+/** A minimal fake config service, upsert-testable the same way `peer.test.ts` fakes one. */
 function fakeConfigLayer(initialPeers: readonly PeerConfig[] = []) {
   let peers = initialPeers;
   let revision = 0;

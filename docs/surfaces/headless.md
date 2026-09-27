@@ -28,7 +28,7 @@ flowchart LR
 
     RUN -->|stdout| OUT["<b>Exactly one line</b><br/>the answer, or one JSON object"]
     RUN -->|stderr| ERR["Status notices<br/>tool chatter<br/>the ◉ Agent header<br/>the ✔ completed footer<br/>NDJSON progress events"]
-    RUN -->|exit code| CODE["0 = ok<br/>1 = failure"]
+    RUN -->|exit code| CODE["0 = ok<br/>1 = failure<br/>2 = parked<br/>130/143 = signal"]
 
     OUT --> PARSE["Your code:<br/>JSON.parse(stdout)"]
     ERR --> LOG["Your code:<br/>log it, or render<br/>a live progress bubble"]
@@ -80,11 +80,55 @@ _and_ on failure.
 
 ```jsonc
 // failure
-{ "ok": false, "error": "Run exceeded the 300000ms timeout.", "costUSD": 0.0041 }
+{ "ok": false, "error": "Run exceeded the 300000ms timeout.", "code": "failed", "costUSD": 0.0041 }
 ```
 
 Note that the failure envelope still reports `costUSD`: a run that timed out still
 spent money, and an unattended deployment needs to account for it.
+
+`code` says why a run failed, so a script can branch without parsing `error`:
+
+| `code`             | Meaning                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `failed`           | The run errored: provider, tool, configuration, or timeout                                                          |
+| `empty_response`   | The model returned an empty completion with zero tokens: usually a misconfigured or overloaded provider             |
+| `no_answer`        | The model stopped for a reason other than `stop` (for example `length`) before writing anything; see `finishReason` |
+| `content_filtered` | The provider's content filter withheld the answer                                                                   |
+| `interrupted`      | SIGINT or SIGTERM stopped the run; `signal` names which                                                             |
+
+A run that finishes without a usable answer is a failure, never `ok:true` with an empty
+`answer`.
+
+### What else the envelope tells you
+
+These fields appear on the success envelope only when they apply:
+
+| Field                                         | Meaning                                                                                                                                                                          |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `finishReason`                                | Why the model stopped writing the answer: `stop`, `length`, `tool-calls`, `other`, or `unknown`                                                                                  |
+| `truncated`                                   | `true` when the answer was cut off at the model's output limit (`finishReason: "length"`). The answer is still returned, and stderr carries a warning                            |
+| `iterationLimited`                            | `true` when the run used every allowed iteration (`--max-iterations`) without a final answer                                                                                     |
+| `toolsDisabled`                               | `true` when the agent has tools but none were sent, because Jazz does not know the model supports tool calling. The agent could only talk. stderr carries a warning with the fix |
+| `costCapped`, `tokenCapped`, `durationCapped` | `true` when a run budget stopped the run early                                                                                                                                   |
+
+Jazz assumes a cloud model supports tools when neither its catalog nor your config says
+otherwise, so a newly released model keeps its tools. A local server's model gets tools once
+the server reports them. When Jazz cannot tell, override it with
+`jazz config set 'llm.capabilityOverrides.<provider>."<model>".supportsTools' true`.
+
+### Exit codes
+
+| Code  | Meaning                                                                         |
+| ----- | ------------------------------------------------------------------------------- |
+| `0`   | An answer was produced                                                          |
+| `1`   | The run failed, or finished without a usable answer (see `code`)                |
+| `2`   | The run is parked on an approval (`--park`); resume it with `jazz runs approve` |
+| `130` | SIGINT (Ctrl+C) stopped the run                                                 |
+| `143` | SIGTERM stopped the run                                                         |
+
+On SIGINT or SIGTERM, `--json` stdout still carries exactly one envelope:
+`{"ok":false,"error":"interrupted","code":"interrupted","signal":"SIGTERM",...}`. The shutdown
+notice goes to stderr. A second signal exits at once with the same code and envelope.
 
 Successful envelopes also include `costKnown`. When pricing metadata is unavailable,
 `costUSD` remains `0` for compatibility and `costKnown` is `false`; consumers must not
@@ -101,31 +145,48 @@ interpret that fallback as a free run.
 | `--conversation <id>`      | Stable conversation key. Loads prior history before the run, saves the updated transcript after. Omit for a stateless one-shot.                                                                                                |
 | `--approval-policy <p>`    | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued.                                                                                                                                   |
 | `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                                                                                            |
-| `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                                                                                                           |
+| `--reasoning <effort>`     | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`. Overrides the agent's config for this run; a level the model does not accept runs at the nearest one it does, with a warning on stderr.             |
 | `--with-vision <p/m>`      | Bind the `analyze:image` companion for this run, e.g. `openrouter/inclusionai/ling-3.0-flash-vl`. Overrides the agent's config. Without a bound companion (flag or config), `analyze_media` fails loudly rather than guessing. |
 | `--with-audio <p/m>`       | Same, for the `analyze:audio` companion.                                                                                                                                                                                       |
 | `--with-video <p/m>`       | Same, for the `analyze:video` companion.                                                                                                                                                                                       |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                                                                                                    |
 | `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                                                                                            |
+| `--input-stdin`            | Read the prompt (and, with `--ephemeral`, prior `history`) from the first stdin line as JSON. See [below](#prompt-input-argument-stdin-or-an-input-frame).                                                                     |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--events reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path.                                                |
 
 ---
 
-## Prompt input: argument or stdin
+## Prompt input: argument, stdin, or an input frame
 
-The prompt comes from the positional argument, or: when that's absent and stdin isn't a
-TTY: from piped stdin.
+The prompt comes from the positional argument, from an `--input-stdin` frame, or: when
+neither is given and stdin isn't a TTY: from piped stdin.
 
 ```bash
 jazz run --agent dev "review this diff"          # argument
 git diff | jazz run --agent dev                  # stdin
 echo "$UNTRUSTED_WEBHOOK_TEXT" | jazz run --agent bot   # stdin, preferred
+echo '{"prompt":"- buy milk"}' | jazz run --agent bot --input-stdin   # frame
 ```
 
 **Use stdin for anything a stranger typed.** Webhook text is untrusted; piping it avoids
 shell-escaping it into an argv, which is a whole class of injection bug you don't have to
 think about. (It does not make the _content_ trusted: see
 [Security](../../SECURITY.md).)
+
+**Keep relayed messages off the command line.** Every account on a host can read another
+process's arguments through `ps` and `/proc/<pid>/cmdline`, and Linux caps a single argument at
+128 KiB. A bridge that relays a person's message, and for an incognito chat that person's whole
+transcript, sends them in the `--input-stdin` frame: one JSON line, then the rest of stdin is
+free for `--interactive-stdin` answers.
+
+```json
+{ "prompt": "what did I say about the dentist?", "history": [] }
+```
+
+`history` is read only with `--ephemeral`: pass back the `messages` array of the previous
+`--ephemeral --json` envelope to keep multi-turn context without anything on disk. A framed
+prompt is the caller's own message, so like a positional prompt it may back a memory write; a
+body piped without the frame never can.
 
 ---
 
@@ -256,22 +317,22 @@ Unattended runs have nobody to ask, so `--approval-policy` decides in advance. T
 above the tier are **declined**: the agent gets a refusal it can reason about and route
 around, rather than hanging forever on a prompt nobody will answer.
 
-| Policy      | Auto-approves                                                     |
-| ----------- | ----------------------------------------------------------------- |
-| _(omitted)_ | Nothing. Every gated tool is declined.                            |
-| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`    |
-| `low-risk`  | + work-state/todo writes, subagents, low-risk classified commands |
-| `high-risk` | + file writes, shell commands, git commit and push                |
+| Policy      | Auto-approves                                                      |
+| ----------- | ------------------------------------------------------------------ |
+| _(omitted)_ | Nothing. Every gated tool is declined.                             |
+| `read-only` | Reading files, search, web requests, `git status`/`log`/`diff`     |
+| `low-risk`  | + memory writes, reminders, triggers, low-risk classified commands |
+| `high-risk` | + file writes, shell commands, git commit and push                 |
 
-Omitting the policy really does grant nothing here. The interactive default auto-approves
-read-only and low-risk tools, but that is a statement about prompts it is not worth showing
-a person: with nobody to show, an absent policy falls back to declining everything. Shell
+Omitting the policy grants nothing, here and in the interactive terminal alike: with nobody to
+ask, every gated call is declined. To run everything unasked, pass `--approval-policy high-risk`
+explicitly (see [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo)). Shell
 commands under `read-only` and `low-risk` are admitted per command by the
 [classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
 `git log` through without also unlocking `git push`.
 
-> ⚠️ **`low-risk` is narrower than it sounds.** It includes durable work-state, memory,
-> reminders, triggers, and subagents, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
+> ⚠️ **`low-risk` is narrower than it sounds.** It includes memory, reminders and
+> triggers, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See the [tool inventory](../tools/index.md#what-is-not-a-built-in-tool).

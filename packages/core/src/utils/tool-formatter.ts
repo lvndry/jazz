@@ -3,6 +3,7 @@
  * LLM-context formatting has separate rules in tool-result-formatter.ts.
  */
 import chalk from "chalk";
+import { isRecord } from "@/core/utils/is-record";
 import { safeString } from "./string";
 
 const MAX_RESULT_DISPLAY_LINES = 12;
@@ -53,8 +54,8 @@ function extractFileMutationContent(toolName: string, args: Record<string, unkno
   if (!Array.isArray(edits)) return "";
   const parts: string[] = [];
   for (const edit of edits) {
-    if (typeof edit !== "object" || edit === null || Array.isArray(edit)) continue;
-    const record = edit as Record<string, unknown>;
+    if (!isRecord(edit)) continue;
+    const record = edit;
     const content = safeString(record["content"]);
     if (content.length > 0) {
       parts.push(content);
@@ -87,8 +88,8 @@ function truncateFileMutationDisplay(text: string): string {
 export function expandableFileMutationPayload(result: string): string | null {
   try {
     const parsed: unknown = JSON.parse(result);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
-    const record = parsed as Record<string, unknown>;
+    if (!isRecord(parsed)) return null;
+    const record = parsed;
     const fullDiff = record["fullDiff"];
     const diff = record["diff"];
     const wasTruncated = record["wasTruncated"] === true;
@@ -119,8 +120,8 @@ type FormatStyle = "plain" | "colored";
  * read as the request actually sent (`…/html/?q=…`), not the bare base URL.
  */
 function appendQueryParams(url: string, query: unknown): string {
-  if (typeof query !== "object" || query === null || Array.isArray(query)) return url;
-  const entries = Object.entries(query as Record<string, unknown>).filter(
+  if (!isRecord(query)) return url;
+  const entries = Object.entries(query).filter(
     ([, value]) => value !== undefined && value !== null,
   );
   if (entries.length === 0) return url;
@@ -422,10 +423,7 @@ export function formatToolArguments(
       const todos = toolArgs["todos"];
       if (!Array.isArray(todos)) return "";
       const ordered = todos
-        .filter(
-          (todo): todo is Record<string, unknown> =>
-            typeof todo === "object" && todo !== null && !Array.isArray(todo),
-        )
+        .filter((todo): todo is Record<string, unknown> => isRecord(todo))
         .sort((a, b) => {
           const ai = a["status"] === "in_progress" ? 0 : 1;
           const bi = b["status"] === "in_progress" ? 0 : 1;
@@ -576,8 +574,8 @@ export function formatToolResult(toolName: string, result: string): string {
     }
 
     const lines = todos.flatMap((todo) => {
-      if (typeof todo !== "object" || todo === null || Array.isArray(todo)) return [];
-      const item = todo as Record<string, unknown>;
+      if (!isRecord(todo)) return [];
+      const item = todo;
       const content = safeString(item["content"]);
       if (!content) return [];
 

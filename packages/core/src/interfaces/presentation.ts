@@ -92,10 +92,12 @@ export interface PresentationService {
    */
   readonly presentWarning: (agentName: string, message: string) => Effect.Effect<void, never>;
 
-  /**
-   * Present an agent response to the user
-   */
-  readonly presentAgentResponse: (agentName: string, content: string) => Effect.Effect<void, never>;
+  /** Present an agent response, optionally inside its delegated run's detail log. */
+  readonly presentAgentResponse: (
+    agentName: string,
+    content: string,
+    options?: { readonly ephemeralRegionId: string },
+  ) => Effect.Effect<void, never>;
 
   /**
    * Render markdown content to formatted text
@@ -164,6 +166,9 @@ export interface PresentationService {
    */
   readonly emitsToolEventsViaRenderer?: () => boolean;
 
+  /** Whether batch-mode delegated runs have a detail log for responses and tool events. */
+  readonly capturesEphemeralRunDetails?: () => boolean;
+
   /**
    * Write output directly (for non-streaming mode).
    *
@@ -179,6 +184,15 @@ export interface PresentationService {
   readonly writeBlankLine: () => Effect.Effect<void, never>;
 
   /**
+   * Write a failure report, such as a command's error with its suggestions.
+   *
+   * Implementations without an interactive UI write it to stderr, so a
+   * pipeline's stdout carries only data. Quiet presentation writes it too:
+   * quiet suppresses progress, never the reason a command failed.
+   */
+  readonly writeError: (message: string) => Effect.Effect<void, never>;
+
+  /**
    * Present a status message to the user.
    *
    * Used for operational status updates like service connections, setup progress, etc.
@@ -186,7 +200,7 @@ export interface PresentationService {
    *
    * Implementations:
    * - Ink (interactive): renders with colors/icons via the Ink store
-   * - CLI (non-TTY): writes plain text with prefix to stdout
+   * - CLI (non-TTY): writes plain text with prefix; warnings and errors to stderr, the rest to stdout
    * - Quiet (background): no-op (silent)
    *
    * @param message - The status message to display
@@ -210,6 +224,7 @@ export interface PresentationService {
   readonly openEphemeralRegion: (
     kind: EphemeralRegionKind,
     label: string,
+    options?: EphemeralRegionOptions,
   ) => Effect.Effect<string, never>;
 
   /**
@@ -226,6 +241,16 @@ export interface PresentationService {
     label: string,
     outcome: EphemeralRegionCollapse,
   ) => Effect.Effect<void, never>;
+
+  /**
+   * Take the messages the user addressed to a sub-agent's region since the last call,
+   * joined into one string, or `undefined` when none are waiting. Polled by the
+   * sub-agent's loop between tool batches, the way the top-level run drains its queue.
+   * Absent on surfaces with no way to address a sub-agent.
+   */
+  readonly takeEphemeralRegionMessage?: (
+    regionId: string,
+  ) => Effect.Effect<string | undefined, never>;
 
   /**
    * Request user approval for a tool action.
@@ -318,6 +343,19 @@ export type StreamTarget =
  * the TUI can pick label styling and panel size.
  */
 export type EphemeralRegionKind = "reasoning" | "subagent";
+
+export interface EphemeralRegionOptions {
+  /**
+   * Set when the region tracks a delegated agent run rather than an internal step like
+   * compaction. Surfaces that can list and open delegated runs show only these.
+   */
+  readonly agentRun?: {
+    /** The full brief the run was given, which the region's label only names. */
+    readonly task: string;
+    /** True when the run polls `takeEphemeralRegionMessage`, so a message can reach it. */
+    readonly acceptsMessages: boolean;
+  };
+}
 
 /**
  * How a live region ended. Ink formats the collapse line; core only reports

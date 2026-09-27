@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeStatSize } from "./utils";
@@ -14,12 +15,7 @@ import { normalizeStatSize } from "./utils";
 export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          "File or directory to inspect. Absolute or relative to the session working directory.",
-        ),
+      path: z.string().min(1).describe("Path to inspect."),
     })
     .strict();
 
@@ -29,7 +25,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "stat",
     disclosure: "internal",
     description:
-      "Check whether a path exists and return its type, size in bytes, and modification times. A missing path is a successful result with exists set to false — not an error. Prefer this over ls -la or test -f via execute_command.",
+      "Check whether a path exists and get its type, size in bytes and times. A missing path returns exists: false.",
     tags: ["filesystem", "info"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -78,7 +74,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return {
             success: false,
             result: null,
-            error: `stat failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `stat failed: ${toError(error).message}`,
           };
         }
       }),

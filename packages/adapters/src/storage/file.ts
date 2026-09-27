@@ -12,27 +12,31 @@ import {
   StorageNotFoundError,
 } from "@jazz/core/types/errors";
 import type { Agent, AgentConfig } from "@jazz/core/types/index";
+import { toError } from "@jazz/core/utils/errors";
 import { parseJson } from "@jazz/core/utils/json";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 
-/** On-disk agent JSON may omit timestamps (e.g. repo templates); defaults apply at read time. */
-function resolveAgentFileTimestamps(raw: {
-  readonly createdAt?: unknown;
-  readonly updatedAt?: unknown;
-}): { readonly createdAt: Date; readonly updatedAt: Date } {
-  const now = new Date();
-  const createdFrom = typeof raw.createdAt === "string" ? new Date(raw.createdAt) : now;
-  const createdAt = Number.isNaN(createdFrom.getTime()) ? now : createdFrom;
-
-  if (typeof raw.updatedAt === "string") {
-    const updatedFrom = new Date(raw.updatedAt);
-    const updatedAt = Number.isNaN(updatedFrom.getTime()) ? createdAt : updatedFrom;
-    return { createdAt, updatedAt };
-  }
-
-  return { createdAt, updatedAt: createdAt };
+/**
+ * Agent JSON may omit its timestamps: a hand-written or repo-template agent has no reason to
+ * carry them. A missing or invalid one falls back to the file's own times, so an agent keeps
+ * the same dates on every read instead of looking newly created each time it is loaded.
+ */
+function resolveAgentFileTimestamps(
+  raw: { readonly createdAt?: unknown; readonly updatedAt?: unknown },
+  file: { readonly createdAt: Date; readonly updatedAt: Date },
+): { readonly createdAt: Date; readonly updatedAt: Date } {
+  const parse = (value: unknown): Date | undefined => {
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  };
+  const createdAt = parse(raw.createdAt) ?? file.createdAt;
+  return { createdAt, updatedAt: parse(raw.updatedAt) ?? file.updatedAt };
 }
 
 export class FileStorageService implements StorageService {
@@ -75,8 +79,7 @@ export class FileStorageService implements StorageService {
       });
     }
 
-    const reason =
-      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
+    const reason = toError(error).message;
 
     return new StorageError({
       operation: "read",
@@ -96,7 +99,7 @@ export class FileStorageService implements StorageService {
   private ensureDirectoryExists(path: string): Effect.Effect<void, StorageError> {
     return Effect.gen(
       function* (this: FileStorageService) {
-        yield* this.fs.makeDirectory(path, { recursive: true }).pipe(
+        yield* this.fs.makeDirectory(path, { recursive: true, mode: stateDirectoryMode() }).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({
@@ -174,7 +177,19 @@ export class FileStorageService implements StorageService {
         const configWithNormalizedTools: AgentConfig =
           normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
-        const { createdAt, updatedAt } = resolveAgentFileTimestamps(rawData);
+        const info = yield* this.fs.stat(path).pipe(Effect.option);
+        const modified = Option.flatMap(info, (stat) => stat.mtime);
+        const fileTimes = {
+          createdAt: Option.getOrElse(
+            Option.orElse(
+              Option.flatMap(info, (stat) => stat.birthtime),
+              () => modified,
+            ),
+            () => new Date(),
+          ),
+          updatedAt: Option.getOrElse(modified, () => new Date()),
+        };
+        const { createdAt, updatedAt } = resolveAgentFileTimestamps(rawData, fileTimes);
 
         const agent: Agent = {
           ...rawData,
@@ -192,7 +207,7 @@ export class FileStorageService implements StorageService {
     return Effect.gen(
       function* (this: FileStorageService) {
         const content = JSON.stringify(data, null, 2);
-        yield* writeFileStringAtomic(this.fs, path, content, { tempPrefix: "agent" }).pipe(
+        yield* writeFileStringAtomic(path, content).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({

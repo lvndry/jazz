@@ -10,10 +10,10 @@
  * 32% ink and was rejected as "very busy".
  */
 
-import { RGBA } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
+import { RGBA, TextAttributes } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { App, reuseViewport } from "./App";
@@ -40,7 +40,7 @@ async function frameOf(
   width = WIDTH,
   height = HEIGHT,
 ): Promise<Frame> {
-  const { renderer, renderOnce, captureCharFrame } = await testRender(
+  const { renderer, renderOnce, captureCharFrame } = await renderForTest(
     <App
       view={view}
       onAction={() => undefined}
@@ -78,7 +78,7 @@ describe("fullscreen frame", () => {
   });
 
   it("paints the specified canvas as the window ground", async () => {
-    const { renderer, renderOnce, captureSpans } = await testRender(
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
       <App
         view={sampleView()}
         onAction={() => undefined}
@@ -237,9 +237,32 @@ async function settle(flush: () => Promise<void>, delayMs: 0 | 100 = 0): Promise
   await flush();
 }
 
+describe("a question card over the conversation", () => {
+  it("keeps the conversation's last line visible above the card", async () => {
+    const view: ViewModel = {
+      ...tallTranscriptView(),
+      overlay: {
+        kind: "question",
+        mode: "select",
+        message: "Start this goal?",
+        choices: [
+          { label: "Yes", value: "yes" },
+          { label: "No", value: "no" },
+        ],
+        selected: 0,
+      },
+    };
+    const frame = await frameOf(view);
+    const lastLine = frame.rows.findIndex((row) => row.includes("line-39"));
+    const cardTop = frame.rows.findIndex((row) => row.includes("Start this goal?"));
+    expect(lastLine).toBeGreaterThan(-1);
+    expect(lastLine).toBeLessThan(cardTop);
+  });
+});
+
 describe("transcript wheel and type-to-input", () => {
   it("scrolls older conversation lines into view with the mouse wheel", async () => {
-    const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await renderForTest(
       <App
         view={tallTranscriptView()}
         onAction={() => undefined}
@@ -289,7 +312,7 @@ describe("transcript wheel and type-to-input", () => {
 
   it("returns to the live edge when a message is submitted", async () => {
     const { renderer, renderOnce, flush, mockMouse, mockInput, captureCharFrame } =
-      await testRender(<SubmittingApp />, { width: 80, height: 16 });
+      await renderForTest(<SubmittingApp />, { width: 80, height: 16 });
     await renderOnce();
     for (let step = 0; step < 40; step++) {
       await mockMouse.scroll(20, 6, "up");
@@ -305,6 +328,72 @@ describe("transcript wheel and type-to-input", () => {
     const afterSubmit = captureCharFrame();
     renderer.destroy();
     expect(afterSubmit).toContain("line-39");
+  });
+
+  function withExtraLines(count: number): ViewModel {
+    const base = tallTranscriptView();
+    const extra: Block[] = Array.from({ length: count }, (_, index) => ({
+      id: `extra${String(index)}`,
+      seq: base.blocks.length + index + 1,
+      kind: "notice",
+      text: `extra-${String(index).padStart(2, "0")} unique-marker`,
+      tone: "info",
+    }));
+    return { ...base, blocks: [...base.blocks, ...extra] };
+  }
+
+  const growTranscript: { current: (count: number) => void } = { current: () => undefined };
+
+  function GrowingApp(): React.ReactNode {
+    const [extraLines, setExtraLines] = useState(0);
+    growTranscript.current = setExtraLines;
+    return (
+      <App
+        view={withExtraLines(extraLines)}
+        onAction={() => undefined}
+      />
+    );
+  }
+
+  it("keeps following new output after the reader wheels back to the bottom", async () => {
+    const { renderer, flush, mockMouse, captureCharFrame } = await renderForTest(<GrowingApp />, {
+      width: 80,
+      height: 16,
+    });
+    await settle(flush);
+    for (let step = 0; step < 3; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
+    }
+    for (let step = 0; step < 10; step++) {
+      await mockMouse.scroll(20, 6, "down");
+      await settle(flush);
+    }
+    growTranscript.current(5);
+    await settle(flush, 100);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    expect(frame).toContain("extra-04");
+  });
+
+  it("holds the reader's place while output streams in above the live edge", async () => {
+    const { renderer, flush, mockMouse, captureCharFrame } = await renderForTest(<GrowingApp />, {
+      width: 80,
+      height: 16,
+    });
+    await settle(flush);
+    for (let step = 0; step < 40; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
+    }
+    const before = captureCharFrame();
+    expect(before).toContain("line-00");
+    growTranscript.current(5);
+    await settle(flush, 100);
+    const after = captureCharFrame();
+    renderer.destroy();
+    expect(after).toContain("line-00");
+    expect(after).not.toContain("extra-04");
   });
 
   function TypeableApp(): React.ReactNode {
@@ -335,7 +424,7 @@ describe("transcript wheel and type-to-input", () => {
   }
 
   it("jumps to the composer and shows the typed character", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <TypeableApp />,
       { width: 80, height: 16 },
     );
@@ -353,7 +442,7 @@ describe("transcript wheel and type-to-input", () => {
   });
 
   it("pastes into the composer while the transcript has focus", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <TypeableApp />,
       { width: 80, height: 16 },
     );
@@ -401,7 +490,7 @@ describe("Ctrl+C", () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
         <App
           view={{
             ...sampleIdleView(),
@@ -430,7 +519,7 @@ describe("Ctrl+C", () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput } = await testRender(
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(
         <App
           view={sampleIdleView()}
           onAction={(action) => {
@@ -458,7 +547,7 @@ describe("Ctrl+C", () => {
     for (const key of chords) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
         <App
           view={{
             ...sampleIdleView(),
@@ -495,7 +584,7 @@ describe("Ctrl+C", () => {
     for (const key of chords) {
       const actions: Array<{ type: string }> = [];
       const sigint = stubSigint();
-      const { renderer, renderOnce, flush, mockInput } = await testRender(
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(
         <App
           view={sampleIdleView()}
           onAction={(action) => {
@@ -565,7 +654,7 @@ describe("stable viewport identity", () => {
 
 describe("composer after a completed turn", () => {
   it("stays on screen and shows the next typed character", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <CompletedTurnApp />,
       { width: 80, height: 16 },
     );
@@ -581,5 +670,64 @@ describe("composer after a completed turn", () => {
     expect(typed).toContain(getGlyphs().promptCursor);
     expect(typed).toContain("x");
     expect(typed).toContain("enter to send");
+  });
+});
+
+describe("transcript links under the pointer", () => {
+  it("underlines every row of a wrapped link and shows a pointer while hovered, and clears both when the pointer leaves", async () => {
+    const label = Array.from({ length: 14 }, (_, index) => `word${String(index)}`).join(" ");
+    const view: ViewModel = {
+      ...sampleIdleView(),
+      blocks: [
+        {
+          id: "a",
+          seq: 1,
+          kind: "agent",
+          markdown: `see [${label}](https://example.com/guide) now`,
+        },
+      ],
+    };
+    const { renderer, renderOnce, flush, mockMouse, captureCharFrame, captureSpans } =
+      await renderForTest(
+        <App
+          view={view}
+          onAction={() => undefined}
+        />,
+        { width: 60, height: 16 },
+      );
+    const pointerShapes: string[] = [];
+    const setMousePointer = renderer.setMousePointer.bind(renderer);
+    renderer.setMousePointer = (style) => {
+      pointerShapes.push(style);
+      setMousePointer(style);
+    };
+    await renderOnce();
+    const underlined = (): string[] =>
+      captureSpans()
+        .lines.flatMap((line) => line.spans)
+        .filter((span) => (span.attributes & TextAttributes.UNDERLINE) !== 0)
+        .map((span) => span.text.trim())
+        .filter((text) => text.length > 0);
+    const rows = captureCharFrame().split("\n");
+    const firstRow = rows.findIndex((row) => row.includes("word0"));
+    const pointAt = async (x: number, y: number): Promise<void> => {
+      await mockMouse.moveTo(x, y);
+      await settle(flush, 100);
+      await renderOnce();
+    };
+
+    expect(underlined()).toEqual([]);
+
+    await pointAt(rows[firstRow]!.indexOf("word0") + 1, firstRow);
+    const hovering = underlined();
+    expect(hovering.join(" ")).toContain("word0");
+    expect(hovering.join(" ")).toContain("word13");
+    expect(pointerShapes).toEqual(["pointer"]);
+
+    await pointAt(rows[firstRow]!.indexOf("see"), firstRow);
+    const offLabel = underlined();
+    renderer.destroy();
+    expect(offLabel).toEqual([]);
+    expect(pointerShapes).toEqual(["pointer", "default"]);
   });
 });

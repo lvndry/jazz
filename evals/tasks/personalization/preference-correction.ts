@@ -1,6 +1,7 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { requiredAndForbiddenPatternCheck } from "../../checks";
+import { updateAgentConfig } from "../../files";
 import { runJazzOnce } from "../../run-jazz";
 import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
 
@@ -21,12 +22,7 @@ const PROMPT =
   "Write a project update from context.md. I used to want bullet points for these, but from now on make it one short paragraph with no bullets.";
 
 function seedMemory(jazzHome: string, agentId: string): void {
-  const agentPath = join(jazzHome, "agents", `${agentId}.json`);
-  const agent = JSON.parse(readFileSync(agentPath, "utf-8")) as {
-    config: Record<string, unknown>;
-  };
-  agent.config["memoryScopes"] = ["personal"];
-  writeFileSync(agentPath, `${JSON.stringify(agent, null, 2)}\n`);
+  updateAgentConfig(jazzHome, agentId, { memoryScopes: ["personal"] });
 
   const directory = join(jazzHome, "memory", "personal", "always");
   mkdirSync(directory, { recursive: true });
@@ -55,6 +51,7 @@ export const tasks: EvalTask[] = [
         timeoutMs: context.timeoutMs,
         runId: context.runId,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       });
     },
     check(result) {

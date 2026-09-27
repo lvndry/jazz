@@ -1,9 +1,13 @@
+/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
+import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
+import { secretPathReason } from "@/core/utils/secret-paths";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -11,6 +15,7 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
+import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
 
 /**
@@ -20,21 +25,8 @@ import { buildKeyFromContext } from "../context-utils";
 
 const writeFileParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        "File to write. Absolute or relative to the session working directory. Created if it does not exist.",
-      ),
-    content: z
-      .string()
-      .describe(
-        "The complete file contents. This replaces any existing file. Omitting the end of the file deletes it.",
-      ),
-    createDirs: z
-      .boolean()
-      .optional()
-      .describe("Create missing parent directories. Default false."),
+    path: z.string().min(1).describe("Absolute or relative to the working directory."),
+    content: z.string().describe("The complete file; anything omitted is deleted."),
   })
   .strict();
 
@@ -51,9 +43,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     name: "write_file",
     disclosure: "public",
     description:
-      "Create a new UTF-8 file, or replace an entire existing file. Use this when the file does not exist yet, or when you intend to replace every line. " +
-      "To change part of an existing file, use edit_file. Prefer createDirs: true over a separate mkdir when creating a new file. " +
-      "content is the complete file — omitting the end deletes it. createDirs defaults to false (unlike mkdir, which creates parents by default).",
+      "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),
@@ -65,7 +55,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const options = args.createDirs ? " (will create parent directories)" : "";
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
 
         // Check if file exists and read original content for preview diff
         const fileExists = yield* fs
@@ -88,7 +88,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         // to chat bridges like Telegram. Keep it to what is about to happen. Do not append
         // keyboard hints such as "Press Ctrl+O to preview" — most approvers have no
         // keyboard, and the TUI already renders its own hint from `previewDiff` below.
-        let message = `About to write ${args.content.length} characters to file: ${target}${options}`;
+        let message = `About to write ${args.content.length} characters to file: ${target}`;
 
         if (!isNewFile && originalContent.length > 0) {
           message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
@@ -111,6 +111,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
+        yield* Effect.try({
+          try: () => {
+            assertNotProtectionStateMutation(target);
+            if (secretPathReason(target) !== undefined) {
+              throw new Error(
+                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
+              );
+            }
+          },
+          catch: toError,
+        });
 
         try {
           const parentDir = target.substring(0, target.lastIndexOf("/"));
@@ -120,13 +131,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
               .pipe(Effect.catchAll(() => Effect.succeed(false)));
 
             if (!parentExists) {
-              if (args.createDirs !== true) {
-                return {
-                  success: false,
-                  result: null,
-                  error: `Parent directory does not exist: ${parentDir}. Pass createDirs: true to create it.`,
-                };
-              }
               yield* fs.makeDirectory(parentDir, { recursive: true });
             }
           }
@@ -147,8 +151,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
             }
           }
 
-          // Write the file content
-          yield* fs.writeFileString(target, args.content);
+          // Old content or new, never a truncated file, however the call is stopped.
+          yield* writeFileAtomically(fs, target, args.content);
 
           // Generate diff for terminal output
           const { diff, wasTruncated } = generateDiffWithMetadata(
@@ -184,7 +188,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           return {
             success: false,
             result: null,
-            error: `writeFile failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `writeFile failed: ${toError(error).message}`,
           };
         }
       }),

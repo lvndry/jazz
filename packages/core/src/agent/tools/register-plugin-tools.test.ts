@@ -29,6 +29,8 @@ function fakeRuntime(overrides: Partial<PluginRuntimeService> = {}): PluginRunti
       Effect.succeed<PluginToolResult>({
         content: String(args["text"]).split("").reverse().join(""),
       }),
+    prepareAgentTool: () => Effect.succeed({ message: "Review plugin call", prepared: null }),
+    executePreparedAgentTool: () => Effect.succeed({ content: "done" }),
     listAgentCommands: () => Effect.succeed([]),
     runAgentCommand: () => Effect.succeed({}),
     listAllPersonas: () => Effect.succeed([]),

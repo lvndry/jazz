@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { validatePluginManifest } from "@jazz/core/agent/plugins/validation";
+import { PLUGIN_LIFECYCLE_EVENTS } from "@jazz/core/types/plugin";
 import { describe, expect, test } from "bun:test";
 import { acquirePluginManifest, PluginArtifactInstaller } from "./artifact-installer";
 import { parsePluginManifest } from "./manifest-schema";
@@ -28,11 +30,34 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe("parsePluginManifest", () => {
+  test("accepts every supported lifecycle event at both installation and runtime", () => {
+    const parsed = parsePluginManifest(manifest({ lifecycleHooks: [...PLUGIN_LIFECYCLE_EVENTS] }));
+    expect(validatePluginManifest(parsed).lifecycleHooks).toEqual(PLUGIN_LIFECYCLE_EVENTS);
+  });
+
+  for (const lifecycleHooks of [["not-an-event"], ["run-complete", "run-complete"]]) {
+    test(`rejects invalid lifecycle declarations at both boundaries: ${JSON.stringify(lifecycleHooks)}`, () => {
+      expect(() => parsePluginManifest(manifest({ lifecycleHooks }))).toThrow();
+      const parsed = parsePluginManifest(manifest());
+      expect(() =>
+        validatePluginManifest({ ...parsed, lifecycleHooks: lifecycleHooks as never }),
+      ).toThrow();
+    });
+  }
+
   test("normalizes a complete strict manifest", () => {
     const parsed = parsePluginManifest(manifest());
     expect(parsed.id).toBe("com.jazz.test.router");
     expect(parsed.network.destinations).toEqual(["api.example.com"]);
     expect(parsed.secrets[0]?.name).toBe("API_KEY");
+  });
+
+  test("accepts optional workspace capability and rejects malformed declarations", () => {
+    expect(parsePluginManifest(manifest()).workspace).toBe(false);
+    expect(parsePluginManifest(manifest({ workspace: true })).workspace).toBe(true);
+    expect(() => parsePluginManifest(manifest({ workspace: "true" }))).toThrow(
+      "workspace must be boolean",
+    );
   });
 
   test("accepts lower-camel secret names while keeping environment names uppercase", () => {
@@ -49,6 +74,28 @@ describe("parsePluginManifest", () => {
         }),
       ),
     ).toThrow("env has an invalid format");
+  });
+
+  test("keeps line breaks in skill and persona bodies but rejects other control characters", () => {
+    const body = "# Heading\n\n\tIndented line\r\nLast line";
+    const parsed = parsePluginManifest(
+      manifest({
+        skills: [{ name: "writing", description: "How to write.", content: body }],
+        personas: [{ name: "poet", description: "A poet.", systemPrompt: body }],
+      }),
+    );
+    expect(parsed.skills[0]?.content).toBe(body);
+    expect(parsed.personas[0]?.systemPrompt).toBe(body);
+    expect(() =>
+      parsePluginManifest(
+        manifest({
+          skills: [{ name: "writing", description: "How to write.", content: "bell\u0007" }],
+        }),
+      ),
+    ).toThrow("skills[0].content contains control characters");
+    expect(() => parsePluginManifest(manifest({ name: "Two\nlines" }))).toThrow(
+      "name contains control characters",
+    );
   });
 
   test("rejects unknown fields and malformed digests", () => {

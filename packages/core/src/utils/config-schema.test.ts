@@ -17,15 +17,37 @@ describe("parseConfigFile", () => {
       llm: {
         streamIdleTimeoutMs: 600000,
         ollama: { base_url: "http://h:11434/api", keep_alive: "-1" },
+        vllm: { base_url: "http://h:8000/v1", api_key: "local-key" },
+        sglang: { base_url: "http://h:30000/v1", api_key: "local-key" },
         capabilityOverrides: {
           ollama: {
             "private-reasoner:latest": {
               reasoning: {
                 kind: "toggle",
                 transport: "ollama.chat.think",
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: false,
+            },
+          },
+          vllm: {
+            "Qwen/Qwen3-8B": {
+              reasoning: {
+                kind: "effort",
+                transport: "openai-compatible.chat.reasoning-effort",
+                efforts: ["low", "medium", "high"],
+                canDisableReasoning: true,
+              },
+            },
+          },
+          sglang: {
+            "Qwen/Qwen3-8B": {
+              reasoning: {
+                kind: "effort",
+                transport: "openai-compatible.chat.reasoning-effort",
+                efforts: ["low", "medium", "high"],
+                canDisableReasoning: true,
+              },
             },
           },
         },
@@ -50,6 +72,14 @@ describe("parseConfigFile", () => {
         },
       },
       peers: [{ name: "sam", url: "https://sam.example", disclosure: "public" }],
+      hosts: [
+        {
+          name: "nightbox",
+          sshTarget: "nightbox",
+          workspacePath: "/home/jazz/work",
+          allowFileSecrets: true,
+        },
+      ],
       webhooks: [{ name: "deploy", agentId: "default", promptTemplate: "{{payload}}" }],
       daemon: { token: "file-fallback" },
     };
@@ -82,6 +112,16 @@ describe("parseConfigFile", () => {
       expected: "true or false",
       actual: "false",
     });
+  });
+
+  it("rejects command syntax and traversal in detach host configuration", () => {
+    const parsed = parseConfigFile({
+      hosts: [
+        { name: "nightbox", sshTarget: "nightbox;evil", workspacePath: "/home/jazz/../root" },
+      ],
+    });
+    expect(parsed.issues.length).toBeGreaterThan(0);
+    expect(parsed.config.hosts).toEqual([]);
   });
 
   it("rejects nonpositive exporter queue and metric intervals", () => {
@@ -151,6 +191,52 @@ describe("parseConfigFile", () => {
     expect(issues.map((issue) => issue.removed)).toContain("webhooks[2]");
   });
 
+  it("drops a door whose name reads the same secret variable as an earlier one", () => {
+    // `JAZZ_WEBHOOK_TOKEN_A_B` would otherwise authenticate both of these.
+    const { config, issues } = parseConfigFile({
+      webhooks: [
+        { name: "a.b", agentId: "x", promptTemplate: "p" },
+        { name: "A_b", agentId: "x", promptTemplate: "p" },
+      ],
+      peers: [{ name: "sam" }, { name: "Sam" }, { name: "sam-2" }],
+    });
+
+    expect(config.webhooks?.map((webhook) => webhook.name)).toEqual(["a.b"]);
+    expect(config.peers?.map((peer) => peer.name)).toEqual(["sam", "sam-2"]);
+    expect(issues).toContainEqual({
+      kind: "invalid-value",
+      path: "webhooks[1].name",
+      removed: "webhooks[1]",
+      expected: 'a name distinct from "a.b" once case and punctuation are ignored',
+      actual: "A_b",
+    });
+    expect(issues.map((issue) => issue.removed)).toContain("peers[1]");
+  });
+
+  it("keeps a webhook's signature, delivery header and limits", () => {
+    const webhook = {
+      name: "gh",
+      agentId: "x",
+      promptTemplate: "p",
+      signature: { format: "hmac-sha256" as const, header: "x-signature", prefix: "" },
+      deliveryIdHeader: "x-request-id",
+      budget: { maxTokens: 50_000, maxCostUSD: 0.5, maxDurationMs: 120_000 },
+      maxConcurrentRuns: 2,
+    };
+    const { config, issues } = parseConfigFile({ webhooks: [webhook] });
+
+    expect(issues).toEqual([]);
+    expect(config.webhooks).toEqual([webhook]);
+  });
+
+  it("drops a webhook whose signature format it cannot verify", () => {
+    const { config } = parseConfigFile({
+      webhooks: [{ name: "gh", agentId: "x", promptTemplate: "p", signature: { format: "md5" } }],
+    });
+
+    expect(config.webhooks).toEqual([]);
+  });
+
   it("reports a full server definition under mcpServers, which only holds overrides", () => {
     const { config, issues } = parseConfigFile({
       mcpServers: { github: { enabled: true, command: "npx" } },
@@ -203,7 +289,7 @@ describe("parseConfigFile", () => {
                 minimumBudgetTokens: 1024,
                 maximumBudgetTokens: 8192,
                 efforts: ["low", "high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
               supportsTools: true,
             },
@@ -212,10 +298,10 @@ describe("parseConfigFile", () => {
             "Qwen3-32B": {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 256,
                 maximumBudgetTokens: 32768,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -229,6 +315,79 @@ describe("parseConfigFile", () => {
     );
   });
 
+  it("describes an invalid transport by the control kind the entry declares", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "bogus",
+                efforts: ["high"],
+                canDisableReasoning: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(issues[0]).toMatchObject({
+      path: "llm.capabilityOverrides.vllm.model.reasoning.transport",
+      expected: "openai.responses.reasoning-effort or openai-compatible.chat.reasoning-effort",
+      actual: "bogus",
+    });
+  });
+
+  it("rejects the old canDisable field name", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "openai-compatible.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisable: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining(["llm.capabilityOverrides.vllm.model.reasoning.canDisable"]),
+    );
+  });
+
+  it("rejects the retired vendor-named transports", () => {
+    const { config, issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          vllm: {
+            model: {
+              reasoning: {
+                kind: "effort",
+                transport: "vllm.chat.reasoning-effort",
+                efforts: ["high"],
+                canDisableReasoning: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(config).toEqual({ llm: { capabilityOverrides: { vllm: { model: {} } } } });
+    expect(issues.map((issue) => issue.path)).toContain(
+      "llm.capabilityOverrides.vllm.model.reasoning.transport",
+    );
+  });
+
   it("strips unsafe or unsupported capability override controls", () => {
     const { config, issues } = parseConfigFile({
       llm: {
@@ -239,7 +398,7 @@ describe("parseConfigFile", () => {
                 kind: "effort",
                 transport: "arbitrary.request.body",
                 efforts: ["high"],
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -265,10 +424,10 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
                 maximumBudgetTokens: 1024,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -283,9 +442,9 @@ describe("parseConfigFile", () => {
             qwen: {
               reasoning: {
                 kind: "budget",
-                transport: "llamacpp.chat.thinking-budget",
+                transport: "openai-compatible.chat.template-thinking-budget",
                 minimumBudgetTokens: 4096,
-                canDisable: true,
+                canDisableReasoning: true,
               },
             },
           },
@@ -308,7 +467,8 @@ describe("parseConfigFile", () => {
       kind: "invalid-value",
       path: "context.warnThresholdRatio",
       removed: "context.warnThresholdRatio",
-      expected: "a number greater than 0 and less than 1",
+      // 0.9 is inside warnThresholdRatio's own range, so the rule it broke is named instead.
+      expected: "a number below compactThresholdRatio",
       actual: 0.9,
     });
     expect(parseConfigFile({ context: { compactThresholdRatio: 0.95 } }).issues[0]).toMatchObject({
@@ -331,6 +491,23 @@ describe("parseConfigFile", () => {
     parseConfigFile(contents);
 
     expect(contents).toEqual(snapshot);
+  });
+});
+
+describe("config issue paths", () => {
+  it("quote a key containing dots so the printed path can be pasted into config set", () => {
+    const { issues } = parseConfigFile({
+      llm: {
+        capabilityOverrides: {
+          nvidia: { "deepseek-ai/deepseek-v4.1-flash": { supportsTools: "yes" } },
+        },
+      },
+    });
+
+    expect(issues[0]?.path).toBe(
+      'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+    );
+    expect(resolveConfigPath(issues[0]!.path)).toEqual({ known: true, structured: false });
   });
 });
 
@@ -395,6 +572,23 @@ describe("resolveConfigPath", () => {
     expect(resolveConfigPath("mcpServers.any-server.enabled")).toEqual({
       known: true,
       structured: false,
+    });
+  });
+
+  it("addresses a key containing dots through a quoted segment", () => {
+    expect(
+      resolveConfigPath(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+      ),
+    ).toEqual({ known: true, structured: false });
+    expect(
+      parseConfigInput(
+        'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools',
+        "true",
+      ),
+    ).toEqual({ ok: true, value: true });
+    expect(resolveConfigPath('llm.capabilityOverrides.nvidia."unterminated')).toEqual({
+      known: false,
     });
   });
 
@@ -530,11 +724,11 @@ describe("checkConfigWrite", () => {
   it("still reports a bad field under a dotted server name", () => {
     expect(checkConfigWrite("mcpServers.my.server", { command: "npx" })).toEqual({
       ok: false,
-      problem: 'mcpServers.my.server expected no key named "command"',
+      problem: 'mcpServers."my.server" expected no key named "command"',
     });
     expect(checkConfigWrite("mcpServers.my.server", { enabled: "yes" })).toEqual({
       ok: false,
-      problem: "mcpServers.my.server.enabled expected true or false",
+      problem: 'mcpServers."my.server".enabled expected true or false',
     });
   });
 

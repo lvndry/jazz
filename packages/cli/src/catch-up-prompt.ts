@@ -7,8 +7,9 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { QuietPresentationServiceLayer } from "@jazz/core/presentation/quiet-presentation-service";
 import {
+  claimWorkflowRuns,
   getCatchUpCandidates,
-  runCatchUpForWorkflows,
+  runClaimedWorkflow,
   type CatchUpCandidate,
 } from "@jazz/core/workflows/catch-up";
 import { addRunRecord } from "@jazz/core/workflows/run-history";
@@ -55,12 +56,12 @@ function formatMissedTime(scheduledAt: Date | undefined): string {
  *
  * This function lives in the CLI layer because it directly uses interactive terminal
  * methods (confirm, checkbox, warn, log). Core workflow logic (getCatchUpCandidates,
- * runCatchUpForWorkflows) remains in src/core/workflows/catch-up.ts.
+ * claimWorkflowRuns, runClaimedWorkflow) remains in src/core/workflows/catch-up.ts.
  */
 export function promptInteractiveCatchUp() {
   return Effect.gen(function* () {
-    // Skip in non-interactive environments
-    if (!process.stdout.isTTY) {
+    const terminal = yield* TerminalServiceTag;
+    if (!terminal.isInteractive) {
       return;
     }
 
@@ -72,7 +73,6 @@ export function promptInteractiveCatchUp() {
       return;
     }
 
-    const terminal = yield* TerminalServiceTag;
     const logger = yield* LoggerServiceTag;
 
     // Show notification about pending catch-ups
@@ -144,31 +144,18 @@ export function promptInteractiveCatchUp() {
     );
     yield* terminal.log("");
 
-    // Persist "running" records BEFORE forking so that even if the background
-    // fiber is interrupted (e.g. the main command finishes first and the scope
-    // closes), the next CLI invocation sees these records and won't re-prompt.
-    const startedAt = new Date().toISOString();
-    for (const entry of entriesToRun) {
-      yield* addRunRecord({
-        workflowName: entry.workflowName,
-        scheduleLabel: entry.label,
-        startedAt,
-        status: "running",
-        triggeredBy: "scheduled",
-      }).pipe(Effect.catchAll(() => Effect.void));
-    }
+    // Claim the slots (their "running" records land under the history lock) BEFORE forking,
+    // so even if the background fiber is interrupted when the main command finishes, the next
+    // CLI start sees them and does not prompt again, and no other process runs them too.
+    const claims = yield* claimWorkflowRuns(entriesToRun);
 
-    // Fork the catch-up execution so it runs in the background.
-    // Use quiet presentation so "pilot is thinking" and tool output don't overwrite the main UI.
-    // Pass recordsPreCreated so the fork skips the decideCatchUp re-check (which would
-    // see the records we just wrote and incorrectly conclude "already ran") and skips
-    // addRunRecord (already done above).
+    // Quiet presentation, so "pilot is thinking" and tool output don't overwrite the main UI.
     yield* Effect.fork(
-      runCatchUpForWorkflows(entriesToRun, { recordsPreCreated: true }).pipe(
+      Effect.forEach(claims, runClaimedWorkflow, { discard: true }).pipe(
         Effect.provide(QuietPresentationServiceLayer),
         Effect.tap(() =>
           logger.info("Background catch-up completed", {
-            scheduleCount: entriesToRun.length,
+            scheduleCount: claims.length,
           }),
         ),
       ),

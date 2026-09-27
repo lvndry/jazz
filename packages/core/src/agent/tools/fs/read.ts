@@ -1,7 +1,8 @@
 /**
  * The `read` tool: returns file contents numbered for coding-model consumption,
  * with an optional line range (negative values count from the end of the file)
- * and a hard character cap to avoid flooding the context window.
+ * and a hard character cap to avoid flooding the context window. Ordinary text reads
+ * also return a snapshot of the canonical path and complete contents for edit_file.
  *
  * `sinceByte` is the incremental mode for a file still being written: read only what was
  * appended, hand back the `nextByte` and `inode` to distinguish an append from a rotation.
@@ -13,9 +14,11 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { attachMediaFile } from "./attach-media";
-import { resolveReadableFile, stripUtf8Bom } from "./read-common";
+import { fileSnapshot } from "./file-snapshot";
+import { localFileProvenance, resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 const DEFAULT_MAX_CHARS = 131_072;
 const HARD_MAX_CHARS = 524_288;
@@ -225,45 +228,32 @@ export function isIncrementalRead(args: {
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          "File to read. Absolute or relative to the session working directory. Must be a file, not a directory.",
-        ),
+      path: z.string().min(1).describe("File, absolute or relative to the working directory."),
       startLine: lineIndexSchema
         .optional()
-        .describe(
-          "First line to return, 1-based and inclusive. Negative counts from the end: -1 is the last line, -20 starts 20 lines from the end. Omit startLine and endLine to read from the top, up to maxBytes.",
-        ),
+        .describe("First line, 1-based, inclusive; negative counts from the end (-20 = last 20)."),
       endLine: lineIndexSchema
         .optional()
-        .describe(
-          "Last line to return, 1-based and inclusive. Negative counts from the end. Omit to read through the last line, or until maxBytes is reached.",
-        ),
+        .describe("Last line, inclusive; negative counts from the end."),
       maxBytes: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Maximum number of characters to return after applying the line range. Measured as JavaScript string length, not UTF-8 bytes, despite the parameter name. Default 131072, hard cap 524288.",
-        ),
+        .describe("Character limit on the result. Default 131072, cap 524288."),
       sinceByte: z
         .number()
         .int()
         .min(0)
         .optional()
         .describe(
-          "Returns only what was appended past this byte offset, for following a file still being written. Pass the previous read's nextByte. Omit for ordinary reads; not combinable with startLine/endLine.",
+          "nextByte from the previous read; returns only text appended since. Use without startLine/endLine.",
         ),
       sinceInode: z
         .number()
         .int()
         .optional()
-        .describe(
-          "The previous read's inode, so a rotated file is detected instead of read as an append. Only with sinceByte; omit otherwise.",
-        ),
+        .describe("inode from the previous read; pass with sinceByte to detect rotation."),
     })
     .strict()
     .refine(
@@ -287,13 +277,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     name: "read_file",
     disclosure: "private",
     description:
-      "Read a file relative to the session working directory. UTF-8 text is returned as numbered lines (`   12|content`) so edit_file can use those numbers for replace_lines, insert, and delete_lines. " +
-      "Images, PDFs, audio, and video are attached to the conversation when the active model supports that modality. " +
-      "Use this to inspect or edit text and code. Do not use this for directories (ls), to discover filenames (find), for unsupported binary formats, or via execute_command with cat/sed/nl. " +
-      "For large files, pass startLine and endLine. A negative startLine reads from the end (startLine: -20 is the last 20 lines). " +
-      "Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
-      "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped. " +
-      "To follow a file that is still being written, pass sinceByte (from the previous read's nextByte) and sinceInode: you get only what was appended, plus a reset field saying the file was rotated or truncated when the offset stopped meaning anything.",
+      "Read a file; protected credential files return metadata and cp guidance, never contents. For a directory, use ls. Text comes back as numbered `N|` lines plus a snapshot to pass to edit_file; copy only the text after `N|` into edits. " +
+      "Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
+      "To follow a growing file, pass sinceByte and sinceInode from the previous read; a reset field flags rotation or truncation.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -309,6 +295,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         // attached to the turn instead and delivered to the model as file parts.
         const mediaOutcome = yield* Effect.promise(() => attachMediaFile(filePathResult, context));
         if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
+
+        const untrusted = yield* localFileProvenance(filePathResult, "read_file", context);
+        const provenance = untrusted !== undefined ? { untrusted } : {};
 
         try {
           if (isIncrementalRead(args)) {
@@ -339,10 +328,13 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
                 inode: incremental.inode,
                 ...(incremental.reset !== undefined ? { reset: incremental.reset } : {}),
               },
+              ...provenance,
             };
           }
 
-          const raw = stripUtf8Bom(yield* fs.readFileString(filePathResult));
+          const canonicalPath = yield* fs.realPath(filePathResult);
+          const fileContent = yield* fs.readFileString(canonicalPath);
+          const raw = stripUtf8Bom(fileContent);
           const allLines = raw === "" ? [] : raw.split(/\r?\n/);
           const totalLines = allLines.length;
           const hasRange = args.startLine !== undefined || args.endLine !== undefined;
@@ -367,6 +359,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
             success: true,
             result: {
               path: filePathResult,
+              snapshot: fileSnapshot(canonicalPath, fileContent),
               content: formatNumberedContent(trimmed.lines, range.startLine),
               truncated: trimmed.truncated,
               totalLines,
@@ -376,12 +369,13 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
                   ? undefined
                   : { startLine: range.startLine, endLine: Math.max(range.startLine, rangeEnd) },
             },
+            ...provenance,
           };
         } catch (error) {
           return {
             success: false,
             result: null,
-            error: `readFile failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `readFile failed: ${toError(error).message}`,
           };
         }
       }),

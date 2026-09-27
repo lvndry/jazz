@@ -10,9 +10,12 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
  * Types of special commands available in the chat interface
  */
 export type CommandType =
+  | "exit"
+  | "model"
   | "memory"
   | "new"
   | "fork"
+  | "detach"
   | "help"
   | "clear"
   | "tools"
@@ -37,10 +40,23 @@ export type CommandType =
   | "retry"
   | "shell"
   | "limit"
+  | "goal"
+  | "loop"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"
+  | "prose"
   | "unknown";
+
+/**
+ * The command types a built-in `CHAT_COMMANDS` entry can dispatch to. The rest
+ * come from the shell escape, a registered skill, MCP prompt or plugin, or
+ * input that is not a command.
+ */
+export type BuiltinCommandType = Exclude<
+  CommandType,
+  "shell" | "runSkill" | "runMcpPrompt" | "runPluginCommand" | "prose" | "unknown"
+>;
 
 /**
  * Parsed special command from user input
@@ -60,12 +76,17 @@ export interface CommandResult {
   newConversationId?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /**
+   * Put the message back in the composer at the next prompt, so a mistyped
+   * command can be fixed instead of retyped.
+   */
+  keepDraft?: boolean;
   /** Leave the on-screen chat as-is instead of redrawing it. */
   skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */
   newAgent?: Agent;
   /** New auto-approve policy for tool calls (set by /mode command) */
-  newAutoApprovePolicy?: AutoApprovePolicy | false;
+  newAutoApprovePolicy?: AutoApprovePolicy;
   /** Command prefix to add to auto-approved commands list */
   addAutoApprovedCommand?: string;
   /** Command prefix to remove from auto-approved commands list */
@@ -80,6 +101,8 @@ export interface CommandResult {
   messageForAgent?: string;
   /** New session-wide limits set by /limit (a full replacement, not a patch — an absent field means "no limit"). */
   newSessionLimits?: SessionLimits;
+  /** A goal the chat now works toward: its next turn starts right after the command. */
+  attendGoal?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
@@ -109,6 +132,8 @@ export interface CommandContext {
   agent: Agent;
   conversationId: string;
   conversationHistory: ChatMessage[];
+  /** A queued command may have later messages that must not be abandoned on handoff. */
+  queuedAfterCommand?: boolean;
   /** Accumulated input/output tokens for this session (reset on /new). */
   sessionUsage: SessionUsage;
   /** Number of turns sent to the agent this conversation (reset on /new, for /limit). */

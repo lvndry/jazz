@@ -5,6 +5,7 @@
 
 import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/index";
+import { isChatGPTSignedIn } from "@jazz/core/utils/provider-model";
 import { systemInfo } from "@jazz/core/utils/system-info";
 import type { HomeFact, HomeRequirement } from "./screens/Home";
 
@@ -21,6 +22,9 @@ export function configuredProviderNames(config: AppConfig): string[] {
       const key = (value as { api_key?: unknown }).api_key;
       if (typeof key === "string" && key.length > 0) names.push(name);
     }
+  }
+  if (isChatGPTSignedIn(llm)) {
+    names.push("chatgpt");
   }
   for (const provider of Object.keys(LLM_PROVIDER_ENV_VARS)) {
     const fromEnv = llmProviderApiKeyFromEnv(provider);

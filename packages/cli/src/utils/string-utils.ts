@@ -101,6 +101,30 @@ function skipEscapeSequence(text: string, start: number): number {
   return index + 1;
 }
 
+const TERMINAL_HYPERLINK = new RegExp(
+  `${ESC}\\]8;[^;${BEL}${ESC}]*;([^${BEL}${ESC}]*)(?:${BEL}|${ESC}\\${BACKSLASH})(.*?)${ESC}\\]8;;(?:${BEL}|${ESC}\\${BACKSLASH})`,
+  "gs",
+);
+
+/**
+ * Rewrites OSC 8 terminal hyperlinks as markdown `[label](url)` links.
+ *
+ * Renderers that strip escapes and re-parse the markdown themselves would
+ * otherwise keep the label and lose the target. Parentheses in the target are
+ * percent-encoded so the markdown parser does not end the URL early; a label
+ * containing brackets cannot round-trip, so it keeps only its text.
+ */
+export function terminalHyperlinksToMarkdown(text: string): string {
+  if (!text.includes(`${ESC}]8;`)) return text;
+  return text.replace(TERMINAL_HYPERLINK, (_match: string, url: string, label: string) => {
+    if (url.length === 0) return label;
+    const visibleLabel = stripAnsiCodes(label);
+    if (/[[\]]/.test(visibleLabel)) return label;
+    const safeUrl = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+    return `[${label}](${safeUrl})`;
+  });
+}
+
 /**
  * Removes every terminal escape sequence, leaving only the characters that
  * occupy columns.

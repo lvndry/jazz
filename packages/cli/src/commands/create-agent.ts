@@ -1,4 +1,4 @@
-import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp-tools";
+import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
   BUILTIN_TOOL_CATEGORIES,
@@ -32,6 +32,7 @@ import type { WebSearchProviderName } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
+  type InteractiveTerminalRequiredError,
   LLMConfigurationError,
   StorageError,
   ValidationError,
@@ -40,6 +41,7 @@ import type { AgentConfig } from "@jazz/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@jazz/core/types/llm";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { toError } from "@jazz/core/utils/errors";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
@@ -47,6 +49,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
@@ -120,7 +123,8 @@ export function createAgentCommand(): Effect.Effect<
   | AgentAlreadyExistsError
   | AgentConfigurationError
   | ValidationError
-  | LLMConfigurationError,
+  | LLMConfigurationError
+  | InteractiveTerminalRequiredError,
   | AgentService
   | LLMService
   | ToolRegistry
@@ -131,6 +135,10 @@ export function createAgentCommand(): Effect.Effect<
   | PersonaService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz agent create",
+      "Run `jazz agent create` in a terminal, or write the agent as JSON to $JAZZ_HOME/agents/<id>.json (normally ~/.jazz/agents/). See docs/configure/agents.md for the fields.",
+    );
     const terminal = yield* TerminalServiceTag;
     yield* terminal.heading("🤖 Welcome to the Jazz AI Agent Creation Wizard!");
     yield* terminal.log("Let's create a new AI agent step by step.");
@@ -172,7 +180,7 @@ export function createAgentCommand(): Effect.Effect<
       catch: (error) =>
         new ValidationError({
           field: "agent",
-          message: `Agent creation wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Agent creation wizard failed: ${toError(error).message}`,
         }),
     });
 
@@ -231,7 +239,7 @@ export function createAgentCommand(): Effect.Effect<
             Effect.timeout("45 seconds"),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                const errorMessage = error instanceof Error ? error.message : String(error);
+                const errorMessage = toError(error).message;
                 const isAuthRequired = isAuthenticationRequired(error);
 
                 if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
@@ -551,7 +559,7 @@ export async function promptForAgentInfo(
         // Cache provider info for next step
         state.providerInfo = await Effect.runPromise(llmService.getProvider(result)).catch(
           (error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = toError(error).message;
             throw new Error(`Failed to get provider info: ${message}`);
           },
         );
@@ -564,10 +572,16 @@ export async function promptForAgentInfo(
       // STEP 2: Model Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "model": {
-        if (state.llmProvider === "llamacpp") {
+        if (
+          state.llmProvider === "llamacpp" ||
+          ((state.llmProvider === "vllm" || state.llmProvider === "sglang") &&
+            state.providerInfo!.supportedModels.length === 1)
+        ) {
           const liveModel = state.providerInfo!.supportedModels[0];
           if (!liveModel) {
-            throw new Error("llama.cpp did not report a model currently served by the server.");
+            throw new Error(
+              `${formatProviderDisplayName(state.llmProvider)} did not report a served model.`,
+            );
           }
 
           state.llmModel = liveModel.id;
@@ -578,11 +592,21 @@ export async function promptForAgentInfo(
           }
           await Effect.runPromise(
             terminal.info(
-              `llama.cpp will use the model currently served by the server (${liveModel.id}).`,
+              state.llmProvider === "llamacpp"
+                ? `llama.cpp will use the model currently served by the server (${liveModel.id}).`
+                : `${formatProviderDisplayName(state.llmProvider)} serves one model (${liveModel.id}); this agent will use that model.`,
             ),
           );
           state.step = state.isReasoningModel ? "reasoning" : "persona";
           break;
+        }
+
+        if (state.llmProvider === "vllm" || state.llmProvider === "sglang") {
+          await Effect.runPromise(
+            terminal.info(
+              `Jazz uses this ${formatProviderDisplayName(state.llmProvider)} model while it is served. If the server stops listing it, Jazz uses the first live model instead.`,
+            ),
+          );
         }
 
         const result = await Effect.runPromise(
@@ -633,14 +657,21 @@ export async function promptForAgentInfo(
       // STEP 3: Reasoning Effort (optional, only for reasoning models)
       // ═══════════════════════════════════════════════════════════════════════
       case "reasoning": {
-        const result = await promptForReasoningSelection(
-          terminal,
-          state.reasoning,
-          `What reasoning effort level would you like? ${hint}`,
+        const control = await Effect.runPromise(
+          llmService.resolveReasoningControl(state.llmProvider!, state.llmModel!),
         );
+        const result = await promptForReasoningSelection(terminal, state.reasoning, {
+          prompt: `What reasoning effort level would you like? ${hint}`,
+          control,
+        });
 
         if (result === undefined) {
-          state.step = state.llmProvider === "llamacpp" ? "provider" : "model";
+          state.step =
+            state.llmProvider === "llamacpp" ||
+            ((state.llmProvider === "vllm" || state.llmProvider === "sglang") &&
+              state.providerInfo?.supportedModels.length === 1)
+              ? "provider"
+              : "model";
           break;
         }
 

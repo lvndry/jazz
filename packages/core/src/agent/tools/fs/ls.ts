@@ -1,9 +1,12 @@
+/** Path and metadata discovery, including protected files; never returns file contents. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { toError } from "@/core/utils/errors";
+import { loadSecretPathRules, secretPathReason } from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
@@ -15,35 +18,20 @@ import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Directory to list. Absolute or relative to the session working directory. Defaults to the working directory.",
-        ),
-      showHidden: z
-        .boolean()
-        .optional()
-        .describe("Include hidden files and directories (names starting with '.')."),
-      recursive: z.boolean().optional().describe("Also list files in subdirectories."),
+      path: z.string().optional().describe("Default cwd."),
+      showHidden: z.boolean().optional().describe("Include dotfiles."),
+      recursive: z.boolean().optional().describe("Include subdirectories."),
       pattern: z
         .string()
         .optional()
-        .describe(
-          "Filter entries by name. A plain string matches as a substring. Prefix with re: for a regex. This is not a glob — '*.ts' looks for those exact characters. Use find with name for globs.",
-        ),
-      maxResults: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of entries to return. Default 200, hard cap 2000."),
+        .describe("Name substring or re:<regex>. For globs such as '*.ts', use find."),
+      maxResults: z.number().int().positive().optional().describe("Default 200, max 2000."),
       maxDepth: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("How many directory levels to descend when recursive is true. Default 10."),
+        .describe("Levels to descend when recursive. Default 10."),
     })
     .strict();
 
@@ -53,10 +41,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     name: "ls",
     disclosure: "internal",
     description:
-      "List the contents of one directory. Defaults: this directory only, hidden files excluded, 200 results. " +
-      "Use this to see what is in a folder. Do not use this to locate files by glob (find, also available as glob), to search file contents (grep), or to recurse the whole repository (find). " +
-      "pattern is a substring or a re:<regex> — not a glob. '*.ts' matches the literal characters *.ts. Use find with name for globs. " +
-      ".gitignore and node_modules are skipped unless showHidden is true.",
+      "List one directory. Skips .gitignore'd entries and node_modules; set showHidden to include them. To search a tree by name, use find; to search contents, use grep.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -72,7 +57,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         if (args.path) {
           const pathResult = yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
             Effect.catchAll((error: unknown) => {
-              pathError = error instanceof Error ? error.message : String(error);
+              pathError = toError(error).message;
               return Effect.succeed(null);
             }),
           );
@@ -89,7 +74,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const statResult = yield* fs.stat(resolvedPath).pipe(
           Effect.catchAll((error: unknown) =>
             Effect.succeed({
-              _error: `Path not found: ${resolvedPath}. ${error instanceof Error ? error.message : String(error)}`,
+              _error: `Path not found: ${resolvedPath}. ${toError(error).message}`,
             }),
           ),
         );
@@ -102,6 +87,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           return { success: false, result: null, error: `Not a directory: ${resolvedPath}` };
         }
 
+        const secretRules = loadSecretPathRules();
         const includeHidden = args.showHidden === true;
         const recursive = args.recursive === true;
         const requestedMaxResults =
@@ -133,10 +119,11 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         // Build glob pattern — we always want everything, filtering happens post-glob
         const entries = yield* Effect.tryPromise({
           try: () => glob("**", globOptions),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
 
-        const results: { path: string; name: string; type: "file" | "dir" }[] = [];
+        const results: { path: string; name: string; type: "file" | "dir"; protected?: boolean }[] =
+          [];
 
         for (const entryPath of entries) {
           if (results.length >= maxResults) break;
@@ -156,6 +143,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
             path: cleanPath,
             name,
             type: isDir ? "dir" : "file",
+            ...(secretPathReason(cleanPath, secretRules) !== undefined ? { protected: true } : {}),
           });
         }
 
@@ -165,7 +153,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
           Effect.succeed({
             success: false,
             result: null,
-            error: `ls failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `ls failed: ${toError(error).message}`,
           }),
         ),
       ),

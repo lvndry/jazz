@@ -5,7 +5,7 @@ import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { MCPResource } from "@/core/types/mcp";
-import { buildResourceTools } from "./mcp-tools";
+import { buildResourceTools } from "./mcp";
 
 const serverConfig = { name: "probe", command: "noop" } as MCPServerConfig;
 

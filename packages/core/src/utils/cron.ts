@@ -63,3 +63,21 @@ export function describeCronSchedule(cron: string): string | null {
     return null;
   }
 }
+
+/**
+ * The first time a cron schedule fires strictly after `after`, read in `timezone` (an IANA
+ * name; UTC when absent), or undefined when the expression does not parse.
+ */
+export function nextCronRun(cron: string, after: Date, timezone?: string): Date | undefined {
+  try {
+    return cronParser
+      .parse(normalizeCronExpression(cron), {
+        currentDate: after,
+        ...(timezone !== undefined ? { tz: timezone } : {}),
+      })
+      .next()
+      .toDate();
+  } catch {
+    return undefined;
+  }
+}

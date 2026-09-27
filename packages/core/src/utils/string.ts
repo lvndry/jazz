@@ -184,3 +184,67 @@ export function toPascalCase(str: string): string {
   // Capitalize first letter of each word and join
   return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join("");
 }
+
+const COMPACT_SUFFIXES = ["k", "M", "B"] as const;
+
+/**
+ * Compact count for display: 100, 1k, 10k, 1M, 1B.
+ * One decimal only below 10 of the current unit (`1.5k`, `1.5M`).
+ */
+export function formatCompactCount(value: number): string {
+  let scaled = value;
+  let unitIndex = -1;
+  while (Math.abs(scaled) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    scaled /= 1_000;
+    unitIndex += 1;
+  }
+  if (unitIndex < 0) return `${Math.round(value)}`;
+
+  const rounded = Math.abs(scaled) < 10 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
+  if (Math.abs(rounded) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    const promoted = rounded / 1_000;
+    unitIndex += 1;
+    const suffix = COMPACT_SUFFIXES[unitIndex];
+    const body = Number.isInteger(promoted) ? `${promoted}` : promoted.toFixed(1);
+    return `${body}${suffix}`;
+  }
+
+  const suffix = COMPACT_SUFFIXES[unitIndex];
+  const body = Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  return `${body}${suffix}`;
+}
+
+/** Levenshtein distance: the fewest single-character edits that turn `left` into `right`. */
+export function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row++) {
+    let diagonal = previous[0] as number;
+    previous[0] = row;
+    for (let column = 1; column <= right.length; column++) {
+      const above = previous[column] as number;
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      previous[column] = Math.min(above + 1, (previous[column - 1] as number) + 1, diagonal + cost);
+      diagonal = above;
+    }
+  }
+  return previous[right.length] as number;
+}
+
+/**
+ * The known name a typo most plausibly meant, compared case-insensitively.
+ * A candidate counts only within about one edit per three typed characters,
+ * so a short unrelated word never gets a far-fetched suggestion.
+ */
+export function closestMatch(typed: string, known: readonly string[]): string | undefined {
+  const lowered = typed.toLowerCase();
+  let best: string | undefined;
+  let bestDistance = Math.max(1, Math.floor(typed.length / 3)) + 1;
+  for (const candidate of known) {
+    const distance = editDistance(lowered, candidate.toLowerCase());
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

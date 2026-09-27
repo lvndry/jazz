@@ -10,7 +10,11 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { writeAgentsMcpServer, removeAgentsMcpServer } from "@jazz/adapters/config";
+import {
+  normalizeMcpDefinition,
+  removeAgentsMcpServer,
+  writeAgentsMcpServer,
+} from "@jazz/adapters/config";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
@@ -21,6 +25,7 @@ import {
   type MCPServerManager,
 } from "@jazz/core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect, Option } from "effect";
 import { z } from "zod";
 import * as fmt from "@/cli/utils/list-format";
@@ -46,7 +51,7 @@ const StdioServerConfigSchema = z.object({
 });
 
 const HttpServerConfigSchema = z.object({
-  transport: z.literal("http"),
+  transport: z.literal("http").optional(),
   url: z.string(),
   headers: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
@@ -58,20 +63,37 @@ const McpServerConfigSchema = z.union([HttpServerConfigSchema, StdioServerConfig
 const McpServersInputSchema = z.record(z.string(), McpServerConfigSchema);
 
 /**
- * Persist one server: full config to ~/.agents/mcp.json, and the bits Jazz owns
- * (enabled, trusted) to ~/.jazz/config.json.
+ * Persist one server: full config to ~/.agents/mcp.json with its env and header values in the
+ * keyring, and the bits Jazz owns (enabled, trusted) to ~/.jazz/config.json. Reports where the
+ * values went. Returns whether the server was saved.
  */
 function saveServer(
   fs: FileSystem.FileSystem,
   configService: AgentConfigService,
+  terminal: TerminalService,
   name: string,
   config: Record<string, unknown>,
   trusted: boolean,
-): Effect.Effect<void, never> {
+): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const { enabled: _enabled, trusted: _trusted, ...serverConfig } = config;
-    yield* writeAgentsMcpServer(fs, name, serverConfig);
+    const placement = yield* writeAgentsMcpServer(fs, name, serverConfig).pipe(Effect.either);
+    if (placement._tag === "Left") {
+      yield* terminal.error(`Could not save MCP server "${name}": ${placement.left.message}`);
+      return false;
+    }
     yield* configService.set(`mcpServers.${name}`, { enabled: true, trusted });
+    const { keyring, keyringDescription, file } = placement.right;
+    if (keyring.length > 0) {
+      yield* terminal.info(`Stored ${keyring.join(", ")} for ${name} in ${keyringDescription}.`);
+    }
+    if (file.length > 0) {
+      yield* terminal.warn(
+        `Could not store ${file.join(", ")} for ${name} in a keyring. Wrote the value in ` +
+          "plaintext to ~/.agents/mcp.json, which only you can read.",
+      );
+    }
+    return true;
   });
 }
 
@@ -108,13 +130,31 @@ function parseAndSaveMcpServers(
 
     const entries = Object.entries(result.data);
 
+    for (const [name, definition] of Object.entries(parsed as Record<string, unknown>)) {
+      const normalized = normalizeMcpDefinition(definition as Record<string, unknown>);
+      if (typeof normalized === "string") {
+        yield* terminal.error(`Invalid MCP server "${name}": ${normalized}`);
+        return;
+      }
+    }
+
     if (entries.length === 0) {
       yield* terminal.warn("No servers found in the provided JSON.");
       return;
     }
 
     for (const [name, config] of entries) {
-      yield* saveServer(fs, configService, name, config, trusted || config.trusted === true);
+      const saved = yield* saveServer(
+        fs,
+        configService,
+        terminal,
+        name,
+        config,
+        trusted || config.trusted === true,
+      );
+      if (!saved) {
+        return;
+      }
       yield* terminal.success(`Added MCP server: ${name}`);
     }
 
@@ -216,7 +256,10 @@ export function addMcpServerCommand(
             ...(options.env && options.env.length > 0 ? { env: parseEnvPairs(options.env) } : {}),
           };
 
-      yield* saveServer(fs, configService, name, config, trusted);
+      const saved = yield* saveServer(fs, configService, terminal, name, config, trusted);
+      if (!saved) {
+        return;
+      }
       yield* terminal.success(`Added MCP server: ${name}`);
       if (!trusted) {
         yield* terminal.info(
@@ -235,7 +278,7 @@ export function addMcpServerCommand(
     if (!process.stdin.isTTY) {
       const stdinContent = yield* Effect.tryPromise({
         try: () => readStdin(),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        catch: toError,
       }).pipe(Effect.catchAll(() => Effect.succeed("")));
       if (stdinContent.trim() === "") {
         yield* terminal.warn("No input received from stdin.");
@@ -321,6 +364,7 @@ export function listMcpServersCommand(
       const enabled = config.enabled !== false;
       const labels = [enabled ? "enabled" : "disabled"];
       if (config.trusted === true) labels.push("trusted");
+      if (config.definedIn === "project") labels.push("project");
 
       yield* terminal.log(
         fmt.itemWithDesc(name, `${describeTransport(config)} [${labels.join(", ")}]`),
@@ -525,11 +569,20 @@ export function removeMcpServerCommand(
       }
     }
 
-    yield* removeAgentsMcpServer(fs, selected);
+    const removedFile = yield* removeAgentsMcpServer(fs, selected).pipe(Effect.either);
+    if (removedFile._tag === "Left") {
+      yield* terminal.error(
+        `Could not remove MCP server "${selected}": ${removedFile.left.message}`,
+      );
+      return;
+    }
     // Touch only this server's key rather than rewriting the whole override
     // map, so a concurrent edit to another server is not clobbered.
     yield* configService.set(`mcpServers.${selected}`, { enabled: false });
-    yield* clearServerAuth(selected);
+    const removed = mcpServers[selected];
+    if (removed !== undefined && isHttpConfig(removed)) {
+      yield* clearServerAuth(selected, removed.url);
+    }
 
     yield* terminal.success(`Removed MCP server: ${selected}`);
   });
@@ -605,6 +658,14 @@ export function trustMcpServerCommand(
     );
     if (selected === undefined) return;
 
+    if (trusted && mcpServers[selected]?.definedIn === "project") {
+      yield* terminal.error(
+        `"${selected}" is defined by this project's .agents/mcp.json, and only servers you define ` +
+          `can be trusted. Review it, then add it with \`jazz mcp add\` to trust your own copy.`,
+      );
+      return;
+    }
+
     if (trusted) {
       yield* terminal.warn(
         `Trusting "${selected}" lets its tools declare themselves read-only and skip approval prompts.`,
@@ -677,14 +738,22 @@ export function authMcpServerCommand(name: string): Effect.Effect<void, never, M
 export function logoutMcpServerCommand(name: string): Effect.Effect<void, never, McpCommandDeps> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
 
-    const stored = yield* hasStoredAuth(name);
+    const mcpServers = yield* configService.getOrElse<McpServersRecord>("mcpServers", {});
+    const serverConfig = mcpServers[name];
+    if (serverConfig === undefined || !isHttpConfig(serverConfig)) {
+      yield* terminal.info(`No stored credentials for "${name}".`);
+      return;
+    }
+
+    const stored = yield* hasStoredAuth(name, serverConfig.url);
     if (!stored) {
       yield* terminal.info(`No stored credentials for "${name}".`);
       return;
     }
 
-    yield* clearServerAuth(name);
+    yield* clearServerAuth(name, serverConfig.url);
     yield* terminal.success(`Cleared stored credentials for ${name}.`);
   });
 }

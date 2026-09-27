@@ -6,7 +6,7 @@
  * every field is optional, because a file is a partial override; `mcpServers` holds only the
  * `enabled`/`trusted` overrides Jazz owns, because full server definitions live in
  * `.agents/mcp.json`; and `daemon.token` may appear, the one secret whose no-keyring fallback
- * lands in this file under a section `AppConfig` does not model.
+ * lands in this file, in a field of the `daemon` section `AppConfig` does not model.
  *
  * - `parseConfigFile` checks a file as loaded and returns every problem alongside the largest
  *   valid subset. The adapter decides whether this is an initial load, which must fail closed, or
@@ -26,8 +26,11 @@ import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type {
   AnthropicProviderConfig,
+  ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
+  DaemonConfig,
+  DaemonNotifyConfig,
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
@@ -35,24 +38,46 @@ import type {
   MCPServerOverride,
   NotificationsConfig,
   OllamaProviderConfig,
+  SglangProviderConfig,
   OtlpTelemetryConfig,
   SchedulerConfig,
   SchedulerMode,
   StorageConfig,
   TelemetryConfig,
+  VllmProviderConfig,
   WebSearchConfig,
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
+import type { HostProfile } from "@/core/types/host";
 import {
   CAPABILITY_REASONING_EFFORTS,
   type ModelCapabilityOverride,
   type ReasoningControlSurface,
 } from "@/core/types/model-capabilities";
+import {
+  type DesktopNotifyChannel,
+  type DiscordNotifyChannel,
+  NOTIFY_CHANNEL_NAME_PATTERN,
+  NOTIFY_SUBSCRIBABLE_EVENTS,
+  type TelegramNotifyChannel,
+  type WebhookNotifyChannel,
+} from "@/core/types/notify";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
+import type { DoorLimits, RunBudget } from "@/core/types/remote-door";
+import type { SpendConfig, SpendLimits } from "@/core/types/spend";
 import type { StreamingConfig } from "@/core/types/streaming";
-import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
+import type {
+  WebhookConfig,
+  WebhookConversationMode,
+  WebhookSignature,
+  WebhookSignatureFormat,
+} from "@/core/types/webhook";
+import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
+import { isRecord } from "@/core/utils/is-record";
+import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
+import { closestMatch } from "@/core/utils/string";
 
 /**
  * `T` with every property optional, all the way down. A file is a partial override, so this is what
@@ -74,7 +99,7 @@ type SchemaShape<T> = {
 export interface ConfigFileContents extends Omit<AppConfig, "storage" | "mcpServers"> {
   readonly storage?: StorageConfig;
   readonly mcpServers?: Readonly<Record<string, MCPServerOverride>>;
-  readonly daemon?: { readonly token?: string };
+  readonly daemon?: DaemonConfig & { readonly token?: string };
 }
 
 /**
@@ -131,15 +156,18 @@ const unsupportedReasoningSchema = z.strictObject({ kind: z.literal("unsupported
 
 const toggleReasoningSchema = z.strictObject({
   kind: z.literal("toggle"),
-  transport: z.enum(["ollama.chat.think", "llamacpp.chat.enable-thinking"]),
-  canDisable: flag,
+  transport: z.enum(["ollama.chat.think", "openai-compatible.chat.template-enable-thinking"]),
+  canDisableReasoning: flag,
 });
 
 const effortReasoningSchema = z.strictObject({
   kind: z.literal("effort"),
-  transport: z.literal("openai.responses.reasoning-effort"),
+  transport: z.enum([
+    "openai.responses.reasoning-effort",
+    "openai-compatible.chat.reasoning-effort",
+  ]),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const manualReasoningSchema = z
@@ -149,7 +177,7 @@ const manualReasoningSchema = z
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
     efforts: capabilityReasoningEfforts.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
@@ -168,16 +196,16 @@ const adaptiveReasoningSchema = z.strictObject({
   kind: z.literal("adaptive"),
   transport: z.literal("anthropic.messages.adaptive-thinking"),
   efforts: capabilityReasoningEfforts,
-  canDisable: flag,
+  canDisableReasoning: flag,
 });
 
 const budgetReasoningSchema = z
   .strictObject({
     kind: z.literal("budget"),
-    transport: z.literal("llamacpp.chat.thinking-budget"),
+    transport: z.literal("openai-compatible.chat.template-thinking-budget"),
     minimumBudgetTokens: positiveWholeNumber,
     maximumBudgetTokens: positiveWholeNumber.exactOptional(),
-    canDisable: flag,
+    canDisableReasoning: flag,
   })
   .superRefine((value, refinement) => {
     if (
@@ -234,6 +262,12 @@ const llmShape = {
     } satisfies SchemaShape<AnthropicProviderConfig>)
     .exactOptional(),
   cerebras: apiKeyOnly,
+  chatgpt: z
+    .strictObject({
+      account_id: text.exactOptional(),
+      plan: text.exactOptional(),
+    } satisfies SchemaShape<ChatGPTProviderConfig>)
+    .exactOptional(),
   deepseek: apiKeyOnly,
   fireworks: apiKeyOnly,
   gemini: apiKeyOnly,
@@ -247,6 +281,7 @@ const llmShape = {
   minimax: apiKeyOnly,
   mistral: apiKeyOnly,
   moonshotai: apiKeyOnly,
+  nvidia: apiKeyOnly,
   ollama: z
     .strictObject({
       api_key: text.exactOptional(),
@@ -257,7 +292,19 @@ const llmShape = {
   openai: apiKeyOnly,
   openrouter: apiKeyOnly,
   orcarouter: apiKeyOnly,
+  sglang: z
+    .strictObject({
+      api_key: text.exactOptional(),
+      base_url: text.exactOptional(),
+    } satisfies SchemaShape<SglangProviderConfig>)
+    .exactOptional(),
   togetherai: apiKeyOnly,
+  vllm: z
+    .strictObject({
+      api_key: text.exactOptional(),
+      base_url: text.exactOptional(),
+    } satisfies SchemaShape<VllmProviderConfig>)
+    .exactOptional(),
   xai: apiKeyOnly,
   yolo_auto: apiKeyOnly,
   zhipuai: apiKeyOnly,
@@ -288,10 +335,71 @@ const outputShape = {
   streaming: z.strictObject(streamingShape).exactOptional(),
 } satisfies SchemaShape<OutputConfig>;
 
+const notifyEvents = z.array(z.enum(NOTIFY_SUBSCRIBABLE_EVENTS));
+const httpUrl = described(z.url({ protocol: /^https?$/ }), "an http:// or https:// URL");
+
+const telegramChannelShape = {
+  type: z.literal("telegram"),
+  events: notifyEvents.exactOptional(),
+  chatId: text.exactOptional(),
+  botToken: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<TelegramNotifyChannel>;
+
+const discordChannelShape = {
+  type: z.literal("discord"),
+  events: notifyEvents.exactOptional(),
+  webhookUrl: text.exactOptional(),
+  channelId: text.exactOptional(),
+  botToken: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<DiscordNotifyChannel>;
+
+const webhookChannelShape = {
+  type: z.literal("webhook"),
+  events: notifyEvents.exactOptional(),
+  url: httpUrl.exactOptional(),
+  secret: text.exactOptional(),
+} satisfies SchemaShape<WebhookNotifyChannel>;
+
+const desktopChannelShape = {
+  type: z.literal("desktop"),
+  events: notifyEvents.exactOptional(),
+} satisfies SchemaShape<DesktopNotifyChannel>;
+
+const notifyChannelSchema = z.discriminatedUnion("type", [
+  z.strictObject(telegramChannelShape),
+  z.strictObject(discordChannelShape),
+  z.strictObject(webhookChannelShape),
+  z.strictObject(desktopChannelShape),
+]);
+
+/** Channel names are storage keys (the outbox keeps one file per channel). */
+const channelName = described(
+  safeRecordKey.regex(NOTIFY_CHANNEL_NAME_PATTERN),
+  "a lowercase name of letters, digits, - and _",
+);
+
 const notificationsShape = {
   enabled: flag.exactOptional(),
   sound: flag.exactOptional(),
+  channels: z.record(channelName, notifyChannelSchema).exactOptional(),
 } satisfies SchemaShape<NotificationsConfig>;
+
+const dollars = described(z.number().positive(), "a number of dollars greater than 0");
+
+const spendLimitsShape = {
+  dayUSD: dollars.exactOptional(),
+  monthUSD: dollars.exactOptional(),
+} satisfies SchemaShape<SpendLimits>;
+
+const spendShape = {
+  ...spendLimitsShape,
+  goals: z.strictObject(spendLimitsShape).exactOptional(),
+  agents: z.record(nonEmptySafeRecordKey, z.strictObject(spendLimitsShape)).exactOptional(),
+} satisfies SchemaShape<SpendConfig>;
 
 type OtlpSignal = NonNullable<OtlpTelemetryConfig["signals"]>[number];
 
@@ -341,7 +449,7 @@ const contextSchema = z.strictObject(contextShape).superRefine((context, refinem
     refinement.addIssue({
       code: "custom",
       path: ["warnThresholdRatio"],
-      message: "must be below compactThresholdRatio",
+      message: "a number below compactThresholdRatio",
     });
   }
 });
@@ -358,13 +466,60 @@ const mcpOverrideShape = {
 /** The value under one `mcpServers.<name>` key: the enabled/trusted override Jazz owns. */
 const mcpOverrideSchema = z.strictObject(mcpOverrideShape);
 
+const runBudgetShape = {
+  maxTokens: positiveWholeNumber.exactOptional(),
+  maxCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
+  maxDurationMs: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<RunBudget>;
+
+/** The limits every remote door's config carries. See `DoorLimits`. */
+const doorLimitsShape = {
+  budget: z.strictObject(runBudgetShape).exactOptional(),
+  maxConcurrentRuns: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<DoorLimits>;
+
+/**
+ * Refuse a door whose name reads the same secret environment variable as an earlier door of the
+ * same kind. Otherwise `JAZZ_WEBHOOK_TOKEN_A_B` would authenticate both `a.b` and `a_b`.
+ */
+function distinctSecretEnvVars(
+  doors: readonly { readonly name: string }[],
+  refinement: z.RefinementCtx,
+): void {
+  const firstBySuffix = new Map<string, string>();
+  doors.forEach((door, index) => {
+    const suffix = secretEnvVarSuffix(door.name);
+    const earlier = firstBySuffix.get(suffix);
+    if (earlier === undefined) {
+      firstBySuffix.set(suffix, door.name);
+      return;
+    }
+    refinement.addIssue({
+      code: "custom",
+      path: [index, "name"],
+      message: `a name distinct from "${earlier}" once case and punctuation are ignored`,
+    });
+  });
+}
+
 const peerShape = {
   name: z.string().min(1),
   url: text.exactOptional(),
   disclosure: z.enum(DISCLOSURE_TIERS).exactOptional(),
   persona: text.exactOptional(),
   allow: names.exactOptional(),
+  ...doorLimitsShape,
 } satisfies SchemaShape<PeerConfig>;
+
+const hostShape = {
+  name: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  sshTarget: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/),
+  workspacePath: z
+    .string()
+    .regex(/^\/(?:[a-zA-Z0-9._-]+\/?)+$/)
+    .refine((value) => value.split("/").every((part) => part !== ".." && part !== ".")),
+  allowFileSecrets: z.boolean().exactOptional(),
+} satisfies SchemaShape<HostProfile>;
 
 const webhookShape = {
   name: z.string().min(1),
@@ -377,6 +532,15 @@ const webhookShape = {
   ]).exactOptional(),
   disclosure: z.enum(DISCLOSURE_TIERS).exactOptional(),
   allow: names.exactOptional(),
+  signature: z
+    .strictObject({
+      format: exhaustiveEnum<WebhookSignatureFormat>()(["hmac-sha256"]),
+      header: z.string().min(1).exactOptional(),
+      prefix: text.exactOptional(),
+    } satisfies SchemaShape<WebhookSignature>)
+    .exactOptional(),
+  deliveryIdHeader: z.string().min(1).exactOptional(),
+  ...doorLimitsShape,
 } satisfies SchemaShape<WebhookConfig>;
 
 const configFileShape = {
@@ -400,9 +564,27 @@ const configFileShape = {
   context: contextSchema.exactOptional(),
   workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
-  peers: z.array(z.strictObject(peerShape)).exactOptional(),
-  webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
-  daemon: z.strictObject({ token: text.exactOptional() }).exactOptional(),
+  peers: z.array(z.strictObject(peerShape)).superRefine(distinctSecretEnvVars).exactOptional(),
+  hosts: z.array(z.strictObject(hostShape)).exactOptional(),
+  webhooks: z
+    .array(z.strictObject(webhookShape))
+    .superRefine(distinctSecretEnvVars)
+    .exactOptional(),
+  daemon: z
+    .strictObject({
+      token: text.exactOptional(),
+      dailyCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
+      dailyTokens: positiveWholeNumber.exactOptional(),
+      notify: z
+        .strictObject({
+          desktop: flag.exactOptional(),
+          ntfyUrl: described(z.url(), "an https URL").exactOptional(),
+          webhookUrl: described(z.url(), "an http or https URL").exactOptional(),
+        } satisfies SchemaShape<DaemonNotifyConfig>)
+        .exactOptional(),
+    } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
+    .exactOptional(),
+  spend: z.strictObject(spendShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */
@@ -425,8 +607,33 @@ function unwrap(schema: z.ZodType): z.ZodType {
   return current;
 }
 
-function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undefined {
+/**
+ * The option of a discriminated union that `value` selects, by its discriminator. Undefined
+ * when there is no value to read or no option claims it, so callers fall back to trying
+ * every option.
+ */
+function selectedOption(union: z.ZodDiscriminatedUnion, value: unknown): z.ZodType | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const discriminator = union.def.discriminator;
+  const selector = (value as Record<string, unknown>)[discriminator];
+  return (union.options as readonly z.ZodType[]).find((option) => {
+    const inner = unwrap(option);
+    if (!(inner instanceof z.ZodObject)) return false;
+    const field = inner.shape[discriminator] as z.ZodType | undefined;
+    return field instanceof z.ZodLiteral && field.values.has(selector as never);
+  });
+}
+
+function childSchema(
+  schema: z.ZodType,
+  segment: PropertyKey,
+  value?: unknown,
+): z.ZodType | undefined {
   const inner = unwrap(schema);
+  if (inner instanceof z.ZodDiscriminatedUnion) {
+    const selected = selectedOption(inner, value);
+    if (selected !== undefined) return childSchema(selected, segment, value);
+  }
   if (inner instanceof z.ZodUnion) {
     for (const option of inner.options as readonly z.ZodType[]) {
       const child = childSchema(option, segment);
@@ -448,25 +655,39 @@ function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undef
   return undefined;
 }
 
-function schemaFrom(root: z.ZodType, path: Path): z.ZodType | undefined {
+/**
+ * The schema at `path`. With the config `value` it walks alongside, a discriminated union
+ * resolves to the option the value's discriminator selects, so a `kind: "effort"` entry is
+ * described by the effort schema rather than whichever option happens to come first.
+ */
+function schemaFrom(root: z.ZodType, path: Path, value?: unknown): z.ZodType | undefined {
   let current: z.ZodType | undefined = root;
+  let currentValue = value;
   for (const segment of path) {
     if (current === undefined) return undefined;
-    current = childSchema(current, segment);
+    current = childSchema(current, segment, currentValue);
+    currentValue =
+      currentValue !== null && typeof currentValue === "object"
+        ? (currentValue as Record<PropertyKey, unknown>)[segment]
+        : undefined;
   }
   return current;
 }
 
-function schemaAt(path: Path): z.ZodType | undefined {
-  return schemaFrom(ConfigFileSchema, path);
+function schemaAt(path: Path, value?: unknown): z.ZodType | undefined {
+  return schemaFrom(ConfigFileSchema, path, value);
 }
 
 /** Render a path the way a person would type it: `webhooks[1].promptTemplate`. */
 export function formatConfigPath(path: Path): string {
   let out = "";
   for (const segment of path) {
-    if (typeof segment === "number") out += `[${segment}]`;
-    else out += out === "" ? String(segment) : `.${String(segment)}`;
+    if (typeof segment === "number") {
+      out += `[${segment}]`;
+      continue;
+    }
+    const key = joinConfigPath([String(segment)]);
+    out += out === "" ? key : `.${key}`;
   }
   return out;
 }
@@ -501,36 +722,6 @@ function alternatives(schema: z.ZodType): string[] {
 /** What a value at this schema must look like, in words: "a whole number of 0 or more". */
 function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
-}
-
-function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let diagonal = previous[0] as number;
-    previous[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const above = previous[j] as number;
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      previous[j] = Math.min(above + 1, (previous[j - 1] as number) + 1, diagonal + cost);
-      diagonal = above;
-    }
-  }
-  return previous[right.length] as number;
-}
-
-/** The known key a typo most plausibly meant, if any is close enough to be worth suggesting. */
-function closestKey(typed: string, known: readonly string[]): string | undefined {
-  const lowered = typed.toLowerCase();
-  let best: string | undefined;
-  let bestDistance = Math.max(1, Math.floor(typed.length / 3)) + 1;
-  for (const candidate of known) {
-    const distance = editDistance(lowered, candidate.toLowerCase());
-    if (distance < bestDistance) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-  return best;
 }
 
 function knownKeysAt(path: Path): readonly string[] {
@@ -665,7 +856,7 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         for (const key of issue.keys) {
           const path = [...issue.path, key];
           const removed = removalPath(path);
-          const suggestion = closestKey(key, known);
+          const suggestion = closestMatch(key, known);
           issues.push({
             kind: "unknown-key",
             path: formatConfigPath(path),
@@ -684,7 +875,9 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
-        expected: describeExpected(schemaAt(issue.path)),
+        // A refinement names its own rule; a structural issue is described from the schema.
+        expected:
+          issue.code === "custom" ? issue.message : describeExpected(schemaAt(issue.path, working)),
         actual,
       });
       removals.push(removed);
@@ -736,17 +929,11 @@ export type ConfigPathResolution =
   | { readonly known: false; readonly suggestion?: string };
 
 function parsePath(path: string): readonly string[] | undefined {
-  const segments = path.split(".");
-  return segments.every((segment) => segment !== "" && !unsafePathSegments.has(segment))
-    ? segments
-    : undefined;
+  const segments = splitConfigPath(path);
+  return segments?.every((segment) => !unsafePathSegments.has(segment)) ? segments : undefined;
 }
 
 const MCP_SERVERS = "mcpServers";
-
-function isObjectValue(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 /**
  * The literal server name in a whole-entry `mcpServers.<name>` write, or `undefined`.
@@ -757,7 +944,7 @@ function isObjectValue(value: unknown): value is Record<string, unknown> {
  * (`mcpServers.<name>.enabled` / `.trusted`) carry a boolean and stay on the generic dotted path.
  */
 export function mcpServerEntryName(path: string, value: unknown): string | undefined {
-  if (!isObjectValue(value)) return undefined;
+  if (!isRecord(value)) return undefined;
   const prefix = `${MCP_SERVERS}.`;
   if (!path.startsWith(prefix)) return undefined;
   const name = path.slice(prefix.length);
@@ -779,10 +966,10 @@ function suggestPath(segments: readonly string[]): string | undefined {
     const prefix = segments.slice(0, depth);
     const segment = segments[depth] as string;
     if (schemaAt([...prefix, segment]) !== undefined) continue;
-    const guess = closestKey(segment, knownKeysAt(prefix));
+    const guess = closestMatch(segment, knownKeysAt(prefix));
     if (guess === undefined) return undefined;
     const suggested = [...prefix, guess, ...segments.slice(depth + 1)];
-    return schemaAt(suggested) === undefined ? undefined : suggested.join(".");
+    return schemaAt(suggested) === undefined ? undefined : joinConfigPath(suggested);
   }
   return undefined;
 }
@@ -856,7 +1043,7 @@ export function parseConfigInput(path: string, raw: string): ConfigInput {
   }
   if (resolution.structured) return { ok: false, reason: "structured" };
 
-  const schema = schemaAt(path.split(".")) as z.ZodType;
+  const schema = schemaAt(parsePath(path) ?? []) as z.ZodType;
   for (const reading of readings(raw)) {
     if (schema.safeParse(reading).success) return { ok: true, value: reading };
   }

@@ -3,7 +3,7 @@
  * one-shot `at` job on Linux) so a reminder fires even when nothing else is watching for it —
  * the CLI-hosted-agent equivalent of `WakeTriggerOsScheduler`. Firing means something different
  * here, though: a reminder is "notify a person," never "resume the agent" (see
- * `wake-trigger-tools.ts`'s file comment for that distinction), so `jazz reminder fire` sends a
+ * `wake-trigger.ts`'s file comment for that distinction), so `jazz reminder fire` sends a
  * native OS desktop notification instead of re-entering the agent loop.
  *
  * This is only ever wired up for reminders whose `agentId` does not start with `tg_`/`dc_` —

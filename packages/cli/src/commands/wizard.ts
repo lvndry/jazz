@@ -1,16 +1,34 @@
 import os from "node:os";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import { listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
+import {
+  loadConversationOrNull,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
+import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
+import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
+import { WAITING_ON_USER_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
+import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
+import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { toError } from "@jazz/core/utils/errors";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
+import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
+import { loopStatus } from "@/cli/loops/describe-loop";
+import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -36,6 +54,14 @@ type MenuAction =
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
  */
 export function wizardCommand() {
+  return requireInteractiveTerminal(
+    "jazz",
+    'Run `jazz` in a terminal. From a script, use `jazz run --agent <id> "<prompt>"`, or pipe messages to `jazz agent chat <agent>`, one per line.',
+  ).pipe(Effect.zipRight(wizardSession()));
+}
+
+/** The home menu loop, once a terminal that can prompt is known to be present. */
+function wizardSession() {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     const configService = yield* AgentConfigServiceTag;
@@ -83,8 +109,12 @@ export function wizardCommand() {
       }
 
       if (hasConversationHistory) {
+        const waiting = yield* waitingConversations();
         menuOptions.push({
-          label: "Resume conversation",
+          label:
+            waiting.size === 0
+              ? "Resume conversation"
+              : `Resume conversation (${String(waiting.size)} waiting for you)`,
           value: "resume-conversation",
         });
       }
@@ -208,7 +238,41 @@ export function wizardCommand() {
               }),
             ),
           );
-          yield* showAgentList(listedAgents, lastUsedAgentId);
+          let previouslyOpenedId: string | undefined;
+          while (true) {
+            const selectedAgent = yield* showAgentList(
+              listedAgents,
+              lastUsedAgentId,
+              previouslyOpenedId,
+            );
+            if (selectedAgent === null) break;
+            previouslyOpenedId = selectedAgent.id;
+            const metadata = isZeroCostLocalModel(
+              selectedAgent.config.llmProvider,
+              selectedAgent.config.llmModel,
+            )
+              ? undefined
+              : yield* Effect.tryPromise({
+                  try: () =>
+                    getModelsDevMetadata(
+                      selectedAgent.config.llmModel,
+                      selectedAgent.config.llmProvider,
+                    ),
+                  catch: (error) => error,
+                }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            const llmService = yield* LLMServiceTag;
+            const appConfig = yield* configService.appConfig;
+            const hostUrl =
+              isLocalServerProvider(selectedAgent.config.llmProvider) &&
+              (selectedAgent.config.llmProvider !== "ollama" ||
+                !isOllamaCloudModel(selectedAgent.config.llmModel))
+                ? llmService.resolveLocalProviderBaseUrl(
+                    selectedAgent.config.llmProvider,
+                    appConfig.llm,
+                  )
+                : undefined;
+            yield* showAgentDetails(selectedAgent, metadata, hostUrl);
+          }
           break;
         }
 
@@ -257,7 +321,7 @@ export function wizardCommand() {
 
     yield* terminal.log("");
     yield* Effect.sync(() => process.exit(0));
-  }).pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+  }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
 /**
@@ -304,20 +368,52 @@ function agentChoicesFor(
 export function showAgentList(
   agents: readonly Agent[],
   lastUsedAgentId: string | null | undefined,
-): Effect.Effect<void, never, never> {
-  return Effect.async<void>((resume) => {
+  previouslyOpenedId?: string,
+): Effect.Effect<Agent | null, never, never> {
+  return Effect.async<Agent | null>((resume) => {
     const sorted = sortAgents(agents, lastUsedAgentId);
     store.setActiveMenu(
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: agentChoicesFor(sorted, lastUsedAgentId),
+        ...(previouslyOpenedId === undefined
+          ? {}
+          : {
+              initialIndex: Math.max(
+                0,
+                sorted.findIndex((agent) => agent.id === previouslyOpenedId),
+              ),
+            }),
       },
-      () => {
-        resume(Effect.succeed(undefined));
+      (result) => {
+        resume(
+          Effect.succeed(
+            result.kind === "exit"
+              ? null
+              : (agents.find((agent) => agent.id === result.value) ?? null),
+          ),
+        );
       },
+    );
+  });
+}
+
+/** Display one selected agent until the reader returns to the list. */
+function showAgentDetails(
+  agent: Agent,
+  metadata: Awaited<ReturnType<typeof getModelsDevMetadata>>,
+  hostUrl: string | undefined,
+): Effect.Effect<void, never, never> {
+  return Effect.async<void>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "agent-details",
+        name: agent.name,
+        fields: agentDetailFields(agent, metadata, hostUrl),
+      },
+      () => resume(Effect.void),
     );
   });
 }
@@ -367,10 +463,15 @@ function startChatWithAgent(
     const terminal = yield* TerminalServiceTag;
     const jazzState = yield* JazzStateServiceTag;
 
-    // Save as last used agent
     yield* jazzState
       .set("wizard.lastUsedAgentId", agent.id)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(
+        Effect.catchAll((error) =>
+          terminal.warn(
+            `Could not remember ${agent.name} as the last used agent: ${error.message}`,
+          ),
+        ),
+      );
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
@@ -403,8 +504,41 @@ const MAX_RESUME_CHOICES = 50;
 /**
  * Load all saved conversations across agents, show a selector, and resume the chosen one
  */
+/**
+ * Conversations with a goal or loop that can go no further until the user acts, each with what
+ * it waits on in words, so the resume list can say which conversation needs them and why.
+ */
+function waitingConversations() {
+  return Effect.gen(function* () {
+    const waiting = new Map<string, string>();
+    const goals = yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES });
+    for (const goal of goals) {
+      if (goal.sourceConversationId !== undefined) {
+        const pending = yield* pendingGoalInput(goal);
+        waiting.set(
+          goal.sourceConversationId,
+          `goal ${goalHandle(goal)} ${goalStatus(goal, pending)}`,
+        );
+      }
+    }
+    for (const loop of yield* loopsWaitingOnUser()) {
+      if (loop.sourceConversationId !== undefined && !waiting.has(loop.sourceConversationId)) {
+        const pending = yield* pendingLoopInput(loop);
+        waiting.set(loop.sourceConversationId, `loop ${loop.name} ${loopStatus(loop, pending)}`);
+      }
+    }
+    return waiting;
+  }).pipe(
+    Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
+    Effect.provide(makeFileRunStoreLayer()),
+    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+  );
+}
+
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
+    const waiting = yield* waitingConversations();
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
@@ -434,13 +568,22 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       return;
     }
 
-    entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    // Waiting conversations first, so the one the menu counted is the one on top.
+    entries.sort(
+      (a, b) =>
+        Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
+        new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const choices = entries.map((entry, idx) => ({
-      name: `${entry.title} · ${agentModelString(entry.agent.config)}`,
-      value: String(idx),
-    }));
+    const choices = entries.map((entry, idx) => {
+      const waitingOn = waiting.get(entry.conversationId);
+      return {
+        name: `${waitingOn !== undefined ? "● " : ""}${entry.title} · ${agentModelString(entry.agent.config)}`,
+        ...(waitingOn !== undefined ? { description: `waiting for you: ${waitingOn}` } : {}),
+        value: String(idx),
+      };
+    });
 
     const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
@@ -453,9 +596,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     // Read on demand: the picker above needs titles and dates, not transcripts, so the
     // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversation(selected.agent.id, selected.conversationId).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
-    );
+    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
 
     yield* startChatWithAgent(selected.agent, {
       initialHistory: conversation?.messages ?? [],

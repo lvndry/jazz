@@ -4,6 +4,7 @@ import {
   getVisualWidth,
   padRight,
   stripAnsiCodes,
+  terminalHyperlinksToMarkdown,
   truncateMiddle,
   truncateTailAnsiSafe,
   wrapCommaList,
@@ -127,5 +128,45 @@ describe("string-utils", () => {
       const result = truncateTailAnsiSafe(text, 3);
       expect(stripAnsiCodes(result)).toBe("cde");
     });
+  });
+});
+
+describe("terminalHyperlinksToMarkdown", () => {
+  const ESC = "\x1b";
+  const BEL = "\x07";
+  const hyperlink = (url: string, label: string, terminator = BEL): string =>
+    `${ESC}]8;;${url}${terminator}${label}${ESC}]8;;${terminator}`;
+
+  it("rewrites a hyperlink as a markdown link that keeps its target", () => {
+    const text = `see ${hyperlink("https://example.com/guide", "the guide")} now`;
+    expect(terminalHyperlinksToMarkdown(text)).toBe(
+      "see [the guide](https://example.com/guide) now",
+    );
+  });
+
+  it("accepts the ST terminator as well as BEL", () => {
+    const text = hyperlink("https://example.com", "site", `${ESC}\\`);
+    expect(terminalHyperlinksToMarkdown(text)).toBe("[site](https://example.com)");
+  });
+
+  it("keeps colour inside the label for the later strip to remove", () => {
+    const text = hyperlink("https://example.com", `${ESC}[34mblue${ESC}[39m`);
+    expect(stripAnsiCodes(terminalHyperlinksToMarkdown(text))).toBe("[blue](https://example.com)");
+  });
+
+  it("percent-encodes parentheses so the URL is not cut short", () => {
+    const text = hyperlink("https://en.wikipedia.org/wiki/Jazz_(word)", "Jazz");
+    expect(terminalHyperlinksToMarkdown(text)).toBe(
+      "[Jazz](https://en.wikipedia.org/wiki/Jazz_%28word%29)",
+    );
+  });
+
+  it("falls back to the bare label when brackets would break the markdown", () => {
+    expect(terminalHyperlinksToMarkdown(hyperlink("https://example.com", "[1]"))).toBe("[1]");
+  });
+
+  it("converts every link in a line independently", () => {
+    const text = `${hyperlink("https://a.dev", "a")} and ${hyperlink("https://b.dev", "b")}`;
+    expect(terminalHyperlinksToMarkdown(text)).toBe("[a](https://a.dev) and [b](https://b.dev)");
   });
 });

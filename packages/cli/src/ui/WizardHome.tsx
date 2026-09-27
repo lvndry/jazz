@@ -25,6 +25,7 @@ interface WizardHomeProps {
   onSelect: (value: string) => void;
   onExit: () => void;
   title?: string;
+  initialIndex?: number;
 }
 
 export const TIPS = [
@@ -106,6 +107,7 @@ export function WizardHome({
   onSelect,
   onExit,
   title,
+  initialIndex,
 }: WizardHomeProps): React.ReactElement {
   const [tipIndex, setTipIndex] = useState(0);
 
@@ -167,6 +169,7 @@ export function WizardHome({
 
         <SelectInput
           items={items}
+          {...(initialIndex === undefined ? {} : { initialIndex })}
           limit={10}
           onSelect={(item) => onSelect(item.value)}
           indicatorComponent={IndicatorComponent}

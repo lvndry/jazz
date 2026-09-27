@@ -7,7 +7,14 @@
  * secrets without each call site knowing it is handling one.
  */
 
-/** Keychain/libsecret service name under which Jazz stores its secrets. */
+import { NOTIFY_CHANNEL_SECRET_FIELDS } from "@jazz/core/types/notify";
+import { secretEnvVarSuffix } from "@jazz/core/utils/secret-env-var";
+
+/**
+ * Base Keychain/libsecret service name. Each Jazz home stores its secrets under
+ * `jazz.<home hash>` (see `keyringServiceName` in `keyring.ts`); the bare name holds only entries
+ * written before secrets were scoped per home, until the default home adopts them.
+ */
 export const KEYRING_SERVICE_NAME = "jazz";
 
 /**
@@ -28,11 +35,14 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   minimax: "MINIMAX_API_KEY",
   mistral: "MISTRAL_API_KEY",
   moonshotai: "MOONSHOT_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
   ollama: "OLLAMA_API_KEY",
   openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   orcarouter: "ORCAROUTER_API_KEY",
+  sglang: "SGLANG_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",
+  vllm: "VLLM_API_KEY",
   xai: "XAI_API_KEY",
   yolo_auto: "YOLO_AUTO_API_KEY",
   zhipuai: "ZHIPU_API_KEY",
@@ -54,9 +64,13 @@ const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
  * provider reads when jazz passes no explicit key. But Google's own docs, its CLI, and most
  * other tooling use `GEMINI_API_KEY`, so somebody who exports that has done nothing wrong and
  * should not have to discover a second name for the same secret.
+ *
+ * `NVIDIA_API_KEY` is what NVIDIA's own docs use; `NIM_API_KEY` is what the AI SDK's NIM
+ * guide exports.
  */
 export const LLM_PROVIDER_ENV_VAR_ALIASES: Readonly<Record<string, readonly string[]>> = {
   gemini: ["GEMINI_API_KEY"],
+  nvidia: ["NIM_API_KEY"],
 };
 
 /** Every environment variable that can supply this provider's key, canonical first. */
@@ -111,6 +125,13 @@ export const DAEMON_TOKEN_PATH = "daemon.token";
 /** Environment variable that overrides the daemon token stored in the keyring. */
 export const DAEMON_TOKEN_ENV_VAR = "JAZZ_DAEMON_TOKEN";
 
+/**
+ * The keyring entry holding the daemon's operator token, which HTTP policy grants need on top of
+ * the daemon token. It has no environment variable and no file fallback, and it is left out of
+ * {@link SECRET_PATHS} so it is never loaded into the app config; see `daemon/operator-token`.
+ */
+export const DAEMON_OPERATOR_TOKEN_PATH = "daemon.operatorToken";
+
 /** A peer's bearer token, e.g. `peers.sam.token`. */
 const PEER_TOKEN_PATH = /^peers\.[^.]+\.token$/;
 
@@ -127,6 +148,19 @@ export function webhookTokenPath(webhookName: string): string {
   return `webhooks.${webhookName}.token`;
 }
 
+/** A webhook's signing secret, e.g. `webhooks.github-deploy.secret`. */
+const WEBHOOK_SECRET_PATH = /^webhooks\.[^.]+\.secret$/;
+
+/** The config path holding the secret one webhook's sender signs its bodies with. */
+export function webhookSecretPath(webhookName: string): string {
+  return `webhooks.${webhookName}.secret`;
+}
+
+/** Environment variable supplying a webhook's signing secret, for hosts with no keyring. */
+export function webhookSecretEnvVar(webhookName: string): string {
+  return `JAZZ_WEBHOOK_SECRET_${secretEnvVarSuffix(webhookName)}`;
+}
+
 /**
  * Environment variable supplying a webhook's token, for hosts with no keyring.
  *
@@ -135,10 +169,6 @@ export function webhookTokenPath(webhookName: string): string {
  */
 export function webhookTokenEnvVar(webhookName: string): string {
   return `JAZZ_WEBHOOK_TOKEN_${secretEnvVarSuffix(webhookName)}`;
-}
-
-function secretEnvVarSuffix(name: string): string {
-  return name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
 /**
@@ -150,7 +180,46 @@ function secretEnvVarSuffix(name: string): string {
  * containerised jazz could not authenticate a peer at all.
  */
 export function peerTokenEnvVar(peerName: string): string {
-  return `JAZZ_PEER_TOKEN_${peerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+  return `JAZZ_PEER_TOKEN_${secretEnvVarSuffix(peerName)}`;
+}
+
+/** A notify channel's secret field, e.g. `notifications.channels.phone.botToken`. */
+const NOTIFY_CHANNEL_SECRET_PATH = new RegExp(
+  `^notifications\\.channels\\.([^.]+)\\.(${[
+    ...new Set(Object.values(NOTIFY_CHANNEL_SECRET_FIELDS).flat()),
+  ].join("|")})$`,
+);
+
+/** The config path holding one notify channel's secret field. */
+export function notifyChannelSecretPath(channel: string, field: string): string {
+  return `notifications.channels.${channel}.${field}`;
+}
+
+/**
+ * Environment variable supplying a notify channel's secret, for hosts with no keyring:
+ * `JAZZ_NOTIFY_PHONE_BOT_TOKEN` for `notifications.channels.phone.botToken`.
+ */
+export function notifyChannelSecretEnvVar(channel: string, field: string): string {
+  const fieldSuffix = field.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+  return `JAZZ_NOTIFY_${secretEnvVarSuffix(channel)}_${fieldSuffix}`;
+}
+
+/** The two maps in an MCP server definition whose values are handed to the server. */
+export type McpServerSecretField = "env" | "headers";
+
+/** An MCP server's env var or HTTP header value, e.g. `mcpServers.signoz.env.SIGNOZ_API_KEY`. */
+const MCP_SERVER_SECRET_PATH = /^mcpServers\..+\.(env|headers)\.[^.]+$/;
+
+/**
+ * The keyring account holding one env var or header value of an MCP server defined in the
+ * user's `~/.agents/mcp.json`. The file keeps the key with an empty value.
+ */
+export function mcpServerSecretPath(
+  serverName: string,
+  field: McpServerSecretField,
+  key: string,
+): string {
+  return `mcpServers.${serverName}.${field}.${key}`;
 }
 
 /** Every config path Jazz treats as a secret. */
@@ -171,6 +240,9 @@ export function isSecretPath(path: string): boolean {
   // The daemon's own bearer token authenticates operator HTTP calls the same way a peer or
   // webhook token authenticates theirs — it belongs in the keyring, not in plaintext config.
   if (path === DAEMON_TOKEN_PATH) return true;
+  if (path === DAEMON_OPERATOR_TOKEN_PATH) {
+    return true;
+  }
   // A peer's bearer token authenticates this machine to somebody else's agent. It belongs
   // in the keyring for the same reason an API key does, and the config file names the peer
   // without ever holding its credential.
@@ -179,10 +251,19 @@ export function isSecretPath(path: string): boolean {
   // the same reason a peer token does: the config file names the webhook without ever
   // holding its credential.
   if (WEBHOOK_TOKEN_PATH.test(path)) return true;
+  // A notify channel's bot token, token-bearing webhook URL or signing key authenticates Jazz
+  // to your chat or endpoint; the config file names the channel without holding them.
+  if (NOTIFY_CHANNEL_SECRET_PATH.test(path)) return true;
+  if (WEBHOOK_SECRET_PATH.test(path)) {
+    return true;
+  }
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
   if (OTLP_HEADER_PATH.test(path)) return true;
+  // Every MCP env var and header is treated as a secret: `--env` and `--header` carry API keys
+  // and bearer tokens under whatever name the server chose.
+  if (MCP_SERVER_SECRET_PATH.test(path)) return true;
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
@@ -210,5 +291,42 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
   if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
+  const channel = NOTIFY_CHANNEL_SECRET_PATH.exec(path);
+  if (channel?.[1] !== undefined && channel[2] !== undefined) {
+    return notifyChannelSecretEnvVar(channel[1], channel[2]);
+  }
+  const webhookSecret = /^webhooks\.([^.]+)\.secret$/.exec(path);
+  if (webhookSecret?.[1] !== undefined) {
+    return webhookSecretEnvVar(webhookSecret[1]);
+  }
   return SECRET_ENV_VARS[path];
+}
+
+/** What `redactSecretValues` prints in place of a secret. */
+export const REDACTED_SECRET = "<redacted>";
+
+/**
+ * A copy of a config value with every non-empty string at a secret path replaced by
+ * `REDACTED_SECRET`. `prefix` is the dotted path of `value` itself, empty for a whole config.
+ */
+export function redactSecretValues(value: unknown, prefix = ""): unknown {
+  if (typeof value === "string") {
+    return value !== "" && prefix !== "" && isSecretPath(prefix) ? REDACTED_SECRET : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => redactSecretValues(item, joinPath(prefix, String(index))));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        redactSecretValues(nested, joinPath(prefix, key)),
+      ]),
+    );
+  }
+  return value;
+}
+
+function joinPath(prefix: string, key: string): string {
+  return prefix === "" ? key : `${prefix}.${key}`;
 }

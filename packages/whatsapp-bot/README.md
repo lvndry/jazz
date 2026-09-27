@@ -74,6 +74,7 @@ Anything that can read that directory can act as the account.
 | ------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits.                |
 | `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.          |
+| `WHATSAPP_OPERATOR_NUMBERS`          | _(none)_               | Comma-separated numbers allowed to turn approvals off (`/mode yolo`). Unset: nobody can, from chat.           |
 | `WHATSAPP_REQUIRE_MENTION_IN_GROUPS` | on                     | In an allowed group, only answer when @-mentioned or replied to. Turning this off makes it answer everything. |
 | `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                             |
 | `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                                    |
@@ -88,9 +89,10 @@ Anything that can read that directory can act as the account.
 
 ## Commands
 
-Same set as the other bridges: `/new`, `/model provider/model`, `/persona name`,
-`/mode safe|yolo`, `/tz Europe/Paris`, `/status`, `/help`. A message starting
-with `/` that is not one of these goes to the agent unchanged.
+Same set as the other bridges, from the shared core: `/new`, `/model provider/model`,
+`/persona name`, `/mode safe|yolo`, `/tz Europe/Paris`, `/remind <when> <text>`,
+`/reminders`, `/status`, `/help`. A message starting with `/` that is not one of these
+goes to the agent unchanged.
 
 WhatsApp buttons are restricted to business accounts and silently degrade to
 nothing on a personal one, so approvals and questions arrive as numbered

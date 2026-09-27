@@ -5,9 +5,11 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { Agent } from "@jazz/core/types/agent";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
+import { toError } from "@jazz/core/utils/errors";
 import { getGlobalWorkflowsDirectory } from "@jazz/core/utils/paths";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { Effect } from "effect";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 
 interface WorkflowAnswers {
   name: string;
@@ -62,6 +64,10 @@ function previousStep(current: WizardStep): WizardStep | null {
 
 export function createWorkflowCommand() {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz workflow create",
+      "Run `jazz workflow create` in a terminal, or write $JAZZ_HOME/workflows/<name>/WORKFLOW.md by hand (normally ~/.jazz/workflows/). See docs/configure/workflows.md for the fields.",
+    );
     const terminal = yield* TerminalServiceTag;
     yield* terminal.heading("Create a New Workflow");
     yield* terminal.log("Let's set up a recurring task step by step.");
@@ -74,10 +80,7 @@ export function createWorkflowCommand() {
 
     const answers = yield* Effect.tryPromise({
       try: () => promptForWorkflowInfo(terminal, agents),
-      catch: (error) =>
-        new Error(
-          `Workflow creation failed: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Workflow creation failed: ${toError(error).message}`),
     });
 
     if (answers === null) {
@@ -92,10 +95,7 @@ export function createWorkflowCommand() {
 
     yield* Effect.tryPromise({
       try: () => fs.mkdir(workflowDir, { recursive: true }),
-      catch: (error) =>
-        new Error(
-          `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Failed to create directory: ${toError(error).message}`),
     });
 
     const frontmatter = buildFrontmatter(answers);
@@ -104,10 +104,7 @@ export function createWorkflowCommand() {
 
     yield* Effect.tryPromise({
       try: () => fs.writeFile(filePath, content, "utf-8"),
-      catch: (error) =>
-        new Error(
-          `Failed to write workflow: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+      catch: (error) => new Error(`Failed to write workflow: ${toError(error).message}`),
     });
 
     const workflowService = yield* WorkflowServiceTag;

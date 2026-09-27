@@ -4,71 +4,83 @@
  * This is the part every bridge repeats: serialise the chat so two messages
  * cannot start two runs, check the spend cap, make sure the conversation has an
  * agent, start the run, put approvals and questions in front of the person,
- * send the answer, record what it cost. Plus the command set — `/new`,
- * `/model`, `/persona`, `/mode`, `/tz`, `/status`, `/help` — which differs
- * between bridges only in markup, and markup is what `RichText` already
- * abstracts away.
+ * send the answer, record what it cost. The command set lives beside it in
+ * `turn-commands.ts`, and differs between bridges only in markup, which is what
+ * `RichText` already abstracts away.
+ *
+ * What a surface can do decides the shape, not which bridge it is: with buttons
+ * an approval carries Approve / Reject / Always allow and, when several are
+ * outstanding, Approve all N; the progress bubble carries ⏹ Cancel; pickers
+ * answer bare `/model`, `/persona`, `/mode` and `/reminders`. Without buttons
+ * the same prompts are numbered text answered by typing.
  *
  * What is left for a bridge is genuinely surface-specific: how messages arrive,
  * who is allowed to send them, and how text reaches the screen.
  */
 
-import { parseProviderModel } from "@jazz/core/utils/provider-model";
+import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+import { type AgentFile, ensureScopedAgentFrom, readAgentFile, writeAgentFile } from "./agent-file";
 import {
-  type AgentFile,
-  agentPath,
-  ensureScopedAgentFrom,
-  readAgentFile,
-  writeAgentFile,
-} from "./agent-file";
-import {
+  answerNotices,
   cancelledSummary,
   deliverComposition,
   doneSummary,
   failedSummary,
+  FOLLOWUP_OPTIONS,
   FOLLOWUP_PROMPT_ID,
   followupChoices,
   followupPrompt,
-  formatTokenCount,
   planCompositionDelivery,
 } from "./answer";
+import { approvalPolicyFor } from "./approval-mode-store";
 import {
-  APPROVAL_MODE_LABELS,
-  type ApprovalMode,
-  approvalModeFor,
-  approvalPolicyFor,
-  describeApprovalMode,
-  setApprovalMode,
-} from "./approval-mode-store";
-import { type ChatSandbox, ensureChatSandbox } from "./chat-sandbox";
-import { adoptIntoSandbox } from "./chat-sandbox";
-import { type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
-import { listPersonaNames } from "./personas";
+  addAutoApprovedCommand,
+  type ChatSandbox,
+  ensureChatSandbox,
+  sandboxOwnership,
+} from "./chat-sandbox";
+import { compositionLinkPath, type CompositionLinks } from "./compositions";
+import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
 import { createRunLog } from "./run-log";
-import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./session-store";
+import { conversationKey, isIncognito } from "./session-store";
 import {
   bold,
   type ChatId,
   type Choice,
   code,
+  codeBlock,
   line,
+  markdown,
   matchChoice,
+  type MessageRef,
   plainLine,
   quote,
   type RichText,
   type Surface,
 } from "./surface";
-import { isValidTimeZone, setTzForChat, tzForChat } from "./timezone-store";
+import { tzForChat } from "./timezone-store";
+import { createCommands, operatorOnlyMessage } from "./turn-commands";
 import { capBlockMessage, dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
+
+export { operatorOnlyMessage };
 
 /** The per-bridge store files, so two bridges sharing a data directory do not collide. */
 export interface TurnStoreFiles {
   readonly timezone: string;
-  readonly usage: string;
   readonly sessions: string;
   readonly mode: string;
+}
+
+/** What `onAnswered` is told about an answer that went out. */
+export interface AnsweredTurn {
+  readonly chatId: ChatId;
+  readonly senderId: SenderId;
+  readonly question: string;
+  readonly answer: string;
+  /** The message carrying the answer's follow-up choices, when the surface returned one. */
+  readonly messageRef: MessageRef | undefined;
 }
 
 export interface TurnConfig {
@@ -84,33 +96,61 @@ export interface TurnConfig {
   /** Spend ceiling in USD per day across all conversations; 0 disables it. */
   readonly dailyCostCapUsd: number;
   readonly showReasoning: boolean;
+  /**
+   * How much of the reasoning log goes out ahead of an answer: characters per part, and
+   * how many parts. A surface that collapses long quotes can afford more than one where
+   * every part is a notification.
+   */
+  readonly reasoningPartChars?: number;
+  readonly reasoningMaxParts?: number;
   readonly files: TurnStoreFiles;
+  /** Names this bridge's runs in the spend ledger ("whatsapp"); its daily cap counts only these. */
+  readonly spendOrigin: string;
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
   /**
-   * Public origin an interactive `create_composition` result is served from.
+   * Senders allowed to widen a conversation's authority: `/mode yolo`, "Always allow".
+   *
+   * An allowlist admits people to talk to the agent; it does not make each of them the
+   * owner of the operator's keys and machine. In a group anyone admitted could otherwise
+   * turn approvals off for everyone and then have the agent run a shell. Empty means
+   * nobody can from chat, and "Always allow" is not offered at all.
+   */
+  readonly operators: ReadonlySet<SenderId>;
+  /** The setting that names operators, for the refusal a non-operator sees. */
+  readonly operatorSettingName: string;
+  /**
+   * Where interactive `create_composition` results are published: the public origin the
+   * bridge serves them from and the store of opaque ids its links carry.
    *
    * Undefined disables the interactive mode; the static one is an image and
    * needs no origin.
    */
-  readonly publicBaseUrl?: string;
+  readonly compositionServer?: {
+    readonly publicBaseUrl: string;
+    readonly links: CompositionLinks;
+  };
   /** The setting to name when an interactive web app has nowhere to be served from. */
   readonly publicUrlSettingName?: string;
   /** Extra help lines describing anything the bridge adds on top. */
   readonly extraHelp?: readonly string[];
+  /** A line under `/tz` for another way this surface sets the zone (a shared location). */
+  readonly extraTzHelp?: string;
   /**
    * Conversations flagged incognito run `--ephemeral`, keeping their transcript
    * in this process's memory and off disk. Unset disables the feature.
    */
   readonly incognitoFile?: string;
   /**
-   * Called whenever the set of prompts waiting on a person changes.
-   *
-   * A surface with buttons shows a batch control ("Approve all 3") whose count
-   * has to track reality as requests arrive and are answered, and only the
-   * bridge knows which messages it drew.
+   * Called whenever the set of prompts waiting on a person changes, for a bridge that
+   * shows them somewhere of its own.
    */
   readonly onPendingChange?: (chatId: ChatId, outstanding: readonly PendingSummary[]) => void;
+  /**
+   * Called after an answer went out, for a bridge that follows it up (contextual
+   * suggestions under it, say). Errors are logged, never shown.
+   */
+  readonly onAnswered?: (turn: AnsweredTurn) => Promise<void>;
   /**
    * How a turn is actually run. Defaults to spawning `jazz run`.
    *
@@ -122,20 +162,75 @@ export interface TurnConfig {
   readonly startRun?: typeof startJazzRun;
 }
 
-/** The choice id an approval prompt uses for "yes"; the bridge routes on it too. */
-export const APPROVE_CHOICE_ID = "approve";
-export const REJECT_CHOICE_ID = "reject";
+/** Who sent a message, in the surface's own id space (a user id, a phone number, a handle). */
+export type SenderId = string;
+
+/** One message from a person, as a bridge hands it to the runner. */
+export interface InboundMessage {
+  readonly chatId: ChatId;
+  readonly senderId: SenderId;
+  readonly text: string;
+  /** The message this one follows up (a tapped suggestion), to thread the reply under. */
+  readonly replyTo?: MessageRef | undefined;
+}
+
+/** A tap on a choice, as a bridge resolved it from the button's payload. */
+export interface ChoiceTap {
+  readonly chatId: ChatId;
+  readonly promptId: string;
+  readonly choiceId: string;
+  readonly senderId: SenderId;
+  /** The message the choice was drawn under, when the surface can address it again. */
+  readonly messageRef?: MessageRef | undefined;
+}
 
 /**
- * A prompt the person is expected to answer next on a surface with no buttons.
+ * What became of an answer to a prompt.
  *
- * Their reply is offered to this before it is treated as a new question, and
- * `matchChoice` returning undefined is what lets an unrelated message fall
- * through to the agent instead of being swallowed as a mis-read decision.
+ * `not-requester` is someone else in the conversation answering: a prompt belongs to the
+ * person whose message started the run, since it is their request the agent is asking about.
+ * `not-operator` is a choice only an operator may make.
  */
-type PendingPrompt =
-  | { readonly kind: "approval"; readonly toolCallId: string; readonly choices: readonly Choice[] }
-  | { readonly kind: "question"; readonly requestId: string; readonly choices: readonly Choice[] };
+export type ChoiceOutcome = "answered" | "expired" | "not-requester" | "not-operator";
+
+export type CancelOutcome = "cancelled" | "idle" | "not-requester";
+
+/** The choice ids an approval prompt uses; the numbering on a text surface follows this order. */
+export const APPROVE_CHOICE_ID = "approve";
+export const REJECT_CHOICE_ID = "reject";
+export const ALWAYS_ALLOW_CHOICE_ID = "always";
+export const APPROVE_ALL_CHOICE_ID = "approve-all";
+export const REJECT_ALL_CHOICE_ID = "reject-all";
+
+/** What the ⏹ Cancel button under the progress display answers. */
+export const CANCEL_PROMPT_ID = "run:cancel";
+const CANCEL_CHOICE: Choice = { id: "cancel", label: "⏹ Cancel", intent: "danger" };
+
+/**
+ * A prompt waiting on the person. Button surfaces address it by id; a typed reply is
+ * offered to the newest one, and `matchChoice` returning undefined is what lets an
+ * unrelated message fall through to the agent instead of being swallowed as a decision.
+ */
+interface PendingApproval {
+  readonly kind: "approval";
+  readonly toolCallId: string;
+  /** Approve, Reject and, when offered, Always allow: the batch buttons are added per render. */
+  readonly choices: readonly Choice[];
+  /** The approval key "Always allow" persists, when this is a command that has one. */
+  readonly commandKey: string | undefined;
+  messageRef?: MessageRef | undefined;
+  /** The outstanding count this prompt's buttons currently show. */
+  shownCount: number;
+}
+
+interface PendingQuestion {
+  readonly kind: "question";
+  readonly requestId: string;
+  readonly choices: readonly Choice[];
+  messageRef?: MessageRef | undefined;
+}
+
+type PendingPrompt = PendingApproval | PendingQuestion;
 
 /** What a bridge needs to re-render its outstanding prompts. */
 export interface PendingSummary {
@@ -157,6 +252,8 @@ interface ChatState {
    */
   busy: boolean;
   run?: JazzRun | undefined;
+  /** Whose message started the run in flight; only they answer its prompts. */
+  requester?: SenderId | undefined;
   /**
    * Prompts waiting on the person, keyed by the id the agent minted.
    *
@@ -167,7 +264,7 @@ interface ChatState {
    */
   readonly pending: Map<string, PendingPrompt>;
   /** Messages that arrived mid-turn, answered in order once it finishes. */
-  readonly queue: string[];
+  readonly queue: InboundMessage[];
 }
 
 /**
@@ -179,9 +276,40 @@ interface ChatState {
  */
 const incognitoHistory = new Map<ChatId, unknown[]>();
 
-/** How much reasoning to send ahead of an answer, when a bridge asks for it. */
+/** How much reasoning to send ahead of an answer, when a bridge does not say. */
 const REASONING_PART_CHARS = 1_500;
 const REASONING_MAX_PARTS = 2;
+
+/** An execute_command approval's message names the command between these two labels. */
+const APPROVAL_COMMAND_PATTERN = /^Command: ([\s\S]*?)\nDescription: /m;
+const APPROVAL_COMMAND_LINE = /^Command: (.+)$/m;
+
+/**
+ * What "Always allow" can persist for an approval.
+ *
+ * `key` is the approval key the executor's allowlist matches against, from the same
+ * `extractCommandApprovalKey`, so what is saved is exactly what a later run compares.
+ * `unallowable` is a shell command with no key (one that chains or redirects), which must
+ * never be allowlisted. Undefined is an approval that is not a shell command at all.
+ */
+export type AlwaysAllowKey =
+  { readonly kind: "key"; readonly key: string } | { readonly kind: "unallowable" };
+
+export function commandKeyFromApproval(event: JazzEvent): AlwaysAllowKey | undefined {
+  if (event.toolName !== "execute_command" || event.message === undefined) return undefined;
+  const command =
+    APPROVAL_COMMAND_PATTERN.exec(event.message)?.[1] ??
+    APPROVAL_COMMAND_LINE.exec(event.message)?.[1];
+  if (command === undefined || command.trim().length === 0) return undefined;
+  // Undefined for a command the tokenizer refuses to key: it chains, substitutes or redirects.
+  const key = extractCommandApprovalKey(command);
+  return key === undefined || key.trim().length === 0
+    ? { kind: "unallowable" }
+    : { kind: "key", key };
+}
+
+/** Said under an approval whose command cannot be always-allowed. */
+const UNALLOWABLE_COMMAND_NOTE = "This command can't be always-allowed: it chains or redirects.";
 
 export interface TurnRunner {
   /**
@@ -189,15 +317,16 @@ export interface TurnRunner {
    *
    * Safe to call concurrently: messages for the same conversation are queued
    * and answered in order, and a message arriving while the agent is blocked on
-   * a prompt is offered to that prompt first.
+   * a prompt is offered to that prompt first when its sender is the requester.
    */
-  handle(chatId: ChatId, prompt: string): Promise<void>;
+  handle(message: InboundMessage): Promise<void>;
   /**
-   * Answer one outstanding prompt by id — a button tap rather than a typed
-   * reply. Returns false when that prompt is gone, which is what a second tap
-   * on a stale keyboard looks like.
+   * Answer a tap on a choice: an approval or question the agent is parked on, the
+   * batch buttons, ⏹ Cancel, a follow-up, or a picker a command drew. `expired` is what
+   * a second tap on a stale keyboard looks like. A tap that starts a new turn (a
+   * follow-up) resolves as soon as the turn is under way.
    */
-  deliverChoice(chatId: ChatId, promptId: string, choiceId: string): Promise<boolean>;
+  deliverChoice(tap: ChoiceTap): Promise<ChoiceOutcome>;
   /**
    * Answer every outstanding approval at once.
    *
@@ -205,9 +334,23 @@ export interface TurnRunner {
    * through all of them is the common case. Questions are left alone: they have
    * their own answers and there is no blanket one.
    */
-  deliverAllApprovals(chatId: ChatId, approved: boolean): Promise<number>;
-  /** Kill the in-flight run. Returns false when there was nothing running. */
-  cancel(chatId: ChatId): boolean;
+  deliverAllApprovals(
+    chatId: ChatId,
+    approved: boolean,
+    senderId: SenderId,
+  ): Promise<{ readonly outcome: ChoiceOutcome; readonly count: number }>;
+  /**
+   * Kill the in-flight run. The requester or an operator may; `senderId` undefined is the
+   * bridge itself (shutting down).
+   */
+  cancel(chatId: ChatId, senderId: SenderId | undefined): CancelOutcome;
+  /**
+   * Whether `senderId` has a prompt waiting that a typed reply answers.
+   *
+   * A group that only admits messages addressed to the bot has to let the requester's plain
+   * "1" through, or their approval waits for a timeout.
+   */
+  awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean;
   /** Deliver a message the bridge originated, e.g. a reminder. */
   send(chatId: ChatId, body: RichText): Promise<void>;
   /** Whether a run is in flight, for a bridge that wants to show it. */
@@ -217,6 +360,10 @@ export interface TurnRunner {
 export function createTurnRunner(config: TurnConfig): TurnRunner {
   const { surface } = config;
   const states = new Map<ChatId, ChatState>();
+  const startedAt = Date.now();
+  const buttons = surface.capabilities.buttons;
+  const canRedrawChoices =
+    buttons && surface.capabilities.editMessages && surface.setChoices !== undefined;
 
   const stateFor = (chatId: ChatId): ChatState => {
     const existing = states.get(chatId);
@@ -233,42 +380,118 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const sandboxFor = (chatId: ChatId): ChatSandbox =>
     ensureChatSandbox(config.jazzHome, config.agentIdFor(chatId));
 
-  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile => {
-    const agent = ensureScopedAgentFrom(
+  const ensureAgent = (chatId: ChatId, sandbox: ChatSandbox): AgentFile =>
+    ensureScopedAgentFrom(
       config.jazzHome,
       sandbox.home,
       config.agentIdFor(chatId),
       config.baseAgentId,
+      sandboxOwnership(sandbox),
     );
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
-    return agent;
-  };
 
   const writeAgent = (sandbox: ChatSandbox, agent: AgentFile): void => {
-    writeAgentFile(sandbox.home, agent);
-    adoptIntoSandbox(sandbox, agentPath(sandbox.home, agent.id));
+    writeAgentFile(sandbox.home, agent, sandboxOwnership(sandbox));
+  };
+
+  /** Publish a conversation's interactive app, when this bridge serves them. */
+  const publishFor = (chatId: ChatId) => {
+    const server = config.compositionServer;
+    if (server === undefined) return undefined;
+    return (composition: JazzComposition): string | undefined => {
+      const id = server.links.publish(config.agentIdFor(chatId), composition);
+      return id === undefined ? undefined : `${server.publicBaseUrl}${compositionLinkPath(id)}`;
+    };
+  };
+
+  /** Replace the buttons under a sent message, where the surface can; failures are cosmetic. */
+  const redrawChoices = async (
+    chatId: ChatId,
+    ref: MessageRef | undefined,
+    choices: readonly Choice[],
+    id?: string,
+  ): Promise<void> => {
+    if (!canRedrawChoices || ref === undefined) return;
+    await surface.setChoices?.(chatId, ref, choices, id).catch((error: unknown) => {
+      console.error(`Failed to update the buttons on ${surface.name}: ${String(error)}`);
+    });
   };
 
   // --- Prompts the person answers -----------------------------------------
+
+  const outstandingApprovals = (chatId: ChatId): PendingApproval[] =>
+    [...stateFor(chatId).pending.values()].filter(
+      (pending): pending is PendingApproval => pending.kind === "approval",
+    );
+
+  /** An approval's buttons for a given outstanding count: the batch pair joins past one. */
+  const approvalChoices = (pending: PendingApproval, outstanding: number): readonly Choice[] =>
+    buttons && outstanding > 1
+      ? [
+          ...pending.choices,
+          { id: APPROVE_ALL_CHOICE_ID, label: `⚡ Approve all ${outstanding}`, intent: "primary" },
+          { id: REJECT_ALL_CHOICE_ID, label: `🚫 Reject all ${outstanding}`, intent: "danger" },
+        ]
+      : pending.choices;
+
+  /**
+   * Bring every outstanding approval's batch count up to date. Approval events arrive
+   * concurrently, so a prompt can be drawn with a count that is already stale; `shownCount`
+   * is what tells which ones genuinely need redrawing.
+   */
+  const refreshApprovalChoices = async (chatId: ChatId): Promise<void> => {
+    const outstanding = outstandingApprovals(chatId);
+    for (const pending of outstanding) {
+      if (pending.shownCount === outstanding.length || pending.messageRef === undefined) continue;
+      pending.shownCount = outstanding.length;
+      await redrawChoices(
+        chatId,
+        pending.messageRef,
+        approvalChoices(pending, outstanding.length),
+        pending.toolCallId,
+      );
+    }
+  };
 
   const announceApproval = async (chatId: ChatId, event: JazzEvent): Promise<void> => {
     const toolCallId = event.toolCallId;
     if (toolCallId === undefined) return;
 
+    // Offered only where somebody can use it: "Always allow" is operator-only.
+    const alwaysAllow = config.operators.size > 0 ? commandKeyFromApproval(event) : undefined;
+    const commandKey = alwaysAllow?.kind === "key" ? alwaysAllow.key : undefined;
     const choices: readonly Choice[] = [
-      { id: APPROVE_CHOICE_ID, label: "Approve", intent: "primary" },
-      { id: REJECT_CHOICE_ID, label: "Reject", intent: "danger" },
+      { id: APPROVE_CHOICE_ID, label: "✅ Approve", intent: "primary" },
+      { id: REJECT_CHOICE_ID, label: "❌ Reject", intent: "danger" },
+      ...(commandKey === undefined
+        ? []
+        : [{ id: ALWAYS_ALLOW_CHOICE_ID, label: `♾️ Always allow "${commandKey}"` }]),
     ];
     const body: RichText = [
       line(bold("⚠️ Approval needed")),
       line(code(event.toolName ?? "tool")),
       ...(event.message ? [plainLine(event.message)] : []),
-      ...(event.previewDiff ? [plainLine(event.previewDiff)] : []),
+      ...(event.previewDiff ? [codeBlock(event.previewDiff, "diff")] : []),
+      ...(alwaysAllow?.kind === "unallowable" ? [plainLine(UNALLOWABLE_COMMAND_NOTE)] : []),
     ];
 
     const state = stateFor(chatId);
-    state.pending.set(toolCallId, { kind: "approval", toolCallId, choices });
-    await surface.send(chatId, { body, choices, promptId: toolCallId });
+    const pending: PendingApproval = {
+      kind: "approval",
+      toolCallId,
+      choices,
+      commandKey,
+      shownCount: 0,
+    };
+    state.pending.set(toolCallId, pending);
+    // Counted after joining, so the keyboard drawn now already includes this one.
+    const outstanding = outstandingApprovals(chatId).length;
+    pending.shownCount = outstanding;
+    pending.messageRef = await surface.send(chatId, {
+      body,
+      choices: approvalChoices(pending, outstanding),
+      promptId: toolCallId,
+    });
+    await refreshApprovalChoices(chatId);
     notifyPendingChange(chatId);
   };
 
@@ -292,8 +515,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         ),
     ];
 
-    stateFor(chatId).pending.set(requestId, { kind: "question", requestId, choices });
-    await surface.send(chatId, {
+    const pending: PendingQuestion = { kind: "question", requestId, choices };
+    stateFor(chatId).pending.set(requestId, pending);
+    pending.messageRef = await surface.send(chatId, {
       body,
       // With no suggestions there is nothing to number: the person answers in
       // their own words and their next message is forwarded verbatim.
@@ -319,12 +543,24 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const state = stateFor(chatId);
     state.pending.delete(promptId(pending));
     if (pending.kind === "approval") {
-      await state.run?.approve([
-        { toolCallId: pending.toolCallId, approved: choiceId === APPROVE_CHOICE_ID },
-      ]);
+      const approved = choiceId === APPROVE_CHOICE_ID || choiceId === ALWAYS_ALLOW_CHOICE_ID;
+      await state.run?.approve([{ toolCallId: pending.toolCallId, approved }]);
+      if (choiceId === ALWAYS_ALLOW_CHOICE_ID && pending.commandKey !== undefined) {
+        try {
+          addAutoApprovedCommand(sandboxFor(chatId), pending.commandKey);
+          await send(chatId, [
+            line(bold("♾️ Always allowed: "), code(pending.commandKey)),
+            plainLine("This conversation runs it without asking from now on."),
+          ]);
+        } catch (error) {
+          console.error(`Failed to persist an always-allowed command: ${String(error)}`);
+        }
+      }
     } else {
       await state.run?.answerQuestion(pending.requestId, choiceId);
     }
+    await redrawChoices(chatId, pending.messageRef, []);
+    await refreshApprovalChoices(chatId);
     notifyPendingChange(chatId);
   };
 
@@ -336,10 +572,14 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
    * approve the wrong tool — so the rest wait for a surface that can address
    * them explicitly, or for their turn.
    */
-  const resolveTypedReply = async (chatId: ChatId, reply: string): Promise<boolean> => {
+  const resolveTypedReply = async (message: InboundMessage): Promise<boolean> => {
+    const { chatId, senderId, text: reply } = message;
     const state = stateFor(chatId);
     const pending = [...state.pending.values()].at(-1);
     if (pending === undefined || state.run === undefined) return false;
+    // Someone else in a group saying "1" is conversation, not a decision about
+    // another person's request.
+    if (state.requester !== senderId) return false;
 
     // A free-text question has no options, so whatever they say next is it.
     if (pending.kind === "question" && pending.choices.length === 0) {
@@ -349,15 +589,34 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
     const choice = matchChoice(pending.choices, reply);
     if (choice === undefined) return false;
+    if (choice.id === ALWAYS_ALLOW_CHOICE_ID && !config.operators.has(senderId)) {
+      await send(
+        chatId,
+        operatorOnlyMessage(senderId, "Always allowing a command", config.operatorSettingName),
+      );
+      return true;
+    }
     await settle(chatId, pending, choice.id);
     return true;
   };
 
+  /** Drop the buttons of prompts nothing will read any more. */
+  const expirePending = async (chatId: ChatId): Promise<void> => {
+    const state = stateFor(chatId);
+    const expired = [...state.pending.values()];
+    state.pending.clear();
+    for (const pending of expired) {
+      await redrawChoices(chatId, pending.messageRef, []);
+    }
+    notifyPendingChange(chatId);
+  };
+
   // --- The run -------------------------------------------------------------
 
-  const answer = async (chatId: ChatId, prompt: string): Promise<void> => {
+  const answer = async (message: InboundMessage): Promise<void> => {
+    const { chatId, text: prompt } = message;
     const capBlock = dailyCostCapBlockReason(
-      todayUsage(config.jazzHome, config.files.usage),
+      await todayUsage(config.jazzHome, config.spendOrigin),
       config.dailyCostCapUsd,
     );
     if (capBlock !== undefined) {
@@ -378,12 +637,19 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       config.incognitoFile !== undefined &&
       isIncognito(config.jazzHome, config.incognitoFile, chatId);
     const runLog = createRunLog(sandbox.home, conversation);
-    const reporter = createProgressReporter({ surface, chatId, runLog });
+    const reporter = createProgressReporter({
+      surface,
+      chatId,
+      runLog,
+      ...(buttons ? { cancelChoice: CANCEL_CHOICE, cancelPromptId: CANCEL_PROMPT_ID } : {}),
+      replyTo: message.replyTo,
+    });
     await reporter.start();
 
     const run = (config.startRun ?? startJazzRun)(
       {
         jazzBinary: config.jazzBinary,
+        surface: surface.name,
         agentId: config.agentIdFor(chatId),
         sandbox,
         approvalPolicy: approvalPolicyFor(
@@ -415,14 +681,21 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       },
     );
     state.run = run;
+    state.requester = message.senderId;
 
     const envelope = await run.result;
     state.run = undefined;
+    state.requester = undefined;
     // Prompts still outstanding when the run ends are ones nothing will ever
     // read, and leaving them would eat the person's next message.
-    state.pending.clear();
-    notifyPendingChange(chatId);
-    runLog.finish(envelope);
+    await expirePending(chatId);
+    runLog.finish({
+      ok: envelope.ok,
+      cancelled: run.cancelled(),
+      rounds: reporter.rounds(),
+      toolsUsed: reporter.toolsUsed(),
+      ...(envelope.ok ? {} : { error: envelope.error }),
+    });
 
     if (!envelope.ok) {
       const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
@@ -435,21 +708,20 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // context-free rather than resurrecting a stale transcript.
     if (incognito) incognitoHistory.set(chatId, envelope.messages ?? []);
 
-    recordUsage(
-      config.jazzHome,
-      config.files.usage,
-      envelope.costUSD,
-      envelope.tokenUsage?.totalTokens ?? 0,
-      envelope.costKnown !== false,
-    );
+    await recordUsage(config.jazzHome, config.spendOrigin, {
+      agentId: config.agentIdFor(chatId),
+      costUSD: envelope.costUSD,
+      tokens: envelope.tokenUsage?.totalTokens ?? 0,
+      costKnown: envelope.costKnown !== false,
+    });
 
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);
 
     if (config.showReasoning) {
       const parts = splitReasoning(reporter.reasoningLog(), {
-        budget: REASONING_PART_CHARS,
-        maxParts: REASONING_MAX_PARTS,
+        budget: config.reasoningPartChars ?? REASONING_PART_CHARS,
+        maxParts: config.reasoningMaxParts ?? REASONING_MAX_PARTS,
       });
       for (const [index, part] of parts.entries()) {
         const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
@@ -462,9 +734,10 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       }
     }
 
-    await surface.send(chatId, {
+    const answerRef = await surface.send(chatId, {
       body: [
-        plainLine(envelope.answer),
+        markdown(envelope.answer),
+        ...answerNotices(envelope).flatMap((notice) => [plainLine(""), plainLine(notice)]),
         // Where the progress display could not show it — an append-only surface
         // has no bubble to close — the summary rides under the answer rather
         // than costing its own notification.
@@ -475,292 +748,166 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       choices: followupChoices(),
       choiceKind: "suggestion",
       promptId: FOLLOWUP_PROMPT_ID,
+      ...(message.replyTo === undefined ? {} : { replyTo: message.replyTo }),
     });
+
+    if (config.onAnswered !== undefined) {
+      void config
+        .onAnswered({
+          chatId,
+          senderId: message.senderId,
+          question: prompt,
+          answer: envelope.answer,
+          messageRef: answerRef,
+        })
+        .catch((error: unknown) =>
+          console.error(`Following up an answer on ${surface.name} failed: ${String(error)}`),
+        );
+    }
 
     if (envelope.composition !== undefined) {
       await deliverComposition(
         surface,
         chatId,
-        planCompositionDelivery(
-          envelope.composition,
-          config.publicBaseUrl,
-          config.publicUrlSettingName ?? "the public URL setting",
-        ),
+        planCompositionDelivery(envelope.composition, {
+          home: sandbox.home,
+          publish: publishFor(chatId),
+          publicUrlSettingName: config.publicUrlSettingName ?? "the public URL setting",
+        }),
       );
     }
   };
 
-  // --- Commands ------------------------------------------------------------
+  const commands = createCommands({
+    config,
+    startedAt,
+    sandboxFor,
+    ensureAgent,
+    writeAgent,
+    forgetIncognitoHistory: (chatId) => {
+      incognitoHistory.delete(chatId);
+    },
+    runTurn: (message) => answer(message),
+    send: async (chatId, body, choices) => {
+      await surface.send(
+        chatId,
+        choices === undefined
+          ? { body }
+          : { body, choices: choices.choices, promptId: choices.promptId },
+      );
+    },
+  });
 
-  /**
-   * Surfaces without markup render the mode wording with its marks dropped
-   * rather than showing literal asterisks or backticks.
-   */
-  const markup = { bold: (value: string) => value, code: (value: string) => value };
-
-  const help = (): RichText => [
-    line(bold("Jazz")),
-    plainLine("Just write normally — every message runs the agent."),
-    plainLine(""),
-    plainLine("/new — fresh conversation (keeps model and persona)"),
-    plainLine("/model provider/model — switch this chat's model"),
-    plainLine("/persona name — switch this chat's persona"),
-    plainLine("/mode safe|yolo — whether risky tools stop to ask"),
-    plainLine("/tz Europe/Paris — timezone reminders resolve in"),
-    plainLine("/status — model, mode, timezone, today's usage"),
-    ...(config.incognitoFile === undefined
-      ? []
-      : [plainLine("/incognito — keep this conversation in memory only")]),
-    plainLine("/help — this message"),
-    ...(config.extraHelp ?? []).map((extra) => plainLine(extra)),
-    plainLine(""),
-    ...(surface.capabilities.buttons
-      ? []
-      : [plainLine("When the agent asks something, reply with the option's number.")]),
-  ];
-
-  const handleStatus = async (chatId: ChatId): Promise<void> => {
-    const sandbox = sandboxFor(chatId);
-    const agent = ensureAgent(chatId, sandbox);
-    const usage = todayUsage(config.jazzHome, config.files.usage);
-    const mode = approvalModeFor(config.jazzHome, config.files.mode, chatId);
-
-    await send(chatId, [
-      line(bold("Status")),
-      plainLine(`Model: ${agent.config.llmProvider}/${agent.config.llmModel}`),
-      plainLine(`Persona: ${agent.config.persona}`),
-      plainLine(`Mode: ${APPROVAL_MODE_LABELS[mode]}`),
-      plainLine(`Timezone: ${tzForChat(config.jazzHome, config.files.timezone, chatId)}`),
-      plainLine(
-        `Today: ${usage.runs} run${usage.runs === 1 ? "" : "s"} · ` +
-          `${formatTokenCount(usage.tokens)} tokens · $${usage.costUSD.toFixed(4)}` +
-          (config.dailyCostCapUsd > 0 ? ` of $${config.dailyCostCapUsd.toFixed(2)}` : ""),
-      ),
-    ]);
+  const cancel = (chatId: ChatId, senderId: SenderId | undefined): CancelOutcome => {
+    const state = stateFor(chatId);
+    if (state.run === undefined) return "idle";
+    if (senderId !== undefined && state.requester !== senderId && !config.operators.has(senderId)) {
+      return "not-requester";
+    }
+    state.run.cancel();
+    // The queue goes too: those messages were sent expecting the answer this
+    // run was about to give, and replaying them against a cancelled turn is
+    // not what anyone asking to stop meant.
+    state.queue.length = 0;
+    return "cancelled";
   };
 
-  const handleModel = async (chatId: ChatId, args: string): Promise<void> => {
-    const sandbox = sandboxFor(chatId);
-    const agent = ensureAgent(chatId, sandbox);
-
-    if (args.length === 0) {
-      await send(chatId, [
-        plainLine(`Current model: ${agent.config.llmProvider}/${agent.config.llmModel}`),
-        plainLine("Switch with /model provider/model, e.g. /model anthropic/claude-sonnet-5"),
-      ]);
-      return;
+  const deliverAllApprovals = async (
+    chatId: ChatId,
+    approved: boolean,
+    senderId: SenderId,
+  ): Promise<{ readonly outcome: ChoiceOutcome; readonly count: number }> => {
+    const state = stateFor(chatId);
+    const approvals = outstandingApprovals(chatId);
+    if (approvals.length === 0 || state.run === undefined) {
+      return { outcome: "expired", count: 0 };
     }
+    if (state.requester !== senderId) return { outcome: "not-requester", count: 0 };
 
-    const parsed = parseProviderModel(args);
-    if (parsed === null) {
-      await send(chatId, [
-        plainLine(`Could not read "${args}" as provider/model.`),
-        plainLine("Try /model anthropic/claude-sonnet-5"),
-      ]);
-      return;
-    }
-
-    agent.config.llmProvider = parsed.provider;
-    agent.config.llmModel = parsed.model;
-    writeAgent(sandbox, agent);
-    await send(chatId, [plainLine(`✅ Model → ${parsed.provider}/${parsed.model}`)]);
-  };
-
-  const handlePersona = async (chatId: ChatId, args: string): Promise<void> => {
-    const sandbox = sandboxFor(chatId);
-    const agent = ensureAgent(chatId, sandbox);
-    const available = await listPersonaNames(sandbox.home, config.builtinPersonasDir);
-
-    if (args.length === 0) {
-      await send(chatId, [
-        plainLine(`Current persona: ${agent.config.persona}`),
-        plainLine(`Available: ${available.join(", ")}`),
-      ]);
-      return;
-    }
-    if (!available.includes(args)) {
-      await send(chatId, [
-        plainLine(`No persona called "${args}".`),
-        plainLine(`Available: ${available.join(", ")}`),
-      ]);
-      return;
-    }
-
-    agent.config.persona = args;
-    writeAgent(sandbox, agent);
-    await send(chatId, [plainLine(`✅ Persona → ${args}`)]);
-  };
-
-  const handleMode = async (chatId: ChatId, args: string): Promise<void> => {
-    const requested = args.toLowerCase();
-    if (requested !== "safe" && requested !== "yolo") {
-      const current = approvalModeFor(config.jazzHome, config.files.mode, chatId);
-      await send(chatId, [
-        plainLine(`Mode: ${APPROVAL_MODE_LABELS[current]}`),
-        plainLine(describeApprovalMode(current, config.approvalPolicy, markup)),
-        plainLine("Set it with /mode safe or /mode yolo."),
-      ]);
-      return;
-    }
-
-    const mode: ApprovalMode = requested;
-    setApprovalMode(config.jazzHome, config.files.mode, chatId, mode);
-    await send(chatId, [
-      plainLine(`✅ Mode → ${APPROVAL_MODE_LABELS[mode]}`),
-      plainLine(describeApprovalMode(mode, config.approvalPolicy, markup)),
-    ]);
-  };
-
-  const handleTz = async (chatId: ChatId, args: string): Promise<void> => {
-    if (args.length === 0) {
-      await send(chatId, [
-        plainLine(`Timezone: ${tzForChat(config.jazzHome, config.files.timezone, chatId)}`),
-        plainLine("Set it with /tz Europe/Paris"),
-      ]);
-      return;
-    }
-    if (!isValidTimeZone(args)) {
-      await send(chatId, [plainLine(`"${args}" is not an IANA timezone. Try /tz Europe/Paris`)]);
-      return;
-    }
-    setTzForChat(config.jazzHome, config.files.timezone, chatId, args);
-    await send(chatId, [plainLine(`✅ Timezone → ${args}`)]);
-  };
-
-  const handleIncognito = async (chatId: ChatId): Promise<void> => {
-    if (config.incognitoFile === undefined) {
-      await send(chatId, [plainLine("Incognito is not available on this bridge.")]);
-      return;
-    }
-    const next = !isIncognito(config.jazzHome, config.incognitoFile, chatId);
-    setIncognito(config.jazzHome, config.incognitoFile, chatId, next);
-    incognitoHistory.delete(chatId);
-    await send(
-      chatId,
-      next
-        ? [
-            line(bold("🕶️ Incognito on")),
-            plainLine(
-              "This conversation is kept in memory only and is gone when the bridge restarts.",
-            ),
-          ]
-        : [plainLine("✅ Incognito off. This conversation is saved again.")],
+    for (const pending of approvals) state.pending.delete(pending.toolCallId);
+    await state.run.approve(
+      approvals.map((pending) => ({ toolCallId: pending.toolCallId, approved })),
     );
-  };
-
-  /** Returns whether the text was a command and has been dealt with. */
-  const handleCommand = async (chatId: ChatId, body: string): Promise<boolean> => {
-    if (!body.startsWith("/")) return false;
-    const [rawCommand, ...rest] = body.slice(1).split(/\s+/);
-    const command = (rawCommand ?? "").toLowerCase();
-    const args = rest.join(" ").trim();
-
-    switch (command) {
-      case "help":
-        await send(chatId, help());
-        return true;
-      case "new":
-      case "reset":
-        startNewConversation(config.jazzHome, config.files.sessions, chatId);
-        // Also leaves incognito: "start fresh" reads as returning to normal,
-        // and a mode that silently outlived a reset would be one nobody
-        // remembers turning on.
-        if (config.incognitoFile !== undefined) {
-          setIncognito(config.jazzHome, config.incognitoFile, chatId, false);
-          incognitoHistory.delete(chatId);
-        }
-        await send(chatId, [plainLine("🆕 Fresh conversation. Model and persona are unchanged.")]);
-        return true;
-      case "incognito":
-        await handleIncognito(chatId);
-        return true;
-      case "status":
-        await handleStatus(chatId);
-        return true;
-      case "model":
-        await handleModel(chatId, args);
-        return true;
-      case "persona":
-        await handlePersona(chatId, args);
-        return true;
-      case "mode":
-        await handleMode(chatId, args);
-        return true;
-      case "tz":
-        await handleTz(chatId, args);
-        return true;
-      default:
-        // Not one of ours: let it through as an ordinary message. A person can
-        // legitimately begin a sentence with a slash and should get an answer
-        // rather than a lecture about commands.
-        return false;
+    for (const pending of approvals) {
+      await redrawChoices(chatId, pending.messageRef, []);
     }
+    notifyPendingChange(chatId);
+    return { outcome: "answered", count: approvals.length };
   };
 
-  return {
+  const runner: TurnRunner = {
     busy: (chatId) => stateFor(chatId).busy,
     send,
+    cancel,
+    deliverAllApprovals,
 
-    async deliverChoice(chatId: ChatId, id: string, choiceId: string): Promise<boolean> {
+    async deliverChoice(tap: ChoiceTap): Promise<ChoiceOutcome> {
+      const { chatId, choiceId, senderId } = tap;
+
       // A follow-up is not something the agent is waiting on: it is a new turn
       // whose prompt happens to have been chosen by tapping rather than typed.
-      if (id === FOLLOWUP_PROMPT_ID) {
+      if (tap.promptId === FOLLOWUP_PROMPT_ID) {
         const prompt = followupPrompt(choiceId);
-        if (prompt === undefined) return false;
-        await this.handle(chatId, prompt);
-        return true;
+        const label = FOLLOWUP_OPTIONS[choiceId]?.label;
+        if (prompt === undefined || label === undefined) return "expired";
+        await redrawChoices(chatId, tap.messageRef, []);
+        await surface.send(chatId, {
+          body: [plainLine(label)],
+          ...(tap.messageRef === undefined ? {} : { replyTo: tap.messageRef }),
+        });
+        void runner
+          .handle({ chatId, senderId, text: prompt, replyTo: tap.messageRef })
+          .catch((error: unknown) =>
+            console.error(`A follow-up on ${surface.name} failed: ${String(error)}`),
+          );
+        return "answered";
       }
 
+      if (tap.promptId === CANCEL_PROMPT_ID) {
+        const outcome = cancel(chatId, senderId);
+        return outcome === "cancelled" ? "answered" : outcome === "idle" ? "expired" : outcome;
+      }
+
+      if (commands.owns(tap.promptId)) return commands.handleChoice(tap);
+
       const state = stateFor(chatId);
-      const pending = state.pending.get(id);
-      if (pending === undefined || state.run === undefined) return false;
+      const pending = state.pending.get(tap.promptId);
+      if (pending === undefined || state.run === undefined) return "expired";
+      if (state.requester !== senderId) return "not-requester";
+
+      if (
+        pending.kind === "approval" &&
+        (choiceId === APPROVE_ALL_CHOICE_ID || choiceId === REJECT_ALL_CHOICE_ID)
+      ) {
+        return (await deliverAllApprovals(chatId, choiceId === APPROVE_ALL_CHOICE_ID, senderId))
+          .outcome;
+      }
+      if (choiceId === ALWAYS_ALLOW_CHOICE_ID && !config.operators.has(senderId)) {
+        return "not-operator";
+      }
       await settle(chatId, pending, choiceId);
-      return true;
+      return "answered";
     },
 
-    async deliverAllApprovals(chatId: ChatId, approved: boolean): Promise<number> {
+    awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean {
       const state = stateFor(chatId);
-      const approvals = [...state.pending.values()].filter(
-        (pending) => pending.kind === "approval",
-      );
-      if (approvals.length === 0 || state.run === undefined) return 0;
-
-      for (const pending of approvals) state.pending.delete(promptId(pending));
-      await state.run.approve(
-        approvals.map((pending) => ({
-          toolCallId: (pending as { toolCallId: string }).toolCallId,
-          approved,
-        })),
-      );
-      notifyPendingChange(chatId);
-      return approvals.length;
+      return state.run !== undefined && state.pending.size > 0 && state.requester === senderId;
     },
 
-    cancel(chatId: ChatId): boolean {
-      const state = stateFor(chatId);
-      if (state.run === undefined) return false;
-      state.run.cancel();
-      // The queue goes too: those messages were sent expecting the answer this
-      // run was about to give, and replaying them against a cancelled turn is
-      // not what anyone asking to stop meant.
-      state.queue.length = 0;
-      return true;
-    },
-
-    async handle(chatId: ChatId, prompt: string): Promise<void> {
-      const state = stateFor(chatId);
+    async handle(message: InboundMessage): Promise<void> {
+      const state = stateFor(message.chatId);
 
       if (state.busy) {
-        if (await resolveTypedReply(chatId, prompt)) return;
-        state.queue.push(prompt);
+        if (await resolveTypedReply(message)) return;
+        state.queue.push(message);
         return;
       }
 
       state.busy = true;
       try {
-        let next: string | undefined = prompt;
+        let next: InboundMessage | undefined = message;
         while (next !== undefined) {
-          if (!(await handleCommand(chatId, next))) await answer(chatId, next);
+          if (!(await commands.handle(next))) await answer(next);
           next = state.queue.shift();
         }
       } finally {
@@ -768,6 +915,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       }
     },
   };
+  return runner;
 }
 
 export { readAgentFile };

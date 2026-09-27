@@ -11,7 +11,7 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, spyOn } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -119,6 +119,7 @@ function makeLayers(
     presentCompletion: mock(() => Effect.void),
     writeOutput: mock(() => Effect.void),
     writeBlankLine: mock(() => Effect.void),
+    writeError: mock(() => Effect.void),
     formatToolExecutionStart: mock(() => Effect.succeed("")),
     formatToolExecutionComplete: mock(() => Effect.succeed("")),
     formatToolResult: mock(() => ""),
@@ -149,7 +150,7 @@ function makeLayers(
       Effect.succeed(
         name === "danger"
           ? dangerTool
-          : { ...dangerTool, name, approvalExecuteToolName: undefined },
+          : { ...dangerTool, name, riskLevel: "read-only", approvalExecuteToolName: undefined },
       ),
     ),
     getToolDefinitions: mock(() =>
@@ -246,6 +247,7 @@ function makeLayers(
     Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
     Layer.succeed(FileSystemContextServiceTag, {
       getCwd: () => Effect.succeed(os.tmpdir()),
+      setCwd: () => Effect.void,
     } as unknown as FileSystemContextService),
   );
 }
@@ -320,9 +322,9 @@ describe("park and resume, through the real loop", () => {
 
 describe("what an unattended run may do without being asked", () => {
   /**
-   * The regression: with nobody reachable, `shouldAutoApprove` used to clear nothing at all,
-   * so a run woken by a finished job batch parked on its first `git status` and the work
-   * never happened. Being unattended decides prompt-or-park, not what needs approving.
+   * With nobody reachable, a run granted the `read-only` tier still clears a read-only
+   * gated tool: a run woken by a finished job batch must not park on its first
+   * `git status`. Being unattended decides prompt-or-park, not what needs approving.
    */
   it("runs a read-only gated tool rather than parking on it", async () => {
     executions = [];
@@ -335,6 +337,7 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-read-only",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL], "read-only"))) as Effect.Effect<
         unknown,
         unknown
@@ -358,6 +361,7 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-read-only-batch",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(
         Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL], "read-only")),
       ) as Effect.Effect<unknown, unknown>,
@@ -379,12 +383,77 @@ describe("what an unattended run may do without being asked", () => {
         conversationId: "conv-high-risk",
         stream: false,
         parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
       }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,
     );
 
     expect(exit._tag).toBe("Failure");
     expect(executions).toEqual([]);
     expect(await Effect.runPromise(store.list())).toHaveLength(1);
+  });
+});
+
+describe("the authority a run started with", () => {
+  it("runs a high-risk tool without parking when the run was granted high-risk", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "conv-granted",
+        stream: false,
+        parkWhenUnattended: true,
+        autoApprovePolicy: "high-risk",
+      }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(executions).toEqual(["danger_execute"]);
+  });
+
+  /**
+   * The regression: a resumed run got no policy back, so the default applied to the rest of
+   * it. A read-only run that parked had its next low-risk call run unasked after the resume.
+   */
+  it("keeps a narrower policy across a resume instead of widening to the default", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL], "low-risk");
+
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do both low-risk things",
+        conversationId: "conv-narrow",
+        stream: false,
+        parkWhenUnattended: true,
+        autoApprovePolicy: "read-only",
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const askedAbout: string[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const parked = (await Effect.runPromise(store.list()))[0];
+      if (parked === undefined) {
+        break;
+      }
+      expect(parked.approvalPolicy).toBe("read-only");
+      if (parked.state.kind !== "input-required" || parked.state.pending.kind !== "tool-approval") {
+        throw new Error("expected a parked approval");
+      }
+      askedAbout.push(parked.state.pending.request.toolCallId);
+      await Effect.runPromiseExit(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    }
+
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+    expect(executions).toEqual(["danger_execute", "danger_execute"]);
   });
 });
 
@@ -613,5 +682,117 @@ describe("the order approvals are asked in, and who each answer belongs to", () 
 
     expect(executedTargets).toEqual([]);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+});
+
+describe("the boundary a remote door's run started inside", () => {
+  const REMOTE = {
+    toolAllowlist: ["danger"],
+    withholdInteractiveTools: true,
+    disablePersistence: true,
+    remoteCaller: { door: "webhook" as const, name: "deploys" },
+    ingestUserInputPaths: false,
+    maxCostUSD: 5,
+    maxTokens: 10_000,
+  };
+
+  async function parkRemote(store: InMemoryRunStore, layers: ReturnType<typeof makeLayers>) {
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "conv-remote",
+        stream: false,
+        parkWhenUnattended: true,
+        ...REMOTE,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    const parked = (await Effect.runPromise(store.list()))[0];
+    if (parked === undefined) {
+      throw new Error("expected a parked run");
+    }
+    return parked;
+  }
+
+  it("is recorded with the parked run", async () => {
+    const store = new InMemoryRunStore();
+    const parked = await parkRemote(store, makeLayers(store));
+
+    expect(parked.boundary).toEqual({
+      toolAllowlist: ["danger"],
+      withholdInteractiveTools: true,
+      disablePersistence: true,
+      remoteCaller: { door: "webhook", name: "deploys" },
+      budget: { maxTokens: 10_000, maxCostUSD: 5 },
+    });
+  });
+
+  it("is applied again when the run resumes, with only the budget that is left", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(
+      store.save({ ...parked, costUSD: 2, totalTokens: 4_000, activeDurationMs: 10 }),
+    );
+
+    let resumedWith: Parameters<typeof AgentRunner.run>[0] | undefined;
+    const spy = spyOn(AgentRunner, "run").mockImplementation((options) => {
+      resumedWith = options;
+      return Effect.succeed({ content: "done", conversationId: "conv-remote" });
+    });
+    try {
+      await Effect.runPromise(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+          maxCostUSD: 10,
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(resumedWith?.toolAllowlist).toEqual(["danger"]);
+    expect(resumedWith?.withholdInteractiveTools).toBe(true);
+    expect(resumedWith?.disablePersistence).toBe(true);
+    expect(resumedWith?.remoteCaller).toEqual({ door: "webhook", name: "deploys" });
+    expect(resumedWith?.ingestUserInputPaths).toBe(false);
+    expect(resumedWith?.maxCostUSD).toBe(3);
+    expect(resumedWith?.maxTokens).toBe(6_000);
+  });
+
+  it("refuses a remote run whose tool boundary was not recorded, and leaves it parked", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(
+      store.save({ ...parked, boundary: { remoteCaller: { door: "webhook", name: "deploys" } } }),
+    );
+
+    const refusal = await Effect.runPromise(
+      resumeRun({
+        runId: parked.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers), Effect.flip) as Effect.Effect<Error, unknown>,
+    );
+
+    expect(refusal.message).toContain("tool boundary was not recorded");
+    expect((await Effect.runPromise(store.get(parked.runId)))?.state.kind).toBe("input-required");
+  });
+
+  it("refuses a run whose budget the earlier segments already spent", async () => {
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store);
+    const parked = await parkRemote(store, layers);
+    await Effect.runPromise(store.save({ ...parked, costUSD: 5 }));
+
+    const refusal = await Effect.runPromise(
+      resumeRun({
+        runId: parked.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers), Effect.flip) as Effect.Effect<Error, unknown>,
+    );
+
+    expect(refusal.message).toContain("cost budget is spent");
   });
 });

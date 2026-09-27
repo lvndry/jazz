@@ -1,9 +1,10 @@
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, it } from "bun:test";
 import {
+  answerOutcomeFields,
   formatOneShotError,
   formatOneShotResult,
-  isRunCostKnown,
+  ONE_SHOT_EXIT,
   type OneShotSuccess,
 } from "./envelope";
 
@@ -73,43 +74,107 @@ describe("the success envelope's key order", () => {
   });
 });
 
-describe("isRunCostKnown", () => {
-  it("accepts provider pricing, including a real zero", () => {
-    expect(isRunCostKnown(0, "openai", "free-model")).toBe(true);
-    expect(isRunCostKnown(0.01, "openai", "priced-model")).toBe(true);
-  });
-
-  it("recognizes local servers as zero-cost without misclassifying Ollama Cloud", () => {
-    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf")).toBe(true);
-    expect(isRunCostKnown(undefined, "ollama", "qwen3:8b")).toBe(true);
-    expect(isRunCostKnown(undefined, "ollama", "kimi-k3:cloud")).toBe(false);
-  });
-
-  it("marks missing remote pricing as unknown", () => {
-    expect(isRunCostKnown(undefined, "openai", "unlisted-model")).toBe(false);
-  });
-
-  it("treats an incomplete total as unknown even when costUSD is defined", () => {
-    expect(isRunCostKnown(0.02, "openai", "priced-model", true)).toBe(false);
-    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf", true)).toBe(false);
-    expect(isRunCostKnown(0.02, "openai", "priced-model", false)).toBe(true);
-  });
-});
-
 describe("formatOneShotError", () => {
   it("plain mode emits the message with a trailing newline", () => {
     expect(formatOneShotError("Agent not found", { json: false })).toBe("Agent not found\n");
   });
 
-  it("json mode emits an ok:false envelope including costUSD", () => {
+  it("json mode emits an ok:false envelope with a code and costUSD", () => {
     expect(JSON.parse(formatOneShotError("boom", { json: true }, 0.5))).toEqual({
       ok: false,
       error: "boom",
+      code: "failed",
       costUSD: 0.5,
+    });
+  });
+
+  it("json mode carries the failure's code, finish reason and signal", () => {
+    expect(
+      JSON.parse(
+        formatOneShotError("The model stopped without answering.", { json: true }, 0, {
+          code: "no_answer",
+          finishReason: "length",
+          toolsDisabled: true,
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error: "The model stopped without answering.",
+      code: "no_answer",
+      costUSD: 0,
+      finishReason: "length",
+      toolsDisabled: true,
+    });
+    expect(
+      JSON.parse(
+        formatOneShotError("interrupted", { json: true }, 0, {
+          code: "interrupted",
+          signal: "SIGTERM",
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error: "interrupted",
+      code: "interrupted",
+      costUSD: 0,
+      signal: "SIGTERM",
+    });
+  });
+
+  it("json mode lists the calls of a batch the failure stopped", () => {
+    const stopped = [
+      { id: "a", name: "read_file", status: "completed" as const },
+      { id: "b", name: "execute_command", status: "interrupted" as const },
+    ];
+    expect(
+      JSON.parse(formatOneShotError("timeout", { json: true }, 0, { stoppedToolCalls: stopped })),
+    ).toEqual({
+      ok: false,
+      error: "timeout",
+      code: "failed",
+      costUSD: 0,
+      stoppedToolCalls: stopped,
     });
   });
 
   it("json mode defaults costUSD to 0", () => {
     expect(JSON.parse(formatOneShotError("boom", { json: true })).costUSD).toBe(0);
+  });
+});
+
+describe("answerOutcomeFields", () => {
+  it("adds nothing for a complete answer", () => {
+    expect(answerOutcomeFields({})).toEqual({});
+  });
+
+  it("marks a length finish as truncated and keeps the finish reason", () => {
+    expect(answerOutcomeFields({ finishReason: "length" })).toEqual({
+      finishReason: "length",
+      truncated: true,
+    });
+  });
+
+  it("surfaces iteration limits and dropped tools in the success envelope", () => {
+    const fields = answerOutcomeFields({
+      finishReason: "stop",
+      iterationLimited: true,
+      toolsDisabled: true,
+    });
+    const envelope = JSON.parse(formatOneShotResult({ ...baseResult, ...fields }, { json: true }));
+
+    expect(envelope).toMatchObject({
+      ok: true,
+      finishReason: "stop",
+      iterationLimited: true,
+      toolsDisabled: true,
+    });
+    expect(envelope).not.toHaveProperty("truncated");
+  });
+});
+
+describe("ONE_SHOT_EXIT", () => {
+  it("uses the shell's 128 + signal convention for interruptions", () => {
+    expect(ONE_SHOT_EXIT.interrupted).toBe(130);
+    expect(ONE_SHOT_EXIT.terminated).toBe(143);
   });
 });

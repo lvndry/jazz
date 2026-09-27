@@ -67,13 +67,20 @@ A failed envelope still carries `costUSD`, because a run that timed out still sp
 unattended deployment has to account for it. `jazz workflow history <name>` shows the same
 figures per scheduled run.
 
-## Caps are checked between iterations
+## When a cap stops the run
 
-None of these is a preemptive interrupt. Jazz checks them between iterations, so one model call
-or tool phase can cross a cap before the next iteration stops.
+`maxIterations`, `maxCostUSD` and `maxTokens` are checked between iterations, so one model call
+or tool phase can cross them before the next iteration stops. Budget `--max-cost-usd` with that
+in mind.
 
-Budget `--max-cost-usd` with that in mind. Use `--timeout` when you need a hard deadline around
-the whole run rather than a soft checkpoint inside it.
+`maxDurationMs` is a deadline. When it passes, Jazz interrupts whatever is running: the model
+call is aborted, a shell command is killed with every process it started, and a sub-agent stops
+with it. Unfinished tool calls are closed with a note, and the run returns what it had with
+`durationCapped: true`. A sub-agent is given only the time its parent has left, so delegating
+work never extends the deadline.
+
+`--timeout` is a harder wall around the whole run, including start-up. It ends the run as a
+failure, with the same cleanup: running commands are killed and the provider request is aborted.
 
 The agent is warned as a budget fills rather than only being cut off. Cost, token and duration
 budgets nudge it at 50, 80 and 90%; iterations nudge at 70 and 90%. The messages are ephemeral,
@@ -83,7 +90,7 @@ summarization.
 ## When the figure is unknown
 
 A cost is known when the provider priced the call, or when the model genuinely costs nothing,
-which means a local Ollama or llama.cpp model. Anything else is unknown, and Jazz says so:
+which means a self-hosted Ollama, llama.cpp, vLLM, or SGLang model. Anything else is unknown, and Jazz says so:
 
 ```json
 { "ok": true, "costUSD": 0, "costKnown": false }
@@ -101,9 +108,50 @@ and remote billing, so it does not count as free.
 A cost cap cannot be enforced against a model nobody has priced. That is the case `maxTokens`
 exists for.
 
+## Day and month ceilings
+
+The caps above bound one run. A goal that runs every ten minutes, or a workflow that fails and
+retries, stays under every per-run cap while the bill grows. Ceilings bound the total: every
+run's final cost, failed and cancelled runs included, is recorded in one ledger under
+`$JAZZ_HOME/spend`, and `spend` in config.json caps it per local day and month.
+
+```jsonc
+{
+  "spend": {
+    "dayUSD": 5,
+    "monthUSD": 60,
+    "goals": { "dayUSD": 2, "monthUSD": 20 },
+    "agents": { "inbox": { "dayUSD": 1 } },
+  },
+}
+```
+
+Every ceiling is unset, meaning unlimited, until you set one. `goals` covers goal cycles and loop
+runs together. Set the goal and machine ceilings from `jazz` > Update configuration > Spend
+Limits, or with `jazz config set spend.goals.dayUSD 2`.
+
+When a ceiling is reached:
+
+- **Unattended runs refuse to start**: `jazz run`, workflows, goal cycles, loop runs, wake
+  triggers, job batches, webhooks, peers and daemon API runs. The refusal says which ceiling
+  and how to lift it, and your [notify channels](../configure/notifications.md) hear about it
+  once per ceiling and window.
+- **Goals and loops wait** instead of failing: the check runs before each cycle, and the next
+  one starts on its own when the day or month turns over or you raise the ceiling.
+- **Chat warns and proceeds**: you are there to decide. A run you approve from a parked state
+  also proceeds, since stopping it would waste the approval.
+
+A day ceiling is also treated as reached when a run under it today had no pricing: its cost is
+unknown, so the ceiling cannot be verified. A month ceiling counts priced spend.
+
+`jazz spend` shows today, this month, the breakdown by agent and source, and each ceiling.
+The chat bridges record their runs in the same ledger, and `JAZZ_DAILY_COST_CAP_USD` caps one
+bridge's own runs on top of these ceilings.
+
 ## Related
 
 - [Long-running work](../features/long-running-work.md): what happens as the context fills
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
+- [Notifications](../configure/notifications.md): hearing about a reached ceiling

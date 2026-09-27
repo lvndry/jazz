@@ -90,6 +90,7 @@ export const tasks: EvalTask[] = [
         runId: `${context.runId}-phase1`,
         conversationId: CONVERSATION_ID,
         jazzHome: context.jazzHome,
+        environment: context.environment,
         killWhen: (_event, seen) => sawCompaction(seen),
         hardTimeoutMs: context.timeoutMs,
       });
@@ -112,6 +113,7 @@ export const tasks: EvalTask[] = [
         runId: `${context.runId}-phase2`,
         conversationId: CONVERSATION_ID,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       });
     },
     check(result) {

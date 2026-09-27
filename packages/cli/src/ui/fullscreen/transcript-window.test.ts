@@ -118,6 +118,24 @@ describe("transcriptVisibleCount", () => {
   });
 });
 
+describe("allocateRegions under an overlay card", () => {
+  it("ends the transcript above the card, so its last lines are never hidden", () => {
+    const live: LiveModel = { tools: [], hiddenTools: [], reservedRows: 0 };
+    const input: InputModel = { value: "", placeholder: "Ask", queued: [], disabled: false };
+    const viewport = { width: 120, height: 34 };
+    const open = allocateRegions({ viewport, live, input, inputFocused: false });
+    const underCard = allocateRegions({
+      viewport,
+      live,
+      input,
+      inputFocused: false,
+      overlayRows: 12,
+    });
+    expect(underCard.transcript).toBe(34 - 2 - 12);
+    expect(underCard.transcript).toBeLessThan(open.transcript);
+  });
+});
+
 describe("allocateRegions", () => {
   const live: LiveModel = { tools: [], hiddenTools: [], reservedRows: 5 };
   const commands = {

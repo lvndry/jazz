@@ -6,6 +6,8 @@
  * environment variables go away, and that is worth testing without a filesystem.
  */
 
+import { isRecord } from "@jazz/core/utils/is-record";
+
 export type JsonObject = Record<string, unknown>;
 
 /** The environment variables a bridge translates into config keys. */
@@ -16,7 +18,7 @@ export interface BridgeConfigEnv {
 
 function nestedObject(config: JsonObject, key: string): JsonObject {
   const existing = config[key];
-  if (typeof existing === "object" && existing !== null && !Array.isArray(existing)) {
+  if (isRecord(existing)) {
     return { ...(existing as JsonObject) };
   }
   return {};

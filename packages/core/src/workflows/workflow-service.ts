@@ -4,13 +4,13 @@
  * built-in workflows; shared ones come from the library via `jazz workflow install`.
  */
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { toError } from "@/core/utils/errors";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
-import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
+import { getGlobalWorkflowsDirectory, getJazzHomeDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 
@@ -28,8 +28,17 @@ export interface WorkflowMetadata {
   readonly agent?: string;
   /** Cron schedule expression (e.g., "0 * * * *" for hourly) */
   readonly schedule?: string;
-  /** Auto-approve policy for unattended execution */
+  /**
+   * The approval policy a run of this workflow gets (see `resolveWorkflowApprovalPolicy`).
+   * Unset means `false`: every gated tool call asks, or is declined when nobody can answer.
+   */
   readonly autoApprove?: AutoApprovePolicy;
+  /**
+   * Why this workflow cannot run, when its frontmatter is invalid (an unknown `autoApprove`
+   * value). Kept in the index rather than dropping the workflow, so `workflow list` and every
+   * run path can name the problem instead of reporting the workflow missing.
+   */
+  readonly definitionError?: string;
   /** Skills to load for this workflow */
   readonly skills?: readonly string[];
   /** Whether a missed slot may be replayed after the daemon restarts. */
@@ -44,6 +53,8 @@ export interface WorkflowMetadata {
   readonly maxTokens?: number;
   /** Wall-clock spend budget in ms. Unset, the run falls back to config `maxDurationMs`; unset at both means uncapped. */
   readonly maxDurationMs?: number;
+  /** Notify channels (`notifications.channels.<name>`) that receive each run's answer. */
+  readonly deliver?: readonly string[];
 }
 
 /** Everything a WORKFLOW.md declares about itself, before Jazz knows where it lives. */
@@ -111,7 +122,6 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     return null;
   }
 
-  // Parse autoApprove - can be boolean or string
   const autoApprove = parseAutoApprove(data["autoApprove"]);
 
   // Parse skills array
@@ -119,13 +129,16 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ? data["skills"].filter((s): s is string => typeof s === "string")
     : undefined;
 
+  const deliver = parseDeliver(data["deliver"]);
+
   // Build the metadata object using conditional spreading
   return {
     name,
     description,
     ...(typeof data["agent"] === "string" && { agent: data["agent"] }),
     ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
-    ...(autoApprove !== undefined && { autoApprove }),
+    ...(autoApprove.ok && autoApprove.policy !== undefined && { autoApprove: autoApprove.policy }),
+    ...(!autoApprove.ok && { definitionError: autoApprove.error }),
     ...(skills && skills.length > 0 && { skills }),
     ...(typeof data["catchUpOnRestart"] === "boolean" && {
       catchUpOnRestart: data["catchUpOnRestart"],
@@ -135,20 +148,73 @@ export function parseWorkflowDefinition(data: Record<string, unknown>): Workflow
     ...(typeof data["maxCostUSD"] === "number" && { maxCostUSD: data["maxCostUSD"] }),
     ...(typeof data["maxTokens"] === "number" && { maxTokens: data["maxTokens"] }),
     ...(typeof data["maxDurationMs"] === "number" && { maxDurationMs: data["maxDurationMs"] }),
+    ...(deliver.length > 0 && { deliver }),
   };
 }
 
+/** `deliver: phone` or `deliver: [phone, team]`: the notify channels a result goes to. */
+function parseDeliver(value: unknown): readonly string[] {
+  const names = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  return names
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
+/** Every value `autoApprove` accepts, in the order the tiers widen. */
+export const WORKFLOW_AUTO_APPROVE_VALUES = [
+  false,
+  "read-only",
+  "low-risk",
+  "high-risk",
+  true,
+] as const satisfies readonly AutoApprovePolicy[];
+
+export type AutoApproveParseResult =
+  | { readonly ok: true; readonly policy: AutoApprovePolicy | undefined }
+  | { readonly ok: false; readonly error: string };
+
 /**
- * Parse autoApprove value from frontmatter.
+ * Parse an `autoApprove` frontmatter value. A missing value parses to `undefined`; anything
+ * other than the unquoted booleans and the three tier names is an error naming the valid
+ * values, so a typo such as `readonly` or a quoted `"false"` cannot quietly pick a tier.
  */
-export function parseAutoApprove(value: unknown): AutoApprovePolicy | undefined {
-  if (typeof value === "boolean") {
-    return value;
+export function parseAutoApprove(value: unknown): AutoApproveParseResult {
+  if (value === undefined) {
+    return { ok: true, policy: undefined };
   }
-  if (value === "read-only" || value === "low-risk" || value === "high-risk") {
-    return value;
+  const match = WORKFLOW_AUTO_APPROVE_VALUES.find((candidate) => candidate === value);
+  if (match !== undefined) {
+    return { ok: true, policy: match };
   }
-  return undefined;
+  const valid = WORKFLOW_AUTO_APPROVE_VALUES.map((candidate) => String(candidate)).join(", ");
+  return {
+    ok: false,
+    error: `autoApprove ${JSON.stringify(value)} is not valid. Use one of: ${valid} (true and false unquoted).`,
+  };
+}
+
+export type WorkflowApprovalPolicyResult =
+  | { readonly ok: true; readonly policy: AutoApprovePolicy }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * The approval policy a run of this workflow gets, for every path that runs one: a
+ * schedule, catch-up after a restart, `jazz workflow run` with or without `--auto-approve`.
+ * An unset `autoApprove` is `false`, which auto-approves nothing. Fails with the
+ * workflow's `definitionError` when its frontmatter is invalid, so an invalid workflow
+ * never runs.
+ */
+export function resolveWorkflowApprovalPolicy(
+  workflow: Pick<WorkflowDefinition, "name" | "autoApprove" | "definitionError">,
+): WorkflowApprovalPolicyResult {
+  if (workflow.definitionError !== undefined) {
+    return {
+      ok: false,
+      error: `Workflow "${workflow.name}" cannot run: ${workflow.definitionError}`,
+    };
+  }
+  return { ok: true, policy: workflow.autoApprove ?? false };
 }
 
 /**
@@ -164,8 +230,7 @@ export class WorkflowsLive implements WorkflowService {
   public static readonly layer = Layer.effect(
     WorkflowServiceTag,
     Effect.gen(function* () {
-      const homeDir = os.homedir();
-      const globalCachePath = path.join(homeDir, ".jazz", "global-workflows-index.json");
+      const globalCachePath = path.join(getJazzHomeDirectory(), "global-workflows-index.json");
       const loadedWorkflows = yield* Ref.make(new Map<string, WorkflowContent>());
       const workflowCache = yield* Ref.make(new Map<string, WorkflowMetadata>());
 
@@ -220,7 +285,7 @@ export class WorkflowsLive implements WorkflowService {
         // Parse WORKFLOW.md
         const content = yield* Effect.tryPromise({
           try: () => fs.readFile(workflowMdPath, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         const parsed = matter(content);
 
@@ -259,7 +324,7 @@ export class WorkflowsLive implements WorkflowService {
         yield* Ref.set(this.loadedWorkflows, new Map());
         yield* Effect.tryPromise({
           try: () => fs.rm(this.globalCachePath, { force: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         // Re-list to rebuild cache
         yield* this.listWorkflows();
@@ -281,11 +346,10 @@ export class WorkflowsLive implements WorkflowService {
   }
 
   private scanLocalWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    const cwd = process.cwd();
     return scanMarkdownIndex({
-      dir: cwd,
+      dir: path.join(process.cwd(), "workflows"),
       fileName: WORKFLOW_DEFINITION_FILENAME,
-      depth: 4,
+      depth: 3,
       parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
     });
   }

@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
+import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
@@ -52,7 +53,7 @@ export function loadCommandApprovals(): Effect.Effect<
           (e as { _tag: string })._tag === "SystemError" &&
           (e as { reason?: string }).reason === "NotFound"
             ? Effect.succeed("")
-            : Effect.fail(e instanceof Error ? e : new Error(String(e))),
+            : Effect.fail(toError(e)),
         ),
       );
 
@@ -70,13 +71,7 @@ export function loadCommandApprovals(): Effect.Effect<
 export function saveCommandApprovals(
   data: CommandApprovals,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const approvalsPath = getApprovalsPath();
-    yield* writeFileStringAtomic(fs, approvalsPath, JSON.stringify(data, null, 2), {
-      tempPrefix: "command-approvals",
-    });
-  });
+  return writeFileStringAtomic(getApprovalsPath(), JSON.stringify(data, null, 2));
 }
 
 /**

@@ -32,10 +32,8 @@ import {
 } from "../terminal-cells";
 import { COMPACT_HEIGHT, type Viewport } from "../types";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
+import { overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
-
-const MAX_WIDTH = 96;
-const MIN_WINDOWED_HEIGHT = 20;
 
 /** Fixed windowed height: the card does not resize as the filter narrows. */
 const WINDOWED_HEIGHT = 19;
@@ -168,29 +166,36 @@ export interface FilePickerProps {
   readonly viewport: Viewport;
 }
 
+/** The card's size and placement; `height` is what the layout reserves. */
+export function filePickerLayout(model: FilePickerModel, viewport: Viewport) {
+  const compact = viewport.height < COMPACT_HEIGHT;
+  const frame = overlayWidth(viewport);
+  const inner = Math.max(8, frame.width - 2 - CARD_PAD * 2);
+  const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
+  const fixedCardRows = compact ? FIXED_CARD_ROWS - 2 : FIXED_CARD_ROWS;
+  const placement = placeOverlay(viewport, frame, WINDOWED_HEIGHT + message.length);
+  const cardHeight = Math.max(1, placement.height - HINT_ROWS);
+  return {
+    ...placement,
+    compact,
+    inner,
+    message,
+    fixedCardRows,
+    cardHeight,
+    listRows: Math.max(1, cardHeight - fixedCardRows - message.length),
+  };
+}
+
 export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
   const glyphs = getGlyphs();
 
-  const compact = viewport.height < COMPACT_HEIGHT;
-  const fullscreen = viewport.width < MAX_WIDTH || viewport.height < MIN_WINDOWED_HEIGHT;
-  const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
-  const inner = Math.max(8, width - 2 - CARD_PAD * 2);
-
-  const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
-  const fixedCardRows = compact ? FIXED_CARD_ROWS - 2 : FIXED_CARD_ROWS;
-  const height = fullscreen
-    ? viewport.height
-    : Math.min(WINDOWED_HEIGHT + message.length, viewport.height);
-  const cardHeight = Math.max(1, height - HINT_ROWS);
-  const listRows = Math.max(1, cardHeight - fixedCardRows - message.length);
+  const { compact, width, inner, message, height, cardHeight, listRows, left, top } =
+    filePickerLayout(model, viewport);
 
   const total = model.entries.length;
   const selected = total === 0 ? 0 : Math.max(0, Math.min(model.selected, total - 1));
   const start = windowStartFor(selected, total, listRows);
   const visible = model.entries.slice(start, start + listRows);
-
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
 
   const nameWidth = Math.max(4, inner - GUTTER);
   const error = oneLine(model.error ?? "");

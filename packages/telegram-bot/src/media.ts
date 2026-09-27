@@ -10,10 +10,8 @@
  * `usage.ts` — these are file-store concerns and shouldn't need the whole bridge to be testable.
  */
 
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-
-const TELEGRAM_API_BASE = "https://api.telegram.org";
+import { type Ownership, type PinnedDirectory, withDirectory } from "@jazz/bot-shared/sandbox-fs";
 
 /**
  * Telegram's own hard limit on `getFile` downloads. Larger files simply cannot be fetched
@@ -24,9 +22,10 @@ const TELEGRAM_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 /** Files older than this are deleted on the next download. See `pruneMediaDir`. */
 const MEDIA_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-function mediaDir(dataDir: string): string {
-  return join(dataDir, "tg-media");
-}
+const MEDIA_DIRECTORY = "tg-media";
+/** A mode for media the bridge keeps in its own data directory. */
+const DEFAULT_DIRECTORY_MODE = 0o750;
+const DEFAULT_FILE_MODE = 0o640;
 
 /**
  * Telegram file objects, across the message fields that can carry media.
@@ -217,19 +216,19 @@ function extensionFor(telegramFilePath: string, mimeType: string | undefined): s
  * resolves, and short enough that the directory does not grow without bound. Jazz itself
  * degrades an unreadable attachment to a text note, so an expired file is not a crash.
  */
-function pruneMediaDir(dataDir: string, nowMs: number): void {
-  const directory = mediaDir(dataDir);
-  if (!existsSync(directory)) return;
+function pruneMediaDir(directory: PinnedDirectory, nowMs: number): void {
   let entries: string[];
   try {
-    entries = readdirSync(directory);
+    entries = directory.list();
   } catch {
     return;
   }
   for (const entry of entries) {
-    const path = join(directory, entry);
     try {
-      if (nowMs - statSync(path).mtimeMs > MEDIA_RETENTION_MS) unlinkSync(path);
+      const modifiedAt = directory.modifiedAt(entry);
+      if (modifiedAt !== undefined && nowMs - modifiedAt > MEDIA_RETENTION_MS) {
+        directory.remove(entry);
+      }
     } catch {
       // A file vanishing mid-prune is fine; anything else is not worth failing a download over.
     }
@@ -244,13 +243,19 @@ export type DownloadOutcome =
  *
  * The returned path is what goes into the jazz prompt, so it must be absolute — jazz resolves
  * relative attachment paths against the agent's working directory, which is not the bridge's.
+ *
+ * `dataDir` is usually a chat's own home, where `tg-media` and everything in it are names the
+ * chat controls, so pruning and writing go through a pinned directory and the file is handed
+ * to `ownership` as it is written.
  */
 export async function downloadTelegramFile(
+  apiBase: string,
   botToken: string,
   dataDir: string,
   fileRef: TelegramFileRef,
   chatId: number,
   nowMs: number,
+  ownership?: Ownership,
 ): Promise<DownloadOutcome> {
   const fileId = fileRef.file_id;
   if (typeof fileId !== "string" || fileId.length === 0) {
@@ -266,7 +271,7 @@ export async function downloadTelegramFile(
 
   let telegramFilePath: string;
   try {
-    const response = await fetch(`${TELEGRAM_API_BASE}/bot${botToken}/getFile`, {
+    const response = await fetch(`${apiBase}/bot${botToken}/getFile`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file_id: fileId }),
@@ -281,24 +286,43 @@ export async function downloadTelegramFile(
     return { ok: false, reason: `asking Telegram for the file failed: ${String(error)}` };
   }
 
-  pruneMediaDir(dataDir, nowMs);
-  const directory = mediaDir(dataDir);
-  mkdirSync(directory, { recursive: true });
-
   const extension = extensionFor(telegramFilePath, fileRef.mime_type);
-  const localPath = join(directory, `${chatId}-${nowMs}.${extension}`);
+  const fileName = `${chatId}-${nowMs}.${extension}`;
 
+  let bytes: Uint8Array;
   try {
-    const download = await fetch(`${TELEGRAM_API_BASE}/file/bot${botToken}/${telegramFilePath}`);
+    const download = await fetch(`${apiBase}/file/bot${botToken}/${telegramFilePath}`);
     if (!download.ok) {
       return { ok: false, reason: `downloading the file failed with status ${download.status}` };
     }
-    await Bun.write(localPath, await download.arrayBuffer());
+    bytes = new Uint8Array(await download.arrayBuffer());
   } catch (error) {
     return { ok: false, reason: `downloading the file failed: ${String(error)}` };
   }
 
-  return { ok: true, path: localPath };
+  try {
+    withDirectory(dataDir, {}, (home) => {
+      const media = home.directory(MEDIA_DIRECTORY, {
+        create: {
+          owner: ownership?.owner,
+          mode: ownership?.directoryMode ?? DEFAULT_DIRECTORY_MODE,
+        },
+      });
+      try {
+        pruneMediaDir(media, nowMs);
+        media.writeBytes(fileName, bytes, {
+          owner: ownership?.owner,
+          mode: ownership?.fileMode ?? DEFAULT_FILE_MODE,
+        });
+      } finally {
+        media.close();
+      }
+    });
+  } catch (error) {
+    return { ok: false, reason: `saving the file failed: ${String(error)}` };
+  }
+
+  return { ok: true, path: join(dataDir, MEDIA_DIRECTORY, fileName) };
 }
 
 /**

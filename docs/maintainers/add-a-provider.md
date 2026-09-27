@@ -1,5 +1,5 @@
 ---
-description: "How Jazz stays provider-agnostic across 18 LLM providers, and what it does about the places providers genuinely differ."
+description: "How Jazz stays provider-agnostic across 23 LLM providers, and what it does about the places providers genuinely differ."
 ---
 
 # Providers & models
@@ -14,7 +14,7 @@ Source:
 
 ---
 
-## One port, 18 providers
+## One port, 23 providers
 
 `core/` defines an `LLMService` interface. `services/llm/ai-sdk-service.ts` is the only
 implementation, and it delegates to the Vercel AI SDK.
@@ -30,17 +30,20 @@ flowchart TB
         C1["OpenAI · Anthropic · Google · xAI"]
         C2["Mistral · DeepSeek · Groq · Cerebras"]
         C3["Fireworks · TogetherAI · Alibaba"]
-        C4["Moonshot · MiniMax · Zhipu"]
+        C4["Moonshot · MiniMax · Zhipu · NVIDIA NIM"]
     end
 
     subgraph aggregators["Aggregators"]
         A1["OpenRouter"]
         A2["Vercel AI Gateway"]
+        A3["OrcaRouter"]
     end
 
     subgraph local["Local: no API key"]
         L1["Ollama"]
         L2["llama.cpp"]
+        L3["vLLM"]
+        L4["SGLang"]
     end
 
     CORE --> IMPL --> SDK
@@ -70,9 +73,9 @@ this never becomes a hard dependency.
 
 ```mermaid
 flowchart TD
-    NEED(["Need metadata for<br/>provider/model"]) --> LOCAL{"Local provider?<br/>ollama / llamacpp"}
+    NEED(["Need metadata for<br/>provider/model"]) --> LOCAL{"Local provider?<br/>ollama / llamacpp / vllm / sglang"}
 
-    LOCAL -->|yes| ASK["Ask the local server<br/>Ollama /api/tags + /api/show<br/>llama.cpp /props<br/><i>no catalog needed at all</i>"]
+    LOCAL -->|yes| ASK["Ask the local server<br/>Ollama /api/tags + /api/show<br/>llama.cpp /props<br/>vLLM + SGLang /v1/models<br/><i>no catalog needed at all</i>"]
     LOCAL -->|no| OFF{"JAZZ_OFFLINE?"}
 
     OFF -->|no| FETCH["Fetch models.dev<br/>(or JAZZ_MODELS_DEV_URL mirror)"]

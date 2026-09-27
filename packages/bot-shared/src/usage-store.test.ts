@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readSpend } from "@jazz/core/spend/ledger";
 import { afterEach, describe, expect, it } from "bun:test";
+import { Effect } from "effect";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage-store";
 
-const USAGE_FILE = "tg-usage.json";
 const directories: string[] = [];
 
 afterEach(() => {
@@ -17,14 +18,24 @@ function temporaryJazzHome(): string {
   return directory;
 }
 
-describe("daily usage store", () => {
-  it("distinguishes an unavailable price from a zero-cost priced run", () => {
+describe("bridge usage in the spend ledger", () => {
+  it("distinguishes an unavailable price from a zero-cost priced run", async () => {
     const jazzHome = temporaryJazzHome();
 
-    recordUsage(jazzHome, USAGE_FILE, 0, 12, true);
-    recordUsage(jazzHome, USAGE_FILE, 0, 8, false);
+    await recordUsage(jazzHome, "telegram", {
+      agentId: "tg_1",
+      costUSD: 0,
+      tokens: 12,
+      costKnown: true,
+    });
+    await recordUsage(jazzHome, "telegram", {
+      agentId: "tg_1",
+      costUSD: 0,
+      tokens: 8,
+      costKnown: false,
+    });
 
-    expect(todayUsage(jazzHome, USAGE_FILE)).toEqual({
+    expect(await todayUsage(jazzHome, "telegram")).toEqual({
       costUSD: 0,
       tokens: 20,
       runs: 2,
@@ -32,18 +43,26 @@ describe("daily usage store", () => {
     });
   });
 
-  it("reads usage files written before unpriced tracking was added", () => {
+  it("counts each bridge's runs against its own cap, in the machine-wide ledger", async () => {
     const jazzHome = temporaryJazzHome();
-    const today = new Date().toISOString().slice(0, 10);
-    writeFileSync(
-      join(jazzHome, USAGE_FILE),
-      JSON.stringify({ [today]: { costUSD: 0.25, tokens: 40, runs: 1 } }),
-    );
 
-    recordUsage(jazzHome, USAGE_FILE, 0.1, 10, false);
+    await recordUsage(jazzHome, "telegram", {
+      agentId: "tg_1",
+      costUSD: 2,
+      tokens: 1,
+      costKnown: true,
+    });
+    await recordUsage(jazzHome, "discord", {
+      agentId: "dc_1",
+      costUSD: 0.5,
+      tokens: 1,
+      costKnown: true,
+    });
 
-    expect(todayUsage(jazzHome, USAGE_FILE).unpricedRuns).toBe(1);
-    expect(readFileSync(join(jazzHome, USAGE_FILE), "utf8")).toContain('"unpricedRuns": 1');
+    expect((await todayUsage(jazzHome, "discord")).costUSD).toBe(0.5);
+    const machine = await Effect.runPromise(readSpend(Date.now(), jazzHome));
+    expect(machine.today.total.costUSD).toBe(2.5);
+    expect(machine.today.bySource.bot?.runs).toBe(2);
   });
 
   it("fails closed after an unpriced run only when a cap is enabled", () => {

@@ -10,7 +10,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { ink } from "@jazz/core/interfaces/terminal";
 import { RGBA } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
@@ -19,30 +18,21 @@ import { InkPresentationService } from "@/cli/presentation/ink-presentation-serv
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
+import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
 import { THEME } from "../theme";
-import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
+import { flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
+import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 
 /**
- * Settles a state update dispatched from a keyboard event.
+ * Paints the frame after a simulated key.
  *
- * `flush()` drains microtasks and the renderer's paint-pending flag, but a
- * `setState` called from an external event-emitter callback (which is what a
- * keypress is) is committed by React's scheduler through a macrotask —
- * `setTimeout`/`MessageChannel` — which a microtask-only wait can never see.
- * A bare tick supplies that for an ordinary character, and was confirmed
- * against a minimal useState+useKeyboard repro outside this file before
- * trusting it here.
- *
- * `Escape` needs longer: a lone ESC byte is indistinguishable from the first
- * byte of a multi-byte sequence (every arrow and function key starts with one),
- * so the input parser holds it for a short real window before deciding it was
- * Escape alone — also confirmed against the same repro, where a 0ms tick never
- * saw the key at all and 100ms reliably did.
+ * `renderForTest` already committed the keypress: its input helpers run inside React's
+ * `act()` and resolve a lone Escape without the parser's real-time wait. What is left is the
+ * renderer's own paint, which `flush()` drains.
  */
-async function settleKeypress(flush: () => Promise<void>, delayMs: 0 | 100 = 0): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
+async function settleKeypress(flush: () => Promise<void>): Promise<void> {
   await flush();
 }
 
@@ -73,18 +63,20 @@ function presentationProducer(): InkPresentationService {
  * stays subscribed for the life of the process.
  */
 async function frame(feed: () => void = () => undefined): Promise<string> {
-  const { renderer, renderOnce, flush, captureCharFrame } = await testRender(<FullscreenBridge />, {
-    width: WIDTH,
-    height: HEIGHT,
-  });
+  const { renderer, renderOnce, flush, captureCharFrame } = await renderForTest(
+    <FullscreenBridge />,
+    {
+      width: WIDTH,
+      height: HEIGHT,
+    },
+  );
   await renderOnce();
-  feed();
-  store.flushOutputBatchNow();
-  // Store-driven updates dispatch from outside React; one macrotask tick plus a
-  // second flush matches settleKeypress and prevents ordering flakes in the full
-  // suite when another test left handlers registered on the shared store.
-  await flush();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Store-driven updates dispatch from outside React; committing them in one act() scope
+  // means the frame reflects every write before it is painted.
+  updateForTest(() => {
+    feed();
+    store.flushOutputBatchNow();
+  });
   await flush();
   const text = captureCharFrame();
   renderer.destroy();
@@ -150,6 +142,17 @@ describe("fullscreen bridge", () => {
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
     expect(text).toContain("20k/40k $0.04");
+  });
+
+  it("shows the resolved local endpoint beside a conversation model", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({
+        provider: "vllm",
+        model: "qwen3",
+        localModelHosts: { vllm: "gpu.example:8000" },
+      });
+    });
+    expect(text).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
   });
 
   it("hydrates identity into the header without crowding the mark", async () => {
@@ -264,7 +267,7 @@ describe("fullscreen bridge", () => {
     // smaller-but-still-positive height once the todo panel is the only thing
     // left claiming rows. Getting stuck at the peak leaves a block of empty,
     // near-black rows above the checklist that never goes away on its own.
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
 
     // Dense, gapless transcript filler: whatever sits directly above the live
@@ -282,18 +285,18 @@ describe("fullscreen bridge", () => {
       { content: "Rank urgent threads", status: "in_progress" as const },
     ];
 
-    store.setActivity({
-      phase: "tool-execution",
-      agentName: "jazz",
-      tools: [
-        { toolCallId: "1", toolName: "gmail", startedAt: Date.now() },
-        { toolCallId: "2", toolName: "web", startedAt: Date.now() },
-        { toolCallId: "3", toolName: "calendar", startedAt: Date.now() },
-      ],
-      todoSnapshot,
+    updateForTest(() => {
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          { toolCallId: "1", toolName: "gmail", startedAt: Date.now() },
+          { toolCallId: "2", toolName: "web", startedAt: Date.now() },
+          { toolCallId: "3", toolName: "calendar", startedAt: Date.now() },
+        ],
+        todoSnapshot,
+      });
     });
-    await rendered.flush();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     await rendered.flush();
 
     // The tools finish; only the todo panel still needs room.
@@ -303,11 +306,18 @@ describe("fullscreen bridge", () => {
       tools: [],
       todoSnapshot,
     });
-    await rendered.flush();
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    await rendered.flush();
-
-    const settledRows = rendered.captureCharFrame().split("\n");
+    const blankRowsAboveTodoIn = (rows: readonly string[]): number => {
+      const todoIndex = rows.findIndex((row) => row.includes("todo"));
+      let blankRows = 0;
+      for (let index = todoIndex - 1; rows[index]?.trim() === ""; index -= 1) {
+        blankRows += 1;
+      }
+      return blankRows;
+    };
+    // The band shrinks on a settle timer, so wait for the layout rather than for its delay.
+    const settledRows = (
+      await frameWhen(rendered, (frame) => blankRowsAboveTodoIn(frame.split("\n")) === 1)
+    ).split("\n");
     const settledTodoIndex = settledRows.findIndex((row) => row.includes("todo"));
     expect(settledTodoIndex).toBeGreaterThan(-1);
 
@@ -318,11 +328,7 @@ describe("fullscreen bridge", () => {
     // Exactly one blank separator row sits between the transcript and the
     // checklist by design. A stuck-too-tall reservation pads that gap with
     // extra blank rows that never fill back in with transcript or content.
-    let blankRowsAboveTodo = 0;
-    for (let index = settledTodoIndex - 1; settledRows[index]?.trim() === ""; index -= 1) {
-      blankRowsAboveTodo += 1;
-    }
-    expect(blankRowsAboveTodo).toBe(1);
+    expect(blankRowsAboveTodoIn(settledRows)).toBe(1);
 
     rendered.renderer.destroy();
   });
@@ -333,20 +339,20 @@ describe("fullscreen bridge", () => {
     // lands. Only a *new* run is allowed to clear it, and it must do so before
     // that render paints, or the old checklist would flash for a frame ahead
     // of the new run's own.
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
 
-    store.setActivity({
-      phase: "tool-execution",
-      agentName: "jazz",
-      tools: [],
-      todoSnapshot: [
-        { content: "Inspect inbox", status: "completed" },
-        { content: "Rank urgent threads", status: "in_progress" },
-      ],
+    updateForTest(() => {
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [],
+        todoSnapshot: [
+          { content: "Inspect inbox", status: "completed" },
+          { content: "Rank urgent threads", status: "in_progress" },
+        ],
+      });
     });
-    await rendered.flush();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("todo 1/2");
 
@@ -381,15 +387,13 @@ describe("fullscreen bridge", () => {
   });
 
   it("ticks turn elapsed time while a run remains active", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setChatBusy(true);
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("0s");
 
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("1s");
+    expect(await frameWhen(rendered, (frame) => frame.includes("1s"))).toContain("1s");
 
     store.setChatBusy(false);
     rendered.renderer.destroy();
@@ -460,7 +464,7 @@ describe("fullscreen bridge", () => {
     expect(text.toLowerCase()).toContain("apps");
   });
   it("types a literal slash and opens history search with Ctrl+F", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -484,9 +488,39 @@ describe("fullscreen bridge", () => {
     expect(opened).toContain("all conversations");
   });
 
+  /**
+   * The regression: while a slash command ran (the composer is not available then) or one of
+   * its prompts was open, Shift+Tab was dropped before it reached the mode toggle, so the
+   * safe/yolo switch seemed broken during /goal.
+   */
+  it("toggles the approval mode while a command's prompt is open or a command runs", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setModeIsYolo(false);
+
+    store.setPrompt({
+      type: "confirm",
+      message: "Start this goal?",
+      options: { defaultValue: false },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(true);
+
+    store.setPrompt(null);
+    await rendered.flush();
+    await rendered.mockInput.pressKey("TAB", { shift: true });
+    await settleKeypress(rendered.flush);
+    expect(store.getSessionSnapshot().isYolo).toBe(false);
+
+    rendered.renderer.destroy();
+  });
+
   it("lists slash commands on / and runs the highlighted one with enter", async () => {
     let submitted: string | undefined;
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({
       type: "chat",
@@ -508,7 +542,7 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("/help");
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
     store.setPrompt(null);
 
@@ -522,11 +556,11 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("/agents");
 
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("/workflows");
 
     await rendered.mockInput.pressKey("ARROW_DOWN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const back = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -536,12 +570,12 @@ describe("fullscreen bridge", () => {
   it("types search from the real sequence and toggles scope with Tab", async () => {
     const rendered = await liveComposer();
     await rendered.mockInput.pressKey("f", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await typeInto(rendered.mockInput, rendered.flush, "Hello There");
     expect(rendered.captureCharFrame()).toContain("Hello There");
 
     await rendered.mockInput.pressKey("TAB");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("this conversation");
 
     rendered.renderer.destroy();
@@ -552,7 +586,7 @@ describe("fullscreen bridge", () => {
     store.pushInputHistory("earlier turn");
     const rendered = await liveComposer();
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -560,7 +594,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("queues, recalls, and clears after the chat prompt is cleared for a busy turn", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
     await rendered.flush();
@@ -570,21 +604,21 @@ describe("fullscreen bridge", () => {
 
     await typeInto(rendered.mockInput, rendered.flush, "follow up");
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("follow up");
     expect(rendered.captureCharFrame()).toContain("enter to queue");
     expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
 
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("follow up");
     expect(store.getMessageQueueSnapshot()).toEqual([]);
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("x", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(store.getMessageQueueSnapshot()).toEqual([]);
     expect(rendered.captureCharFrame()).not.toContain("queued");
 
@@ -594,19 +628,19 @@ describe("fullscreen bridge", () => {
   });
 
   it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
     await rendered.flush();
-    store.setChatBusy(true);
-    store.setPrompt(null);
-    await rendered.flush();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    updateForTest(() => {
+      store.setChatBusy(true);
+      store.setPrompt(null);
+    });
     await rendered.flush();
 
     await typeInto(rendered.mockInput, rendered.flush, "already waiting");
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("enter to queue");
 
@@ -625,7 +659,7 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("safe");
 
     await rendered.mockInput.pressKey("TAB", { shift: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("yolo");
     const yoloSpan = rendered
       .captureSpans()
@@ -655,7 +689,7 @@ describe("fullscreen bridge", () => {
     expect(hasCaret()).toBe(true);
 
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(hasCaret()).toBe(false);
 
     await rendered.mockInput.pressKey("z");
@@ -669,7 +703,7 @@ describe("fullscreen bridge", () => {
 
   it("interrupts streaming-only work with Esc Esc", async () => {
     let interrupted = 0;
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setInterruptHandler(() => {
       interrupted += 1;
@@ -678,9 +712,9 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(interrupted).toBe(1);
 
     store.finalizeStream();
@@ -690,7 +724,7 @@ describe("fullscreen bridge", () => {
 
   it("interrupts busy work with Esc Esc after the chat prompt is cleared", async () => {
     let interrupted = 0;
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
     store.setChatBusy(true);
@@ -701,9 +735,9 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     expect(interrupted).toBe(1);
     expect(store.getOutputSnapshot().entries.at(-1)?.message).toBe("Interrupting…");
@@ -790,7 +824,7 @@ describe("fullscreen bridge", () => {
 
   it("returns from the agent picker on escape without selecting", async () => {
     const selected: string[] = [];
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     store.setActiveMenu(
       {
@@ -803,7 +837,7 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
     store.setActiveMenu(null);
     expect(selected).toEqual(["EXIT"]);
@@ -811,7 +845,7 @@ describe("fullscreen bridge", () => {
 
   it("starts the selected agent from the picker with enter", async () => {
     const selected: string[] = [];
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     store.setActiveMenu(
       {
@@ -827,9 +861,9 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_DOWN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
     store.setActiveMenu(null);
     expect(selected).toEqual(["a2"]);
@@ -840,8 +874,7 @@ describe("fullscreen bridge", () => {
       store.setActiveMenu({
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [
           { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
@@ -852,21 +885,20 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("qwen-coder");
     expect(text).toContain("claude-sonnet-4");
     expect(text).toContain("qwen2.5-coder");
-    expect(text).toContain("enter back");
+    expect(text).toContain("enter details");
     expect(text).not.toContain("enter start");
     store.setActiveMenu(null);
   });
 
-  it("leaves the list-agents screen on enter or escape without selecting", async () => {
+  it("selects an agent on Enter and leaves the list on Escape", async () => {
     const selected: string[] = [];
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     store.setActiveMenu(
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [
           { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
@@ -878,23 +910,22 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("doitall");
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
-    expect(selected).toEqual(["EXIT"]);
+    await settleKeypress(rendered.flush);
+    expect(selected).toEqual(["a1"]);
 
     selected.length = 0;
     store.setActiveMenu(
       {
         kind: "agents",
         title: "agents",
-        action: "back",
-        browse: true,
+        action: "details",
         agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" }],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     rendered.renderer.destroy();
     store.setActiveMenu(null);
@@ -917,12 +948,89 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
+  it("opens a scrollable detail screen and returns on Escape", async () => {
+    const selected: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 60, height: 14 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "agent-details",
+        name: "Research",
+        fields: [
+          { section: "Model", label: "Provider", value: "vllm" },
+          { section: "Model", label: "Model", value: "qwen" },
+          { section: "Model", label: "Input price", value: "$0/M tokens" },
+          { section: "Model", label: "Output price", value: "$0/M tokens" },
+          { section: "Model", label: "Host URL", value: "http://gpu.example:8000/v1" },
+          { section: "Access", label: "Tools denied", value: "execute_command" },
+        ],
+      },
+      (result) => selected.push(result.kind),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("agent: Research");
+    expect(rendered.captureCharFrame()).toContain("Input price");
+    for (let index = 0; index < 3; index += 1) {
+      await rendered.mockInput.pressKey("ARROWDOWN");
+      await settleKeypress(rendered.flush);
+    }
+    expect(rendered.captureCharFrame()).toContain("Tools denied");
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    expect(selected).toEqual(["exit"]);
+  });
+
+  it("filters skills, opens details, returns to the filtered list, then closes", async () => {
+    const completed: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 60, height: 14 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "skills",
+        skills: [
+          {
+            name: "calendar",
+            source: "builtin",
+            description: "Manage events",
+            path: "/skills/calendar",
+          },
+          { name: "research", source: "plugin", description: "Read papers in full", path: "" },
+        ],
+      },
+      (result) => completed.push(result.kind),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("calendar");
+    expect(rendered.captureCharFrame()).toContain("research");
+
+    for (const letter of "plugin") {
+      await rendered.mockInput.pressKey(letter);
+      await settleKeypress(rendered.flush);
+    }
+    expect(rendered.captureCharFrame()).toContain("research");
+    expect(rendered.captureCharFrame()).not.toContain("calendar");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("Read papers in full");
+    expect(completed).toEqual([]);
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("research");
+    expect(rendered.captureCharFrame()).not.toContain("calendar");
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    expect(completed).toEqual(["exit"]);
+  });
+
   it("keeps a data-only menu fullscreen without falling back", async () => {
     let fallbackRequests = 0;
     const unregisterFallback = store.registerRendererFallbackHandler(() => {
       fallbackRequests += 1;
     });
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
 
     store.setActiveMenu({
@@ -970,7 +1078,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("accepts typing into the composer while a chat prompt is live", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -996,7 +1104,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("Cmd+Backspace deletes to the start of the line, not just one character", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -1023,7 +1131,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("Ctrl+U deletes to the start of the line", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -1051,7 +1159,7 @@ describe("fullscreen bridge", () => {
 
   it("pastes into the composer, including newlines, without submitting", async () => {
     let submitted: string | undefined;
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({
       type: "chat",
@@ -1063,7 +1171,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pasteBracketedText("hello\nthere");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -1075,7 +1183,7 @@ describe("fullscreen bridge", () => {
 
   it("inserts a newline on Shift+Enter without submitting", async () => {
     let submitted: string | undefined;
-    const rendered = await testRender(<FullscreenBridge />, {
+    const rendered = await renderForTest(<FullscreenBridge />, {
       width: WIDTH,
       height: HEIGHT,
       kittyKeyboard: true,
@@ -1092,7 +1200,7 @@ describe("fullscreen bridge", () => {
 
     await typeInto(rendered.mockInput, rendered.flush, "hello");
     await rendered.mockInput.pressKey("RETURN", { shift: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await typeInto(rendered.mockInput, rendered.flush, "world");
     const frame = rendered.captureCharFrame();
 
@@ -1101,7 +1209,7 @@ describe("fullscreen bridge", () => {
     expect(submitted).toBeUndefined();
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
     store.setPrompt(null);
 
@@ -1112,9 +1220,9 @@ describe("fullscreen bridge", () => {
     const rendered = await liveComposer();
     await typeInto(rendered.mockInput, rendered.flush, "ab");
     await rendered.mockInput.pressKey("ARROW_LEFT");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pasteBracketedText("XY");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -1122,7 +1230,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("drives text and password producers through the store and overlay", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     const producer = terminalProducer();
 
@@ -1133,7 +1241,7 @@ describe("fullscreen bridge", () => {
     expect(rendered.captureCharFrame()).toContain("Agent name");
     await typeInto(rendered.mockInput, rendered.flush, "Scout");
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await textResult).toBe("Scout");
 
     const passwordResult = Effect.runPromise(producer.password("API key"));
@@ -1144,14 +1252,14 @@ describe("fullscreen bridge", () => {
     expect(masked).not.toContain("topsecret");
     expect(masked).toContain("***secret");
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await passwordResult).toBe("topsecret");
 
     rendered.renderer.destroy();
   });
 
   it("masks a secret text prompt while typing and still submits the full key", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     const producer = terminalProducer();
     const apiKey = "c9706a74-71d7-4523-8044-29b01abff127";
@@ -1165,14 +1273,14 @@ describe("fullscreen bridge", () => {
     expect(live).toContain("***bff127");
     expect(live).not.toContain(apiKey);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await secretResult).toBe(apiKey);
 
     rendered.renderer.destroy();
   });
 
   it("rejects a secret API key prompt on escape and keeps the parent flow alive", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     const producer = terminalProducer();
 
@@ -1184,7 +1292,7 @@ describe("fullscreen bridge", () => {
     expect(promptFrame).toContain("Enter API Key for tavily:");
     expect(promptFrame).toContain("to go back");
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await cancelledKey).toBeUndefined();
 
     const selected = Effect.runPromise(
@@ -1196,19 +1304,19 @@ describe("fullscreen bridge", () => {
       }),
     );
     await rendered.flush();
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain(
       "Which web search provider would you like to use?",
     );
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await selected).toBe("tavily");
 
     rendered.renderer.destroy();
   });
 
   it("drives select, checkbox, and questionnaire values from their producers", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 30 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 30 });
     await rendered.renderOnce();
     const terminal = terminalProducer();
     const enabledValue = { id: 2 };
@@ -1223,9 +1331,9 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await selected).toBe(enabledValue);
 
     const defaultValue = { id: 4 };
@@ -1240,7 +1348,7 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await defaulted).toBe(defaultValue);
 
     const checked = Effect.runPromise(
@@ -1256,7 +1364,7 @@ describe("fullscreen bridge", () => {
     await rendered.mockInput.pressKey(" ");
     await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await checked).toEqual(["alpha", "beta"]);
 
     const emptyChecked = Effect.runPromise(
@@ -1269,7 +1377,7 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await emptyChecked).toEqual([]);
 
     const cancelledChecked = Effect.runPromise(
@@ -1283,13 +1391,13 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await cancelledChecked).toBeUndefined();
 
     const cancelledConfirm = Effect.runPromise(terminal.confirm("Proceed?", true));
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await cancelledConfirm).toBeUndefined();
 
     const presentation = presentationProducer();
@@ -1305,9 +1413,9 @@ describe("fullscreen bridge", () => {
     );
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_DOWN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await questionnaire).toEqual({ kind: "answered", response: "south" });
 
     rendered.renderer.destroy();
@@ -1317,7 +1425,7 @@ describe("fullscreen bridge", () => {
     const basePath = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-filepicker-"));
     const selectedPath = path.join(basePath, "choice.txt");
     await fs.writeFile(selectedPath, "pick me");
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 30 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 30 });
     await rendered.renderOnce();
 
     try {
@@ -1328,15 +1436,12 @@ describe("fullscreen bridge", () => {
           extensions: ["txt"],
         }),
       );
-      await rendered.flush();
-      for (let attempt = 0; attempt < 20; attempt++) {
-        if (rendered.captureCharFrame().includes("choice.txt")) break;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        await rendered.flush();
-      }
-      expect(rendered.captureCharFrame()).toContain("choice.txt");
+      // The picker scans the directory on disk, so wait for its entries on screen.
+      expect(await frameWhen(rendered, (frame) => frame.includes("choice.txt"))).toContain(
+        "choice.txt",
+      );
       await rendered.mockInput.pressKey("RETURN");
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
       expect(await result).toBe(selectedPath);
     } finally {
       rendered.renderer.destroy();
@@ -1350,7 +1455,7 @@ describe("fullscreen bridge", () => {
       message: "Already waiting",
       resolve: () => undefined,
     });
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("Already waiting");
@@ -1358,7 +1463,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("handles hidden, confirm, search, and cancellable prompt keys", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     const resolved: unknown[] = [];
 
@@ -1369,7 +1474,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     store.setPrompt({
       type: "hidden",
@@ -1378,7 +1483,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     store.setPrompt({
       type: "confirm",
@@ -1388,9 +1493,9 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     store.setPrompt({
       type: "search",
@@ -1408,7 +1513,7 @@ describe("fullscreen bridge", () => {
     await typeInto(rendered.mockInput, rendered.flush, "Banana");
     expect(rendered.captureCharFrame()).toContain("Banana");
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     let cancelled = false;
     store.setPrompt({
@@ -1422,7 +1527,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     rendered.renderer.destroy();
     expect(resolved).toEqual(["", "", true, "banana"]);
@@ -1430,7 +1535,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("windows a long select, filters by typing, and wraps selection", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 28 });
     await rendered.renderOnce();
     const choices = Array.from({ length: 24 }, (_, index) => ({
       label: `Provider ${String(index + 1).padStart(2, "0")}`,
@@ -1452,7 +1557,7 @@ describe("fullscreen bridge", () => {
     expect(opened).toContain("Type to filter");
 
     await rendered.mockInput.pressKey("ARROW_UP");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const wrapped = rendered.captureCharFrame();
     expect(wrapped).toContain("Provider 24");
     expect(wrapped).not.toContain("Provider 01");
@@ -1464,9 +1569,98 @@ describe("fullscreen bridge", () => {
     expect(filtered).not.toContain("Provider 01");
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     rendered.renderer.destroy();
     expect(selected).toEqual(["provider-3"]);
+  });
+
+  it("submits typed filter text on a select that accepts a typed answer", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).not.toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    const partial = rendered.captureCharFrame();
+    expect(partial).toContain("main");
+    expect(partial).toContain("Your own answer");
+
+    await typeInto(rendered.mockInput, rendered.flush, "ster");
+    const noMatch = rendered.captureCharFrame();
+    expect(noMatch).toContain("master");
+    expect(noMatch).not.toContain("No matching options");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["master"]);
+    expect(selected).toEqual([]);
+  });
+
+  it("still resolves the matching choice first when a typed answer is offered", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const selected: unknown[] = [];
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [
+          { label: "main", value: "main" },
+          { label: "develop", value: "develop" },
+        ],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: (value) => selected.push(value),
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    expect(selected).toEqual(["main"]);
+    expect(typed).toEqual([]);
+  });
+
+  it("moves onto the typed answer row with the arrow keys", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 28 });
+    await rendered.renderOnce();
+    const typed: string[] = [];
+
+    store.setPrompt({
+      type: "select",
+      message: "Pick a branch",
+      options: {
+        choices: [{ label: "main", value: "main" }],
+        resolveTypedAnswer: (text) => typed.push(text),
+      },
+      resolve: () => undefined,
+    });
+    await rendered.flush();
+    await typeInto(rendered.mockInput, rendered.flush, "ma");
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    expect(typed).toEqual(["ma"]);
   });
 
   it("navigates the wizard menu with arrows and selects with enter", async () => {
@@ -1477,7 +1671,7 @@ describe("fullscreen bridge", () => {
     // this component, above App, so nothing on it could be navigated: not
     // arrows, not enter, not even Ctrl+C.
     const selected: string[] = [];
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: 100, height: 28 },
     );
@@ -1497,11 +1691,11 @@ describe("fullscreen bridge", () => {
     const before = captureCharFrame();
 
     await mockInput.pressKey("ARROW_DOWN");
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     const afterDown = captureCharFrame();
 
     await mockInput.pressKey("RETURN");
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
 
     renderer.destroy();
     store.setActiveMenu(null);
@@ -1512,7 +1706,7 @@ describe("fullscreen bridge", () => {
 
   it("navigates the wizard from application-cursor and vim keys", async () => {
     const selected: string[] = [];
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     store.setActiveMenu(
       {
@@ -1530,11 +1724,11 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("\x1bOB");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("j");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     rendered.renderer.destroy();
     store.setActiveMenu(null);
@@ -1552,7 +1746,7 @@ describe("fullscreen bridge", () => {
     }
     store.flushOutputBatchNow();
     await rendered.flush();
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const atBottom = rendered.captureCharFrame();
     expect(atBottom).toContain("line-39");
     expect(atBottom).not.toContain("line-00");
@@ -1572,7 +1766,7 @@ describe("fullscreen bridge", () => {
     });
     store.flushOutputBatchNow();
     await rendered.flush();
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const whileGenerating = rendered.captureCharFrame();
     expect(whileGenerating).toContain("line-00");
     expect(whileGenerating).not.toContain("line-40");
@@ -1601,7 +1795,7 @@ describe("fullscreen bridge", () => {
     store.flushOutputBatchNow();
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("type to input");
 
     await rendered.mockInput.pressKey("a");
@@ -1616,7 +1810,7 @@ describe("fullscreen bridge", () => {
   it("pastes into the composer while the transcript has focus", async () => {
     const rendered = await liveComposer();
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("type to input");
 
     await rendered.mockInput.pasteBracketedText("pasted-while-scrolled");
@@ -1640,7 +1834,7 @@ describe("fullscreen bridge", () => {
 
   it("does not resolve a producer approval from queued Enter or a during the deny-only window", async () => {
     let settled: { approved: boolean } | undefined;
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     const pending = Effect.runPromise(
       presentationProducer().requestApproval({
@@ -1677,9 +1871,9 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
     expect(settled).toBeUndefined();
 
-    await new Promise((resolve) => setTimeout(resolve, APPROVAL_ARM_MS + 50));
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("enter to accept");
+    expect(await frameWhen(rendered, (frame) => frame.includes("enter to accept"))).toContain(
+      "enter to accept",
+    );
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
     expect(await pending).toEqual({ approved: true });
@@ -1689,7 +1883,7 @@ describe("fullscreen bridge", () => {
 
   it("keeps reject available from a producer while accept is still inert", async () => {
     let settled: { approved: boolean } | undefined;
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     const pending = Effect.runPromise(
       presentationProducer().requestApproval({
@@ -1706,12 +1900,12 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("ESCAPE");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(settled).toBeUndefined();
     expect(rendered.captureCharFrame().toLowerCase()).toContain("instead");
 
     await rendered.mockInput.pressKey("RETURN");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(await pending).toEqual({ approved: false });
 
     rendered.renderer.destroy();
@@ -1719,10 +1913,13 @@ describe("fullscreen bridge", () => {
 
   it("accepts only denial until an approval has armed", async () => {
     const decisions: string[] = [];
-    const { renderer, renderOnce, flush, mockInput } = await testRender(<FullscreenBridge />, {
-      width: 100,
-      height: 28,
-    });
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      {
+        width: 100,
+        height: 28,
+      },
+    );
     await renderOnce();
     store.setPrompt({
       type: "select",
@@ -1744,8 +1941,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(flush);
     expect(decisions).toEqual([]);
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await flush();
+    await frameWhen({ flush, captureCharFrame }, (frame) => frame.includes("enter to accept"));
     await mockInput.pressKey("RETURN");
     await settleKeypress(flush);
 
@@ -1757,7 +1953,7 @@ describe("fullscreen bridge", () => {
 
   it("keeps immediate rejection available and renders every approval field", async () => {
     const decisions: string[] = [];
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: 100, height: 40 },
     );
@@ -1789,7 +1985,7 @@ describe("fullscreen bridge", () => {
     expect(captureCharFrame()).toContain("field9");
 
     await mockInput.pressKey("ESCAPE");
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
 
     renderer.destroy();
     store.setApprovalRequest(null);
@@ -1800,7 +1996,7 @@ describe("fullscreen bridge", () => {
   it("crops a long approval command and expands it with Ctrl+O", async () => {
     const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
     const command = `${"a".repeat(160)} ${TAIL}`;
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
     store.setPrompt({
       type: "select",
@@ -1822,7 +2018,7 @@ describe("fullscreen bridge", () => {
     expect(collapsed).not.toContain(TAIL);
 
     await rendered.mockInput.pressKey("\x0f");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const expanded = rendered.captureCharFrame();
     expect(expanded).toContain(TAIL);
     expect(expanded).toContain("collapse");
@@ -1833,7 +2029,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("lets the user inspect overflowed approval fields before deciding", async () => {
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 16 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 16 });
     await rendered.renderOnce();
     store.setPrompt({
       type: "select",
@@ -1854,7 +2050,7 @@ describe("fullscreen bridge", () => {
 
     for (let index = 0; index < 7; index++) {
       await rendered.mockInput.pressKey("ARROW_DOWN");
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
     }
     expect(rendered.captureCharFrame()).toContain("field12");
 
@@ -1865,7 +2061,7 @@ describe("fullscreen bridge", () => {
 
   it("always-allows only the current command scope for shell approvals", async () => {
     const decisions: string[] = [];
-    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 24 });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
     await rendered.renderOnce();
     store.setPrompt({
       type: "select",
@@ -1887,8 +2083,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("always allow git add");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await rendered.flush();
+    await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
     await rendered.mockInput.pressKey("a");
     await settleKeypress(rendered.flush);
 
@@ -1912,7 +2107,7 @@ describe("fullscreen bridge", () => {
     ];
     for (const key of modified) {
       const decisions: string[] = [];
-      const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 24 });
+      const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
       await rendered.renderOnce();
       store.setPrompt({
         type: "select",
@@ -1932,8 +2127,7 @@ describe("fullscreen bridge", () => {
         args: { command: "git push --force" },
       });
       await rendered.flush();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await rendered.flush();
+      await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey("a", key);
       await settleKeypress(rendered.flush);
@@ -1955,7 +2149,7 @@ describe("fullscreen bridge", () => {
         return true;
       }) as typeof process.kill;
 
-      const rendered = await testRender(<FullscreenBridge />, {
+      const rendered = await renderForTest(<FullscreenBridge />, {
         width: WIDTH,
         height: HEIGHT,
         exitOnCtrlC: false,
@@ -1971,7 +2165,7 @@ describe("fullscreen bridge", () => {
 
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
       process.kill = originalKill;
@@ -1996,7 +2190,7 @@ describe("fullscreen bridge", () => {
         return true;
       }) as typeof process.kill;
 
-      const rendered = await testRender(<FullscreenBridge />, {
+      const rendered = await renderForTest(<FullscreenBridge />, {
         width: WIDTH,
         height: HEIGHT,
         exitOnCtrlC: false,
@@ -2008,11 +2202,11 @@ describe("fullscreen bridge", () => {
       };
 
       await pressCtrlC();
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
       expect(signals).toEqual([]);
 
       await pressCtrlC();
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
 
       process.kill = originalKill;
       rendered.renderer.destroy();
@@ -2023,7 +2217,7 @@ describe("fullscreen bridge", () => {
 
   it("returns to the main menu instead of quitting on the second idle Ctrl+C when a chat conversation is waiting for input", async () => {
     const resolved: unknown[] = [];
-    const rendered = await testRender(<FullscreenBridge />, {
+    const rendered = await renderForTest(<FullscreenBridge />, {
       width: WIDTH,
       height: HEIGHT,
       exitOnCtrlC: false,
@@ -2040,11 +2234,11 @@ describe("fullscreen bridge", () => {
     }) as typeof process.kill;
 
     await rendered.mockInput.pressKey("c", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     expect(resolved).toEqual([]);
 
     await rendered.mockInput.pressKey("c", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
 
     process.kill = originalKill;
     rendered.renderer.destroy();
@@ -2060,7 +2254,7 @@ describe("fullscreen bridge", () => {
     // ahead of the Ctrl+C check and swallowed Ctrl+C along with everything
     // else. Ctrl+C is checked first now, specifically so no future modal can
     // make the same mistake.
-    const { renderer, renderOnce, flush, mockInput } = await testRender(<FullscreenBridge />, {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
       width: 100,
       height: 28,
       exitOnCtrlC: false,
@@ -2080,11 +2274,11 @@ describe("fullscreen bridge", () => {
     }) as typeof process.kill;
 
     await mockInput.pressKey("c", { ctrl: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     expect(killed).toBe(false);
 
     await mockInput.pressKey("c", { ctrl: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
 
     process.kill = originalKill;
     renderer.destroy();
@@ -2108,7 +2302,7 @@ describe("fullscreen bridge", () => {
         return true;
       }) as typeof process.kill;
 
-      const rendered = await testRender(<FullscreenBridge />, {
+      const rendered = await renderForTest(<FullscreenBridge />, {
         width: WIDTH,
         height: HEIGHT,
         exitOnCtrlC: false,
@@ -2125,7 +2319,7 @@ describe("fullscreen bridge", () => {
 
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey(key.name, key);
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
       const frame = rendered.captureCharFrame();
 
       process.kill = originalKill;
@@ -2156,7 +2350,7 @@ describe("fullscreen bridge", () => {
         return true;
       }) as typeof process.kill;
 
-      const rendered = await testRender(<FullscreenBridge />, {
+      const rendered = await renderForTest(<FullscreenBridge />, {
         width: WIDTH,
         height: HEIGHT,
         exitOnCtrlC: false,
@@ -2167,7 +2361,7 @@ describe("fullscreen bridge", () => {
       await rendered.flush();
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey(key.name, key);
-      await settleKeypress(rendered.flush, 100);
+      await settleKeypress(rendered.flush);
 
       process.kill = originalKill;
       rendered.renderer.destroy();
@@ -2181,7 +2375,7 @@ describe("fullscreen bridge", () => {
     // This keyboard library reports space as `name: "space"`, not the literal
     // character — every other printable key's name already is the character
     // it types, which is what made this one easy to miss.
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -2205,7 +2399,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("left and right arrows move the caret, so mid-word insertion lands correctly", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -2218,9 +2412,9 @@ describe("fullscreen bridge", () => {
     }
     // Caret is after "cat"; two lefts put it between "c" and "a".
     await mockInput.pressKey("ARROW_LEFT");
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     await mockInput.pressKey("ARROW_LEFT");
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     await mockInput.pressKey("h");
     await settleKeypress(flush);
     const frame = captureCharFrame();
@@ -2230,7 +2424,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("undoes a typed word and shift-selects so the next key replaces it", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -2242,7 +2436,7 @@ describe("fullscreen bridge", () => {
       await settleKeypress(flush);
     }
     await mockInput.pressKey("z", { ctrl: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     expect(captureCharFrame()).not.toContain("cat");
 
     for (const key of ["c", "a", "t"]) {
@@ -2250,11 +2444,11 @@ describe("fullscreen bridge", () => {
       await settleKeypress(flush);
     }
     await mockInput.pressKey("ARROW_LEFT", { shift: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     await mockInput.pressKey("ARROW_LEFT", { shift: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     await mockInput.pressKey("ARROW_LEFT", { shift: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     await mockInput.pressKey("x");
     await settleKeypress(flush);
     const frame = captureCharFrame();
@@ -2265,7 +2459,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("option+Backspace (reported as meta) deletes the previous word", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -2277,7 +2471,7 @@ describe("fullscreen bridge", () => {
       await settleKeypress(flush);
     }
     await mockInput.pressKey("BACKSPACE", { meta: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     const frame = captureCharFrame();
     renderer.destroy();
     store.setPrompt(null);
@@ -2286,7 +2480,7 @@ describe("fullscreen bridge", () => {
   });
 
   it("Ctrl+Backspace also deletes the previous word", async () => {
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
     );
@@ -2298,7 +2492,7 @@ describe("fullscreen bridge", () => {
       await settleKeypress(flush);
     }
     await mockInput.pressKey("BACKSPACE", { ctrl: true });
-    await settleKeypress(flush, 100);
+    await settleKeypress(flush);
     const frame = captureCharFrame();
     renderer.destroy();
     store.setPrompt(null);
@@ -2350,7 +2544,7 @@ describe("fullscreen bridge", () => {
   }
 
   async function liveComposer() {
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
     await rendered.flush();
@@ -2360,15 +2554,13 @@ describe("fullscreen bridge", () => {
   it("suggests file paths while typing an @ mention and accepts one with Tab", async () => {
     const rendered = await liveComposer();
     await typeInto(rendered.mockInput, rendered.flush, "@package");
-    // The scan is debounced and walks the filesystem, so it needs a real wait
-    // rather than a microtask drain.
-    await settleKeypress(rendered.flush, 100);
-    await settleKeypress(rendered.flush, 100);
-
-    expect(rendered.captureCharFrame()).toContain("@package.json");
+    // The scan is debounced and walks the filesystem, so wait for its result on screen.
+    expect(await frameWhen(rendered, (frame) => frame.includes("@package.json"))).toContain(
+      "@package.json",
+    );
 
     await rendered.mockInput.pressKey("TAB");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const accepted = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -2381,8 +2573,8 @@ describe("fullscreen bridge", () => {
   it("does not open the file menu for an @ inside a word", async () => {
     const rendered = await liveComposer();
     await typeInto(rendered.mockInput, rendered.flush, "mail me@package");
-    await settleKeypress(rendered.flush, 100);
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
+    await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -2422,13 +2614,13 @@ describe("fullscreen bridge", () => {
     await typeInto(rendered.mockInput, rendered.flush, "hello world");
 
     await rendered.mockInput.pressKey("ARROW_LEFT", { super: true } as never);
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("X");
     await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("Xhello world");
 
     await rendered.mockInput.pressKey("ARROW_RIGHT", { super: true } as never);
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("!");
     await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
@@ -2441,7 +2633,7 @@ describe("fullscreen bridge", () => {
     const rendered = await liveComposer();
     await typeInto(rendered.mockInput, rendered.flush, "hello world");
     await rendered.mockInput.pressKey("ARROW_LEFT", { meta: true } as never);
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("X");
     await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
@@ -2459,21 +2651,21 @@ describe("fullscreen bridge", () => {
     await typeInto(rendered.mockInput, rendered.flush, "abc");
 
     await rendered.mockInput.pressKey("HOME");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("1");
     await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("END");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("9");
     await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).toContain("1abc9");
 
     await rendered.mockInput.pressKey("a", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("A");
     await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("e", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("Z");
     await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
@@ -2496,9 +2688,9 @@ describe("fullscreen bridge", () => {
     // above is the one that can prove that path.
     const rendered = await liveComposer();
     await rendered.mockInput.pressKey("j", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.mockInput.pressKey("b", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     const frame = rendered.captureCharFrame();
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -2575,7 +2767,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("\x12");
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     store.flushOutputBatchNow();
     await rendered.flush();
 
@@ -2602,7 +2794,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("r", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.flush();
 
     const frameText = rendered.captureCharFrame();
@@ -2628,7 +2820,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
 
     await rendered.mockInput.pressKey("r", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     await rendered.flush();
 
     const frameText = rendered.captureCharFrame();
@@ -2643,7 +2835,7 @@ describe("fullscreen bridge", () => {
     store.clearOutputs();
     const rendered = await liveComposer();
     await rendered.mockInput.pressKey("r", { ctrl: true });
-    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush);
     store.flushOutputBatchNow();
     await rendered.flush();
 
@@ -2784,5 +2976,127 @@ describe("fullscreen bridge", () => {
       // off at it.
       expect(second).toBe(first + 1);
     });
+  });
+});
+
+describe("fullscreen bridge sub-agents", () => {
+  beforeEach(() => {
+    resetStoreSlices();
+    store.setChatBusy(true);
+    store.setChatBusy(false);
+  });
+
+  async function mountBusyChat(): Promise<Awaited<ReturnType<typeof renderForTest>>> {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    store.setChatBusy(true);
+    store.setPrompt(null);
+    await rendered.flush();
+    return rendered;
+  }
+
+  it("lists the turn's sub-agents under the composer", async () => {
+    const rendered = await mountBusyChat();
+    const haiku = store.openEphemeral("subagent", "Sudoku race: Haiku", 12, {
+      task: "Solve it fast",
+      acceptsMessages: true,
+    });
+    store.openEphemeral("subagent", "Sudoku race: Opus", 12, {
+      task: "Solve it well",
+      acceptsMessages: true,
+    });
+    store.appendEphemeral(haiku, "checking row 3", "response");
+    await settleKeypress(rendered.flush);
+
+    const text = rendered.captureCharFrame();
+    expect(text).toContain("2 subagents running");
+    expect(text).toContain("down to manage");
+    expect(text).toContain("Sudoku race: Haiku");
+    expect(text).toContain("checking row 3");
+    expect(text).toContain("Sudoku race: Opus");
+    rendered.renderer.destroy();
+  });
+
+  it("opens a sub-agent with down and enter, steers it, and goes back with esc", async () => {
+    const rendered = await mountBusyChat();
+    store.printOutput({ type: "log", message: "MAIN CONVERSATION", timestamp: new Date() });
+    const solver = store.openEphemeral("subagent", "Solver", 12, {
+      task: "Solve the board in board.txt",
+      acceptsMessages: true,
+    });
+    store.recordSubagentToolStart(solver, {
+      toolCallId: "call-1",
+      name: "read_file",
+      args: "board.txt",
+    });
+    store.appendEphemeral(solver, "Box six is the last one left", "response");
+    store.flushOutputBatchNow();
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("MAIN CONVERSATION");
+
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("enter to open");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    const opened = rendered.captureCharFrame();
+    expect(opened).not.toContain("MAIN CONVERSATION");
+    expect(opened).toContain("Solve the board in board.txt");
+    expect(opened).toContain("read_file");
+    expect(opened).toContain("Box six is the last one left");
+    expect(opened).toContain("Message Solver");
+    expect(opened).toContain("esc back to main");
+
+    for (const character of "try 7") {
+      await rendered.mockInput.pressKey(character);
+    }
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(store.takeSubagentMessage(solver)).toBe("try 7");
+    expect(store.getMessageQueueSnapshot()).toEqual([]);
+    expect(rendered.captureCharFrame()).toContain("try 7");
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("MAIN CONVERSATION");
+    rendered.renderer.destroy();
+  });
+
+  it("keeps the draft and says why when the open sub-agent has already finished", async () => {
+    const rendered = await mountBusyChat();
+    const solver = store.openEphemeral("subagent", "Solver", 12, {
+      task: "Solve it",
+      acceptsMessages: true,
+    });
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+
+    store.collapseEphemeral(solver, { durationMs: 10 });
+    await settleKeypress(rendered.flush);
+    for (const character of "late") {
+      await rendered.mockInput.pressKey(character);
+    }
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+
+    const text = rendered.captureCharFrame();
+    expect(text).toContain("Solver has finished; message not sent");
+    expect(text).toContain("late");
+    rendered.renderer.destroy();
+  });
+
+  it("leaves down alone when there is nothing delegated", async () => {
+    const rendered = await mountBusyChat();
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).not.toContain("enter to open");
+    rendered.renderer.destroy();
   });
 });

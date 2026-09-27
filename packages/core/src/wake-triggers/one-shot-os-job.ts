@@ -11,6 +11,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Effect, Option } from "effect";
 import * as plist from "plist";
+import { toError } from "@/core/utils/errors";
+import { stateDirectoryMode } from "@/core/utils/private-mode";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { escapeShellArg, getLaunchdPath } from "../workflows/scheduler-service";
@@ -114,11 +116,11 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
 
         yield* Effect.tryPromise({
           try: () => fs.mkdir(launchAgentsDir, { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         yield* Effect.tryPromise({
-          try: () => fs.mkdir(logDir, { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          try: () => fs.mkdir(logDir, { recursive: true, mode: stateDirectoryMode() }),
+          catch: toError,
         });
 
         // Unload a stale job with the same label first, ignoring errors (there usually isn't
@@ -129,7 +131,7 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
 
         yield* Effect.tryPromise({
           try: () => fs.writeFile(plistFilePath, plistContent, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
 
         yield* execCommand("launchctl", ["load", plistFilePath]);
@@ -148,7 +150,7 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
         );
         yield* Effect.tryPromise({
           try: () => fs.unlink(plistFilePath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         }).pipe(Effect.catchAll(() => Effect.void));
       }.bind(this),
     );

@@ -8,6 +8,7 @@
  * changing this boundary parser.
  */
 
+import { isLifecycleEventId } from "@jazz/core/types/plugin";
 import type {
   JsonValue,
   LifecycleEventId,
@@ -18,6 +19,7 @@ import type {
   PluginSkillDeclaration,
   PluginToolDeclaration,
 } from "@jazz/core/types/plugin";
+import { isRecord } from "@jazz/core/utils/is-record";
 
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
 export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
@@ -37,6 +39,7 @@ export const PLUGIN_MANIFEST_METADATA_FIELDS = [
   "personas",
   "skills",
   "lifecycleHooks",
+  "workspace",
   "claimsNotifications",
   "network",
   "dataSent",
@@ -53,10 +56,10 @@ const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 export type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
 function record(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${label} must be an object`);
   }
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function exactKeys(
@@ -70,7 +73,15 @@ function exactKeys(
     throw new Error(`${label} contains unknown field(s): ${unknown.join(", ")}`);
 }
 
-function boundedString(value: unknown, label: string, max: number): string {
+/** Line breaks and tabs, which multi-line document fields such as skill bodies need. */
+const DOCUMENT_WHITESPACE = new Set(["\n", "\r", "\t"]);
+
+function boundedString(
+  value: unknown,
+  label: string,
+  max: number,
+  allowed: ReadonlySet<string> = new Set(),
+): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string`);
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > max) {
@@ -79,7 +90,7 @@ function boundedString(value: unknown, label: string, max: number): string {
   if (
     [...normalized].some((character) => {
       const code = character.charCodeAt(0);
-      return code <= 0x1f || code === 0x7f;
+      return (code <= 0x1f || code === 0x7f) && !allowed.has(character);
     })
   ) {
     throw new Error(`${label} contains control characters`);
@@ -187,6 +198,7 @@ function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDe
     item["systemPrompt"],
     `personas[${index}].systemPrompt`,
     16384,
+    DOCUMENT_WHITESPACE,
   );
   const base = { name, description, systemPrompt };
   const tone =
@@ -222,33 +234,20 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
   const name = boundedString(item["name"], `skills[${index}].name`, 64);
   if (!TOOL_NAME.test(name)) throw new Error(`skills[${index}].name has an invalid format`);
   const description = boundedString(item["description"], `skills[${index}].description`, 1024);
-  const content = boundedString(item["content"], `skills[${index}].content`, 32768);
+  const content = boundedString(
+    item["content"],
+    `skills[${index}].content`,
+    32768,
+    DOCUMENT_WHITESPACE,
+  );
   return { name, description, content };
 }
-
-const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
-  "session-start",
-  "session-end",
-  "user-prompt",
-  "run-complete",
-  "run-failed",
-  "awaiting-input",
-  "tool-start",
-  "tool-end",
-  "tool-error",
-  "subagent-start",
-  "subagent-stop",
-  "compact-start",
-  "compact-end",
-  "permission-request",
-  "permission-denied",
-]);
 
 function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
   if (value === undefined) return [];
   const events = uniqueStrings(value, "lifecycleHooks", { maxItems: 16, maxLength: 64 });
   for (const event of events) {
-    if (!LIFECYCLE_EVENTS.has(event)) throw new Error(`unknown lifecycle event: ${event}`);
+    if (!isLifecycleEventId(event)) throw new Error(`unknown lifecycle event: ${event}`);
   }
   return events as readonly LifecycleEventId[];
 }
@@ -295,6 +294,9 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   }
   const root = record(decoded, "plugin manifest");
   exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "artifact", "sha256"], "plugin manifest");
+  if (root["workspace"] !== undefined && typeof root["workspace"] !== "boolean") {
+    throw new Error("workspace must be boolean");
+  }
   if (root["schemaVersion"] !== PLUGIN_MANIFEST_SCHEMA_VERSION) {
     throw new Error(`Unsupported plugin manifest schemaVersion: ${String(root["schemaVersion"])}`);
   }
@@ -360,6 +362,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     personas: parsePersonas(root["personas"]),
     skills: parseSkills(root["skills"]),
     lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
+    workspace: root["workspace"] === true,
     claimsNotifications: root["claimsNotifications"] === true,
     network: { destinations: [...destinations].sort() },
     dataSent: [
@@ -372,6 +375,25 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   };
 }
 
+/** The entry a source manifest gets when it names none. */
+export const DEFAULT_PLUGIN_SOURCE_ENTRY = "src/index.ts";
+
+/**
+ * Validate a source plugin's `entry`: a forward-slash path relative to the plugin root with no
+ * empty, `.`, or `..` segment, so joining it onto the root can never name a file outside it.
+ */
+export function parsePluginSourceEntry(value: unknown): string {
+  const entry = boundedString(value, "entry", 2048);
+  if (
+    entry.startsWith("/") ||
+    entry.includes("\\") ||
+    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error("entry must be a safe relative path");
+  }
+  return entry;
+}
+
 /** Parse the authoring manifest stored as `jazz-plugin.json` before a source tree is installed. */
 export function parsePluginSourceManifest(input: unknown): {
   readonly manifest: PluginManifest;
@@ -380,14 +402,9 @@ export function parsePluginSourceManifest(input: unknown): {
   const root = record(input, "plugin source manifest");
   exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "entry"], "plugin source manifest");
   const entry =
-    root["entry"] === undefined ? "src/index.ts" : boundedString(root["entry"], "entry", 2048);
-  if (
-    entry.startsWith("/") ||
-    entry.includes("\\") ||
-    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
-  ) {
-    throw new Error("entry must be a safe relative path");
-  }
+    root["entry"] === undefined
+      ? DEFAULT_PLUGIN_SOURCE_ENTRY
+      : parsePluginSourceEntry(root["entry"]);
   const { entry: _entry, ...installMetadata } = root;
   return {
     manifest: parsePluginManifest({

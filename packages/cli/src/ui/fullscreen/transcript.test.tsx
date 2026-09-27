@@ -13,9 +13,9 @@
  */
 
 import { TextAttributes, type CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { terminalCellWidth } from "./terminal-cells";
@@ -139,7 +139,7 @@ interface Rendered {
 }
 
 async function render(node: ReactNode, viewport: Viewport): Promise<Rendered> {
-  const { renderOnce, captureCharFrame, captureSpans, renderer } = await testRender(node, {
+  const { renderOnce, captureCharFrame, captureSpans, renderer } = await renderForTest(node, {
     width: viewport.width,
     height: viewport.height,
   });
@@ -374,6 +374,22 @@ describe("the measure", () => {
     const frame = rendered.rows.join("\n");
     expect(frame).toContain("Thursday numbers");
     expect(frame).toContain("director");
+  });
+
+  it("puts the agent marker on the first line of text when the reply opens with newlines", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: "\n\nThe diagrams directory was created.\n\n",
+      },
+    ];
+    const rows = transcriptRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
+    const first = rows[0];
+    expect(first?.gutter[0]?.text).toBe(getGlyphs().diamond);
+    expect(first?.content.map((segment) => segment.text).join("")).toContain("diagrams directory");
+    expect(rows.at(-1)?.content.length).toBeGreaterThan(0);
   });
 
   it("does not eat a short header when leftover width would have kept it", () => {
@@ -1166,5 +1182,17 @@ describe("wrap cache", () => {
     } finally {
       setThemeVariant("dark");
     }
+  });
+});
+
+describe("transcript links", () => {
+  it("carries a markdown link's target on its span", () => {
+    const segments = inlineSegments(
+      "read [the guide](https://example.com/guide) first",
+      THEME.secondary,
+    );
+    const label = segments.find((segment) => segment.text === "the guide");
+    expect(label).toMatchObject({ fg: THEME.link, link: "https://example.com/guide" });
+    expect(segments.filter((segment) => segment.link !== undefined)).toHaveLength(1);
   });
 });

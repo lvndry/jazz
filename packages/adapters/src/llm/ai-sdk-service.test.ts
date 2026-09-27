@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import {
+  goalEvaluationSchema,
+  goalEvaluationSchemaForPlan,
+} from "@jazz/core/agent/goal/goal-evaluation";
+import { testGoalPlan } from "@jazz/core/agent/goal/test-fixtures";
 import type { ProviderName } from "@jazz/core/constants/models";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -17,9 +22,11 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
-import { APICallError, generateText } from "ai";
+import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
+import { APICallError, generateText, Output } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Cause, Effect, Exit, Layer, Stream } from "effect";
+import { Cause, Duration, Effect, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
@@ -178,6 +185,8 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerNames).toContain("anthropic");
       expect(providerNames).toContain("ollama");
       expect(providerNames).toContain("llamacpp");
+      expect(providerNames).toContain("vllm");
+      expect(providerNames).toContain("sglang");
 
       // Check configured status
       const openaiProvider = result.find((p) => p.name === "openai");
@@ -187,6 +196,265 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(openaiProvider?.configured).toBe(true);
       expect(openrouterProvider?.configured).toBe(true);
       expect(anthropicProvider?.configured).toBe(false);
+    });
+
+    it("resolves the reasoning control a request would use, including operator overrides", async () => {
+      const override = {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisableReasoning: false,
+      } as const;
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return {
+          overridden: yield* llmService.resolveReasoningControl("nvidia", "qwen/qwen3-thinking"),
+          builtin: yield* llmService.resolveReasoningControl("vllm", "any-model"),
+        };
+      });
+      const result = await runWithTestLayers(
+        testEffect,
+        createTestConfigLayer({
+          capabilityOverrides: { nvidia: { "qwen/qwen3-thinking": { reasoning: override } } },
+        }),
+      );
+      expect(result.overridden).toEqual(override);
+      expect(result.builtin).toMatchObject({
+        transport: "openai-compatible.chat.reasoning-effort",
+      });
+    });
+
+    it("lists models as operator overrides correct them, leaving other fields and models alone", async () => {
+      const testEffect = Effect.gen(function* () {
+        const llmService = yield* LLMServiceTag;
+        return yield* llmService.getProvider("openai");
+      });
+      const provider = await runWithTestLayers(
+        testEffect,
+        createTestConfigLayer({
+          openai: { api_key: "sk-test" },
+          capabilityOverrides: {
+            openai: {
+              "mock-model-newer": {
+                supportsTools: false,
+                reasoning: {
+                  kind: "effort",
+                  transport: "openai.responses.reasoning-effort",
+                  efforts: ["low"],
+                  canDisableReasoning: true,
+                },
+              },
+            },
+          },
+        }),
+      );
+      const overridden = provider.supportedModels.find((model) => model.id === "mock-model-newer");
+      const untouched = provider.supportedModels.find((model) => model.id === "mock-model-older");
+      expect(overridden).toMatchObject({ supportsTools: false, isReasoningModel: true });
+      expect(overridden?.contextWindow).toBe(128000);
+      expect(untouched).toMatchObject({ supportsTools: true, isReasoningModel: false });
+    });
+
+    it("detects an NVIDIA NIM key from the NIM_API_KEY alias", async () => {
+      const savedNvidia = process.env["NVIDIA_API_KEY"];
+      const savedNim = process.env["NIM_API_KEY"];
+      delete process.env["NVIDIA_API_KEY"];
+      process.env["NIM_API_KEY"] = "nvapi-alias";
+      try {
+        const testEffect = Effect.gen(function* () {
+          const llmService = yield* LLMServiceTag;
+          return yield* llmService.listProviders();
+        });
+        const result = await runWithTestLayers(testEffect, createTestConfigLayer({}));
+        expect(result.find((provider) => provider.name === "nvidia")?.configured).toBe(true);
+      } finally {
+        if (savedNvidia !== undefined) {
+          process.env["NVIDIA_API_KEY"] = savedNvidia;
+        }
+        if (savedNim === undefined) {
+          delete process.env["NIM_API_KEY"];
+        } else {
+          process.env["NIM_API_KEY"] = savedNim;
+        }
+      }
+    });
+
+    it("sends every provider's model request with its configured key and without Bun's fetch timeout", async () => {
+      const bunTimeoutByProvider = new Map<string, unknown>();
+      let currentProvider = "";
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST" && !bunTimeoutByProvider.has(currentProvider)) {
+          bunTimeoutByProvider.set(
+            currentProvider,
+            (init as RequestInit & { timeout?: boolean }).timeout,
+          );
+        }
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      const llmConfig = Object.fromEntries(
+        AVAILABLE_PROVIDERS.map((provider) => [provider, { api_key: "test-key" }]),
+      ) as LLMConfig;
+      // ChatGPT resolves a signed-in OAuth credential before any request is made.
+      const providers = AVAILABLE_PROVIDERS.filter((provider) => provider !== "chatgpt");
+      try {
+        for (const provider of providers) {
+          currentProvider = provider;
+          await Effect.runPromiseExit(
+            (
+              Effect.gen(function* () {
+                const llmService = yield* LLMServiceTag;
+                return yield* llmService.createChatCompletion(provider, {
+                  model: "test-model",
+                  messages: [{ role: "user", content: "hello" }],
+                });
+              }) as Effect.Effect<unknown, unknown, LLMService>
+            ).pipe(
+              Effect.provide(createAISDKServiceLayer()),
+              Effect.provide(createTestConfigLayer(llmConfig)),
+              Effect.provide(createLoggerLayer()),
+              Effect.provide(
+                NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+              ),
+            ) as Effect.Effect<unknown, unknown, never>,
+          );
+        }
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      const withBunTimeout = providers.filter(
+        (provider) => bunTimeoutByProvider.get(provider) !== false,
+      );
+      expect(withBunTimeout).toEqual([]);
+    });
+
+    it("aborts a non-streaming request when Jazz stops waiting on it", async () => {
+      let requestSignal: AbortSignal | undefined;
+      const original = globalThis.fetch;
+      globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return Promise.resolve(new Response(JSON.stringify({ data: [] })));
+        }
+        requestSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        });
+      }) as typeof fetch;
+      try {
+        await Effect.runPromiseExit(
+          (
+            Effect.gen(function* () {
+              const llmService = yield* LLMServiceTag;
+              return yield* llmService.createChatCompletion("nvidia", {
+                model: "slow-model",
+                messages: [{ role: "user", content: "hello" }],
+              });
+            }) as Effect.Effect<unknown, unknown, LLMService>
+          ).pipe(
+            Effect.timeout(Duration.millis(200)),
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } })),
+            Effect.provide(createLoggerLayer()),
+            Effect.provide(
+              NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+            ),
+          ) as Effect.Effect<unknown, unknown, never>,
+        );
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      expect(requestSignal?.aborted).toBe(true);
+    });
+
+    it("keeps a provider stream error off stderr, leaving it to Jazz's own reporting", async () => {
+      const original = globalThis.fetch;
+      const originalConsoleError = console.error;
+      const consoleErrors: unknown[] = [];
+      console.error = (...args: unknown[]) => {
+        consoleErrors.push(args);
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ error: { message: "stubbed stream failure" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        })) as unknown as typeof fetch;
+      try {
+        await Effect.runPromiseExit(
+          (
+            Effect.gen(function* () {
+              const llmService = yield* LLMServiceTag;
+              const result = yield* llmService.createStreamingChatCompletion("nvidia", {
+                model: "test-model",
+                messages: [{ role: "user", content: "hello" }],
+              });
+              yield* Stream.runDrain(result.stream).pipe(Effect.ignore);
+              return yield* result.response;
+            }) as Effect.Effect<unknown, unknown, LLMService>
+          ).pipe(
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } })),
+            Effect.provide(createLoggerLayer()),
+            Effect.provide(
+              NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+            ),
+          ) as Effect.Effect<unknown, unknown, never>,
+        );
+      } finally {
+        globalThis.fetch = original;
+        console.error = originalConsoleError;
+      }
+
+      expect(consoleErrors).toEqual([]);
+    });
+
+    it("sends NVIDIA NIM requests to the hosted endpoint with the bearer key", async () => {
+      const requests: Array<{ url: string; authorization: string | null }> = [];
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        requests.push({ url, authorization: new Headers(init?.headers).get("Authorization") });
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-nim",
+            object: "chat.completion",
+            created: 0,
+            model: "meta/llama-3.3-70b-instruct",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "hi" },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }) as typeof fetch;
+      try {
+        const testEffect = Effect.gen(function* () {
+          const llmService = yield* LLMServiceTag;
+          return yield* llmService.createChatCompletion("nvidia", {
+            model: "meta/llama-3.3-70b-instruct",
+            messages: [{ role: "user", content: "hello" }],
+          });
+        });
+        const response = await runWithTestLayers(
+          testEffect,
+          createTestConfigLayer({ nvidia: { api_key: "nvapi-test" } }),
+        );
+        expect(response.content).toBe("hi");
+        const chatRequest = requests.find((request) => request.url.includes("/chat/completions"));
+        expect(chatRequest?.url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
+        expect(chatRequest?.authorization).toBe("Bearer nvapi-test");
+      } finally {
+        globalThis.fetch = original;
+      }
     });
 
     it("should mark Ollama as configured even without API key", async () => {
@@ -247,10 +515,12 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(testEffect, configLayer);
 
         const configuredProviders = result.filter((p) => p.configured);
-        expect(configuredProviders.length).toBe(2); // Ollama and llamacpp (local providers)
+        expect(configuredProviders.length).toBe(4); // Local-server providers need no API key.
         const configuredNames = configuredProviders.map((p) => p.name);
         expect(configuredNames).toContain("ollama");
         expect(configuredNames).toContain("llamacpp");
+        expect(configuredNames).toContain("vllm");
+        expect(configuredNames).toContain("sglang");
       } finally {
         // Restore env vars
         for (const key of envVarsToSave) {
@@ -300,11 +570,21 @@ describe("AI SDK Service - Unit Tests", () => {
       const missingProviders: ProviderName[] = [];
 
       for (const provider of AVAILABLE_PROVIDERS) {
-        // Ollama and llamacpp are handled specially (always added as local providers)
-        if (provider === "ollama" || provider === "llamacpp") {
+        // Local servers are always added without requiring an API key.
+        if (
+          provider === "ollama" ||
+          provider === "llamacpp" ||
+          provider === "vllm" ||
+          provider === "sglang"
+        ) {
           // Check for local-provider handling - look for providers.push with the provider name
           const providerQuoted = `"${provider}"`;
           if (!functionSection.includes(providerQuoted)) {
+            missingProviders.push(provider);
+          }
+        } else if (provider === "chatgpt") {
+          // ChatGPT signs in with OAuth, so it has no api_key to check.
+          if (!functionSection.includes("isChatGPTSignedIn(llmConfig)")) {
             missingProviders.push(provider);
           }
         } else {
@@ -385,6 +665,62 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(typeof result.hasModels).toBe("boolean");
       expect(typeof result.defaultModel).toBe("string");
     });
+  });
+
+  it("sends a goal disposition union as an object schema and returns the unwrapped disposition", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const plan = testGoalPlan();
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          id: "test-response",
+          choices: [
+            {
+              message: {
+                role: "assistant",
+                content:
+                  '{"result":{"status":"blocked","summary":"The oracle cannot inspect the service."}}',
+              },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const response = await runWithTestLayers(
+        Effect.gen(function* () {
+          const llm = yield* LLMServiceTag;
+          return yield* llm.createChatCompletion("vllm", {
+            model: "qwen3.8-27b",
+            messages: [{ role: "user", content: "Classify this completed goal cycle." }],
+            outputSchema: goalEvaluationSchemaForPlan(plan),
+            reasoning: "disable",
+          });
+        }),
+        createTestConfigLayer({ vllm: { base_url: "http://vllm.test/v1" } }),
+      );
+
+      const responseFormat = requestBody?.["response_format"] as
+        { type?: string; json_schema?: { schema?: Record<string, unknown> } } | undefined;
+      expect(responseFormat?.type).toBe("json_schema");
+      // A union at the root is refused by strict providers, so it travels inside an object.
+      expect(responseFormat?.json_schema?.schema?.["type"]).toBe("object");
+      expect(responseFormat?.json_schema?.schema?.["anyOf"]).toBeUndefined();
+      // Strict modes (OpenAI's, the ChatGPT backend's) refuse oneOf anywhere in the schema.
+      expect(JSON.stringify(responseFormat?.json_schema?.schema)).not.toContain('"oneOf"');
+      expect(JSON.parse(response.content)).toEqual({
+        status: "blocked",
+        summary: "The oracle cannot inspect the service.",
+      });
+      expect(response.usage?.totalTokens).toBe(18);
+    } finally {
+      globalThis.fetch = actualFetch;
+    }
   });
 
   describe("Provider Authentication", () => {
@@ -811,6 +1147,7 @@ describe("AI SDK Service - Unit Tests", () => {
               error._tag === "LLMConfigurationError",
           ).toBe(true);
           expect(error.message).toBeDefined();
+          expect(isRetryableLLMError(error)).toBe(false);
         }
 
         // Critically: must NOT be a defect (UnknownException)
@@ -939,6 +1276,7 @@ describe("AI SDK Service - Unit Tests", () => {
         getProvider: () =>
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
+        resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
       } as unknown as LLMService;
 
       // Verify that consuming the response gives a typed LLMError
@@ -987,6 +1325,7 @@ describe("AI SDK Service - Unit Tests", () => {
         getProvider: () =>
           Effect.fail(new LLMConfigurationError({ provider: "test", message: "not implemented" })),
         supportsNativeWebSearch: () => Effect.succeed(false),
+        resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
       } as unknown as LLMService;
 
       // Verify that consuming the stream gives a typed LLMError
@@ -1077,7 +1416,7 @@ describe("buildProviderOptions - ollama reasoning", () => {
     });
   });
 
-  it("does not downgrade an effort rejected by an exact OpenAI profile", () => {
+  it("clamps an effort an exact OpenAI profile does not list to the nearest weaker one", () => {
     expect(
       buildProviderOptions(
         "openai",
@@ -1086,10 +1425,85 @@ describe("buildProviderOptions - ollama reasoning", () => {
           kind: "effort",
           transport: "openai.responses.reasoning-effort",
           efforts: ["low"],
-          canDisable: true,
+          canDisableReasoning: true,
         },
       ),
-    ).toEqual({ openai: { promptCacheKey: "conversation" } });
+    ).toMatchObject({ openai: { reasoningEffort: "low" } });
+  });
+});
+
+describe("buildProviderOptions - NVIDIA NIM reasoning", () => {
+  async function nimRequestBody(
+    providerOptions: ReturnType<typeof buildProviderOptions>,
+  ): Promise<Record<string, unknown>> {
+    let requestBody: Record<string, unknown> = {};
+    const provider = createOpenAICompatible({
+      name: "nvidia",
+      baseURL: "https://integrate.api.nvidia.com/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    await generateText({
+      model: provider("qwen/qwen3.5-122b-a10b"),
+      prompt: "hi",
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+    return requestBody;
+  }
+
+  const nimOptions = (reasoning: ReasoningSelection): ChatCompletionOptions => ({
+    model: "qwen/qwen3.5-122b-a10b",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning,
+  });
+
+  it("sends no reasoning field without an operator profile", async () => {
+    const body = await nimRequestBody(buildProviderOptions("nvidia", nimOptions("high")));
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("chat_template_kwargs");
+  });
+
+  it("sends a top-level reasoning_effort for an effort profile, clamped to its ladder", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("max"), {
+        kind: "effort",
+        transport: "openai-compatible.chat.reasoning-effort",
+        efforts: ["low", "medium", "high"],
+        canDisableReasoning: true,
+      }),
+    );
+    expect(body["reasoning_effort"]).toBe("high");
+  });
+
+  it("sends chat_template_kwargs.enable_thinking for a template toggle profile", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("disable"), {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisableReasoning: true,
+      }),
+    );
+    expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: false });
+    expect(body).not.toHaveProperty("enable_thinking");
+  });
+
+  it("keeps thinking on when the profile says the model cannot disable it", async () => {
+    const body = await nimRequestBody(
+      buildProviderOptions("nvidia", nimOptions("disable"), {
+        kind: "toggle",
+        transport: "openai-compatible.chat.template-enable-thinking",
+        canDisableReasoning: false,
+      }),
+    );
+    expect(body["chat_template_kwargs"]).toEqual({ enable_thinking: true });
   });
 });
 
@@ -1153,6 +1567,127 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     });
 
     expect(requestBody?.["chat_template_kwargs"]).toEqual({ enable_thinking: true });
+  });
+});
+
+describe("buildProviderOptions - vLLM reasoning", () => {
+  const options: ChatCompletionOptions = {
+    model: "Qwen/Qwen3-8B",
+    messages: [{ role: "user", content: "hi" }],
+  };
+
+  it("maps portable effort to vLLM's request-level reasoning_effort", () => {
+    expect(buildProviderOptions("vllm", { ...options, reasoning: "high" })).toEqual({
+      vllm: { reasoningEffort: "high" },
+    });
+    expect(buildProviderOptions("vllm", { ...options, reasoning: "disable" })).toEqual({
+      vllm: { reasoningEffort: "none" },
+    });
+    expect(buildProviderOptions("vllm", options)).toBeUndefined();
+  });
+
+  it("forwards reasoning_effort through the OpenAI-compatible SDK transport", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "vllm",
+      baseURL: "http://vllm.test/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+
+    const providerOptions = buildProviderOptions("vllm", { ...options, reasoning: "medium" });
+    if (!providerOptions) throw new Error("expected vLLM provider options");
+    await generateText({
+      model: provider(options.model),
+      prompt: "hi",
+      providerOptions,
+    });
+    expect(requestBody?.["reasoning_effort"]).toBe("medium");
+  });
+
+  it("forwards schema-constrained object output as vLLM response_format json_schema", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "vllm",
+      baseURL: "http://vllm.test/v1",
+      supportsStructuredOutputs: true,
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content:
+                    '{"status":"continue","summary":"Inventory done","nextAction":"Research prior art","completedStepIds":["inventory"]}',
+                },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+
+    const result = await generateText({
+      model: provider(options.model),
+      prompt: "Return a goal planning response.",
+      output: Output.object({ schema: goalEvaluationSchema }),
+    });
+
+    const responseFormat = requestBody?.["response_format"] as
+      { type?: string; json_schema?: { schema?: Record<string, unknown> } } | undefined;
+    expect(responseFormat?.type).toBe("json_schema");
+    expect(responseFormat?.json_schema?.schema).toBeDefined();
+    expect(result.output).toEqual({
+      status: "continue",
+      summary: "Inventory done",
+      nextAction: "Research prior art",
+      completedStepIds: ["inventory"],
+    });
+  });
+});
+
+describe("buildProviderOptions - SGLang reasoning", () => {
+  const options: ChatCompletionOptions = {
+    model: "Qwen/Qwen3-8B",
+    messages: [{ role: "user", content: "hi" }],
+  };
+
+  it("sends the selected effort through SGLang's chat endpoint", async () => {
+    expect(buildProviderOptions("sglang", { ...options, reasoning: "disable" })).toEqual({
+      sglang: { reasoningEffort: "none" },
+    });
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "sglang",
+      baseURL: "http://sglang.test/v1",
+      fetch: (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    });
+    const providerOptions = buildProviderOptions("sglang", { ...options, reasoning: "medium" });
+    if (!providerOptions) throw new Error("expected SGLang provider options");
+    await generateText({ model: provider(options.model), prompt: "hi", providerOptions });
+    expect(requestBody?.["reasoning_effort"]).toBe("medium");
   });
 });
 
@@ -1291,11 +1826,37 @@ describe("buildToolInputSchema", () => {
     expect(schemaOf(inputSchema)).toEqual(raw);
   });
 
-  it("leaves a plain object Zod schema for the AI SDK to convert itself", () => {
-    const parameters = z.object({ x: z.string() });
-    const inputSchema = buildToolInputSchema({ function: { parameters } });
+  it("strips $schema from a raw MCP jsonSchema", () => {
+    const inputSchema = buildToolInputSchema({
+      function: {
+        parameters: z.object({}),
+        jsonSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object" },
+      },
+    });
 
-    expect(inputSchema).toBe(parameters);
+    expect(schemaOf(inputSchema)).toEqual({ type: "object" });
+  });
+
+  it("converts a plain object Zod schema the way the AI SDK does, minus the noise keywords", () => {
+    const parameters = z.object({ count: z.number().int().describe("How many.") });
+    const schema = schemaOf(buildToolInputSchema({ function: { parameters } }));
+
+    expect(schema).toEqual({
+      type: "object",
+      properties: { count: { type: "integer", description: "How many." } },
+      required: ["count"],
+      additionalProperties: false,
+    });
+  });
+
+  it("keeps Zod validation for a plain object schema", async () => {
+    const { validate } = buildToolInputSchema({
+      function: { parameters: z.object({ x: z.string() }) },
+    });
+
+    expect(validate).toBeDefined();
+    expect((await validate?.({ x: "ok" }))?.success).toBe(true);
+    expect((await validate?.({ x: 1 }))?.success).toBe(false);
   });
 
   it("flattens a top-level discriminated union, which Anthropic rejects both for a missing type and for the oneOf keyword itself", () => {
@@ -1414,6 +1975,57 @@ describe("toCoreMessages - reasoning replay", () => {
 
     const assistantContent = result[1]?.content as Array<{ type: string }>;
     expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+  });
+
+  it("replays OpenAI's encrypted reasoning between tool calls", () => {
+    const openaiReasoning = {
+      text: "",
+      provider: "openai",
+      providerOptions: { openai: { itemId: "rs_1", reasoningEncryptedContent: "encrypted" } },
+    };
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_parts: [openaiReasoning],
+          tool_calls: [
+            { id: "t1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
+        },
+      ],
+      "openai",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string; [key: string]: unknown }>;
+    expect(assistantContent[0]).toEqual({
+      type: "reasoning",
+      text: "",
+      providerOptions: openaiReasoning.providerOptions,
+    });
+  });
+
+  it("keeps replaying the tool loop's reasoning when a pressure nudge trails the request", () => {
+    const result = toCoreMessages(
+      [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          reasoning_parts: [reasoningPart],
+          tool_calls: [
+            { id: "t1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
+        },
+        { role: "tool", content: "sunny", name: "get_weather", tool_call_id: "t1" },
+        { role: "user", content: "context is at 72%", kind: "ephemeral" },
+      ],
+      "anthropic",
+    );
+
+    const assistantContent = result[1]?.content as Array<{ type: string }>;
+    expect(assistantContent.map((part) => part.type)).toEqual(["reasoning", "tool-call"]);
   });
 
   it("does not replay parts on assistant messages before the last user message", () => {

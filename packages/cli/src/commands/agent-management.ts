@@ -18,6 +18,7 @@ import { Effect } from "effect";
 import React from "react";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { CHALK_THEME } from "@/cli/ui/theme";
 import {
   formatIsoShort,
   getTerminalWidth,
@@ -117,7 +118,7 @@ function formatAgentsListBlock(
     lines.push(
       chalk.dim(g.boxV) +
         " " +
-        chalk.white(truncateMiddle(row, innerWidth - 1)) +
+        CHALK_THEME.white(truncateMiddle(row, innerWidth - 1)) +
         chalk.dim(g.boxV),
     );
 
@@ -313,9 +314,8 @@ export function deleteAgentCommand(
     const agent = yield* getAgentByIdentifier(agentIdentifier);
 
     if (options.skipConfirmation !== true) {
-      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) resolves
-      // confirm() with the default (false) without asking, which would silently
-      // abort — require an explicit --yes instead.
+      // A non-interactive terminal (non-TTY, quiet mode, JAZZ_NO_TUI) cannot ask,
+      // so require an explicit --yes instead of silently aborting.
       if (terminal.isInteractive !== true) {
         return yield* Effect.fail(
           new CLIError({

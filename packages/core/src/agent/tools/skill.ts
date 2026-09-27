@@ -1,0 +1,134 @@
+import { Effect } from "effect";
+import { z } from "zod";
+import type { Tool } from "@/core/interfaces/tool-registry";
+import {
+  scoreSkillsForQuery,
+  SkillServiceTag,
+  type SkillMetadata,
+  type SkillService,
+} from "@/core/skills/skill-service";
+import { toError } from "@/core/utils/errors";
+
+/**
+ * Create skill tools with skill_name constrained to discovered skill names.
+ */
+export function createSkillTools(skillNames: readonly string[]): Tool<SkillService>[] {
+  const skillNameSchema =
+    skillNames.length > 0 ? z.enum(skillNames as unknown as [string, ...string[]]) : z.string();
+
+  return [
+    {
+      name: "find_skills",
+      disclosure: "internal",
+      description:
+        "Keyword-search the skill catalog and return full descriptions of the top matches. Use it when the skill index in the system prompt leaves the right skill unclear.",
+      parameters: z.object({
+        query: z.string().min(1).describe("Keywords, e.g. 'email triage'."),
+        limit: z.number().int().positive().max(10).optional().describe("Max matches. Default 5."),
+      }),
+      hidden: false,
+      riskLevel: "read-only",
+      egress: false,
+      createSummary: undefined,
+      execute: (args: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          const queryArg = args["query"];
+          const query = (typeof queryArg === "string" ? queryArg : "").trim();
+          const limit = typeof args["limit"] === "number" ? args["limit"] : 5;
+          const skillService = yield* SkillServiceTag;
+
+          if (query.length === 0) {
+            return {
+              success: false,
+              result: null,
+              error: "find_skills requires a non-empty query",
+            };
+          }
+
+          const skills = yield* skillService
+            .listSkills()
+            .pipe(Effect.catchAll(() => Effect.succeed([] as readonly SkillMetadata[])));
+
+          const ranked = scoreSkillsForQuery(query, skills, limit);
+          if (ranked.length === 0) {
+            return {
+              success: true,
+              result: `No skills matched query "${query}". Use load_skill if you know the exact name.`,
+            };
+          }
+
+          const lines = ranked.map((s) => `- ${s.name}: ${s.description}`).join("\n");
+          return {
+            success: true,
+            result: `Top ${ranked.length} skill(s) matching "${query}":\n${lines}\n\nLoad one with load_skill.`,
+          };
+        }),
+    },
+    {
+      name: "load_skill",
+      disclosure: "internal",
+      description:
+        "Load a skill's full instructions once the index or find_skills matches it to the current task.",
+      parameters: z.object({
+        skill_name: skillNameSchema.describe("Skill to load."),
+      }),
+      hidden: false,
+      riskLevel: "read-only",
+      egress: false,
+      createSummary: undefined,
+      execute: (args: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          const skillName = String(args["skill_name"]);
+          const skillService = yield* SkillServiceTag;
+
+          try {
+            const skill = yield* skillService.loadSkill(skillName);
+            return {
+              success: true,
+              result: `Loaded skill: ${skill.metadata.name}\n\n${skill.core}`,
+            };
+          } catch (error) {
+            return {
+              success: false,
+              result: null,
+              error: toError(error).message,
+            };
+          }
+        }),
+    },
+    {
+      name: "load_skill_section",
+      disclosure: "internal",
+      description:
+        "Load a supplementary file a loaded skill's instructions reference. Allowed extensions: .md, .txt, .json, .yaml, .yml.",
+      parameters: z.object({
+        skill_name: skillNameSchema.describe("Skill that references the file."),
+        section_name: z.string().describe("File path, e.g. references/foo.md."),
+      }),
+      hidden: false,
+      riskLevel: "read-only",
+      egress: false,
+      createSummary: undefined,
+      execute: (args: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          const skillName = String(args["skill_name"]);
+          const sectionName = String(args["section_name"]);
+          const skillService = yield* SkillServiceTag;
+
+          try {
+            const content = yield* skillService.loadSkillSection(skillName, sectionName);
+            return {
+              success: true,
+              result: `Loaded section '${sectionName}' from skill '${skillName}':\n\n${content}`,
+            };
+          } catch (error) {
+            return {
+              success: false,
+              result: null,
+              error: toError(error).message,
+            };
+          }
+        }),
+    },
+  ];
+}

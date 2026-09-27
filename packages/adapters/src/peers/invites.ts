@@ -32,6 +32,8 @@ import {
   type PeerInviteRecord,
   type RedeemInviteOutcome,
 } from "@jazz/core/types/peer-invite";
+import { toError } from "@jazz/core/utils/errors";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, Layer } from "effect";
 import { upsertPeer } from "@/adapters/peers/config";
 import { getPeersDirectory } from "@/adapters/peers/ledger";
@@ -88,22 +90,21 @@ async function readInviteFile(id: string): Promise<PeerInviteRecord | undefined>
 }
 
 async function writeInviteFile(record: PeerInviteRecord): Promise<void> {
-  await nodeFs.mkdir(getInvitesDirectory(), { recursive: true });
+  await nodeFs.mkdir(getInvitesDirectory(), { recursive: true, mode: stateDirectoryMode() });
   const destination = pathFor(record.id);
   // Same truncated-write guard as `FileRunStore`: a reader mid-write must see either the
   // old record or the new one, never a half-written file it silently treats as absent.
   const temporary = `${destination}.${process.pid}.tmp`;
-  await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
+  await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), {
+    encoding: "utf-8",
+    mode: stateFileMode(),
+  });
   await nodeFs.rename(temporary, destination);
-}
-
-function persistenceError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }
 
 /** Invite state is authorization state: unlike the peer ledger, a failed write must fail closed. */
 function writeInvite(record: PeerInviteRecord): Effect.Effect<void, Error> {
-  return Effect.tryPromise({ try: () => writeInviteFile(record), catch: persistenceError });
+  return Effect.tryPromise({ try: () => writeInviteFile(record), catch: toError });
 }
 
 export function getInvite(id: string): Effect.Effect<PeerInviteRecord | undefined, never> {
@@ -164,7 +165,7 @@ export function revokeInvite(id: string): Effect.Effect<boolean, Error> {
         await writeInviteFile({ ...existing, revokedAt: new Date().toISOString() });
         return true;
       }),
-    catch: persistenceError,
+    catch: toError,
   });
 }
 
@@ -224,7 +225,7 @@ export function redeemInvite(
         await writeInviteFile(redeemed);
         return { kind: "ok", record: redeemed } satisfies RedeemInviteOutcome;
       }),
-    catch: persistenceError,
+    catch: toError,
   });
 }
 

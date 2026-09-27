@@ -1,0 +1,15 @@
+{
+  "name": "@jazz-plugin/lsp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "diff": "^9.0.0"
+  },
+  "devDependencies": {
+    "@jazz/plugin-sdk": "workspace:*"
+  }
+}

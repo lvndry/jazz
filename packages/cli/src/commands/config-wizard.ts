@@ -1,10 +1,11 @@
 /**
- * Interactive `jazz config` wizard — menu-driven editing of LLM providers, web
- * search providers, output display, logging, scheduler mode, and notifications.
+ * Interactive `jazz config` wizard: menu-driven editing of LLM providers, web
+ * search providers, output display, logging, scheduler mode, notifications, and
+ * spend limits.
  */
 
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
-import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import {
   isLocalServerProvider,
   LOCAL_SERVER_PROVIDERS,
@@ -16,9 +17,20 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { LoggingConfig, SchedulerMode, WebSearchProviderName } from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import {
+  configuredProviderApiKey,
+  formatProviderDisplayName,
+  isChatGPTSignedIn,
+} from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import {
+  applySpendLimit,
+  describeSpendLimit,
+  parseSpendLimitInput,
+  SPEND_LIMIT_SETTINGS,
+} from "./spend-limits";
+import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
 import { store } from "../ui/store";
 import type { WizardMenuOption } from "../ui/WizardHome";
@@ -33,6 +45,7 @@ type ConfigMenuAction =
   | "scheduler"
   | "logging"
   | "notifications"
+  | "spend-limits"
   | "back";
 
 /**
@@ -44,12 +57,13 @@ export function configWizardCommand() {
 
     while (stayInMenu) {
       const menuOptions: WizardMenuOption[] = [
-        { label: "LLM Providers (API Keys)", value: "llm-providers" },
+        { label: "LLM Providers", value: "llm-providers" },
         { label: "Web Search Providers", value: "web-search" },
         { label: "Output & Display", value: "output-display" },
         { label: "Scheduler", value: "scheduler" },
         { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
+        { label: "Spend Limits", value: "spend-limits" },
         { label: "Back to Main Menu", value: "back" },
       ];
 
@@ -78,6 +92,10 @@ export function configWizardCommand() {
         }
         case "notifications": {
           yield* configureNotifications();
+          break;
+        }
+        case "spend-limits": {
+          yield* configureSpendLimits();
           break;
         }
         case "back": {
@@ -122,7 +140,9 @@ function configureLLMProviders() {
       ).map((provider) => {
         const configured = isLocalServerProvider(provider)
           ? !!config.llm?.[provider]?.base_url || !!config.llm?.[provider]?.api_key
-          : !!config.llm?.[provider]?.api_key;
+          : provider === "chatgpt"
+            ? isChatGPTSignedIn(config.llm)
+            : !!configuredProviderApiKey(config.llm, provider);
         return {
           name: `${formatProviderDisplayName(provider)} ${configured ? "(configured)" : ""}`,
           value: provider,
@@ -167,21 +187,21 @@ function configureLLMProviders() {
           yield* terminal.info("No changes made.");
         }
 
-        // Ollama uses a key only for :cloud models; llama.cpp only behind `--api-key`.
-        if (provider === "llamacpp") {
+        // Ollama uses a key for :cloud models; the OpenAI-compatible local servers can require keys.
+        if (provider === "llamacpp" || provider === "vllm" || provider === "sglang") {
           const serverKey = yield* terminal.password(
-            "llama.cpp server API key (only if it runs with --api-key; leave empty to keep current):",
+            `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
           );
-          if (serverKey.trim()) {
+          if (serverKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, serverKey);
-            yield* terminal.success("llama.cpp API key updated.");
+            yield* terminal.success(`${providerDisplay} API key updated.`);
           }
         }
         if (provider === "ollama") {
           const cloudKey = yield* terminal.password(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
           );
-          if (cloudKey.trim()) {
+          if (cloudKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, cloudKey);
             yield* terminal.success("Ollama Cloud API key updated.");
           }
@@ -191,11 +211,35 @@ function configureLLMProviders() {
         continue;
       }
 
+      if (provider === "chatgpt") {
+        if (isChatGPTSignedIn(config.llm)) {
+          const action = yield* terminal.select<"keep" | "switch" | "sign-out">(
+            "You are signed in to ChatGPT.",
+            {
+              choices: [
+                { name: "Keep this account", value: "keep" },
+                { name: "Sign in with a different account", value: "switch" },
+                { name: "Sign out", value: "sign-out" },
+              ],
+            },
+          );
+          if (action === "sign-out") {
+            yield* signOutOfChatGPT(terminal, configService);
+          } else if (action === "switch") {
+            yield* signInToChatGPT(terminal, configService);
+          }
+        } else {
+          yield* signInToChatGPT(terminal, configService);
+        }
+        yield* terminal.log("");
+        continue;
+      }
+
       const apiKey = yield* terminal.password(
         `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
       );
 
-      if (apiKey.trim()) {
+      if (apiKey?.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
         yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
       } else {
@@ -282,7 +326,7 @@ function configureWebSearchProviders() {
           `Enter API Key for ${provider} (leave empty to keep current):`,
         );
 
-        if (apiKey.trim()) {
+        if (apiKey?.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
           yield* terminal.success(`Configuration for ${provider} updated.`);
         } else {
@@ -517,6 +561,61 @@ function configureNotifications() {
         }
       }
 
+      yield* terminal.log("");
+    }
+  });
+}
+
+/**
+ * Day and month spend ceilings for goals and for every run, all unlimited until set. A reached
+ * ceiling stops unattended runs from starting; chat only warns.
+ */
+function configureSpendLimits() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const spend = (yield* configService.appConfig).spend;
+      const selection = yield* terminal.select<string>(
+        "Spend limits (a reached limit stops scheduled and background runs; chat only warns):",
+        {
+          choices: [
+            ...SPEND_LIMIT_SETTINGS.map((setting) => ({
+              name: `${setting.label} (${describeSpendLimit(setting.read(spend))})`,
+              value: setting.key,
+            })),
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      const setting = SPEND_LIMIT_SETTINGS.find((candidate) => candidate.key === selection);
+      if (setting === undefined) {
+        break;
+      }
+
+      const current = setting.read(spend);
+      const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
+        simple: true,
+        cancellable: true,
+        ...(current !== undefined ? { defaultValue: String(current) } : {}),
+        validate: (input) => {
+          const parsed = parseSpendLimitInput(input);
+          return parsed.kind === "invalid" ? parsed.message : true;
+        },
+      });
+      if (raw === undefined) {
+        continue;
+      }
+      const parsed = parseSpendLimitInput(raw);
+      if (parsed.kind === "invalid") {
+        yield* terminal.warn(parsed.message);
+        continue;
+      }
+      yield* applySpendLimit(configService, setting.key, parsed);
+      yield* terminal.success(
+        `${setting.label}: ${parsed.kind === "limit" ? describeSpendLimit(parsed.dollars) : "unlimited"}.`,
+      );
       yield* terminal.log("");
     }
   });

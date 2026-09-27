@@ -48,8 +48,7 @@ describe("showAgentList", () => {
     expect(menu).not.toHaveProperty("onSelect");
     expect(menu).not.toHaveProperty("onExit");
     expect(menu.title).toBe("agents");
-    expect(menu.action).toBe("back");
-    expect(menu.browse).toBe(true);
+    expect(menu.action).toBe("details");
     expect(menu.agents).toHaveLength(2);
     expect(menu.agents.map((choice) => choice.name)).toEqual(["doitall", "qwen-coder"]);
     expect(menu.agents[0]).toMatchObject({
@@ -65,8 +64,8 @@ describe("showAgentList", () => {
       model: "anthropic/qwen2.5-coder",
     });
 
-    store.completePrompt({ kind: "exit" });
-    await listed;
+    store.completePrompt({ kind: "select", value: "a2" });
+    expect((await listed)?.id).toBe("a2");
     expect(store.getActiveMenuSnapshot()).toBe(null);
   });
 
@@ -79,10 +78,23 @@ describe("showAgentList", () => {
       throw new Error("expected an agents menu");
     }
     expect(menu.agents).toEqual([]);
-    expect(menu.browse).toBe(true);
+    expect(menu.action).toBe("details");
     expect(menu).not.toHaveProperty("onSelect");
     store.completePrompt({ kind: "exit" });
-    await listed;
+    expect(await listed).toBeNull();
     expect(store.getActiveMenuSnapshot()).toBe(null);
+  });
+
+  it("returns to the previously opened agent", async () => {
+    store.setActiveMenu(null);
+    const agents = [
+      agent({ id: "a1", name: "Alpha", model: "one" }),
+      agent({ id: "a2", name: "Beta", model: "two" }),
+    ];
+    const listed = Effect.runPromise(showAgentList(agents, null, "a2"));
+    const menu = store.getActiveMenuSnapshot();
+    expect(menu?.kind === "agents" ? menu.initialIndex : undefined).toBe(1);
+    store.completePrompt({ kind: "exit" });
+    expect(await listed).toBeNull();
   });
 });

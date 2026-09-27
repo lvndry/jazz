@@ -1,8 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
+import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -20,10 +25,13 @@ import { COMPANION_ROLES } from "@jazz/core/types/llm";
 import { CAPABILITY_REASONING_EFFORTS } from "@jazz/core/types/model-capabilities";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
-import { Context, Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { AgentServiceImpl } from "@/adapters/agent-service";
+import { InMemoryGoalStore } from "@/adapters/storage/goal-store";
+import { InMemoryLoopStore } from "@/adapters/storage/loop-store";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
   makeA2AHandler,
@@ -35,7 +43,19 @@ import {
   type DaemonRequirements,
 } from "./server";
 
-const LOOPBACK = { port: 0, host: "127.0.0.1" };
+/**
+ * A loopback daemon holding an operator token, which every request below presents, so a route's
+ * own behaviour is what is under test. Which requests need it is `operator-grants.test.ts`.
+ */
+const LOOPBACK = { port: 0, host: "127.0.0.1", operatorToken: "operator-only" };
+
+/** A daemon that grants over HTTP, and the headers of a request that may ask it to. */
+const OPERATED = { ...LOOPBACK, token: "s3cret", operatorToken: "operator-only" };
+const OPERATOR_HEADERS = {
+  authorization: "Bearer s3cret",
+  "content-type": "application/json",
+  "x-jazz-operator-token": "operator-only",
+};
 
 /**
  * Runs a handler effect against a store, with no agent stack behind it.
@@ -51,7 +71,9 @@ function runnerFor(store: InMemoryRunStore) {
 }
 
 function request(method: string, path: string, init?: RequestInit): Request {
-  return new Request(`http://localhost${path}`, { method, ...init });
+  const headers = new Headers(init?.headers);
+  headers.set("x-jazz-operator-token", "operator-only");
+  return new Request(`http://localhost${path}`, { method, ...init, headers });
 }
 
 /** A JSON write, since every persona route takes one. */
@@ -154,6 +176,93 @@ describe("the daemon's routes", () => {
 
     const response = await handle(request("GET", "/health"));
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, owner: getJazzInstanceId() });
+  });
+
+  it("refuses to accept a goal without the plan revision being accepted", async () => {
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
+    const response = await handle(
+      request("POST", "/goals/goal-1/accept", {
+        headers: OPERATOR_HEADERS,
+        body: JSON.stringify({ version: 1 }),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("refuses an approval policy outside the known tiers or off an accept", async () => {
+    const handle = makeHandler(OPERATED, runnerFor(new InMemoryRunStore()));
+    const post = (path: string, body: unknown) =>
+      handle(
+        request("POST", path, {
+          headers: OPERATOR_HEADERS,
+          body: JSON.stringify(body),
+        }),
+      );
+    expect(
+      (
+        await post("/goals/goal-1/accept", {
+          version: 1,
+          planRevision: 1,
+          approvalPolicy: "everything",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await post("/goals/goal-1/resume", { version: 1, approvalPolicy: "high-risk" })).status,
+    ).toBe(400);
+  });
+
+  it("starts a loop, then applies a control only against the version the client read", async () => {
+    const loops = new InMemoryLoopStore();
+    const agents = {
+      getAgent: () => Effect.succeed(agentFixture()),
+    } as unknown as AgentService;
+    const handle = makeHandler(OPERATED, (effect) =>
+      Effect.runPromise(
+        effect.pipe(
+          Effect.provideService(LoopStoreTag, loops),
+          Effect.provideService(AgentServiceTag, agents),
+        ) as Effect.Effect<never, never, never>,
+      ),
+    );
+    const post = (path: string, body: unknown) =>
+      handle(
+        request("POST", path, {
+          headers: OPERATOR_HEADERS,
+          body: JSON.stringify(body),
+        }),
+      );
+    const start = {
+      agentId: "sonnet",
+      prompt: "Check whether the deploy finished",
+      every: "10m",
+      workingDirectory: "/work/site",
+      approvalPolicy: "low-risk",
+    };
+
+    expect((await post("/loops", { ...start, every: "30s" })).status).toBe(400);
+    expect((await post("/loops", { ...start, approvalPolicy: "everything" })).status).toBe(400);
+    expect((await post("/loops", { ...start, workingDirectory: "site" })).status).toBe(400);
+
+    const created = await post("/loops", start);
+    expect(created.status).toBe(201);
+    const { loop } = (await created.json()) as {
+      loop: { name: string; version: number; approvalPolicy: string };
+    };
+    expect(loop.name).toBe("check-deploy-finished");
+    expect(loop.approvalPolicy).toBe("low-risk");
+
+    expect((await post(`/loops/${loop.name}/pause`, {})).status).toBe(400);
+    expect((await post(`/loops/${loop.name}/pause`, { version: loop.version + 1 })).status).toBe(
+      409,
+    );
+    const paused = await post(`/loops/${loop.name}/pause`, { version: loop.version });
+    expect(paused.status).toBe(200);
+    expect(((await paused.json()) as { loop: { state: unknown } }).loop.state).toEqual({
+      kind: "paused",
+    });
+    expect((await post("/loops/no-such-loop/pause", { version: 1 })).status).toBe(404);
   });
 
   it("rejects an unauthenticated request when a token is configured", async () => {
@@ -282,7 +391,7 @@ describe("the daemon's routes", () => {
     expect(response.status).toBe(299);
   });
 
-  it("returns 404 for malformed webhook URL encoding", async () => {
+  it("answers malformed webhook URL encoding like any unknown webhook", async () => {
     const handle = makeWebhookHandler(
       async () => [],
       async () => undefined,
@@ -290,7 +399,7 @@ describe("the daemon's routes", () => {
         throw new Error("runEffect should not be called");
       },
     );
-    expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(404);
+    expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(401);
   });
 
   it("sees a webhook added after the daemon started, without a restart", async () => {
@@ -300,9 +409,8 @@ describe("the daemon's routes", () => {
     const handle = makeWebhookHandler(
       async () => webhooks,
       async () => "webhook-secret",
-      async () => {
-        throw new Error("runEffect should not be called");
-      },
+      async () => new Response("reached the runner", { status: 299 }) as never,
+      { claimDelivery: async () => "fresh" },
     );
 
     const before = await handle(
@@ -311,18 +419,19 @@ describe("the daemon's routes", () => {
         body: "hello",
       }),
     );
-    expect(before.status).toBe(404);
+    // An unknown name answers exactly as a bad token does, so names cannot be probed.
+    expect(before.status).toBe(401);
+    expect(await before.json()).toEqual({ ok: false, error: "unauthorized" });
 
     webhooks.push({ name: "late", agentId: "default", promptTemplate: "Process {{payload}}" });
 
-    // Now found, so authorization runs — the 401 here is the token check, not the lookup.
     const after = await handle(
       request("POST", "/webhooks/late", {
-        headers: { authorization: "Bearer wrong" },
+        headers: { authorization: "Bearer webhook-secret" },
         body: "hello",
       }),
     );
-    expect(after.status).toBe(401);
+    expect(after.status).toBe(299);
   });
 
   it("refuses a thread key on a webhook that is not threaded", async () => {
@@ -436,7 +545,7 @@ describe("which conversation a webhook fire belongs to", () => {
     const first = webhookConversationId(ephemeral, undefined);
     const second = webhookConversationId(ephemeral, undefined);
 
-    expect(first).toStartWith("trigger-hook-");
+    expect(first).toStartWith("webhook-hook-");
     expect(second).not.toBe(first);
   });
 
@@ -449,7 +558,7 @@ describe("which conversation a webhook fire belongs to", () => {
   });
 
   it("resumes the same conversation for one thread key", () => {
-    expect(webhookConversationId(threaded, "room-7")).toBe("trigger-hook-room-7");
+    expect(webhookConversationId(threaded, "room-7")).toBe("webhook-4-hook-room-7");
     expect(webhookConversationId(threaded, "room-7")).toBe(
       webhookConversationId(threaded, "room-7"),
     );
@@ -462,9 +571,23 @@ describe("which conversation a webhook fire belongs to", () => {
   });
 
   it("shares one thread across keyless fires rather than falling back to ephemeral", () => {
-    expect(webhookConversationId(threaded, undefined)).toBe("trigger-hook");
+    expect(webhookConversationId(threaded, undefined)).toBe("webhook-4-hook");
     expect(webhookConversationId(threaded, undefined)).toBe(
       webhookConversationId(threaded, undefined),
+    );
+  });
+
+  it("never gives two webhooks' threads one conversation", () => {
+    // `gh` with thread `admin-x` and `gh-admin` with thread `x` read the same id when the name
+    // and key were joined with a bare dash, which let one door read the other's history.
+    const shortName: WebhookConfig = { ...threaded, name: "gh" };
+    const longName: WebhookConfig = { ...threaded, name: "gh-admin" };
+
+    expect(webhookConversationId(shortName, "admin-x")).not.toBe(
+      webhookConversationId(longName, "x"),
+    );
+    expect(webhookConversationId(shortName, "admin")).not.toBe(
+      webhookConversationId(longName, undefined),
     );
   });
 
@@ -708,8 +831,7 @@ function runnerForWritableAgents(seed: readonly Agent[] = []) {
 }
 
 function jsonRequest(method: string, path: string, body: unknown): Request {
-  return new Request(`http://localhost${path}`, {
-    method,
+  return request(method, path, {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -817,8 +939,7 @@ describe("creating an agent over HTTP", () => {
     expect(
       (
         await handle(
-          new Request("http://localhost/agents", {
-            method: "POST",
+          request("POST", "/agents", {
             headers: { "content-type": "application/json" },
             body: "not json at all",
           }),
@@ -832,8 +953,7 @@ describe("creating an agent over HTTP", () => {
     const handle = makeHandler(LOOPBACK, run);
 
     const response = await handle(
-      new Request("http://localhost/agents", {
-        method: "POST",
+      request("POST", "/agents", {
         headers: { "content-length": "999999", "content-type": "application/json" },
         body: JSON.stringify({ name: "big" }),
       }),
@@ -1480,4 +1600,133 @@ describe("refusing a request a browser made", () => {
     );
     expect(response.status).toBe(299);
   });
+});
+
+describe("the daemon's attention routes", () => {
+  it("pauses background work, refuses new runs while paused, and resumes", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "daemon-attention-"));
+    const previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = home;
+    try {
+      const runs = new InMemoryRunStore();
+      const layer = Layer.mergeAll(
+        Layer.succeed(RunStoreTag, runs),
+        Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
+        Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
+        Layer.succeed(AgentConfigServiceTag, {
+          reloadIfChanged: () => Effect.succeed(false),
+          appConfig: Effect.succeed({ notifications: { enabled: false } }),
+        } as unknown as AgentConfigService),
+      );
+      const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+        Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
+      );
+      const call = (method: string, route: string, body?: unknown) =>
+        handle(
+          request(method, route, {
+            headers: { authorization: "Bearer s3cret", "content-type": "application/json" },
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          }),
+        );
+
+      expect((await call("POST", "/daemon/pause", {})).status).toBe(200);
+      const refused = await call("POST", "/runs", { agent: "sonnet", prompt: "hello" });
+      expect(refused.status).toBe(503);
+      expect(await refused.json()).toMatchObject({ ok: false, paused: true });
+
+      const status = (await (await call("GET", "/status")).json()) as {
+        paused: { kind: string } | null;
+        waiting: unknown[];
+      };
+      expect(status.paused?.kind).toBe("user");
+      expect(status.waiting).toEqual([]);
+      expect(await (await call("GET", "/waiting")).json()).toEqual({ ok: true, waiting: [] });
+
+      expect((await call("POST", "/daemon/resume", {})).status).toBe(200);
+      const resumed = (await (await call("GET", "/status")).json()) as { paused: unknown };
+      expect(resumed.paused).toBeNull();
+      expect((await handle(request("GET", "/waiting"))).status).toBe(401);
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("streams a snapshot, then each run that starts waiting and each that stops", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "daemon-events-"));
+    const previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = home;
+    const controller = new AbortController();
+    try {
+      const runs = new InMemoryRunStore();
+      const layer = Layer.mergeAll(
+        Layer.succeed(RunStoreTag, runs),
+        Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
+        Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
+        Layer.succeed(AgentConfigServiceTag, {
+          reloadIfChanged: () => Effect.succeed(false),
+          appConfig: Effect.succeed({}),
+        } as unknown as AgentConfigService),
+      );
+      const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, (effect) =>
+        Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>),
+      );
+      const response = await handle(
+        request("GET", "/events", {
+          headers: { authorization: "Bearer s3cret" },
+          signal: controller.signal,
+        }),
+      );
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      const until = async (text: string) => {
+        while (!seen.includes(text)) {
+          const chunk = await reader.read();
+          if (chunk.done) throw new Error(`stream ended before ${text}`);
+          seen += decoder.decode(chunk.value);
+        }
+      };
+
+      await until("event: snapshot");
+      const parked = {
+        ...createRunRecord({
+          runId: "run-1",
+          agentId: "a",
+          conversationId: "c",
+          input: "x",
+          now: new Date(),
+        }),
+        state: {
+          kind: "input-required",
+          pending: {
+            kind: "question",
+            toolCallId: "call-1",
+            request: { question: "Which folder?" },
+          },
+          snapshot: { messages: [], iteration: 1 },
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      } as unknown as RunRecord;
+      await Effect.runPromise(runs.save(parked));
+      await until("event: waiting");
+      expect(seen).toContain("Which folder?");
+
+      await Effect.runPromise(runs.save({ ...parked, state: { kind: "completed", content: "" } }));
+      await until("event: resolved");
+    } finally {
+      controller.abort();
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

@@ -9,8 +9,10 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { isOfflineMode } from "@/core/utils/runtime";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
@@ -207,8 +209,8 @@ function diskCachePath(): string {
 async function writeDiskCache(rawJson: string): Promise<void> {
   try {
     const path = diskCachePath();
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, rawJson, "utf8");
+    await mkdir(dirname(path), { recursive: true, mode: stateDirectoryMode() });
+    await writeFile(path, rawJson, { encoding: "utf-8", mode: stateFileMode() });
   } catch (error) {
     // Best-effort mirror — an unwritable cache dir must never break model listing,
     // but a silent failure here would leave operators unable to diagnose why
@@ -306,7 +308,7 @@ export async function getModelsDevProviderModels(
   if (!data) {
     throw new Error(
       isOfflineMode()
-        ? "Model catalog unavailable: JAZZ_OFFLINE is set and no cached catalog exists. Local providers (ollama, llamacpp) list models without the catalog."
+        ? "Model catalog unavailable: JAZZ_OFFLINE is set and no cached catalog exists. Local providers (ollama, llamacpp, vllm, sglang) list models without the catalog."
         : "Could not load the model catalog from models.dev — check your network connection and try again",
     );
   }
@@ -320,11 +322,40 @@ export async function getModelsDevProviderModels(
 /**
  * Look up metadata from an already-fetched map. Tries provider:model first if providerId given, then exact match then base name (without :tag).
  * Use this when you have the map from getModelsDevMap() to avoid async per-model lookups.
+ *
+ * `anyProvider: false` stops after the provider-scoped keys, for a caller that must know
+ * whether the entry is this provider's own listing rather than another host's.
  */
 export function getMetadataFromMap(
   map: Map<string, ModelsDevMetadata> | null,
   modelId: string,
   providerId?: string,
+  options: { readonly anyProvider?: boolean } = {},
+): ModelsDevMetadata | undefined {
+  const meta = findMetadata(map, modelId, providerId, options);
+  return meta !== undefined && providerId !== undefined && isZeroCostLocalModel(providerId, modelId)
+    ? freeToRun(meta)
+    : meta;
+}
+
+/**
+ * A model served on this machine costs nothing, whatever a hosted listing of the same model
+ * charges.
+ */
+function freeToRun(meta: ModelsDevMetadata): ModelsDevMetadata {
+  return {
+    ...meta,
+    inputPricePerMillion: 0,
+    outputPricePerMillion: 0,
+    cacheReadPricePerMillion: 0,
+  };
+}
+
+function findMetadata(
+  map: Map<string, ModelsDevMetadata> | null,
+  modelId: string,
+  providerId: string | undefined,
+  options: { readonly anyProvider?: boolean },
 ): ModelsDevMetadata | undefined {
   if (!map) return undefined;
   const normalizedModel = modelId.toLowerCase().trim();
@@ -334,6 +365,7 @@ export function getMetadataFromMap(
       const meta = map.get(`${providerKey}:${key}`);
       if (meta) return meta;
     }
+    if (options.anyProvider === false) return undefined;
   }
   for (const key of lookupKeys(modelId)) {
     const meta = map.get(key);

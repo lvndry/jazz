@@ -10,6 +10,7 @@ import {
   isPermanentRequestError,
   isRetryableLLMError,
   localServerUnreachableMessage,
+  parseRetryAfterMs,
   truncateRequestBodyValues,
 } from "./llm-error";
 
@@ -79,6 +80,20 @@ describe("localServerUnreachableMessage", () => {
     const message = localServerUnreachableMessage("llamacpp");
     expect(message).toContain("llama.cpp");
     expect(message).toContain("llama-server");
+  });
+
+  it("gives a vLLM start hint at its own default port", () => {
+    const message = localServerUnreachableMessage("vllm");
+    expect(message).toContain("vllm serve <model> --port 8000");
+    expect(message).toContain("127.0.0.1:8000");
+    expect(message).toContain("llm.vllm.base_url");
+  });
+
+  it("gives an SGLang start hint at its own default port", () => {
+    const message = localServerUnreachableMessage("sglang");
+    expect(message).toContain("sglang.launch_server");
+    expect(message).toContain("127.0.0.1:30000");
+    expect(message).toContain("llm.sglang.base_url");
   });
 
   it("returns undefined for a cloud provider", () => {
@@ -315,5 +330,72 @@ describe("convertToLLMError - out-of-credits 429 vs plain rate limit", () => {
     expect(converted).toBeInstanceOf(LLMRateLimitError);
     expect((converted as LLMRateLimitError).permanent).toBe(false);
     expect(isRetryableLLMError(converted)).toBe(true);
+  });
+});
+
+describe("Retry-After", () => {
+  it("reads seconds, milliseconds and HTTP dates", () => {
+    expect(parseRetryAfterMs({ "retry-after": "7" })).toBe(7_000);
+    expect(parseRetryAfterMs({ "retry-after-ms": "250" })).toBe(250);
+    expect(parseRetryAfterMs({ "Retry-After": "2" })).toBe(2_000);
+    const now = Date.parse("2026-09-27T10:00:00Z");
+    expect(parseRetryAfterMs({ "retry-after": "Sun, 27 Sep 2026 10:00:30 GMT" }, now)).toBe(30_000);
+  });
+
+  it("ignores an absent or unreadable header", () => {
+    expect(parseRetryAfterMs(undefined)).toBeUndefined();
+    expect(parseRetryAfterMs({ "retry-after": "soon" })).toBeUndefined();
+  });
+
+  it("carries the provider's wait on a converted 429", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Too many requests",
+        url: "https://api.openai.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseHeaders: { "retry-after": "3" },
+        isRetryable: true,
+      }),
+      "openai",
+    );
+    expect(converted).toBeInstanceOf(LLMRateLimitError);
+    expect((converted as LLMRateLimitError).retryAfterMs).toBe(3_000);
+  });
+});
+
+describe("context overflow", () => {
+  function rejected(message: string, statusCode = 400, data?: unknown) {
+    return convertToLLMError(
+      new APICallError({
+        message,
+        url: "https://api.example.com/v1/messages",
+        requestBodyValues: {},
+        statusCode,
+        isRetryable: false,
+        ...(data !== undefined ? { data } : {}),
+      }),
+      "anthropic",
+    ) as LLMRequestError;
+  }
+
+  it("recognizes providers' prompt-too-long rejections", () => {
+    expect(rejected("prompt is too long: 210000 tokens > 200000 maximum").contextOverflow).toBe(
+      true,
+    );
+    expect(rejected("This model's maximum context length is 128000 tokens.").contextOverflow).toBe(
+      true,
+    );
+    expect(
+      rejected("the request exceeds the available context size, try increasing it").contextOverflow,
+    ).toBe(true);
+    expect(
+      rejected("bad", 400, { error: { code: "context_length_exceeded" } }).contextOverflow,
+    ).toBe(true);
+  });
+
+  it("leaves other rejections alone", () => {
+    expect(rejected("invalid tool schema").contextOverflow).toBeUndefined();
+    expect(isRetryableLLMError(rejected("prompt is too long"))).toBe(false);
   });
 });

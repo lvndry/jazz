@@ -4,9 +4,12 @@
 
 import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
+import type { NotifyChannelConfig } from "./notify";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
+import type { SpendConfig } from "./spend";
 import type { WebhookConfig } from "./webhook";
 
 export type SchedulerMode = "auto" | "in-process";
@@ -75,12 +78,47 @@ export interface AppConfig {
    * never be the thing that creates one.
    */
   readonly peers?: readonly PeerConfig[];
+  /** Operator-registered SSH destinations for detached conversations. */
+  readonly hosts?: readonly HostProfile[];
   /**
    * Webhook doors onto specific agents. Unlike a peer, a webhook runs a fixed prompt template
    * rather than answering an open-ended question — a narrower surface, authenticated the same
    * way (a bearer token in the keyring, never in this file).
    */
   readonly webhooks?: readonly WebhookConfig[];
+  /**
+   * Day and month spend ceilings for every run on this machine, one agent, or goal work.
+   * Unset means unlimited. Unattended runs refuse to start once one is reached; chat warns.
+   */
+  readonly spend?: SpendConfig;
+  /** What `jazz daemon` may spend and how it reaches you. */
+  readonly daemon?: DaemonConfig;
+}
+
+/**
+ * Limits and notifications for work the daemon runs while nobody is watching: goal cycles,
+ * loop runs, webhooks, peers, triggers, and parked runs it resumes.
+ */
+export interface DaemonConfig {
+  /**
+   * Most dollars unattended runs may spend per day (since local midnight), across all of them.
+   * Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. Enforced
+   * only while pricing is known.
+   */
+  readonly dailyCostUSD?: number;
+  /** Most prompt and completion tokens unattended runs may spend per day, across all of them. */
+  readonly dailyTokens?: number;
+  readonly notify?: DaemonNotifyConfig;
+}
+
+/** Where the daemon tells you something needs you, or that it paused. */
+export interface DaemonNotifyConfig {
+  /** A desktop notification on this machine. Defaults to true; `notifications.enabled` false turns it off too. */
+  readonly desktop?: boolean;
+  /** An ntfy topic URL (like https://ntfy.sh/my-jazz) to push to your phone through the ntfy app. */
+  readonly ntfyUrl?: string;
+  /** A URL that receives each notification as a JSON POST. */
+  readonly webhookUrl?: string;
 }
 
 export interface ContextConfig {
@@ -100,6 +138,8 @@ export interface ContextConfig {
 export interface NotificationsConfig {
   readonly enabled?: boolean;
   readonly sound?: boolean;
+  /** Named delivery targets for results, reminders, parked approvals and failures. */
+  readonly channels?: Readonly<Record<string, NotifyChannelConfig>>;
 }
 
 export interface TelemetryConfig {
@@ -223,6 +263,18 @@ export interface LlamaCppProviderConfig {
   readonly base_url?: string;
 }
 
+/** Connection settings for a user-operated vLLM OpenAI-compatible server. */
+export interface VllmProviderConfig {
+  readonly api_key?: string;
+  readonly base_url?: string;
+}
+
+/** Connection settings for a user-operated SGLang OpenAI-compatible server. */
+export interface SglangProviderConfig {
+  readonly api_key?: string;
+  readonly base_url?: string;
+}
+
 export interface AnthropicProviderConfig {
   readonly api_key?: string;
   /**
@@ -230,6 +282,16 @@ export interface AnthropicProviderConfig {
    * rather than a workspace); Anthropic's API otherwise rejects the request.
    */
   readonly workspace_id?: string;
+}
+
+/**
+ * Non-secret record of a ChatGPT subscription sign-in. The OAuth tokens live in the
+ * keyring; this is what marks the provider as configured without a keyring read.
+ */
+export interface ChatGPTProviderConfig {
+  readonly account_id?: string;
+  /** ChatGPT plan reported by the sign-in token, e.g. "plus" or "pro". */
+  readonly plan?: string;
 }
 
 export interface LLMConfig {
@@ -253,6 +315,7 @@ export interface LLMConfig {
   readonly alibaba?: LLMProviderConfig;
   readonly anthropic?: AnthropicProviderConfig;
   readonly cerebras?: LLMProviderConfig;
+  readonly chatgpt?: ChatGPTProviderConfig;
   readonly deepseek?: LLMProviderConfig;
   readonly fireworks?: LLMProviderConfig;
   readonly gemini?: LLMProviderConfig;
@@ -261,11 +324,14 @@ export interface LLMConfig {
   readonly minimax?: LLMProviderConfig;
   readonly mistral?: LLMProviderConfig;
   readonly moonshotai?: LLMProviderConfig;
+  readonly nvidia?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openai?: LLMProviderConfig;
   readonly openrouter?: LLMProviderConfig;
   readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
+  readonly sglang?: SglangProviderConfig;
+  readonly vllm?: VllmProviderConfig;
   readonly xai?: LLMProviderConfig;
   readonly yolo_auto?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;

@@ -14,6 +14,8 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { inboundMediaFileName } from "@jazz/bot-shared/media-name";
+import type { OutgoingFile } from "@jazz/bot-shared/surface";
 import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
@@ -196,7 +198,7 @@ export interface ConnectionOptions {
 
 export interface Connection {
   send(jid: Jid, text: string): Promise<void>;
-  sendFile(jid: Jid, filePath: string, caption: string | undefined): Promise<void>;
+  sendFile(jid: Jid, file: OutgoingFile, caption: string | undefined): Promise<void>;
   /** Best-effort "typing…" in the chat. */
   typing(jid: Jid): Promise<void>;
   /** Save an inbound attachment to `directory`, returning its path. */
@@ -288,18 +290,17 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
     send: async (jid, text) => {
       await requireSocket().sendMessage(jid, { text });
     },
-    sendFile: async (jid, filePath, caption) => {
-      const file = Bun.file(filePath);
-      const bytes = Buffer.from(await file.arrayBuffer());
-      const isImage = (file.type || "").startsWith("image/");
+    sendFile: async (jid, file, caption) => {
+      const bytes = Buffer.from(file.bytes);
+      const mimeType = Bun.file(file.filename).type || "application/octet-stream";
       await requireSocket().sendMessage(
         jid,
-        isImage
+        mimeType.startsWith("image/")
           ? { image: bytes, ...(caption === undefined ? {} : { caption }) }
           : {
               document: bytes,
-              mimetype: file.type || "application/octet-stream",
-              fileName: filePath.split("/").at(-1) ?? "file",
+              mimetype: mimeType,
+              fileName: file.filename,
               ...(caption === undefined ? {} : { caption }),
             },
       );
@@ -318,8 +319,11 @@ export async function connect(options: ConnectionOptions): Promise<Connection> {
         "buffer",
         {},
       );
-      const extension = message.media.mimeType.split("/").at(-1)?.split(";").at(0) ?? "bin";
-      const path = `${directory}/${message.id}.${message.media.fileName?.split(".").at(-1) ?? extension}`;
+      const path = `${directory}/${inboundMediaFileName(
+        message.id,
+        message.media.fileName,
+        message.media.mimeType,
+      )}`;
       await Bun.write(path, bytes as Uint8Array);
       return path;
     },

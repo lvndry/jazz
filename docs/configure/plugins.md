@@ -8,6 +8,8 @@ Jazz plugins are optional, pre-bundled JavaScript modules that extend the harnes
 contribute any mix of capabilities:
 
 - **tools** — model-callable functions that join the agent's tool set;
+- **workspace context** — bounded, current context supplied before a model request as the agent
+  reads or changes files;
 - **commands** — user-invoked `/name` slash commands;
 - **personas** — selectable agent personalities;
 - **skills** — loadable instruction documents;
@@ -20,6 +22,15 @@ contribute any mix of capabilities:
 Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
 Advisory hooks cannot authorize a tool, change approval policy, or act on the model's behalf; the
 policy hook shapes approval only.
+
+A plugin that declares `workspace: true` may register `api.workspace.register`. Jazz calls it before
+each model request, including the first request with no observed files, so it can activate a
+workspace service. Later calls include recent canonical paths from successful built-in file reads
+and writes. The returned text is bounded, labeled as untrusted workspace data, and sent only with
+that model request; it is not saved in conversation history. Failures or timeouts leave the run
+unchanged. The [LSP plugin](./lsp-plugin.md) uses this path to supply diagnostics without asking
+the model to call a tool. A workspace handler cannot authorize or execute a file edit through this
+path.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
@@ -40,7 +51,9 @@ terminate the process without using the host API.
 
 For that reason installation, code trust, data-egress consent, and per-agent enablement are separate
 steps. First-time trust and new consent can be granted only from a local interactive terminal.
-Chat and unattended surfaces report the required local command instead.
+`--yes` skips the confirmation question but not that requirement: `jazz plugin trust` and
+`jazz plugin enable` refuse to run from a script, a pipe, or CI. Chat and unattended surfaces report
+the required local command instead.
 
 ```bash
 # GitHub is the default source: no author build, pack, or release step.
@@ -53,11 +66,35 @@ jazz plugin enable com.example.router --agent default
 jazz plugin enable com.example.router
 ```
 
-`jazz plugin add owner/repo` downloads the repository tarball over HTTPS — no local `git` — extracts
-it, and hashes the source tree; that hash is the digest you trust. A local directory holding a
-`jazz-plugin.json` installs the same way (`jazz plugin add ./my-plugin`). A curated catalog id, an
-HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install as bundled
-artifacts (see [Authoring](#authoring)).
+If a lifecycle command names a plugin that is not installed, Jazz shows an installation command,
+for example `jazz plugin add com.jazz.plugins.lsp`. Install it first, then inspect, trust, and enable
+it; the error does not install or enable anything automatically.
+
+`jazz plugin add owner/repo` downloads the repository tarball over HTTPS (no local `git`),
+extracts it, and hashes the source tree; that hash is the digest you trust. A local directory
+holding a `jazz-plugin.json` installs the same way (`jazz plugin add ./my-plugin`). A curated
+catalog id, an HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install
+as bundled artifacts (see [Authoring](#authoring)).
+
+### What the digest pins
+
+The digest is only worth trusting if it covers every byte the plugin can load, so `add` refuses a
+source that could run code the digest does not cover:
+
+- The manifest `entry` must be a plain relative path inside the plugin (no `..`, no absolute path),
+  and it must be a regular file.
+- The tree may hold only regular files and directories. A symlink, hard link, device, or FIFO
+  anywhere in the tree (or in the GitHub tarball) fails the install. `node_modules` and `.git` are
+  skipped by name and are not part of the digest.
+- Jazz reads every import, re-export, `require`, and literal dynamic import reachable from the
+  entry without running any of it. Each must be a Node or Bun built-in or a file inside the plugin.
+  Imports that reach outside the plugin (`../`, an absolute path, a tsconfig alias pointing out) are
+  refused, and so are package imports, because packages resolve from `node_modules`, which the
+  digest does not cover.
+- A bundled artifact may import only Node or Bun built-ins.
+
+The GitHub download stays on `api.github.com` and `codeload.github.com` over HTTPS, times out
+after 60 seconds, and is capped at 32 MB compressed and 128 MB extracted.
 
 ## Community plugin discovery
 
@@ -86,8 +123,9 @@ builds remain deterministic and do not depend on GitHub being available at deplo
 
 `add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
 whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
-are still granted; before each run it re-hashes the installed source tree and refuses to load code
-that no longer matches its trusted digest.
+are still granted. Before each run it repeats every install check on the installed copy (entry,
+hash, file types, and import graph) and refuses to load code that no longer matches its trusted
+digest, including a file swapped for a symlink after you trusted it.
 
 An enabled `route.skills` plugin ranks the live skills for the turn, and Jazz adds a short,
 non-authoritative relevance hint for the top skill to the first provider request when it beats the
@@ -135,6 +173,9 @@ command safer.
 
 ## Tools
 
+For a complete optional tool plugin, see the [generic LSP plugin](./lsp-plugin.md), which
+connects configured language servers to semantic code navigation and approved refactors.
+
 A plugin may contribute model-callable tools. Each tool is declared in the manifest — name,
 description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-risk` /
 `high-risk`), and whether calling it sends model-authored content off the machine (`egress`) — and
@@ -148,6 +189,13 @@ arguments against that schema before the handler runs**. A `read-only` tool runs
 else becomes an approval-gated tool, so a person confirms it under the active approval policy exactly
 like a built-in. A handler that throws, times out, or is unavailable returns an error result to the
 model rather than crashing the run.
+
+Tool handlers receive the agent's current working directory and an abort signal. A mutating tool
+may register both `prepare` and `executePrepared`: `prepare` returns an approval message, optional
+diff, and JSON-serializable prepared data. Jazz persists that data with the approval, including
+parked runs. Only the hidden execution tool receives it, after approval. The plugin must revalidate
+any files or remote state that could have changed while approval was pending. Without those
+callbacks, Jazz shows a bounded argument preview and runs the ordinary handler after approval.
 
 ```jsonc
 // jazz-plugin.json
@@ -285,7 +333,8 @@ jazz plugin gc
 ```
 
 An update keeps one previous artifact for rollback and returns the plugin to pending trust/consent
-when code or declared data changes. Disablement prevents new dispatch after the state commit. Since
+when code or declared data changes. An update also disables the plugin everywhere, including a
+`jazz plugin enable` grant for all agents, so the new code runs only after you enable it again. Disablement prevents new dispatch after the state commit. Since
 JavaScript modules are process-cached, a daemon or bot restart is required to remove already-loaded
 code, timers, sockets, or global mutations completely.
 
@@ -324,11 +373,12 @@ The command-risk fixture is a JSON object such as `{ "command": "git status" }`.
 probing resolves declared environment-backed secrets from the current shell, while keeping the
 plugin disposable and out of installed state.
 
-To publish, push the repository to GitHub — no build, pack, digest, or release step. Users install
-it with `jazz plugin add owner/repo`, and Jazz imports the entry (`src/index.ts`) directly. Keep the
-plugin dependency-free: it should import only Node/Bun built-ins and the plain-JavaScript API from
-`@jazz/plugin-sdk`, and must not import Jazz internals. `node_modules` and `.git` are excluded from
-the trusted source-tree hash.
+To publish, push the repository to GitHub. There is no build, pack, digest, or release step.
+Users install it with `jazz plugin add owner/repo`, and Jazz imports the entry (`src/index.ts`)
+directly. Keep the plugin dependency-free: it may import Node/Bun built-ins and its own files, and
+it imports `@jazz/plugin-sdk` with `import type` only (the SDK is types, so nothing is left to load
+at runtime). Write `apiVersion: 1` rather than importing the constant. Install refuses any other
+import; see [What the digest pins](#what-the-digest-pins).
 
 For a plugin that genuinely needs bundled dependencies, `jazz plugin pack .` still produces a
 self-contained `release/plugin.mjs`, its SHA-256, and a catalog entry, installable as a bundled

@@ -34,7 +34,8 @@ export interface AtMentionSpan {
  * An `@` only opens a mention at the start of the line or after whitespace, so
  * an email address or a decorator does not turn the picker on mid-word. The
  * query itself stops at whitespace: a path with spaces in it is still
- * attachable, but the user picks it from the menu rather than typing it, and
+ * attachable, but the user picks it from the menu (which quotes it) rather
+ * than typing it, and
  * treating a following word as part of the query would keep the menu open over
  * the rest of the sentence.
  */
@@ -65,9 +66,26 @@ export function atMentionSpan(text: string, caret: number): AtMentionSpan | null
 }
 
 /**
+ * A picked path the way it goes after the `@`: as-is when it has no spaces or
+ * quotes, in double quotes when it has spaces, and backslash-escaped when it
+ * also has a double quote. Submit-time resolution (the attachment scan and the
+ * text-file inlining in `chat/mentioned-files.ts`) reads all three forms.
+ */
+export function mentionPathText(path: string): string {
+  if (!/[\s"']/.test(path)) {
+    return path;
+  }
+  if (!path.includes('"')) {
+    return `"${path}"`;
+  }
+  return path.replace(/([\s"'\\])/g, "\\$1");
+}
+
+/**
  * Replace a mention span with a chosen path, leaving the caret after it.
  *
- * A trailing space is added so the next keystroke starts a new word rather than
+ * The path is quoted or escaped when it needs to be (see `mentionPathText`). A
+ * trailing space is added so the next keystroke starts a new word rather than
  * re-opening the menu on the path just accepted.
  */
 export function applyAtMention(
@@ -76,7 +94,7 @@ export function applyAtMention(
   replacement: string,
 ): { readonly text: string; readonly caret: number } {
   const characters = [...text];
-  const inserted = [...`@${replacement} `];
+  const inserted = [...`@${mentionPathText(replacement)} `];
   const next = [
     ...characters.slice(0, span.start),
     ...inserted,

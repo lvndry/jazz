@@ -7,6 +7,7 @@ import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { GoalStoreTag } from "../../interfaces/goal-store";
 import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
@@ -88,6 +89,7 @@ function makeLLMService(): LLMService {
     listProviders: () => Effect.succeed([]),
     getProvider: () => Effect.fail(new Error("not implemented")),
     supportsNativeWebSearch: () => Effect.succeed(false),
+    resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
   } as unknown as LLMService;
 }
 
@@ -166,6 +168,7 @@ function buildLayer(presentationService: OneShotPresentationService) {
     Layer.succeed(WakeTriggerServiceTag, {} as any),
     Layer.succeed(JobQueueServiceTag, {} as any),
     Layer.succeed(ReminderServiceTag, {} as any),
+    Layer.succeed(GoalStoreTag, {} as any),
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),
   );
@@ -260,5 +263,66 @@ describe("executeWithoutStreaming tool event emission", () => {
       );
 
     expect(toolEventTypes).toHaveLength(0);
+  });
+
+  it("records batch child tool calls and its answer in the delegated region", async () => {
+    class InspectingPresentationService extends OneShotPresentationService {
+      readonly events: StreamEvent[] = [];
+      readonly answers: Array<{ content: string; regionId: string | undefined }> = [];
+      targetRegionId: string | undefined;
+
+      capturesEphemeralRunDetails(): boolean {
+        return true;
+      }
+
+      override createStreamingRenderer(
+        config: Parameters<OneShotPresentationService["createStreamingRenderer"]>[0],
+      ) {
+        this.targetRegionId =
+          config.streamTarget?.kind === "ephemeral" ? config.streamTarget.regionId : undefined;
+        return Effect.succeed({
+          handleEvent: (event: StreamEvent) =>
+            Effect.sync(() => {
+              this.events.push(event);
+            }),
+          setInterruptHandler: () => Effect.void,
+          reset: () => Effect.void,
+          flush: () => Effect.void,
+        });
+      }
+
+      override presentAgentResponse(
+        _agentName: string,
+        content: string,
+        options?: { readonly ephemeralRegionId: string },
+      ) {
+        return Effect.sync(() => {
+          this.answers.push({ content, regionId: options?.ephemeralRegionId });
+        });
+      }
+    }
+
+    const presentationService = new InspectingPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set(),
+    );
+    await Effect.runPromise(
+      executeWithoutStreaming(
+        { ...makeOptions(), internal: true, ephemeralRegionId: "child-region" },
+        makeRunContext(),
+        DEFAULT_DISPLAY_CONFIG,
+        false,
+        runRecursive,
+      ).pipe(Effect.provide(buildLayer(presentationService))),
+    );
+
+    expect(presentationService.targetRegionId).toBe("child-region");
+    expect(presentationService.events.map((event) => event.type)).toContain("tool_execution_start");
+    expect(presentationService.events.map((event) => event.type)).toContain(
+      "tool_execution_complete",
+    );
+    expect(presentationService.answers).toEqual([
+      { content: "There are 2 entries.", regionId: "child-region" },
+    ]);
   });
 });

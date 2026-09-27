@@ -10,7 +10,7 @@ import type { ChatMessage, ConversationMessages } from "../../types/message";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import type { AgentResponse } from "../types";
 import { extractMemories } from "./memory-extractor";
-import { Summarizer, type RecursiveRunner } from "./summarizer";
+import { Summarizer, type AutoCompaction, type RecursiveRunner } from "./summarizer";
 
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {
   const config: AgentConfig = {
@@ -74,8 +74,11 @@ const mockLLMService: LLMService = {
   createStreamingChatCompletion: () =>
     Effect.fail(new LLMRequestError({ provider: "openai", message: "Not implemented in mock" })),
   supportsNativeWebSearch: () => Effect.succeed(false),
+  resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
   fetchOllamaModelDetails: () => Effect.succeed({}),
   fetchLlamaCppServerModel: () => Effect.succeed({}),
+  fetchVllmServerModel: () => Effect.succeed({}),
+  fetchSglangServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 
@@ -100,6 +103,7 @@ const mockPresentationService: PresentationService = {
     }),
   writeOutput: () => Effect.void,
   writeBlankLine: () => Effect.void,
+  writeError: () => Effect.void,
   presentStatus: () => Effect.void,
   openEphemeralRegion: () => Effect.succeed("noop"),
   appendEphemeralRegion: () => Effect.void,
@@ -247,11 +251,7 @@ describe("compactIfNeeded memory-extraction gate", () => {
         mockRunner,
         500,
         true,
-      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
-        ConversationMessages,
-        Error,
-        never
-      >,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<AutoCompaction, never, never>,
     );
 
     expect(seenAgentIds).toContain("memory-extractor");
@@ -272,7 +272,7 @@ describe("compactIfNeeded memory-extraction gate", () => {
     await Effect.runPromise(
       Summarizer.compactIfNeeded(compactableMessages(), agent, "conv-1", mockRunner, 500).pipe(
         Effect.provide(createTestLayer()),
-      ) as Effect.Effect<ConversationMessages, Error, never>,
+      ) as Effect.Effect<AutoCompaction, never, never>,
     );
 
     expect(seenAgentIds).not.toContain("memory-extractor");

@@ -2,7 +2,15 @@ import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import { AgentRunner, createNestedRunExecutor, renderSkillRoutingAdvisory } from "./agent-runner";
+import {
+  AgentRunner,
+  createNestedRunExecutor,
+  renderSkillRoutingAdvisory,
+  resolveSglangServerModel,
+  resolveVllmServerModel,
+  runContextBoundary,
+  runRecordBoundary,
+} from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -29,6 +37,7 @@ import { ToolRegistryTag } from "../interfaces/tool-registry";
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
+import type { ChatMessage } from "../types/message";
 
 describe("renderSkillRoutingAdvisory", () => {
   it("renders only a live-roster winner that beats no-skill", () => {
@@ -91,6 +100,7 @@ const mockPresentationService = {
   presentCompletion: mock(() => Effect.void),
   writeOutput: mock(() => Effect.void),
   writeBlankLine: mock(() => Effect.void),
+  writeError: mock(() => Effect.void),
   formatToolExecutionStart: mock(() => Effect.succeed("Tool starting")),
   formatToolExecutionComplete: mock(() => Effect.succeed("Tool completed")),
   formatToolResult: mock(() => "Tool result"),
@@ -242,7 +252,92 @@ const mockLlmService = {
     });
   }),
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
+  resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
 } as unknown as LLMService;
+
+describe("resolveVllmServerModel", () => {
+  it("reads the currently served model and context window", async () => {
+    const requests: Array<{ baseUrl: string; preferredModelId: string; apiKey?: string }> = [];
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: (baseUrl, preferredModelId, apiKey) => {
+        requests.push({ baseUrl, preferredModelId, ...(apiKey ? { apiKey } : {}) });
+        return Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+      },
+    };
+    const served = await Effect.runPromise(
+      resolveVllmServerModel("stale-model", {
+        vllm: { api_key: "local-key" },
+      }).pipe(Effect.provideService(LLMServiceTag, service)),
+    );
+    expect(served).toEqual({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+    expect(requests).toEqual([
+      {
+        baseUrl: "http://localhost:8000/v1",
+        preferredModelId: "stale-model",
+        apiKey: "local-key",
+      },
+    ]);
+  });
+
+  it("keeps running with an unknown window when the server lookup fails", async () => {
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+      fetchVllmServerModel: () => Effect.fail(new Error("server unavailable")),
+    };
+    const served = await Effect.runPromise(
+      resolveVllmServerModel("configured-alias").pipe(
+        Effect.provideService(LLMServiceTag, service),
+      ),
+    );
+    expect(served).toEqual({});
+  });
+});
+
+describe("resolveSglangServerModel", () => {
+  it("reads the current model and passes its configured key", async () => {
+    const requests: Array<{ baseUrl: string; preferredModelId: string; apiKey?: string }> = [];
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+      fetchSglangServerModel: (baseUrl, preferredModelId, apiKey) => {
+        requests.push({ baseUrl, preferredModelId, ...(apiKey ? { apiKey } : {}) });
+        return Effect.succeed({ modelId: "new-model", contextWindow: 32768 });
+      },
+    };
+    expect(
+      await Effect.runPromise(
+        resolveSglangServerModel("previous-model", { sglang: { api_key: "local-key" } }).pipe(
+          Effect.provideService(LLMServiceTag, service),
+        ),
+      ),
+    ).toEqual({ modelId: "new-model", contextWindow: 32768 });
+    expect(requests).toEqual([
+      {
+        baseUrl: "http://localhost:30000/v1",
+        preferredModelId: "previous-model",
+        apiKey: "local-key",
+      },
+    ]);
+  });
+
+  it("keeps saved settings when the live lookup fails", async () => {
+    const service: LLMService = {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+      fetchSglangServerModel: () => Effect.fail(new Error("server unavailable")),
+    };
+    expect(
+      await Effect.runPromise(
+        resolveSglangServerModel("previous-model").pipe(
+          Effect.provideService(LLMServiceTag, service),
+        ),
+      ),
+    ).toEqual({});
+  });
+});
 
 const mockMcpServerManager = {
   connectServer: mock(() => Effect.fail(new Error("Not implemented"))),
@@ -372,6 +467,71 @@ describe("AgentRunner", () => {
   });
 
   describe("run", () => {
+    it("uses the vLLM model currently served for this run", async () => {
+      const requestedModels: string[] = [];
+      const preferredModels: string[] = [];
+      const llm = {
+        ...mockLlmService,
+        resolveLocalProviderBaseUrl: () => "http://localhost:8000/v1",
+        fetchVllmServerModel: (_baseUrl: string, preferredModelId: string) => {
+          preferredModels.push(preferredModelId);
+          return Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 65536 });
+        },
+        createChatCompletion: (_provider: string, options: { model: string }) => {
+          requestedModels.push(options.model);
+          return Effect.succeed({
+            id: "test-completion",
+            model: options.model,
+            content: "Hello world",
+          });
+        },
+      } as unknown as LLMService;
+      const agent: Agent = {
+        ...mockAgent,
+        config: {
+          ...mockAgent.config,
+          llmProvider: "vllm",
+          llmModel: "stale-model-from-last-run",
+        },
+      };
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, agent, stream: false, maxIterations: 1 }),
+        { llm },
+      );
+
+      expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
+      expect(preferredModels).toEqual(["stale-model-from-last-run"]);
+    });
+
+    it("uses the SGLang model currently served for this run", async () => {
+      const requestedModels: string[] = [];
+      const llm = {
+        ...mockLlmService,
+        resolveLocalProviderBaseUrl: () => "http://localhost:30000/v1",
+        fetchSglangServerModel: () =>
+          Effect.succeed({ modelId: "Qwen/Qwen3-8B", contextWindow: 32768 }),
+        createChatCompletion: (_provider: string, options: { model: string }) => {
+          requestedModels.push(options.model);
+          return Effect.succeed({
+            id: "test-completion",
+            model: options.model,
+            content: "Hello world",
+          });
+        },
+      } as unknown as LLMService;
+      const agent: Agent = {
+        ...mockAgent,
+        config: { ...mockAgent.config, llmProvider: "sglang", llmModel: "stale-model" },
+      };
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, agent, stream: false, maxIterations: 1 }),
+        { llm },
+      );
+      expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
+    });
+
     it("should execute agent with streaming when enabled", async () => {
       const options = {
         ...defaultOptions,
@@ -395,6 +555,7 @@ describe("AgentRunner", () => {
             return { status: "abstained", reason: "test" } as const;
           }),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {
@@ -432,6 +593,7 @@ describe("AgentRunner", () => {
       const session = {
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {
@@ -465,6 +627,7 @@ describe("AgentRunner", () => {
       const session = {
         runHook: () => Effect.succeed({ status: "abstained", reason: "test" } as const),
         runPolicyHook: () => Effect.succeed({ status: "abstained", reason: "not called" } as const),
+        runWorkspace: () => Effect.succeed(undefined),
         describeHook: () => undefined,
         close: () =>
           Effect.sync(() => {
@@ -491,6 +654,56 @@ describe("AgentRunner", () => {
       await Effect.runPromise(Fiber.interrupt(fiber));
 
       expect(closes).toBe(1);
+    });
+
+    /**
+     * The regression: a goal cycle parked for approval, its resume timed out, and every later
+     * cycle on that conversation failed with "Tool results are missing" before doing any work.
+     */
+    it("answers tool calls a previous run left unanswered before sending the history", async () => {
+      const sent: ChatMessage[][] = [];
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: (_provider: string, options: { messages: ChatMessage[] }) => {
+          sent.push(options.messages);
+          return Effect.succeed({ id: "test-completion", model: "gpt-4", content: "done" });
+        },
+      } as unknown as LLMService;
+      const parkedTail: ChatMessage[] = [
+        { role: "user", content: "continue the goal" },
+        {
+          role: "assistant",
+          content: "checking",
+          tool_calls: [
+            {
+              id: "call-parked",
+              type: "function",
+              function: { name: "execute_command", arguments: "{}" },
+            },
+          ],
+        },
+      ];
+
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          stream: false,
+          maxIterations: 1,
+          conversationHistory: parkedTail,
+        }),
+        { llm },
+      );
+
+      const request = sent[0] ?? [];
+      const callIndex = request.findIndex((message) =>
+        message.tool_calls?.some((toolCall) => toolCall.id === "call-parked"),
+      );
+      expect(callIndex).toBeGreaterThanOrEqual(0);
+      expect(request[callIndex + 1]).toMatchObject({
+        role: "tool",
+        tool_call_id: "call-parked",
+      });
+      expect(parkedTail).toHaveLength(2);
     });
   });
 
@@ -738,5 +951,65 @@ describe("AgentRunner", () => {
 
       expect(lastRequestedToolNames()).toContain("tool2");
     });
+  });
+});
+
+describe("runContextBoundary", () => {
+  it("gives an operator's run its paths, AGENTS.md and preferences", () => {
+    expect(runContextBoundary("default", {})).toEqual({
+      ingestsUserInputPaths: true,
+      injectsProjectInstructions: true,
+      injectsPreferences: true,
+    });
+  });
+
+  it("gives a remote caller's run none of the operator's context", () => {
+    // A `public` caller must learn nothing about the operator, and a path in its text names
+    // a file on this machine it has no right to have uploaded.
+    expect(runContextBoundary("default", { remoteCaller: { door: "peer", name: "sam" } })).toEqual({
+      ingestsUserInputPaths: false,
+      injectsProjectInstructions: false,
+      injectsPreferences: false,
+    });
+  });
+
+  it("stops path ingestion alone when the caller asks for that", () => {
+    expect(runContextBoundary("default", { ingestUserInputPaths: false })).toEqual({
+      ingestsUserInputPaths: false,
+      injectsProjectInstructions: true,
+      injectsPreferences: true,
+    });
+  });
+
+  it("keeps the summarizer off paths and AGENTS.md", () => {
+    const boundary = runContextBoundary("summarizer", {});
+    expect(boundary.ingestsUserInputPaths).toBe(false);
+    expect(boundary.injectsProjectInstructions).toBe(false);
+  });
+});
+
+describe("runRecordBoundary", () => {
+  it("records the limits a resumed run must get back", () => {
+    expect(
+      runRecordBoundary({
+        agent: {} as Agent,
+        userInput: "",
+        toolAllowlist: ["ls"],
+        withholdInteractiveTools: true,
+        disablePersistence: true,
+        remoteCaller: { door: "webhook", name: "deploys" },
+        maxDurationMs: 60_000,
+      }),
+    ).toEqual({
+      toolAllowlist: ["ls"],
+      withholdInteractiveTools: true,
+      disablePersistence: true,
+      remoteCaller: { door: "webhook", name: "deploys" },
+      budget: { maxDurationMs: 60_000 },
+    });
+  });
+
+  it("records nothing for a run with no limits of its own", () => {
+    expect(runRecordBoundary({ agent: {} as Agent, userInput: "" })).toEqual({});
   });
 });

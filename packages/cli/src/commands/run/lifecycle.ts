@@ -6,13 +6,19 @@
  * it has exited. These commands are how a person finds it and answers it.
  */
 
+import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
+import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
+import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import { answerGrantsSomething, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { Effect } from "effect";
+import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 /** Terminal records are kept a week: long enough to answer "what did last night do?". */
 const TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -57,20 +63,12 @@ export function listRunsCommand(options: {
       ...(options.all === true ? { includeTerminal: true } : {}),
     });
 
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, runs })}\n`);
-      return;
-    }
-    if (runs.length === 0) {
-      process.stdout.write(options.all === true ? "No runs on record.\n" : "No runs in flight.\n");
-      return;
-    }
-    for (const record of runs) {
+    const rows = runs.map((record) => {
       const cost = record.costUSD !== undefined ? `  $${record.costUSD.toFixed(6)}` : "";
-      process.stdout.write(
-        `${record.runId}  ${record.agentId}  ${describeState(record)}${cost}  ${shortInput(record.input)}\n`,
-      );
-    }
+      return `${record.runId}  ${record.agentId}  ${describeState(record)}${cost}  ${shortInput(record.input)}`;
+    });
+    const empty = options.all === true ? "No runs on record." : "No runs in flight.";
+    emitEnvelope(options.json, { ok: true, runs }, rows.length === 0 ? empty : rows.join("\n"));
   }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }
 
@@ -80,37 +78,39 @@ export function showRunCommand(options: { readonly runId: string; readonly json:
     const record = yield* store.get(options.runId);
 
     if (record === undefined) {
-      const message = `No run with id "${options.runId}".`;
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-      } else {
-        process.stderr.write(`${message}\n`);
-      }
-      process.exitCode = 1;
+      failEnvelope(options.json, `No run with id "${options.runId}".`);
       return;
     }
 
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, run: record })}\n`);
-      return;
-    }
-
-    process.stdout.write(
-      `${record.runId}\n` +
-        `  agent    ${record.agentId}\n` +
-        `  state    ${describeState(record)}\n` +
-        `  started  ${record.createdAt}\n` +
-        `  updated  ${record.updatedAt}\n` +
-        `  prompt   ${shortInput(record.input)}\n`,
+    const waiting =
+      record.state.kind === "input-required" && record.state.pending.kind === "tool-approval"
+        ? [
+            `  waiting  ${record.state.pending.request.message}`,
+            `  expires  ${record.state.expiresAt}`,
+          ]
+        : [];
+    emitEnvelope(
+      options.json,
+      { ok: true, run: record },
+      [
+        record.runId,
+        `  agent    ${record.agentId}`,
+        `  state    ${describeState(record)}`,
+        `  started  ${record.createdAt}`,
+        `  updated  ${record.updatedAt}`,
+        `  prompt   ${shortInput(record.input)}`,
+        ...waiting,
+      ].join("\n"),
     );
-    if (record.state.kind === "input-required" && record.state.pending.kind === "tool-approval") {
-      process.stdout.write(
-        `  waiting  ${record.state.pending.request.message}\n` +
-          `  expires  ${record.state.expiresAt}\n`,
-      );
-    }
   }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }
+
+/**
+ * Why a Jazz agent may not approve or answer a parked run: it would be granting itself the
+ * step the run stopped to ask the user about. Rejecting grants nothing, so it stays allowed.
+ */
+export const AGENT_ANSWER_REFUSAL =
+  "Approving or answering a parked run is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.";
 
 /**
  * Answer a parked run and let it finish.
@@ -155,34 +155,38 @@ export function answerRunCommand(options: {
                     ...(options.note !== undefined ? { userMessage: options.note } : {}),
                   },
           };
-  return resumeRun({
-    runId: options.runId,
-    outcome,
+  const fail = (message: string) => Effect.sync(() => failEnvelope(options.json, message));
+  return Effect.gen(function* () {
+    if (answerGrantsSomething(outcome) && isAgentStartedProcess()) {
+      return yield* fail(AGENT_ANSWER_REFUSAL);
+    }
+    const result = yield* resumeOwnedRun({ runId: options.runId, outcome });
+    if (result.kind === "blocked") {
+      return yield* fail(result.reason);
+    }
+    const settled =
+      result.kind === "unowned"
+        ? { kind: "finished" as const, response: result.response }
+        : result.outcome;
+    if (settled.kind === "parked") {
+      return yield* fail(getErrorMessage(settled.park));
+    }
+    if (settled.kind === "failed") {
+      return yield* fail(settled.error);
+    }
+    emitEnvelope(
+      options.json,
+      { ok: true, runId: options.runId, answer: settled.response.content },
+      settled.response.content,
+    );
   }).pipe(
-    Effect.tap((response) =>
-      Effect.sync(() => {
-        if (options.json) {
-          process.stdout.write(
-            `${JSON.stringify({ ok: true, runId: options.runId, answer: response.content })}\n`,
-          );
-        } else {
-          process.stdout.write(`${response.content}\n`);
-        }
-      }),
-    ),
-    Effect.asVoid,
-    Effect.catchAll((error) =>
-      Effect.sync(() => {
-        const message = getErrorMessage(error);
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-        } else {
-          process.stderr.write(`${message}\n`);
-        }
-        process.exitCode = 1;
-      }),
-    ),
+    Effect.catchAll((error) => fail(getErrorMessage(error))),
     Effect.provide(makeFileRunStoreLayer()),
+    Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
+    // The resumed run renders like `jazz run`: stdout carries only the result (one envelope
+    // with --json), never the agent's progress.
+    Effect.provide(makeOneShotPresentationServiceLayer(new Set())),
   );
 }
 
@@ -202,27 +206,19 @@ export function cancelRunCommand(options: { readonly runId: string; readonly jso
           : undefined;
 
     if (problem !== undefined) {
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify({ ok: false, error: problem })}\n`);
-      } else {
-        process.stderr.write(`${problem}\n`);
-      }
-      process.exitCode = 1;
+      failEnvelope(options.json, problem);
       return;
     }
 
     yield* store.transition(options.runId, { kind: "canceled", at: "parked" });
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, runId: options.runId })}\n`);
-    } else {
-      process.stdout.write(`Cancelled run ${options.runId}.\n`);
-    }
+    emitEnvelope(
+      options.json,
+      { ok: true, runId: options.runId },
+      `Cancelled run ${options.runId}.`,
+    );
   }).pipe(
     Effect.catchAll((error) =>
-      Effect.sync(() => {
-        process.stderr.write(`${getErrorMessage(error)}\n`);
-        process.exitCode = 1;
-      }),
+      Effect.sync(() => failEnvelope(options.json, getErrorMessage(error))),
     ),
     Effect.provide(makeFileRunStoreLayer()),
   );

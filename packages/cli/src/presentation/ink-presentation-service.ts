@@ -15,6 +15,7 @@ import {
 import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
+  EphemeralRegionOptions,
   FilePickerRequest,
   PresentationService,
   StreamingRenderer,
@@ -29,8 +30,10 @@ import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
+import { toError } from "@jazz/core/utils/errors";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+import { formatCompactCount } from "@jazz/core/utils/string";
 import {
   expandableFileMutationPayload,
   expandableToolResultPayload,
@@ -63,8 +66,9 @@ import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
+import type { SubagentChannel } from "../ui/subagent-runs";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
-import { separatorLine } from "../utils/string-utils";
+import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
 /** Last-N-lines cap for a live sub-agent panel. */
 const SUBAGENT_PANEL_LINES = 12;
@@ -89,18 +93,13 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
   if (outcome.status === "completed") {
     const seconds = (outcome.durationMs / 1000).toFixed(1);
     const parts = [`${label} completed`, `${seconds}s`];
-    if (outcome.totalTokens !== undefined) parts.push(`${compactCount(outcome.totalTokens)} tok`);
+    if (outcome.totalTokens !== undefined)
+      parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
     if (outcome.costUSD !== undefined) parts.push(formatOutroCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
   return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
-}
-
-function compactCount(count: number): string {
-  if (count < 1000) return `${count}`;
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-  return `${Math.round(count / 1000)}k`;
 }
 
 function formatOutroCost(cost: number): string {
@@ -144,12 +143,20 @@ function formatOutroCost(cost: number): string {
  */
 type BufferedStreamDelta =
   | { readonly target: "stream"; readonly kind: "response" | "reasoning"; readonly delta: string }
-  | { readonly target: "ephemeral"; readonly regionId: string; readonly delta: string };
+  | {
+      readonly target: "ephemeral";
+      readonly regionId: string;
+      readonly delta: string;
+      /** Which part of a sub-agent's output this is. Defaults to prose. */
+      readonly channel?: SubagentChannel;
+    };
 
 function sameBufferTarget(a: BufferedStreamDelta, b: BufferedStreamDelta): boolean {
   if (a.target !== b.target) return false;
   if (a.target === "stream" && b.target === "stream") return a.kind === b.kind;
-  if (a.target === "ephemeral" && b.target === "ephemeral") return a.regionId === b.regionId;
+  if (a.target === "ephemeral" && b.target === "ephemeral") {
+    return a.regionId === b.regionId && a.channel === b.channel;
+  }
   return false;
 }
 
@@ -258,7 +265,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (entry.target === "stream") {
       store.appendStream(entry.kind, entry.delta);
     } else {
-      store.appendEphemeral(entry.regionId, entry.delta);
+      store.appendEphemeral(entry.regionId, entry.delta, entry.channel);
     }
   }
 
@@ -308,9 +315,24 @@ export class InkStreamingRenderer implements StreamingRenderer {
       );
       const displayName = formatToolDisplayName(event.toolName, event.metadata);
       const line = `${displayName}${args.length > 0 ? ` ${args}` : ""}`;
+      // Settle the text streamed so far first, so the call lands after the prose
+      // that led to it rather than ahead of a still-buffered sentence.
+      this.flushStreamBuffer();
+      // The formatter styles its output for the Ink panel; the run is data that
+      // other renderers lay out with their own colours.
+      store.recordSubagentToolStart(regionId, {
+        toolCallId: event.toolCallId,
+        name: stripAnsiCodes(displayName),
+        args: stripAnsiCodes(args),
+      });
       // Leading newline so the line starts its own row rather than merging
       // onto a partial reasoning line already in the region.
-      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId,
+        delta: `\n${line}`,
+        channel: "tail",
+      });
       return;
     }
     if (event.type === "tool_execution_complete") {
@@ -324,7 +346,18 @@ export class InkStreamingRenderer implements StreamingRenderer {
       const firstLine = summary.split("\n")[0] ?? summary;
       const glyph = failed ? getGlyphs().error : getGlyphs().success;
       const line = `${glyph} ${firstLine} (${event.durationMs}ms)`;
-      this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
+      this.flushStreamBuffer();
+      store.recordSubagentToolEnd(regionId, event.toolCallId, {
+        failed,
+        summary: stripAnsiCodes(firstLine),
+        durationMs: event.durationMs,
+      });
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId,
+        delta: `\n${line}`,
+        channel: "tail",
+      });
     }
   }
 
@@ -573,6 +606,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
               target: "ephemeral",
               regionId: this.streamTarget.regionId,
               delta: event.content,
+              channel: "reasoning",
             });
           } else {
             // Main-agent reasoning streams into its own dedicated panel.
@@ -680,7 +714,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }).pipe(
       Effect.catchAllDefect((defect) =>
         Effect.sync(() => {
-          const message = defect instanceof Error ? defect.message : String(defect);
+          const message = toError(defect).message;
           store.printOutput({
             type: "warn",
             message: `Stream rendering error (${event.type}): ${message}`,
@@ -798,7 +832,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
           ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
           : "";
       parts.push(
-        `${compactCount(usage.promptTokens)} in${cachedShare} → ${compactCount(usage.completionTokens)} out`,
+        `${formatCompactCount(usage.promptTokens)} in${cachedShare} → ${formatCompactCount(usage.completionTokens)} out`,
       );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
@@ -809,7 +843,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         completionTokens: usage.completionTokens,
       });
     } else if (event.metrics?.totalTokens) {
-      parts.push(`${compactCount(event.metrics.totalTokens)} tok`);
+      parts.push(`${formatCompactCount(event.metrics.totalTokens)} tok`);
     }
 
     const tokensPerSecond = event.metrics?.tokensPerSecond;
@@ -864,6 +898,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         target: "ephemeral",
         regionId: this.streamTarget.regionId,
         delta: `\n${line}`,
+        channel: "note",
       });
       return;
     }
@@ -1098,8 +1133,16 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
-  presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
+  presentAgentResponse(
+    agentName: string,
+    content: string,
+    options?: { readonly ephemeralRegionId: string },
+  ): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (options !== undefined) {
+        store.appendEphemeral(options.ephemeralRegionId, content, "response");
+        return;
+      }
       const header = CHALK_THEME.primaryBold(`${getGlyphs().active} ${agentName}:`);
       const rendered = this.formatMarkdownText(content);
       store.printOutput({
@@ -1169,9 +1212,19 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  capturesEphemeralRunDetails(): boolean {
+    return true;
+  }
+
   writeOutput(message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message, timestamp: new Date() });
+    });
+  }
+
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.printOutput({ type: "error", message, timestamp: new Date() });
     });
   }
 
@@ -1202,15 +1255,29 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
-  openEphemeralRegion(kind: EphemeralRegionKind, label: string): Effect.Effect<string, never> {
+  openEphemeralRegion(
+    kind: EphemeralRegionKind,
+    label: string,
+    options?: EphemeralRegionOptions,
+  ): Effect.Effect<string, never> {
     return Effect.sync(() =>
-      store.openEphemeral(kind, label, kind === "subagent" ? SUBAGENT_PANEL_LINES : 8),
+      store.openEphemeral(
+        kind,
+        label,
+        kind === "subagent" ? SUBAGENT_PANEL_LINES : 8,
+        options?.agentRun,
+      ),
     );
   }
 
+  /**
+   * Core's appends are status lines for the live panel (a sub-agent's task preview,
+   * compaction phases). A tracked run already holds the full task, so they stay in
+   * the tail.
+   */
   appendEphemeralRegion(regionId: string, text: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.appendEphemeral(regionId, text);
+      store.appendEphemeral(regionId, text, "tail");
     });
   }
 
@@ -1223,8 +1290,13 @@ export class InkPresentationService implements PresentationService {
       store.collapseEphemeral(regionId, {
         line: formatSubagentCollapseLine(label, outcome),
         durationMs: outcome.durationMs,
+        status: outcome.status,
       });
     });
+  }
+
+  takeEphemeralRegionMessage(regionId: string): Effect.Effect<string | undefined, never> {
+    return Effect.sync(() => store.takeSubagentMessage(regionId));
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {

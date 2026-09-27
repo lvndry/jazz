@@ -51,6 +51,8 @@ Edit `.env` and set at least:
 
 - `TELEGRAM_BOT_TOKEN`: from step 1.
 - `TELEGRAM_ALLOWED_CHAT_IDS`: your id from step 2 (comma-separated if more than one).
+- `TELEGRAM_OPERATOR_IDS`: your id again, if you want to be able to turn approvals off with
+  `/mode yolo` or use "Always allow". See [Operators](#operators).
 - A model backend. `OPENAI_API_KEY` is set by default (`JAZZ_TELEGRAM_PROVIDER=openai`,
   `JAZZ_TELEGRAM_MODEL=gpt-5.4`). To run fully local instead, set
   `JAZZ_TELEGRAM_PROVIDER=ollama` and `JAZZ_TELEGRAM_MODEL=<a model you've pulled>`.
@@ -135,6 +137,9 @@ Edit `.env` and set at least:
 - `DISCORD_BOT_TOKEN`: from step 1.
 - One allowlist: `DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_CHANNEL_IDS`, and/or
   `DISCORD_ALLOWED_GUILD_IDS`.
+- `DISCORD_OPERATOR_IDS`: your user id, if you want to be able to turn approvals off with
+  `/mode yolo`. With a guild allowlist everyone in the server can talk to the bot, so this is
+  what keeps them from switching it to yolo. See [Operators](#operators).
 - A model backend. `OPENAI_API_KEY` is set by default (`JAZZ_DISCORD_PROVIDER=openai`,
   `JAZZ_DISCORD_MODEL=gpt-5.4`). To run fully local instead, set
   `JAZZ_DISCORD_PROVIDER=ollama` and `JAZZ_DISCORD_MODEL=<a model you've pulled>`.
@@ -346,10 +351,33 @@ Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp
 
 ---
 
+## Operators
+
+Being on an allowlist lets someone talk to the agent. It does not let them widen what the
+agent may do without asking: `/mode yolo` (every tool runs unprompted, shell included) and
+Telegram's "Always allow" are for operators only. Everyone else who tries is told they cannot,
+with the id to add if they should.
+
+| Bridge   | Operators                                                                      |
+| -------- | ------------------------------------------------------------------------------ |
+| Telegram | `TELEGRAM_OPERATOR_IDS`: comma-separated Telegram user ids                     |
+| Discord  | `DISCORD_OPERATOR_IDS`: comma-separated Discord user ids                       |
+| WhatsApp | `WHATSAPP_OPERATOR_NUMBERS`: comma-separated numbers, international form       |
+| iMessage | `IMESSAGE_OPERATOR_HANDLES`: numbers or Apple IDs; the account owner always is |
+| Photon   | `PHOTON_OPERATOR_HANDLES`: numbers or Apple IDs                                |
+
+Unset means nobody can turn approvals off from a chat, which is the safe default for a bot
+several people share. Setting it back with `/mode safe` is open to anyone.
+
+In a group, an approval belongs to the person whose message started the run: only they can
+approve, reject or answer it, by button or by replying with the number.
+
+---
+
 ## Adding more providers
 
 Every bridge starts on one provider (`OPENAI_API_KEY`/`gpt-5.4` by default), but `/model`
-can switch a conversation to any of the ~18 providers Jazz supports. Anthropic, Gemini,
+can switch a conversation to any of the 23 providers Jazz supports. Anthropic, Gemini,
 xAI, OpenRouter, Groq, and more: without touching `JAZZ_TELEGRAM_PROVIDER`,
 `JAZZ_DISCORD_PROVIDER`, `JAZZ_IMESSAGE_PROVIDER` or `JAZZ_WHATSAPP_PROVIDER` (those only
 set what a brand-new conversation starts on).
@@ -364,19 +392,34 @@ as a normal message in the chat:
 ```
 
 Bare `/model` (no arguments) instead shows a picker of whatever the conversation's current
-provider offers. Reasoning effort is set automatically either way.
+provider offers on Telegram and Discord, which have buttons; iMessage and WhatsApp name the
+current model and how to switch. Reasoning effort is set automatically either way.
 
 ---
 
 ## Keeping it updated
 
-The Telegram and Discord bots ship an `auto-update.sh` that fast-forwards the checkout to `origin/main`,
-rebuilds only if something changed, and rolls back if the new build doesn't come up
-healthy. Install it as an hourly cron job (adjust the path to where you cloned the repo):
+The Telegram and Discord bots ship an `auto-update.sh` that moves the checkout to the newest
+Jazz release tag (`vX.Y.Z`) once one is published, rebuilds only if something changed, and
+rolls back if the new build doesn't come up healthy. It never moves backwards: a checkout
+that is already ahead of the newest release (for example one that used to follow `main`)
+stays where it is until the next release passes it. Install it as an hourly cron job (adjust
+the path to where you cloned the repo):
 
 ```bash
 (crontab -l 2>/dev/null; echo "30 * * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
+
+To run every commit merged to a branch instead of releases, set `JAZZ_DEPLOY_BRANCH` in the
+cron entry. The script then fast-forwards to `origin/<branch>` on every run:
+
+```bash
+(crontab -l 2>/dev/null; echo "30 * * * * JAZZ_DEPLOY_BRANCH=main $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+```
+
+Before moving the checkout, either way, the script stashes tracked edits (untracked files such
+as a local `docker-compose.override.yml` or `.env` are left alone) and names any commits that
+exist only on that box, so nothing goes quietly missing.
 
 Swap `telegram-bot` for `discord-bot` to update the other one. A sibling executable
 `notify.sh` (present in both directories) posts the outcome (success, rollback, or a

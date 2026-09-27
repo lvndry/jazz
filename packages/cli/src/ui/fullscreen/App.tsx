@@ -47,12 +47,14 @@ import {
   type KeyAction,
 } from "./keymap";
 import { LiveZone } from "./LiveZone";
-import { Approval } from "./overlays/Approval";
-import { FilePicker } from "./overlays/FilePicker";
-import { Question } from "./overlays/Question";
-import { Search } from "./overlays/Search";
-import { TextPrompt } from "./overlays/TextPrompt";
+import { Approval, approvalLayout } from "./overlays/Approval";
+import { FilePicker, filePickerLayout } from "./overlays/FilePicker";
+import { overlayReservedRows } from "./overlays/overlay-frame";
+import { Question, questionLayout } from "./overlays/Question";
+import { Search, searchLayout } from "./overlays/Search";
+import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
 import { computePeerNotice } from "./peer-notice";
+import { SubagentList, subagentListRows } from "./SubagentList";
 import { clipTerminalCells } from "./terminal-cells";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
@@ -184,6 +186,22 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
   );
 }
 
+/** Rows the open card keeps from the transcript, from the same layout it draws with. */
+function overlayRows(overlay: Overlay, viewport: Viewport): number {
+  switch (overlay.kind) {
+    case "approval":
+      return overlayReservedRows(approvalLayout(overlay, viewport));
+    case "search":
+      return overlayReservedRows(searchLayout(viewport));
+    case "question":
+      return overlayReservedRows(questionLayout(overlay, viewport));
+    case "text":
+      return overlayReservedRows(textPromptLayout(overlay, viewport));
+    case "filepicker":
+      return overlayReservedRows(filePickerLayout(overlay, viewport));
+  }
+}
+
 function renderOverlay(
   overlay: Overlay,
   viewport: { width: number; height: number },
@@ -248,8 +266,9 @@ function AppView({
   const focusRef = useRef<Focus>("input");
   const transcriptRef = useRef<TranscriptHandle | null>(null);
   const [followLive, setFollowLive] = useState(true);
+  const prevFollowLiveRef = useRef(true);
+  const seenRowsRef = useRef(0);
   const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
-  const seenBlocks = useRef(view.blocks.length);
   const armedAt = useRef<number | undefined>(undefined);
   const [copyNotice, setCopyNotice] = useState<string | undefined>(undefined);
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -288,6 +307,7 @@ function AppView({
         armedAt.current = Date.now();
         break;
       case "interrupt":
+      case "flush-queue":
         armedAt.current = undefined;
         break;
       case "scroll-transcript":
@@ -300,7 +320,11 @@ function AppView({
   }, []);
 
   const handleReachedBottom = useCallback(() => {
-    seenBlocks.current = viewRef.current.blocks.length;
+    // Re-engage auto-follow: landing at the bottom is the reader saying they
+    // want the live edge again, so wheel/paging back down must re-arm follow,
+    // not just clear the hint.
+    seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+    setFollowLive(true);
     setNewBelow(undefined);
   }, []);
 
@@ -377,15 +401,23 @@ function AppView({
     }
   }, [submitCount]);
 
+  // "N new below" hint, measured in rendered rows, not blocks: a streaming
+  // answer grows one block in place, so a block diff stays zero for the whole
+  // answer and the drift goes unannounced. The baseline freezes the moment
+  // follow turns off and never moves until the reader re-arms it at the bottom.
   useEffect(() => {
-    if (focus === "input") {
-      seenBlocks.current = view.blocks.length;
+    const wasFollowing = prevFollowLiveRef.current;
+    prevFollowLiveRef.current = followLive;
+    if (followLive) {
+      seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+      if (wasFollowing) return;
       setNewBelow(undefined);
       return;
     }
-    const added = view.blocks.length - seenBlocks.current;
+    if (wasFollowing) seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
+    const added = (transcriptRef.current?.rowCount() ?? 0) - seenRowsRef.current;
     setNewBelow(added > 0 ? added : undefined);
-  }, [focus, view.blocks.length]);
+  }, [followLive, view, view.blocks.length]);
 
   useKeyboard((key) => {
     const currentView = viewRef.current;
@@ -596,23 +628,36 @@ function AppView({
   }
 
   const inputFocused = focus === "input" && !overlayOpen;
-  // One allocation, shared by all three regions. Computing the transcript's
-  // share here and letting the other two size themselves independently is how
+  // One allocation, shared by every region. Computing the transcript's
+  // share here and letting the others size themselves independently is how
   // the rows stopped adding up to more than the terminal has.
+  const subagentRows = subagentListRows(view.subagents, viewport).length;
   const regions = allocateRegions({
     viewport,
     live: view.live,
     input: inputModel,
     inputFocused,
+    subagentRows,
   });
-  const visibleCount = regions.transcript;
+  // The transcript's box keeps its full height so the composer and footer stay where they are;
+  // with a card open, only the rows drawn in it shrink, so the last one sits above the card.
+  const visibleCount =
+    view.overlay === undefined
+      ? regions.transcript
+      : allocateRegions({
+          viewport,
+          live: view.live,
+          input: inputModel,
+          inputFocused,
+          subagentRows,
+          overlayRows: overlayRows(view.overlay, viewport),
+        }).transcript;
   visibleCountRef.current = visibleCount;
 
   return (
     <box
       style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
       onMouseScroll={(event) => {
-        if (overlayOpen) return;
         const scroll = event.scroll;
         if (scroll === undefined) return;
         scrollTranscriptByWheel(scroll.direction, scroll.delta);
@@ -640,11 +685,11 @@ function AppView({
       <box
         style={{
           width,
-          height: visibleCount,
+          height: regions.transcript,
           flexGrow: 1,
           flexShrink: 1,
           minHeight: 0,
-          maxHeight: visibleCount,
+          maxHeight: regions.transcript,
           overflow: "hidden",
           flexDirection: "column",
         }}
@@ -655,7 +700,7 @@ function AppView({
           viewport={viewport}
           focus={focus}
           visibleCount={visibleCount}
-          followLive={followLive && focus === "input" && newBelow === undefined && !overlayOpen}
+          followLive={followLive && !overlayOpen}
           onReachedBottom={handleReachedBottom}
           {...(newBelow === undefined ? {} : { newBelow })}
         />
@@ -673,6 +718,13 @@ function AppView({
         focused={inputFocused}
         maxRows={regions.input}
       />
+      {regions.subagents > 0 ? (
+        <SubagentList
+          model={view.subagents}
+          viewport={viewport}
+          maxRows={regions.subagents}
+        />
+      ) : null}
       <Footer
         model={footer}
         viewport={viewport}

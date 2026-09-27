@@ -2,11 +2,20 @@
 
 import { Duration, Effect, Fiber, Ref, Schedule } from "effect";
 import { LLM_SLOW_MODEL_HINT_SECONDS } from "@/core/constants/agent";
-import {
-  describeRetryableLLMError,
-  isRetryableLLMError,
-  makeLLMRetrySchedule,
-} from "@/core/utils/llm-error";
+import { describeRetryableLLMError, llmRetryDelays } from "@/core/utils/llm-error";
+
+/** Keeps the retry notice on one terminal line while still naming the underlying failure. */
+const RETRY_NOTICE_DETAIL_MAX_CHARS = 160;
+
+function retryNoticeDetail(error: unknown): string {
+  const message =
+    error && typeof error === "object" && "message" in error ? String(error.message) : "";
+  const firstLine = message.split("\n")[0]?.trim() ?? "";
+  if (firstLine.length <= RETRY_NOTICE_DETAIL_MAX_CHARS) {
+    return firstLine;
+  }
+  return `${firstLine.slice(0, RETRY_NOTICE_DETAIL_MAX_CHARS - 1)}…`;
+}
 
 export type PresentStatusFn = (
   message: string,
@@ -34,28 +43,36 @@ export function withLongRunningLlmNotice<A, E, R>(
   });
 }
 
+/**
+ * The LLM retry schedule the user sees: `llmRetryDelays` plus a notice before each retry.
+ *
+ * The attempt budget lives in `attemptRef`, not in the schedule, so several schedules built on
+ * the same ref (a streaming attempt and its non-streaming fallback) share one budget of
+ * `maxRetries` retries instead of each getting a fresh one.
+ */
 export function makeUserVisibleLlmRetrySchedule(
   maxRetries: number,
   agentName: string,
   presentStatus: PresentStatusFn,
   attemptRef: Ref.Ref<number>,
 ) {
-  return makeLLMRetrySchedule(maxRetries).pipe(
-    Schedule.tapInput((error: unknown) =>
-      isRetryableLLMError(error)
-        ? Effect.gen(function* () {
-            const attempt = yield* Ref.updateAndGet(attemptRef, (count) => count + 1);
-            // The schedule also receives the failure that exhausts it, so this fires once more
-            // than there are retries. Announcing "attempt 11 of up to 10" promised a retry that
-            // was never going to happen.
-            if (attempt > maxRetries) return;
-            const reason = describeRetryableLLMError(error);
-            yield* presentStatus(
-              `${agentName} hit a ${reason}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
-              "progress",
-            );
-          })
-        : Effect.void,
+  return llmRetryDelays().pipe(
+    Schedule.checkEffect((error: unknown) =>
+      Effect.gen(function* () {
+        const attemptsUsed = yield* Ref.get(attemptRef);
+        if (attemptsUsed >= maxRetries) {
+          return false;
+        }
+        const attempt = attemptsUsed + 1;
+        yield* Ref.set(attemptRef, attempt);
+        const reason = describeRetryableLLMError(error);
+        const detail = retryNoticeDetail(error);
+        yield* presentStatus(
+          `${agentName} hit a ${reason}${detail ? ` (${detail})` : ""}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
+          "progress",
+        );
+        return true;
+      }),
     ),
   );
 }

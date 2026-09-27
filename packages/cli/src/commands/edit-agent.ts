@@ -1,5 +1,5 @@
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp-tools";
+import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
   createCategoryMappings,
@@ -9,8 +9,8 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
-import type { ProviderName } from "@jazz/core/constants/models";
-import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import {
   buildOllamaContextChoices,
   defaultOllamaContextWindow,
@@ -35,9 +35,11 @@ import {
   StorageError,
   StorageNotFoundError,
   ValidationError,
+  type InteractiveTerminalRequiredError,
 } from "@jazz/core/types/errors";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { toError } from "@jazz/core/utils/errors";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
@@ -47,8 +49,14 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
+import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
-import { formatReasoningSelection, promptForReasoningSelection } from "@/cli/helpers/reasoning";
+import {
+  describeReasoningAdjustment,
+  formatReasoningSelection,
+  promptForReasoningSelection,
+} from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -85,7 +93,8 @@ export function editAgentCommand(
   | AgentConfigurationError
   | AgentAlreadyExistsError
   | ValidationError
-  | LLMConfigurationError,
+  | LLMConfigurationError
+  | InteractiveTerminalRequiredError,
   | AgentService
   | PersonaService
   | LLMService
@@ -96,11 +105,23 @@ export function editAgentCommand(
   | LoggerService
 > {
   return Effect.gen(function* () {
+    yield* requireInteractiveTerminal(
+      "jazz agent edit",
+      "Run `jazz agent edit` in a terminal, or edit the agent's JSON file under $JAZZ_HOME/agents/ (normally ~/.jazz/agents/).",
+    );
     const terminal = yield* TerminalServiceTag;
     const agentService = yield* AgentServiceTag;
     let agent = yield* getAgentByIdentifier(agentIdentifier);
 
     while (true) {
+      const reasoningControl = yield* (yield* LLMServiceTag).resolveReasoningControl(
+        agent.config.llmProvider,
+        agent.config.llmModel,
+      );
+      const reasoningAdjustment = describeReasoningAdjustment(
+        agent.config.reasoning,
+        reasoningControl,
+      );
       const formatDate = (date: Date): string =>
         date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
@@ -115,7 +136,12 @@ export function editAgentCommand(
           `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
         ),
         fmt.keyValueCompact("Persona", agent.config.persona || "default"),
-        fmt.keyValueCompact("Reasoning", formatReasoningSelection(agent.config.reasoning)),
+        fmt.keyValueCompact(
+          "Reasoning",
+          reasoningAdjustment
+            ? `${formatReasoningSelection(agent.config.reasoning)} (${reasoningAdjustment})`
+            : formatReasoningSelection(agent.config.reasoning),
+        ),
         fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
         fmt.keyValueCompact(
           "Updated",
@@ -270,7 +296,7 @@ export function editAgentCommand(
                 Effect.catchAll((error) =>
                   Effect.gen(function* () {
                     // Log detailed error information
-                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    const errorMessage = toError(error).message;
                     const errorString = String(error);
                     const errorStack = error instanceof Error ? error.stack : undefined;
                     const isAuthRequired = isAuthenticationRequired(error);
@@ -406,7 +432,7 @@ export function editAgentCommand(
         catch: (error) =>
           new ValidationError({
             field: "agent",
-            message: `Agent edit wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Agent edit wizard failed: ${toError(error).message}`,
           }),
       });
 
@@ -641,29 +667,75 @@ async function promptForAgentUpdates(
       const providerDisplayName =
         providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
-      const keyResult = await ensureProviderApiKey({
-        configService,
-        terminal,
-        provider: llmProvider,
-        displayName: providerDisplayName,
-        required: llmProvider !== "ollama" && llmProvider !== "llamacpp",
-      });
-      if (keyResult === "cancelled") {
-        continue;
+      if (llmProvider === "vllm" || llmProvider === "sglang") {
+        const urlResult = await ensureLocalProviderBaseUrl({
+          configService,
+          terminal,
+          provider: llmProvider,
+        });
+        if (urlResult === "cancelled") {
+          continue;
+        }
       }
 
-      const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
-        (error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`Failed to get provider info: ${message}`);
-        },
-      );
+      if (!isLocalServerProvider(llmProvider)) {
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: llmProvider,
+          displayName: providerDisplayName,
+          required: true,
+        });
+        if (keyResult === "cancelled") {
+          continue;
+        }
+      }
 
-      const llmModel = await Effect.runPromise(
-        terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-          choices: buildModelChoices(llmProvider, providerInfo.supportedModels),
-        }),
+      let providerInfo: LLMProvider;
+      const providerResult = await Effect.runPromise(
+        llmService.getProvider(llmProvider).pipe(Effect.either),
       );
+      if (
+        providerResult._tag === "Left" &&
+        (llmProvider === "vllm" || llmProvider === "sglang") &&
+        providerResult.left.reason === "unauthorized"
+      ) {
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: llmProvider,
+          displayName: providerDisplayName,
+          required: true,
+          force: true,
+          reason: providerResult.left.message,
+        });
+        if (keyResult === "cancelled") continue;
+        providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider));
+      } else if (providerResult._tag === "Left") {
+        throw providerResult.left;
+      } else {
+        providerInfo = providerResult.right;
+      }
+
+      const soleLiveModel =
+        (llmProvider === "vllm" || llmProvider === "sglang") &&
+        providerInfo.supportedModels.length === 1
+          ? providerInfo.supportedModels[0]?.id
+          : undefined;
+      if ((llmProvider === "vllm" || llmProvider === "sglang") && !soleLiveModel) {
+        await Effect.runPromise(
+          terminal.info(
+            `Jazz uses this ${formatProviderDisplayName(llmProvider)} model while it is served. If the server stops listing it, Jazz uses the first live model instead.`,
+          ),
+        );
+      }
+      const llmModel =
+        soleLiveModel ??
+        (await Effect.runPromise(
+          terminal.search<string>(`Select model for ${providerDisplayName}:`, {
+            choices: buildModelChoices(llmProvider, providerInfo.supportedModels),
+          }),
+        ));
 
       if (!llmModel) {
         return null;
@@ -690,7 +762,13 @@ async function promptForAgentUpdates(
       const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
 
       if (isReasoningModel) {
-        const reasoning = await promptForReasoning(terminal, currentAgent);
+        const reasoning = await promptForReasoning(
+          terminal,
+          currentAgent,
+          llmService,
+          llmProvider,
+          llmModel,
+        );
         if (reasoning === null) {
           return null;
         }
@@ -708,7 +786,7 @@ async function promptForAgentUpdates(
     const providerInfo =
       currentProviderInfo ||
       (await Effect.runPromise(llmService.getProvider(providerToUse)).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toError(error).message;
         throw new Error(`Failed to get provider info: ${message}`);
       }));
 
@@ -745,7 +823,13 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      const reasoning = await promptForReasoning(terminal, currentAgent);
+      const reasoning = await promptForReasoning(
+        terminal,
+        currentAgent,
+        llmService,
+        providerToUse,
+        llmModel,
+      );
       if (reasoning === null) {
         return null;
       }
@@ -769,7 +853,7 @@ async function promptForAgentUpdates(
       }
 
       const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
-      const isOptional = provider === "ollama" || provider === "llamacpp";
+      const isOptional = isLocalServerProvider(provider);
       if (existingAgentOverride) {
         await Effect.runPromise(
           terminal.info(
@@ -911,7 +995,13 @@ async function promptForAgentUpdates(
   }
 
   if (fieldToUpdate === "reasoning") {
-    const reasoning = await promptForReasoning(terminal, currentAgent);
+    const reasoning = await promptForReasoning(
+      terminal,
+      currentAgent,
+      llmService,
+      currentAgent.config.llmProvider,
+      currentAgent.config.llmModel,
+    );
     if (reasoning === null) {
       return null;
     }
@@ -1008,6 +1098,13 @@ function promptForMaxContextTokens(
 async function promptForReasoning(
   terminal: TerminalService,
   currentAgent: Agent,
+  llmService: LLMService,
+  provider: ProviderName,
+  model: string,
 ): Promise<ReasoningSelection | null> {
-  return (await promptForReasoningSelection(terminal, currentAgent.config.reasoning)) ?? null;
+  const control = await Effect.runPromise(llmService.resolveReasoningControl(provider, model));
+  return (
+    (await promptForReasoningSelection(terminal, currentAgent.config.reasoning, { control })) ??
+    null
+  );
 }

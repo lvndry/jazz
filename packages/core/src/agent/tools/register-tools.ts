@@ -8,31 +8,31 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
-import {
-  createContextInfoTool,
-  createGetTimeTool,
-  createRetrieveToolResultTool,
-} from "./context-tools";
+import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
+import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
-import { createHttpRequestTool } from "./http-tools";
-import { createJobQueueTools } from "./job-queue-tools";
-import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
-import { createPdfTool } from "./pdf-tools";
-import { createAskPeerTool, createRequestClarificationTool } from "./peer-tools";
-import { createPerceptionTools } from "./perception-tools";
+import { createProposeGoalTool } from "./goal";
+import { createReportGoalCycleTool } from "./goal-report";
+import { createHttpRequestTool } from "./http";
+import { createJobQueueTools } from "./job-queue";
+import { createEndLoopTool } from "./loop";
+import { createManageMemoryTool, createViewMemoryTool } from "./memory";
+import { createAskPeerTool, createRequestClarificationTool } from "./peer";
+import { createPerceptionTools } from "./perception";
 import {
   createAddReminderTool,
   createCancelReminderTool,
   createListRemindersTool,
-} from "./reminder-tools";
-import { createSearchToolsTool } from "./search-tools-tool";
-import { createShellCommandTools } from "./shell-tools";
-import { createSkillTools } from "./skill-tools";
-import { createSubagentTools } from "./subagent-tools";
-import { createListTodosTool, createManageTodosTool } from "./todo-tools";
+} from "./reminder";
+import { createSearchToolsTool } from "./search-tools";
+import { createShellCommandTools } from "./shell";
+import { createSkillTools } from "./skill";
+import { createSubagentTools } from "./subagent";
+import { createListTodosTool, createManageTodosTool } from "./todo";
 import {
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
+  GOALS_CATEGORY,
   HTTP_CATEGORY,
   JOB_QUEUE_CATEGORY,
   MEMORY_CATEGORY,
@@ -51,18 +51,18 @@ import {
   WEB_SEARCH_CATEGORY,
   WORKSPACE_CATEGORY,
 } from "./tool-categories";
-import { userInteractionTools } from "./user-interaction-tools";
-import { createWaitTools } from "./wait-tools";
+import { userInteractionTools } from "./user-interaction";
+import { createWaitTools } from "./wait";
 import {
   createCancelTriggerTool,
   createListTriggersTool,
   createRegisterTriggerTool,
-} from "./wake-trigger-tools";
-import { createCompositionTool } from "./web-app-tools";
-import { createWebFetchTool } from "./web-fetch-tools";
-import { createWebSearchTool } from "./web-search-tools";
-import { createUpdateWorkStateTool } from "./work-state-tools";
-import { createManageWorkspaceTool, createViewWorkspaceTool } from "./workspace-tools";
+} from "./wake-trigger";
+import { createCompositionTool } from "./web-app";
+import { createWebFetchTool } from "./web-fetch";
+import { createWebSearchTool } from "./web-search";
+import { createUpdateWorkStateTool } from "./work-state";
+import { createManageWorkspaceTool, createViewWorkspaceTool } from "./workspace";
 
 /**
  * Register every globally-available builtin tool.
@@ -81,6 +81,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerMemoryTools();
     yield* registerWorkspaceTools();
     yield* registerReminderTools();
+    yield* registerGoalTools();
     yield* registerWakeTriggerTools();
     yield* registerJobQueueTools();
     yield* registerContextTools();
@@ -253,6 +254,15 @@ export function registerPeerTools(): Effect.Effect<void, Error, ToolRegistry | A
     if (askPeerTool !== undefined) yield* registerTool(askPeerTool);
 
     if (peers.length > 0) yield* registerTool(createRequestClarificationTool());
+  });
+}
+
+export function registerGoalTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createProposeGoalTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createEndLoopTool());
+    yield* registry.registerForCategory(GOALS_CATEGORY)(createReportGoalCycleTool());
   });
 }
 

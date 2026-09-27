@@ -15,6 +15,7 @@
 import {
   type ChatId,
   type MessageRef,
+  type OutgoingFile,
   type OutgoingMessage,
   renderChoicesAsText,
   splitForSurface,
@@ -64,6 +65,8 @@ export function renderForWhatsApp(message: OutgoingMessage): string {
             .join("");
         case "codeBlock":
           return `\`\`\`\n${block.text}\n\`\`\``;
+        case "markdown":
+          return block.text;
         case "quote":
           return block.text
             .split("\n")
@@ -100,8 +103,8 @@ export function createWhatsAppSurface(connection: Connection): Surface {
       return undefined;
     },
 
-    sendFile(chatId: ChatId, filePath: string, caption?: string): Promise<void> {
-      return connection.sendFile(chatId, filePath, caption);
+    sendFile(chatId: ChatId, file: OutgoingFile, caption?: string): Promise<void> {
+      return connection.sendFile(chatId, file, caption);
     },
 
     typing(chatId: ChatId): Promise<void> {

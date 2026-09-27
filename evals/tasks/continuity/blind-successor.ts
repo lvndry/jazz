@@ -101,6 +101,7 @@ export const tasks: EvalTask[] = [
         runId: context.runId,
         conversationId: CONVERSATION_ID,
         jazzHome: context.jazzHome,
+        environment: context.environment,
       });
     },
     check(result) {

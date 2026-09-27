@@ -12,17 +12,26 @@ import {
   bumpPromotionThreshold,
   type CommandApprovals,
 } from "@jazz/adapters/command-approval-tracker";
+import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/daemon/goal-worker";
+import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
+import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
-import { ChatServiceTag, type ChatService } from "@jazz/core/interfaces/chat-service";
+import {
+  ChatServiceTag,
+  type ChatService,
+  type ChatSessionEnd,
+} from "@jazz/core/interfaces/chat-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
 } from "@jazz/core/interfaces/fs";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
-import { type LLMService } from "@jazz/core/interfaces/llm";
+import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { type PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -40,6 +49,13 @@ import {
   type SkillService,
 } from "@jazz/core/skills/skill-service";
 import {
+  type CeilingCheck,
+  ceilingWindowKey,
+  checkSpendCeilings,
+  describeCeilingCheck,
+} from "@jazz/core/spend/ceilings";
+import { localDayKey, localMonthKey } from "@jazz/core/spend/ledger";
+import {
   GenerationInterruptedError,
   LLMAuthenticationError,
   LLMRateLimitError,
@@ -48,28 +64,45 @@ import {
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
+import type { SpendConfig } from "@jazz/core/types/spend";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { toError } from "@jazz/core/utils/errors";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
+import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
+import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
+import { classifyChatInput } from "./chat/chat-input";
 import {
   handleSpecialCommand,
+  isCommandInput,
   parseSpecialCommand,
   setPluginCommands,
   setSkillCommands,
 } from "./chat/commands";
+import {
+  announceGoalTurn,
+  announceWaitingGoals,
+  goalLayers,
+  offerGoalHandoffs,
+  offerProposedGoals,
+  pauseOnExit,
+  settledHere,
+} from "./chat/commands/goal";
+import { announceWaitingLoops } from "./chat/commands/loop";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
   findExceededSessionLimits,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
   initializeSession,
@@ -92,7 +125,7 @@ export class ChatServiceImpl implements ChatService {
       ephemeral?: boolean;
     },
   ): Effect.Effect<
-    void,
+    ChatSessionEnd,
     never,
     | TerminalService
     | LoggerService
@@ -167,7 +200,14 @@ export class ChatServiceImpl implements ChatService {
         );
       }).pipe(Effect.catchAll(() => Effect.void));
 
-      store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
+      const configService = yield* AgentConfigServiceTag;
+      const appConfig = yield* configService.appConfig;
+      const llmService = yield* LLMServiceTag;
+      store.resetRunStats({
+        provider: agent.config.llmProvider,
+        model: agent.config.llmModel,
+        localModelHosts: resolveLocalModelHosts(llmService, appConfig.llm),
+      });
 
       const ephemeral = options?.ephemeral === true;
 
@@ -202,22 +242,71 @@ export class ChatServiceImpl implements ChatService {
       } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory);
       }
+      if (!ephemeral && conversationHistory.length > 0) {
+        yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+        yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
+      }
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
+      /** Ceilings already warned about this session, by window, so each warns once. */
+      const warnedSpendCeilings = new Set<string>();
       let sessionLimits: SessionLimits = {};
-      let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
+      let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
       let startedAt = sessionStartedAt.toISOString();
 
       // Load persistent auto-approved commands from config
-      const configService = yield* AgentConfigServiceTag;
-      const appConfig = yield* configService.appConfig;
       if (appConfig.autoApprovedCommands?.length) {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
       }
+
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, fileSystem);
+      /**
+       * What every run this chat starts shares, built fresh per run because the remembered
+       * approvals are replaced as the user edits them: the chat's own turns and a goal's cycles
+       * run in front of the user both use it, so a cycle behaves like any turn here.
+       */
+      const chatTurnOptions = (): ChatTurnOptions => ({
+        ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+        // A getter, so a Shift+Tab switch applies to a run already under way.
+        autoApprovePolicy: () => autoApprovePolicy,
+        autoApprovedCommands,
+        autoApprovedTools,
+        onAutoApproveCommand: (command: string) =>
+          Effect.gen(function* () {
+            if (!autoApprovedCommands.includes(command)) {
+              autoApprovedCommands.push(command);
+            }
+            yield* Effect.forkDaemon(
+              recordCommandApproval(command, conversationId).pipe(
+                Effect.catchAll(() => Effect.void),
+                Effect.provide(fileSystemLayer),
+              ),
+            );
+          }),
+        onAutoApproveTool: (toolName: string) => {
+          if (!autoApprovedTools.includes(toolName)) {
+            autoApprovedTools.push(toolName);
+          }
+        },
+        checkQueuedMessage: () => {
+          const queued = store.takeQueuedProse().join("\n");
+          if (queued.length === 0) return undefined;
+          Effect.runSync(terminal.user(queued));
+          return queued;
+        },
+        // A Ctrl+B-detached tool call reports back here, possibly long after this run has
+        // ended. Queuing it through the same path as text typed mid-run means it surfaces
+        // automatically — at the next tool-phase boundary if a run is still going, or as the
+        // opening line of the next turn otherwise.
+        onDetachedToolComplete: (summary: string) => {
+          store.appendToQueue(`[Background task finished]\n${summary}`);
+        },
+      });
 
       // Load last-used agent from runtime state for sorting /agents and /switch
       const jazzState = yield* JazzStateServiceTag;
@@ -228,14 +317,13 @@ export class ChatServiceImpl implements ChatService {
 
       // Register mode switch handler for Shift+Tab toggle
       store.registerModeSwitchHandler((mode) => {
-        const newPolicy = mode === "yolo";
-        if (autoApprovePolicy !== newPolicy) {
-          autoApprovePolicy = newPolicy;
-          store.setModeIsYolo(newPolicy);
+        if (chatModeForPolicy(autoApprovePolicy) !== mode) {
+          autoApprovePolicy = policyForChatMode(mode);
+          store.setModeIsYolo(mode === "yolo");
           const message =
             mode === "yolo"
-              ? "🚀 Switched to yolo mode — all tool calls auto-approved"
-              : "🛡️ Switched to safe mode — all tool calls require approval";
+              ? "🚀 Switched to yolo mode: all tool calls auto-approved"
+              : "🛡️ Switched to safe mode: high-risk tool calls require approval";
           store.showModeToast(message);
         }
       });
@@ -251,6 +339,17 @@ export class ChatServiceImpl implements ChatService {
       // editing (error path).
       let lastTurnErrored = false;
 
+      /** A mistyped command, put back in the composer at the next prompt. */
+      let draftToRestore: string | undefined;
+
+      // The goal this chat is working toward, and whether its next turn is due. A goal turn is
+      // an ordinary turn whose prompt comes from the goal instead of the user.
+      let attendedGoalId: string | undefined;
+      let goalContinues = false;
+
+      let endReason: ChatSessionEnd["reason"] = "exit";
+      let messagesReceived = 0;
+
       while (chatActive) {
         let userMessage: string | undefined;
         const queued = store.peekQueue();
@@ -259,7 +358,25 @@ export class ChatServiceImpl implements ChatService {
         // for the queue to go into the chat now, not to be re-edited.
         const flushRequested = store.consumeFlushQueue();
 
-        if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
+        // What the user typed meanwhile goes first; the goal picks up again after it.
+        let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
+        if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
+          goalContinues = false;
+          const goalId = attendedGoalId;
+          goalTurn = yield* goalLayers(claimChatGoalTurn(goalId)).pipe(
+            Effect.catchAll(() => Effect.succeed(undefined)),
+          );
+          if (goalTurn === undefined) {
+            const next = yield* goalLayers(Effect.flatMap(getOwnedGoal(goalId), settledHere)).pipe(
+              Effect.catchAll(() => Effect.succeed(undefined)),
+            );
+            attendedGoalId = next;
+            goalContinues = next !== undefined;
+            continue;
+          }
+          yield* announceGoalTurn(goalTurn.goal);
+          userMessage = goalTurn.prompt;
+        } else if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
           // Clean prior turn → drain the next queued turn without re-prompting.
           // A command at the head runs alone through the command path below;
           // prose entries are combined. Anything left is picked up next loop.
@@ -277,9 +394,11 @@ export class ChatServiceImpl implements ChatService {
           // call terminal.user() — the shared helper that owns rendering.
           yield* terminal.user(userMessage);
         } else {
+          const draft = queued.length > 0 ? queued : draftToRestore;
+          draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
-            ...(queued.length > 0 ? { defaultValue: queued } : {}),
+            ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
           userMessage = yield* terminal.ask("You:", askOptions).pipe(
@@ -294,7 +413,7 @@ export class ChatServiceImpl implements ChatService {
                 return Effect.succeed("/exit");
               }
               // Re-throw other errors, ensuring it's an Error instance
-              return Effect.fail(error instanceof Error ? error : new Error(String(error)));
+              return Effect.fail(toError(error));
             }),
           );
           // Whatever the user submitted supersedes the seeded queue content.
@@ -304,9 +423,18 @@ export class ChatServiceImpl implements ChatService {
         }
         lastTurnErrored = false;
 
+        const input = classifyChatInput(userMessage, terminal.isInteractive);
         const trimmedMessage = (userMessage ?? "").trim();
-        const lowerMessage = trimmedMessage.toLowerCase();
-        if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+        if (input.kind === "exit" || input.kind === "end-of-input") {
+          endReason = input.kind;
+          if (attendedGoalId !== undefined) {
+            yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
+          }
+          yield* offerGoalHandoffs().pipe(
+            Effect.catchAll((error) =>
+              terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
+            ),
+          );
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
@@ -330,21 +458,25 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
-        if (!userMessage || trimmedMessage.length === 0) {
-          yield* terminal.log(
-            "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
-          );
+        if (input.kind === "blank" || userMessage === undefined) {
+          if (terminal.isInteractive) {
+            yield* terminal.log(
+              "(Tip) Type a message and press Enter, '/help' for commands, or '/exit' to quit.",
+            );
+          }
           continue;
         }
+        messagesReceived += 1;
 
         let messageForAgent = userMessage;
-        let trustMessageAsMemorySource = true;
+        let trustMessageAsMemorySource = goalTurn === undefined;
 
         // A message with interior newlines (multi-line composition or a
-        // combined prose drain) is prose even when it starts with "/" or "!" —
+        // combined prose drain) is prose even when it starts with "/" or "! ":
         // command parsing would silently discard everything after line one.
         if (
-          (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
+          goalTurn === undefined &&
+          isCommandInput(trimmedMessage) &&
           !trimmedMessage.includes("\n")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
@@ -355,7 +487,9 @@ export class ChatServiceImpl implements ChatService {
               ? specialCommand.args.join(" ").trim()
               : null;
 
-          if (passThroughMessage !== null) {
+          if (specialCommand.type === "prose") {
+            // A leading file path (a dragged file) is a message, not a command.
+          } else if (passThroughMessage !== null) {
             // Send the trailing text (e.g. "create") as the user message so the agent can guide
             messageForAgent = passThroughMessage;
             // Fall through to agent run below (do not continue)
@@ -366,12 +500,13 @@ export class ChatServiceImpl implements ChatService {
               agent,
               conversationId,
               conversationHistory,
+              queuedAfterCommand: store.peekQueue().length > 0,
               sessionUsage,
               sessionTurnCount,
               sessionLimits,
               sessionStartedAt,
               lastUsedAgentId,
-              ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+              autoApprovePolicy,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -408,7 +543,17 @@ export class ChatServiceImpl implements ChatService {
             }
 
             if (commandResult.newConversationId !== undefined) {
+              // A goal belongs to its conversation; leaving it pauses the goal there.
+              if (attendedGoalId !== undefined && commandResult.attendGoal === undefined) {
+                yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
+                attendedGoalId = undefined;
+                goalContinues = false;
+              }
               conversationId = commandResult.newConversationId;
+              if (!ephemeral) {
+                yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
+                yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
+              }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
               // Logs follow the conversation, so /new starts a new file rather than
               // appending the next conversation to the previous one's.
@@ -435,6 +580,10 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
+              store.updateRunStats({
+                provider: agent.config.llmProvider,
+                model: agent.config.llmModel,
+              });
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
               updateWorkingDirectoryInStore(
@@ -468,9 +617,9 @@ export class ChatServiceImpl implements ChatService {
               startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
-              autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;
+              autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle
-              store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
+              store.setModeIsYolo(chatModeForPolicy(autoApprovePolicy) === "yolo");
             }
             if (commandResult.newSessionLimits !== undefined) {
               sessionLimits = commandResult.newSessionLimits;
@@ -481,12 +630,10 @@ export class ChatServiceImpl implements ChatService {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
 
-              const fs = yield* FileSystem.FileSystem;
-              const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
               yield* Effect.forkDaemon(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, conversationId).pipe(
                   Effect.catchAll(() => Effect.void),
-                  Effect.provide(fsLayer),
+                  Effect.provide(fileSystemLayer),
                 ),
               );
             }
@@ -494,6 +641,15 @@ export class ChatServiceImpl implements ChatService {
               autoApprovedCommands = autoApprovedCommands.filter(
                 (c) => c !== commandResult.removeAutoApprovedCommand,
               );
+            }
+
+            if (commandResult.keepDraft === true && terminal.isInteractive) {
+              draftToRestore = userMessage;
+            }
+
+            if (commandResult.attendGoal !== undefined) {
+              attendedGoalId = commandResult.attendGoal;
+              goalContinues = true;
             }
 
             if (commandResult.resendMessage !== undefined) {
@@ -506,9 +662,30 @@ export class ChatServiceImpl implements ChatService {
               // sent into the model turn, not the shell escape syntax itself.
               messageForAgent = commandResult.messageForAgent;
             } else {
+              if (!commandResult.shouldContinue) {
+                chatActive = false;
+                store.registerModeSwitchHandler(null);
+                const mcpManager = yield* MCPServerManagerTag;
+                yield* mcpManager.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
+              }
               continue;
             }
           }
+        }
+
+        if (goalTurn === undefined && messageForAgent === userMessage) {
+          const typedMessage = messageForAgent;
+          const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
+            agentId: agent.id,
+            conversationId,
+          });
+          const inlined = yield* Effect.tryPromise(() =>
+            inlineMentionedTextFiles(typedMessage, workingDirectory),
+          ).pipe(Effect.catchAll(() => Effect.succeed({ message: typedMessage, skipped: [] })));
+          for (const note of inlined.skipped) {
+            yield* terminal.warn(note);
+          }
+          messageForAgent = inlined.message;
         }
 
         if (Object.keys(sessionLimits).length > 0) {
@@ -527,73 +704,49 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
+        yield* warnWhenSpendCeilingReached(
+          terminal,
+          (yield* configService.appConfig).spend,
+          agent.id,
+          warnedSpendCeilings,
+        );
         sessionTurnCount += 1;
 
         yield* Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
-
-          // Create runner options
-          // Use a getter for autoApprovePolicy to support real-time mode switches via Shift+Tab
-          const getCurrentAutoApprovePolicy = () => autoApprovePolicy;
-
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
 
           const runnerOptions: AgentRunnerOptions = {
+            ...chatTurnOptions(),
             agent,
             userInput: messageForAgent,
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
             conversationId,
             conversationHistory,
+            origin: { source: goalTurn === undefined ? "chat" : "goal" },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
-            ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
-            ...(ephemeral ? { disablePersistence: true } : {}),
-            autoApprovePolicy: getCurrentAutoApprovePolicy,
-            autoApprovedCommands,
-            autoApprovedTools,
-            onAutoApproveCommand: (command: string) =>
-              Effect.gen(function* () {
-                if (!autoApprovedCommands.includes(command)) {
-                  autoApprovedCommands.push(command);
-                }
-                yield* Effect.forkDaemon(
-                  recordCommandApproval(command, conversationId).pipe(
-                    Effect.catchAll(() => Effect.void),
-                    Effect.provide(fsLayer),
-                  ),
-                );
-              }),
-            onAutoApproveTool: (toolName: string) => {
-              if (!autoApprovedTools.includes(toolName)) {
-                autoApprovedTools.push(toolName);
-              }
-            },
-            checkQueuedMessage: () => {
-              const queued = store.takeQueuedProse().join("\n");
-              if (queued.length === 0) return undefined;
-              Effect.runSync(terminal.user(queued));
-              return queued;
-            },
-            // A Ctrl+B-detached tool call reports back here, possibly long after this
-            // run has ended. Queuing it through the same path as text typed mid-run
-            // means it surfaces automatically — at the next tool-phase boundary if this
-            // run is still going, or as the opening line of the next turn otherwise.
-            onDetachedToolComplete: (summary: string) => {
-              store.appendToQueue(`[Background task finished]\n${summary}`);
-            },
+            ...(ephemeral
+              ? { disablePersistence: true }
+              : goalTurn === undefined
+                ? { offersGoalProposals: true }
+                : {}),
+            ...(goalTurn !== undefined ? goalTurn.runOptions : {}),
           };
 
           // Run the agent with proper error handling
           yield* emitLifecycle("user-prompt", { prompt: trimmedMessage.slice(0, 2000) });
           store.setChatBusy(true);
-          const response = yield* AgentRunner.run(runnerOptions).pipe(
+          const turn = AgentRunner.run(runnerOptions);
+          // A goal turn is recorded as a run, which is how the goal is charged for it.
+          const response = yield* (
+            goalTurn === undefined ? turn : turn.pipe(Effect.provide(makeFileRunStoreLayer()))
+          ).pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 lastTurnErrored = true;
@@ -760,6 +913,26 @@ export class ChatServiceImpl implements ChatService {
             });
           }
 
+          if (goalTurn !== undefined) {
+            const outcome: RunOutcome<AgentResponse> = lastTurnErrored
+              ? { kind: "failed", error: "The turn failed." }
+              : { kind: "finished", response };
+            const claimed = goalTurn;
+            const next = yield* goalLayers(
+              Effect.flatMap(settleChatGoalTurn(claimed.goal, claimed.runId, outcome), settledHere),
+            ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            attendedGoalId = next ?? attendedGoalId;
+            goalContinues = next !== undefined;
+          } else if (!ephemeral) {
+            const accepted = yield* offerProposedGoals(conversationId).pipe(
+              Effect.catchAll(() => Effect.succeed(undefined)),
+            );
+            if (accepted !== undefined) {
+              attendedGoalId = accepted;
+              goalContinues = true;
+            }
+          }
+
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)
           // No need to display here - AgentRunner takes care of it
 
@@ -814,7 +987,12 @@ export class ChatServiceImpl implements ChatService {
         startedAt,
         uiTranscript: uiTranscriptFromStore(),
       });
-    }).pipe(Effect.catchAll(() => Effect.void));
+      return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
+    }).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),
+      ),
+    );
   }
 }
 
@@ -844,4 +1022,33 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof AgentServiceTag
 > {
   return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+}
+
+/**
+ * Chat is attended, so a reached spend ceiling does not stop it: the person is told once per
+ * ceiling and window, and decides. Unattended runs refuse instead (see `run-accounting.ts`).
+ */
+function warnWhenSpendCeilingReached(
+  terminal: TerminalService,
+  spend: SpendConfig | undefined,
+  agentId: string,
+  warned: Set<string>,
+) {
+  return Effect.gen(function* () {
+    const now = Date.now();
+    const check = yield* checkSpendCeilings(spend, { agentId, source: "chat" }, now).pipe(
+      Effect.catchAll(() => Effect.succeed<CeilingCheck>({ kind: "clear" })),
+    );
+    if (check.kind === "clear") {
+      return;
+    }
+    const key = ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
+    if (warned.has(key)) {
+      return;
+    }
+    warned.add(key);
+    yield* terminal.warn(
+      `${describeCeilingCheck(check)} Chat continues; unattended runs under this ceiling refuse to start.`,
+    );
+  });
 }

@@ -8,6 +8,7 @@ import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
 import type { ModelInfo } from "@jazz/core/types";
 import type { LLMConfig } from "@jazz/core/types/config";
 import { LLMConfigurationError } from "@jazz/core/types/errors";
+import { toError } from "@jazz/core/utils/errors";
 import { isConnectionError, localServerUnreachableMessage } from "@jazz/core/utils/llm-error";
 import {
   getMetadataFromMap,
@@ -19,8 +20,29 @@ import {
 import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
 import { gateway } from "ai";
 import { Effect } from "effect";
+import { ChatGPTSignInRequiredError } from "./chatgpt/credentials";
+import { fetchChatGPTModels } from "./chatgpt/transport";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { hasReasoningParser } from "./reasoning";
+
+/**
+ * How long a probe of a local model server (`/props`, `/models`, `/api/show`) may take. These
+ * answer in milliseconds when the server is healthy; a server that accepts the connection and
+ * never replies would otherwise hold run start for Bun's whole fetch timeout.
+ */
+export const LOCAL_SERVER_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * How long listing a provider's models may take. Hosted catalogs can be large and slow, so this
+ * sits well above the local probe budget.
+ */
+const MODEL_LIST_TIMEOUT_MS = 20_000;
+
+/** A request signal that ends at `timeoutMs`, or earlier when the caller's `signal` aborts. */
+function probeSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal === undefined ? timeout : AbortSignal.any([timeout, signal]);
+}
 
 /**
  * Model fetcher: models.dev as single source of metadata
@@ -48,12 +70,24 @@ type RawModelEntry = {
   fallback?: Partial<ModelsDevMetadata>;
 };
 
-/** Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults. */
+/**
+ * Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults.
+ *
+ * `catalogProvider` scopes the models.dev lookup to that provider's own listing first. When
+ * only another host lists the model, its context window, tools and modalities still describe
+ * the model, but its price belongs to that host, so the price is left unknown.
+ */
 function resolveToModelInfo(
   entry: RawModelEntry,
   devMap: Map<string, ModelsDevMetadata> | null,
+  catalogProvider?: string,
 ): ModelInfo {
-  const dev = getMetadataFromMap(devMap, entry.id);
+  const own =
+    catalogProvider === undefined
+      ? undefined
+      : getMetadataFromMap(devMap, entry.id, catalogProvider, { anyProvider: false });
+  const dev = own ?? getMetadataFromMap(devMap, entry.id);
+  const priced = catalogProvider === undefined || own !== undefined;
   if (dev) {
     return {
       id: entry.id,
@@ -68,12 +102,14 @@ function resolveToModelInfo(
       generatesImage: dev.generatesImage,
       generatesAudio: dev.generatesAudio,
       generatesVideo: dev.generatesVideo,
-      ...(dev.inputPricePerMillion !== undefined && {
-        inputPricePerMillion: dev.inputPricePerMillion,
-      }),
-      ...(dev.outputPricePerMillion !== undefined && {
-        outputPricePerMillion: dev.outputPricePerMillion,
-      }),
+      ...(priced &&
+        dev.inputPricePerMillion !== undefined && {
+          inputPricePerMillion: dev.inputPricePerMillion,
+        }),
+      ...(priced &&
+        dev.outputPricePerMillion !== undefined && {
+          outputPricePerMillion: dev.outputPricePerMillion,
+        }),
       supportsTemperature: dev.supportsTemperature,
     };
   }
@@ -191,6 +227,39 @@ type OllamaShowResponse = {
 
 type LlamaCppModelEntry = { id: string; max_model_len?: number };
 type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
+type OpenAICompatibleModelCard = { id: string; parent?: string; max_model_len?: number };
+
+/** Accept only usable model cards from vLLM and SGLang's external `/v1/models` responses. */
+function parseOpenAICompatibleModels(data: unknown): OpenAICompatibleModelCard[] {
+  if (typeof data !== "object" || data === null || !("data" in data) || !Array.isArray(data.data)) {
+    return [];
+  }
+  const cards = data.data as readonly unknown[];
+  const models: OpenAICompatibleModelCard[] = [];
+  for (const card of cards) {
+    if (typeof card !== "object" || card === null || !("id" in card)) continue;
+    if (typeof card.id !== "string" || card.id.trim().length === 0) continue;
+    const length = "max_model_len" in card ? card.max_model_len : undefined;
+    const parent = "parent" in card ? card.parent : undefined;
+    models.push({
+      id: card.id,
+      ...(typeof parent === "string" && parent.length > 0 ? { parent } : {}),
+      ...(typeof length === "number" && Number.isSafeInteger(length) && length > 0
+        ? { max_model_len: length }
+        : {}),
+    });
+  }
+  return models;
+}
+
+/** LoRA cards can omit their length; use the listed base model's served limit. */
+function resolveModelCardContextWindow(
+  model: OpenAICompatibleModelCard,
+  models: readonly OpenAICompatibleModelCard[],
+): number | undefined {
+  if (model.max_model_len !== undefined) return model.max_model_len;
+  return models.find((candidate) => candidate.id === model.parent)?.max_model_len;
+}
 type LlamaCppPropsResponse = {
   default_generation_settings?: { n_ctx?: number };
   chat_template_caps?: Record<string, boolean>;
@@ -210,6 +279,7 @@ function llamaCppServerRoot(baseUrl: string): string {
 async function fetchLlamaCppProps(
   baseUrl: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<LlamaCppPropsResponse | undefined> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -217,6 +287,7 @@ async function fetchLlamaCppProps(
     const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
       method: "GET",
       headers,
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
     if (!response.ok) return undefined;
     return (await response.json()) as LlamaCppPropsResponse;
@@ -233,13 +304,14 @@ async function fetchLlamaCppProps(
  * one run to the next. So rather than trusting the id stored on the agent, read the
  * live one from `/v1/models` (its first, and normally only, entry) and the real
  * context window from `/props` (`n_ctx`, the `-c` the server was started with),
- * falling back to `max_model_len` from the `/v1/models` response (vLLM).
+ * falling back to `max_model_len` from `/v1/models` when `/props` is absent.
  * Returns an empty object when the server is unreachable or answers nothing usable —
  * callers fall back to the stored values.
  */
 export async function fetchLlamaCppServerModel(
   baseUrl: string,
   apiKey?: string,
+  signal?: AbortSignal,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -248,8 +320,9 @@ export async function fetchLlamaCppServerModel(
       fetch(`${baseUrl}/models`, {
         method: "GET",
         headers,
+        signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
       }),
-      fetchLlamaCppProps(baseUrl, apiKey),
+      fetchLlamaCppProps(baseUrl, apiKey, signal),
     ]);
 
     const firstModel = modelsResponse.ok
@@ -265,6 +338,58 @@ export async function fetchLlamaCppServerModel(
   } catch {
     return {};
   }
+}
+
+/** Read a live OpenAI-compatible local model card, preferring the configured ID. */
+async function fetchOpenAICompatibleServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  try {
+    const headers: Record<string, string> = {};
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers,
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+    });
+    if (!response.ok) return {};
+    const models = parseOpenAICompatibleModels(await response.json());
+    const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
+    const contextWindow = model ? resolveModelCardContextWindow(model, models) : undefined;
+    return {
+      ...(typeof model?.id === "string" && model.id.length > 0 ? { modelId: model.id } : {}),
+      ...(typeof contextWindow === "number" &&
+      Number.isSafeInteger(contextWindow) &&
+      contextWindow > 0
+        ? { contextWindow }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/** Resolve vLLM's currently served model and context window. */
+export function fetchVllmServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey, signal);
+}
+
+/** Resolve SGLang's currently served model and context window. */
+export function fetchSglangServerModel(
+  baseUrl: string,
+  preferredModelId: string,
+  apiKey?: string,
+  signal?: AbortSignal,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  return fetchOpenAICompatibleServerModel(baseUrl, preferredModelId, apiKey, signal);
 }
 
 /**
@@ -292,12 +417,14 @@ function extractOllamaContextLength(
 export async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
+  signal?: AbortSignal,
 ): Promise<OllamaShowExtras> {
   try {
     const response = await fetch(`${baseUrl}/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: modelName }),
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
     if (!response.ok) return {};
     const data = (await response.json()) as OllamaShowResponse;
@@ -370,6 +497,14 @@ export function resolveOllamaToolSupport(
 }
 
 // List extractors: provider API response → RawModelEntry[] (metadata resolved via models.dev or fallback)
+/**
+ * NVIDIA NIM's `/v1/models` also lists embedding, reranking, retrieval, guardrail, reward,
+ * document-parsing and detector models, which take no conversation. Their IDs name the job,
+ * and none of them are in the catalog as chat models, so the ID is the only signal.
+ */
+const NIM_NON_CHAT_MODEL_ID =
+  /(?:embed|rerank|retriever|nemoguard|content-safety|safety-guard|reward|nemotron-parse|detector|nvclip)/;
+
 const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelEntry[]>> = {
   openrouter: (data: unknown) => {
     const response = data as { data?: OpenRouterModel[] };
@@ -450,6 +585,12 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       // no fallback; models.dev or defaults
     }));
   },
+  nvidia: (data: unknown) => {
+    const response = data as { data?: { id: string }[] };
+    return (response.data ?? [])
+      .filter((model) => !NIM_NON_CHAT_MODEL_ID.test(model.id))
+      .map((model) => ({ id: model.id, displayName: model.id }));
+  },
   orcarouter: (data: unknown) => {
     const response = data as {
       data: { id: string; name?: string; context_length?: number }[];
@@ -502,6 +643,7 @@ async function transformOllamaModels(
   data: unknown,
   baseUrl: string,
   modelsDevMap: Map<string, ModelsDevMetadata> | null,
+  signal?: AbortSignal,
 ): Promise<ModelInfo[]> {
   const response = data as { models?: OllamaModel[] };
   const models = response.models ?? [];
@@ -512,7 +654,7 @@ async function transformOllamaModels(
     const batch = models.slice(i, i + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
-        const extras = await fetchOllamaModelDetails(baseUrl, model.name);
+        const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal);
         const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
         const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);
@@ -598,13 +740,56 @@ async function transformLlamaCppModels(
   });
 }
 
+/** vLLM and SGLang report active max_model_len but do not expose tool parser flags. */
+function transformOpenAICompatibleModels(
+  data: unknown,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+  provider: "vllm" | "sglang",
+): ModelInfo[] {
+  const models = parseOpenAICompatibleModels(data);
+  if (models.length === 0) {
+    throw new Error(
+      provider === "vllm"
+        ? "No models loaded. Start `vllm serve <model>` first."
+        : "No models loaded. Start `python -m sglang.launch_server --model-path <model>` first.",
+    );
+  }
+  return models.map((model) => {
+    const contextWindow = resolveModelCardContextWindow(model, models);
+    const entry: RawModelEntry = {
+      id: model.id,
+      displayName: model.id,
+      fallback: {
+        contextWindow:
+          typeof contextWindow === "number" &&
+          Number.isSafeInteger(contextWindow) &&
+          contextWindow > 0
+            ? contextWindow
+            : DEFAULT_CONTEXT_WINDOW,
+        // These servers support tool calls, but `/models` does not expose whether this
+        // deployment enabled automatic tool choice. Do not silently drop Jazz tools.
+        supportsTools: true,
+      },
+    };
+    const base = resolveToModelInfo(entry, modelsDevMap);
+    return {
+      ...base,
+      ...(typeof contextWindow === "number" &&
+      Number.isSafeInteger(contextWindow) &&
+      contextWindow > 0
+        ? { contextWindow }
+        : {}),
+    };
+  });
+}
+
 class LocalServerUnauthorizedError extends Error {}
 
 export function createModelFetcher(): ModelFetcherService {
   return {
     fetchModels: (providerName, baseUrl, endpointPath, apiKey) =>
       Effect.tryPromise({
-        try: async () => {
+        try: async (signal) => {
           const url = `${baseUrl}${endpointPath}`;
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
@@ -616,6 +801,23 @@ export function createModelFetcher(): ModelFetcherService {
 
           const modelsDevMap = await getModelsDevMap();
 
+          if (providerName === "chatgpt") {
+            // Plan-included models, so no models.dev lookup: its API pricing does not apply.
+            const models = await fetchChatGPTModels();
+            return models.map((model): ModelInfo => ({
+              id: model.id,
+              displayName: model.displayName,
+              contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+              supportsTools: true,
+              isReasoningModel: model.isReasoningModel,
+              ingestImage: model.ingestImage,
+              ingestPdf: false,
+              ingestAudio: false,
+              ingestVideo: false,
+              supportsTemperature: !model.isReasoningModel,
+            }));
+          }
+
           if (providerName === "ai_gateway") {
             const availableModels = await gateway.getAvailableModels();
             const extractor = LIST_EXTRACTORS["ai_gateway"]!;
@@ -626,6 +828,12 @@ export function createModelFetcher(): ModelFetcherService {
           const response = await fetch(url, {
             method: "GET",
             headers,
+            signal: probeSignal(
+              isLocalServerProvider(providerName)
+                ? LOCAL_SERVER_PROBE_TIMEOUT_MS
+                : MODEL_LIST_TIMEOUT_MS,
+              signal,
+            ),
           });
 
           if (!response.ok) {
@@ -651,11 +859,15 @@ export function createModelFetcher(): ModelFetcherService {
           const data: unknown = await response.json();
 
           if (providerName === "ollama") {
-            return transformOllamaModels(data, baseUrl, modelsDevMap);
+            return transformOllamaModels(data, baseUrl, modelsDevMap, signal);
           }
 
           if (providerName === "llamacpp") {
             return transformLlamaCppModels(data, baseUrl, modelsDevMap, apiKey);
+          }
+
+          if (providerName === "vllm" || providerName === "sglang") {
+            return transformOpenAICompatibleModels(data, modelsDevMap, providerName);
           }
 
           const extractor = LIST_EXTRACTORS[providerName];
@@ -663,9 +875,19 @@ export function createModelFetcher(): ModelFetcherService {
             throw new Error(`No list extractor found for provider: ${providerName}`);
           }
           const raw = extractor(data);
-          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
+          const source = PROVIDER_MODELS[providerName];
+          const catalogProvider =
+            source.type === "dynamic" ? (source.catalogId ?? providerName) : providerName;
+          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap, catalogProvider));
         },
         catch: (error) => {
+          if (error instanceof ChatGPTSignInRequiredError) {
+            return new LLMConfigurationError({
+              provider: providerName,
+              message: error.message,
+              reason: "unauthorized",
+            });
+          }
           if (error instanceof LocalServerUnauthorizedError) {
             return new LLMConfigurationError({
               provider: providerName,
@@ -681,7 +903,7 @@ export function createModelFetcher(): ModelFetcherService {
           }
           return new LLMConfigurationError({
             provider: providerName,
-            message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+            message: `Model discovery failed: ${toError(error).message}`,
           });
         },
       }),
@@ -707,15 +929,14 @@ export function listModelsForProvider(
       catch: (error) =>
         new LLMConfigurationError({
           provider,
-          message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to list models from models.dev: ${toError(error).message}`,
         }),
     });
   }
 
-  const baseUrl =
-    provider === "ollama" || provider === "llamacpp"
-      ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
-      : source.defaultBaseUrl;
+  const baseUrl = isLocalServerProvider(provider)
+    ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
+    : source.defaultBaseUrl;
   if (baseUrl === undefined) {
     return Effect.succeed([]);
   }

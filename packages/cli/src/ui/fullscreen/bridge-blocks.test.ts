@@ -86,3 +86,21 @@ describe("transcript block identity", () => {
     expect(shareUnchangedBlocks(previous, blocksFrom([USER], "", EMPTY_REGIONS))).toBe(previous);
   });
 });
+
+describe("agent prose hyperlinks", () => {
+  it("keeps the target of a formatted link so the transcript can make it clickable", () => {
+    const formatted = "See \x1b]8;;https://example.com/guide\x07the guide\x1b]8;;\x07.";
+    const entry: OutputEntry = { ...AGENT, message: formatted };
+    const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
+    expect(block).toMatchObject({
+      kind: "agent",
+      markdown: "See [the guide](https://example.com/guide).",
+    });
+  });
+
+  it("keeps link targets in the turn still streaming", () => {
+    const streaming = "\x1b]8;;https://example.com\x07site\x1b]8;;\x07";
+    const [block] = blocksFrom([], streaming, EMPTY_REGIONS);
+    expect(block).toMatchObject({ kind: "agent", markdown: "[site](https://example.com)" });
+  });
+});

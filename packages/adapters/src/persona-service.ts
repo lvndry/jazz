@@ -16,8 +16,10 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@jazz/core/types/persona";
+import { toError } from "@jazz/core/utils/errors";
 import { scanMarkdownIndex } from "@jazz/core/utils/markdown-index";
 import { getBuiltinPersonasDirectory, getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { Effect, Layer, Option } from "effect";
 import matter from "gray-matter";
 
@@ -177,7 +179,7 @@ export class PersonaServiceImpl implements PersonaService {
   }
 
   private async ensurePersonasDir(): Promise<void> {
-    await fs.mkdir(this.getCustomPersonasDir(), { recursive: true });
+    await fs.mkdir(this.getCustomPersonasDir(), { recursive: true, mode: stateDirectoryMode() });
   }
 
   /**
@@ -205,7 +207,7 @@ export class PersonaServiceImpl implements PersonaService {
           return new StorageError({
             operation: "read",
             path: filePath,
-            reason: `Failed to read persona: ${error instanceof Error ? error.message : String(error)}`,
+            reason: `Failed to read persona: ${toError(error).message}`,
           });
         },
       });
@@ -282,7 +284,7 @@ updatedAt: "${now.toISOString()}"
         yield* Effect.tryPromise({
           try: async () => {
             await this.ensurePersonasDir();
-            await fs.mkdir(personaDir, { recursive: true });
+            await fs.mkdir(personaDir, { recursive: true, mode: stateDirectoryMode() });
             await fs.writeFile(
               path.join(personaDir, PERSONA_DEFINITION_FILENAME),
               content,
@@ -293,7 +295,7 @@ updatedAt: "${now.toISOString()}"
             new StorageError({
               operation: "write",
               path: personaDir,
-              reason: `Failed to save persona: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to save persona: ${toError(error).message}`,
             }),
         });
 
@@ -338,7 +340,7 @@ updatedAt: "${now.toISOString()}"
                 new StorageError({
                   operation: "list",
                   path: builtinDir,
-                  reason: e instanceof Error ? e.message : String(e),
+                  reason: toError(e).message,
                 }),
             ),
           );
@@ -465,7 +467,7 @@ updatedAt: "${now.toISOString()}"
             new StorageError({
               operation: "read",
               path: customDir,
-              reason: `Failed to check the custom personas directory: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to check the custom personas directory: ${toError(error).message}`,
             }),
         });
         if (!dirExists) return [];
@@ -614,18 +616,24 @@ updatedAt: "${updated.updatedAt.toISOString()}"
         yield* Effect.tryPromise({
           try: async () => {
             if (newDir !== currentDir) {
-              await fs.mkdir(newDir, { recursive: true });
-              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+              await fs.mkdir(newDir, { recursive: true, mode: stateDirectoryMode() });
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, {
+                encoding: "utf-8",
+                mode: stateFileMode(),
+              });
               await fs.rm(currentDir, { recursive: true });
             } else {
-              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, "utf-8");
+              await fs.writeFile(path.join(newDir, PERSONA_DEFINITION_FILENAME), content, {
+                encoding: "utf-8",
+                mode: stateFileMode(),
+              });
             }
           },
           catch: (error) =>
             new StorageError({
               operation: "write",
               path: newDir,
-              reason: `Failed to update persona: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to update persona: ${toError(error).message}`,
             }),
         });
 
@@ -657,7 +665,7 @@ updatedAt: "${updated.updatedAt.toISOString()}"
             new StorageError({
               operation: "delete",
               path: personaDir,
-              reason: `Failed to delete persona: ${error instanceof Error ? error.message : String(error)}`,
+              reason: `Failed to delete persona: ${toError(error).message}`,
             }),
         });
       }.bind(this),

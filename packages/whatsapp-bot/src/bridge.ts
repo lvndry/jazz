@@ -32,7 +32,6 @@ import { connect, type Connection, type WhatsAppMessage } from "./whatsapp";
 
 const STORE_FILES = {
   timezone: "wa-tz.json",
-  usage: "wa-usage.json",
   sessions: "wa-sessions.json",
   mode: "wa-mode.json",
 } as const;
@@ -50,6 +49,8 @@ const DEFAULT_BASE_AGENT_ID = "whatsapp";
 const loggedRejections = new Set<string>();
 
 interface BridgeConfig extends AccessConfig {
+  /** Numbers allowed to widen a chat's authority (`/mode yolo`), compared as digits. */
+  readonly operatorNumbers: ReadonlySet<string>;
   readonly authDir: string;
   readonly pairWithNumber: string | undefined;
   readonly jazzBinary: string;
@@ -158,6 +159,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
   return {
     allowedNumbers,
     allowedGroups,
+    operatorNumbers: parseJidList(process.env["WHATSAPP_OPERATOR_NUMBERS"]?.trim() ?? ""),
     requireMentionInGroups: envFlag("WHATSAPP_REQUIRE_MENTION_IN_GROUPS", true),
     // Kept out of JAZZ_HOME's agent tree: these are the linked-device keys, and
     // anything that can read them can act as the account.
@@ -252,10 +254,15 @@ async function handleIncoming(
   // an unbounded loop.
   if (message.isFromMe) return;
 
+  const senderId = normalizeJid(message.senderJid);
   const decision = decideAccess(config, {
     chatJid: message.chatJid,
     senderJid: message.senderJid,
-    addressesBot: addressesBot(message, connection.selfJid),
+    // The requester's plain "1" answers their own approval; requiring a mention
+    // for it would leave the run waiting out its timeout.
+    addressesBot:
+      addressesBot(message, connection.selfJid) ||
+      runner.awaitsReplyFrom(message.chatJid, senderId),
   });
   if (!decision.allowed) {
     // Never answered: a reply would tell a stranger that something automated
@@ -275,7 +282,7 @@ async function handleIncoming(
   const prompt = await promptFrom(message, connection, config.jazzHome);
   if (prompt.length === 0) return;
 
-  await runner.handle(message.chatJid, prompt);
+  await runner.handle({ chatId: message.chatJid, senderId, text: prompt });
 }
 
 export async function startBridge(): Promise<void> {
@@ -365,7 +372,10 @@ export async function startBridge(): Promise<void> {
     dailyCostCapUsd: config.dailyCostCapUsd,
     showReasoning: config.showReasoning,
     files: STORE_FILES,
+    spendOrigin: "whatsapp",
     agentIdFor: agentIdForChat,
+    operators: config.operatorNumbers,
+    operatorSettingName: "WHATSAPP_OPERATOR_NUMBERS",
   });
 
   deliver = (message) => {

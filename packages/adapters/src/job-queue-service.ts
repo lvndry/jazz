@@ -13,6 +13,7 @@
  *   call, so they aren't part of the service interface
  */
 
+import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import {
@@ -37,16 +38,31 @@ import type {
   JobQueueService,
   JobRecord,
 } from "@jazz/core/interfaces/job-queue-service";
-import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { JobBatchRecordSchema, JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
 import {
+  claimDelivery,
+  type DeliveryOutcome,
+  isClaimable,
+  settleDelivery,
+} from "@jazz/core/utils/delivery";
+import { toError } from "@jazz/core/utils/errors";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
+import { currentProcessOwner } from "@jazz/core/utils/process";
+import {
+  CorruptStateFileError,
+  readStateFile,
+  type StateFileKind,
+  writeStateFile,
+} from "@jazz/core/utils/state-file";
+import {
+  isValidStorageKey,
   requireValidAgentId,
   requireValidStorageKey,
   withLock,
-  writeFileStringAtomic,
-  toError,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
+import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/daemon/runs-in-flight";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
 export class JobQueueGuardrailViolation extends Error {}
@@ -92,33 +108,65 @@ function agentEnqueueLockPath(baseDirectory: string, agentId: string): string {
   return path.join(baseDirectory, `${agentId}.enqueue.lock`);
 }
 
-function readBatchFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-): Effect.Effect<JobBatchRecord | null, Error> {
-  return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!exists) return null;
+/**
+ * Version 2 added fan-in delivery (`deliveredAt`, `fanIn`) and lease holders. A batch written
+ * before then that had completed already had its fan-in fired (at most once), so it reads as
+ * delivered rather than resuming its conversation again.
+ */
+const JOB_BATCH_SCHEMA_VERSION = 2;
 
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll((e) => Effect.fail(toError(e))));
-    try {
-      return JSON.parse(content) as JobBatchRecord;
-    } catch {
-      return null;
-    }
-  });
+function migrateBatch(document: unknown, schemaVersion: number | undefined): unknown {
+  if (
+    (schemaVersion ?? 0) >= JOB_BATCH_SCHEMA_VERSION ||
+    typeof document !== "object" ||
+    document === null
+  ) {
+    return document;
+  }
+  const legacy = document as { readonly completedAt?: unknown };
+  return {
+    ...document,
+    deliveredAt: typeof legacy.completedAt === "number" ? legacy.completedAt : null,
+  };
 }
 
-function writeBatchFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  batch: JobBatchRecord,
-): Effect.Effect<void, Error> {
-  return writeFileStringAtomic(fs, filePath, `${JSON.stringify(batch, null, 2)}\n`, {
-    tempPrefix: "job-batch",
-  });
+const JOB_BATCH_FILE_KIND: StateFileKind<JobBatchRecord> = {
+  noun: "job batch",
+  schemaVersion: JOB_BATCH_SCHEMA_VERSION,
+  parse: (document, schemaVersion) => {
+    const parsed = JobBatchRecordSchema.safeParse(migrateBatch(document, schemaVersion));
+    return parsed.success
+      ? { ok: true, content: parsed.data }
+      : { ok: false, error: parsed.error.message };
+  },
+  serialize: (batch) => ({ ...batch }),
+};
+
+/**
+ * Read one batch under its lock. A corrupt file is quarantined and reads as absent, so it no
+ * longer counts as active or blocks the agent's other batches.
+ */
+function readBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null, Error> {
+  return readStateFile(filePath, JOB_BATCH_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
+    Effect.map((batch) => batch ?? null),
+  );
+}
+
+/**
+ * Read one batch without its lock, for looks that are re-made under the lock. A corrupt file
+ * is reported as `"corrupt"` so the caller takes the locked path that quarantines it.
+ */
+function peekBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null | "corrupt"> {
+  return readStateFile(filePath, JOB_BATCH_FILE_KIND, { onCorrupt: "fail" }).pipe(
+    Effect.map((batch) => batch ?? null),
+    Effect.catchAll((error) =>
+      Effect.succeed(error instanceof CorruptStateFileError ? ("corrupt" as const) : null),
+    ),
+  );
+}
+
+function writeBatchFile(filePath: string, batch: JobBatchRecord): Effect.Effect<void, Error> {
+  return writeStateFile(filePath, JOB_BATCH_FILE_KIND, batch);
 }
 
 function isTerminalStatus(status: JobRecord["status"]): boolean {
@@ -184,7 +232,10 @@ export class JobQueueServiceImpl implements JobQueueService {
 
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), { recursive: true })
+        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), {
+          recursive: true,
+          mode: stateDirectoryMode(),
+        })
         .pipe(Effect.mapError(toError));
 
       const outcome = yield* withLock(
@@ -200,11 +251,12 @@ export class JobQueueServiceImpl implements JobQueueService {
 
           let activeCount = 0;
           for (const existingBatchId of existingBatchIds) {
-            const existing = yield* readBatchFile(
-              fs,
+            const existing = yield* peekBatchFile(
               batchFilePath(baseJobBatchDirectory, agentId, existingBatchId),
             );
-            if (existing !== null && existing.completedAt === null) activeCount++;
+            if (existing !== null && existing !== "corrupt" && existing.completedAt === null) {
+              activeCount++;
+            }
           }
           if (activeCount >= MAX_ACTIVE_BATCHES_PER_AGENT) {
             return {
@@ -238,6 +290,7 @@ export class JobQueueServiceImpl implements JobQueueService {
             reason: options.reason,
             createdAt: now,
             completedAt: null,
+            deliveredAt: null,
             jobs: jobs.map((job) => ({
               id: newId(),
               command: job.command.trim(),
@@ -254,7 +307,7 @@ export class JobQueueServiceImpl implements JobQueueService {
             })),
           };
 
-          yield* writeBatchFile(fs, batchFilePath(baseJobBatchDirectory, agentId, batchId), batch);
+          yield* writeBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId), batch);
           return { success: true, batch } satisfies EnqueueBatchOutcome;
         }),
       );
@@ -268,8 +321,12 @@ export class JobQueueServiceImpl implements JobQueueService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       yield* requireValidStorageKey(batchId, "batch id", JobQueueGuardrailViolation);
-      const fs = yield* FileSystem.FileSystem;
-      return yield* readBatchFile(fs, batchFilePath(baseJobBatchDirectory, agentId, batchId));
+      const batch = yield* readStateFile(
+        batchFilePath(baseJobBatchDirectory, agentId, batchId),
+        JOB_BATCH_FILE_KIND,
+        { onCorrupt: "fail" },
+      );
+      return batch ?? null;
     });
   };
 
@@ -291,11 +348,8 @@ export class JobQueueServiceImpl implements JobQueueService {
 
       const batches: JobBatchRecord[] = [];
       for (const batchId of batchIds) {
-        const batch = yield* readBatchFile(
-          fs,
-          batchFilePath(baseJobBatchDirectory, agentId, batchId),
-        );
-        if (batch !== null) batches.push(batch);
+        const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+        if (batch !== null && batch !== "corrupt") batches.push(batch);
       }
       return batches.sort((left, right) => right.createdAt - left.createdAt);
     });
@@ -306,13 +360,12 @@ export class JobQueueServiceImpl implements JobQueueService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       yield* requireValidStorageKey(batchId, "batch id", JobQueueGuardrailViolation);
-      const fs = yield* FileSystem.FileSystem;
 
       return yield* withLock(
         batchLockPath(baseJobBatchDirectory, agentId, batchId),
         Effect.gen(function* () {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-          const batch = yield* readBatchFile(fs, filePath);
+          const batch = yield* readBatchFile(filePath);
           if (batch === null) {
             return {
               success: false,
@@ -333,12 +386,14 @@ export class JobQueueServiceImpl implements JobQueueService {
               : job,
           );
           const allTerminal = jobs.every((job) => isTerminalStatus(job.status));
+          // The agent cancelled this batch itself, so there is nobody to fan the results in to.
           const updated: JobBatchRecord = {
             ...batch,
             jobs,
             completedAt: allTerminal ? now : batch.completedAt,
+            deliveredAt: allTerminal ? now : batch.deliveredAt,
           };
-          yield* writeBatchFile(fs, filePath, updated);
+          yield* writeBatchFile(filePath, updated);
 
           return {
             success: true,
@@ -376,9 +431,10 @@ export function listAgentIdsWithActiveBatches(
     const names = yield* fs
       .readDirectory(baseJobBatchDirectory)
       .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-    // Per-agent enqueue locks (`<agentId>.enqueue.lock`) live alongside the per-agent
-    // subdirectories in this same directory — filter those out.
-    return names.filter((name) => !name.endsWith(".lock"));
+    // Per-agent enqueue locks (`<agentId>.enqueue.lock`, and the `.guard` a lock takes while it
+    // is reclaimed or released) live alongside the per-agent subdirectories; only a
+    // storage-safe name is an agent id.
+    return names.filter((name) => isValidStorageKey(name));
   });
 }
 
@@ -418,11 +474,8 @@ export function nextClaimableAt(
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
       const batchId = name.slice(0, -".json".length);
-      const batch = yield* readBatchFile(
-        fs,
-        batchFilePath(baseJobBatchDirectory, agentId, batchId),
-      ).pipe(Effect.catchAll(() => Effect.succeed(null)));
-      if (batch === null || batch.completedAt !== null) continue;
+      const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+      if (batch === null || batch === "corrupt" || batch.completedAt !== null) continue;
 
       for (const job of batch.jobs) {
         if (job.status !== "pending") continue;
@@ -441,6 +494,7 @@ export function claimDueJobs(
   count: number,
   leaseOwner: string,
 ): Effect.Effect<readonly ClaimedJob[], Error, FileSystem.FileSystem> {
+  const leaseHolder = currentProcessOwner();
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
@@ -463,7 +517,7 @@ export function claimDueJobs(
         batchLockPath(baseJobBatchDirectory, agentId, batchId),
         Effect.gen(function* () {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-          const batch = yield* readBatchFile(fs, filePath);
+          const batch = yield* readBatchFile(filePath);
           if (batch === null || batch.completedAt !== null) return [] as ClaimedJob[];
 
           const currentlyRunning = batch.jobs.filter((job) => job.status === "running").length;
@@ -490,6 +544,7 @@ export function claimDueJobs(
                 status: "running" as const,
                 leaseOwner,
                 leaseExpiresAt: now + JOB_LEASE_TIMEOUT_MS,
+                leaseHolder,
                 updatedAt: now,
               };
             }
@@ -497,7 +552,7 @@ export function claimDueJobs(
           });
 
           if (claimedHere.length > 0) {
-            yield* writeBatchFile(fs, filePath, { ...batch, jobs });
+            yield* writeBatchFile(filePath, { ...batch, jobs });
           }
           return claimedHere;
         }),
@@ -526,11 +581,12 @@ export interface CompleteJobResult {
 }
 
 function applyOutcomeToJob(
-  job: JobRecord,
+  claimedJob: JobRecord,
   batch: JobBatchRecord,
   outcome: JobRunOutcome,
   now: number,
 ): JobRecord {
+  const { leaseHolder: _leaseHolder, ...job } = claimedJob;
   const attempt = job.attempt + 1;
   if (outcome.success) {
     return {
@@ -583,12 +639,11 @@ export function completeJob(
   outcome: JobRunOutcome,
 ): Effect.Effect<CompleteJobResult, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
     return yield* withLock(
       batchLockPath(baseJobBatchDirectory, agentId, batchId),
       Effect.gen(function* () {
         const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-        const batch = yield* readBatchFile(fs, filePath);
+        const batch = yield* readBatchFile(filePath);
         if (batch === null)
           return { batchNowComplete: false, batch: null } satisfies CompleteJobResult;
 
@@ -605,7 +660,7 @@ export function completeJob(
           jobs,
           completedAt: allTerminal ? (batch.completedAt ?? now) : batch.completedAt,
         };
-        yield* writeBatchFile(fs, filePath, updated);
+        yield* writeBatchFile(filePath, updated);
 
         return {
           batchNowComplete: allTerminal && !wasAlreadyComplete,
@@ -613,6 +668,174 @@ export function completeJob(
         } satisfies CompleteJobResult;
       }),
     );
+  });
+}
+
+/** Names a running job in this process's in-flight set (see `runs-in-flight.ts`). */
+export function jobClaimKey(batchId: string, jobId: string): string {
+  return `job:${batchId}:${jobId}`;
+}
+
+/**
+ * Whether a running job's worker is gone. A holder on this machine is judged by its process
+ * (pid and start time, and this process's own in-flight set), never by the wall clock, which
+ * jumps forward across a laptop sleep; only a holder that cannot be checked from here falls
+ * back to its lease expiry, which its heartbeat keeps renewing while it runs.
+ */
+function isLeaseAbandoned(batchId: string, job: JobRecord, now: number): boolean {
+  if (job.status !== "running") {
+    return false;
+  }
+  if (job.leaseHolder !== undefined) {
+    const status = claimOwnerStatus(job.leaseHolder, jobClaimKey(batchId, job.id));
+    if (status !== "unverifiable") {
+      return status === "gone";
+    }
+  }
+  return job.leaseExpiresAt !== null && job.leaseExpiresAt <= now;
+}
+
+/**
+ * Extend a running job's lease: the heartbeat a worker sends while the job runs. False when the
+ * job is no longer this worker's (reclaimed, cancelled, finished).
+ */
+export function renewJobLease(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  batchId: string,
+  jobId: string,
+  leaseOwner: string,
+  now: number = Date.now(),
+): Effect.Effect<boolean, Error> {
+  return withLock(
+    batchLockPath(baseJobBatchDirectory, agentId, batchId),
+    Effect.gen(function* () {
+      const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+      const batch = yield* readBatchFile(filePath);
+      const job = batch?.jobs.find((candidate) => candidate.id === jobId);
+      if (
+        batch === null ||
+        job === undefined ||
+        job.status !== "running" ||
+        job.leaseOwner !== leaseOwner
+      ) {
+        return false;
+      }
+      yield* writeBatchFile(filePath, {
+        ...batch,
+        jobs: batch.jobs.map((candidate) =>
+          candidate.id === jobId
+            ? { ...candidate, leaseExpiresAt: now + JOB_LEASE_TIMEOUT_MS, updatedAt: now }
+            : candidate,
+        ),
+      });
+      return true;
+    }),
+  );
+}
+
+/** Names a batch's fan-in delivery in this process's in-flight set. */
+function fanInClaimKey(batchId: string): string {
+  return `fan-in:${batchId}`;
+}
+
+function fanInClaimable(batch: JobBatchRecord, now: number): boolean {
+  return (
+    batch.completedAt !== null &&
+    batch.deliveredAt === null &&
+    isClaimable(batch.fanIn, now, (owner) => claimOwnerStatus(owner, fanInClaimKey(batch.id)))
+  );
+}
+
+/**
+ * Claim a completed batch's fan-in delivery (the resume turn), or null when it is delivered,
+ * not complete, waiting out a retry, or being delivered by another live process.
+ */
+export function claimBatchFanIn(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  batchId: string,
+  now: number = Date.now(),
+): Effect.Effect<JobBatchRecord | null, Error> {
+  return withLock(
+    batchLockPath(baseJobBatchDirectory, agentId, batchId),
+    Effect.gen(function* () {
+      const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+      const batch = yield* readBatchFile(filePath);
+      if (batch === null || !fanInClaimable(batch, now)) {
+        return null;
+      }
+      const claimed: JobBatchRecord = {
+        ...batch,
+        fanIn: claimDelivery(batch.fanIn, currentProcessOwner(), now),
+      };
+      yield* writeBatchFile(filePath, claimed);
+      markInFlight(fanInClaimKey(batchId));
+      return claimed;
+    }),
+  );
+}
+
+/**
+ * Record how a claimed fan-in ended and release the claim: `deliveredAt` once the turn finished
+ * or parked; otherwise the error and attempts, retried with backoff while attempts remain.
+ */
+export function settleBatchFanIn(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  batchId: string,
+  outcome: DeliveryOutcome,
+  now: number = Date.now(),
+): Effect.Effect<void, Error> {
+  return withLock(
+    batchLockPath(baseJobBatchDirectory, agentId, batchId),
+    Effect.gen(function* () {
+      const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+      const batch = yield* readBatchFile(filePath);
+      if (batch === null) {
+        return;
+      }
+      const fanIn = settleDelivery(batch.fanIn, outcome, now);
+      const { fanIn: _previous, ...rest } = batch;
+      yield* writeBatchFile(
+        filePath,
+        fanIn === undefined ? { ...rest, deliveredAt: now } : { ...rest, fanIn },
+      );
+    }),
+  ).pipe(Effect.ensuring(Effect.sync(() => clearInFlight(fanInClaimKey(batchId)))));
+}
+
+/**
+ * Completed batches whose fan-in is due (never delivered, or waiting on a retry that is now
+ * due, or claimed by a process that died), from an unlocked look. Each is re-checked when
+ * claimed.
+ */
+export function listUndeliveredBatches(
+  baseJobBatchDirectory: string,
+  now: number = Date.now(),
+): Effect.Effect<
+  ReadonlyArray<{ readonly agentId: string; readonly batchId: string }>,
+  Error,
+  FileSystem.FileSystem
+> {
+  return Effect.gen(function* () {
+    const agentIds = yield* listAgentIdsWithActiveBatches(baseJobBatchDirectory);
+    const due: Array<{ readonly agentId: string; readonly batchId: string }> = [];
+    for (const agentId of agentIds) {
+      const names = yield* Effect.tryPromise({
+        try: () => nodeFs.readdir(agentDirectory(baseJobBatchDirectory, agentId)),
+        catch: toError,
+      }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      for (const name of names) {
+        if (!name.endsWith(".json")) continue;
+        const batchId = name.slice(0, -".json".length);
+        const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+        if (batch !== null && batch !== "corrupt" && fanInClaimable(batch, now)) {
+          due.push({ agentId, batchId });
+        }
+      }
+    }
+    return due;
   });
 }
 
@@ -651,43 +874,36 @@ export function reclaimExpiredLeases(
         // per batch per tick to discover, almost always, that there was nothing to reclaim. The
         // decision is re-made under the lock below, so a lease that expires between the two reads
         // is caught on the next tick rather than lost.
-        const unlockedPeek = yield* readBatchFile(
-          fs,
+        const unlockedPeek = yield* peekBatchFile(
           batchFilePath(baseJobBatchDirectory, agentId, batchId),
-        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        );
         const peekHasExpiredLease =
           unlockedPeek !== null &&
+          unlockedPeek !== "corrupt" &&
           unlockedPeek.completedAt === null &&
-          unlockedPeek.jobs.some(
-            (job) =>
-              job.status === "running" && job.leaseExpiresAt !== null && job.leaseExpiresAt <= now,
-          );
+          unlockedPeek.jobs.some((job) => isLeaseAbandoned(batchId, job, now));
         if (!peekHasExpiredLease) continue;
 
         const completion = yield* withLock(
           batchLockPath(baseJobBatchDirectory, agentId, batchId),
           Effect.gen(function* () {
             const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-            const batch = yield* readBatchFile(fs, filePath);
+            const batch = yield* readBatchFile(filePath);
             if (batch === null || batch.completedAt !== null) return null;
 
-            const expired = batch.jobs.filter(
-              (job) =>
-                job.status === "running" &&
-                job.leaseExpiresAt !== null &&
-                job.leaseExpiresAt <= now,
-            );
+            const expired = batch.jobs.filter((job) => isLeaseAbandoned(batchId, job, now));
             if (expired.length === 0) return null;
 
             const jobs = batch.jobs.map((job) =>
-              job.status === "running" && job.leaseExpiresAt !== null && job.leaseExpiresAt <= now
+              isLeaseAbandoned(batchId, job, now)
                 ? applyOutcomeToJob(
                     job,
                     batch,
                     {
                       success: false,
                       result: null,
-                      error: "Job's worker lease expired before it completed.",
+                      error:
+                        "The job's worker stopped (its process exited or its lease expired) before it completed.",
                     },
                     now,
                   )
@@ -699,7 +915,7 @@ export function reclaimExpiredLeases(
               jobs,
               completedAt: allTerminal ? now : batch.completedAt,
             };
-            yield* writeBatchFile(fs, filePath, updated);
+            yield* writeBatchFile(filePath, updated);
             return allTerminal
               ? ({ agentId, batch: updated } satisfies ReclaimedBatchCompletion)
               : null;

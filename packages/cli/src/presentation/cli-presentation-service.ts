@@ -89,21 +89,21 @@ export class CLIPresentationService implements PresentationService {
   presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const msg = yield* this.formatThinking(agentName, isFirstIteration);
-      yield* this.writeOutput(msg);
+      yield* this.writeLine(msg);
     });
   }
 
   presentCompletion(agentName: string): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const msg = yield* this.formatCompletion(agentName);
-      yield* this.writeOutput(msg);
+      yield* this.writeLine(msg);
     });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const msg = yield* this.formatWarning(agentName, message);
-      yield* this.writeOutput(msg);
+      yield* this.writeLine(msg);
     });
   }
 
@@ -187,6 +187,17 @@ export class CLIPresentationService implements PresentationService {
     });
   }
 
+  /** Write a status line, ending it with a newline so the next output starts on its own line. */
+  private writeLine(message: string): Effect.Effect<void, never> {
+    return this.writeOutput(message.endsWith("\n") ? message : `${message}\n`);
+  }
+
+  writeError(message: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      process.stderr.write(message);
+    });
+  }
+
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       console.log();
@@ -205,17 +216,16 @@ export class CLIPresentationService implements PresentationService {
         error: "✗",
         progress: "⏳",
       };
-      process.stdout.write(`${prefixes[level]} ${message}\n`);
+      const stream = level === "error" || level === "warning" ? process.stderr : process.stdout;
+      stream.write(`${prefixes[level]} ${message}\n`);
     });
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.gen(this, function* () {
       if (!this.interactive) {
-        // `confirm` would return its default here rather than blocking, and the
-        // default below is "yes" — so asking would grant the approval on the
-        // strength of a function argument. Decline, and tell the model why so
-        // it routes around instead of retrying into the same wall.
+        // Nobody can answer a prompt here. Decline, and tell the model why so it
+        // routes around instead of retrying into the same wall.
         const userMessage =
           `The "${request.toolName}" tool requires approval and was automatically declined ` +
           `because this session is not interactive. Do not ask the user to approve or retry — ` +
@@ -232,7 +242,9 @@ export class CLIPresentationService implements PresentationService {
       // There are no "always approve" follow-ups here — picking a row is the decision.
       if (request.options && request.options.length > 0) {
         yield* this.writeOutput(`\n${separator}\n`);
-        yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+        yield* this.writeOutput(
+          `${CHALK_THEME.warning("⚠️  Approval Required")} for ${toolLabel}\n\n`,
+        );
         yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
 
         let optionIndex = 1;
@@ -265,7 +277,7 @@ export class CLIPresentationService implements PresentationService {
             break;
           }
           yield* this.writeOutput(
-            chalk.yellow(
+            CHALK_THEME.warning(
               `Enter a number between 1 and ${request.options.length}, or nothing to decline.\n`,
             ),
           );
@@ -293,7 +305,9 @@ export class CLIPresentationService implements PresentationService {
 
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
-      yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+      yield* this.writeOutput(
+        `${CHALK_THEME.warning("⚠️  Approval Required")} for ${toolLabel}\n\n`,
+      );
       yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
       yield* this.writeOutput(`${separator}\n`);
 

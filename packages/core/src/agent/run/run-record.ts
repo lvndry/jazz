@@ -13,6 +13,8 @@
  */
 
 import type { TokenUsage } from "@/core/interfaces/telemetry";
+import type { RemoteCaller, RunBudget } from "@/core/types/remote-door";
+import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { RunId, RunState } from "./run-state";
 
 export interface RunRecord {
@@ -27,6 +29,43 @@ export interface RunRecord {
   readonly updatedAt: string;
   readonly costUSD?: number;
   readonly tokenUsage?: TokenUsage;
+  /** Prompt plus completion tokens, retained for aggregate goal budget reconciliation. */
+  readonly totalTokens?: number;
+  /** Active execution time across resumes; waiting for approval is excluded. */
+  readonly activeDurationMs?: number;
+  /**
+   * The authority the run started with. A resumed run gets exactly this back, so answering
+   * one approval neither drops a granted tier nor widens a narrower one to the default.
+   */
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
+  /** The run's iteration cap, which a resumed run keeps rather than falling back to the default. */
+  readonly maxIterations?: number;
+  /** Where the run worked, restored on resume instead of the resuming process's directory. */
+  readonly workingDirectory?: string;
+  /**
+   * The rest of the boundary the run started inside, restored exactly on resume. Answering one
+   * approval must not hand a webhook's run the agent's whole toolset, its operator context, or
+   * an unlimited budget.
+   */
+  readonly boundary?: RunRecordBoundary;
+  /**
+   * Set when nobody could be asked while it started (the daemon, a headless run), as opposed
+   * to a chat. The daemon's daily spend cap counts only these.
+   */
+  readonly unattended?: boolean;
+}
+
+/** The limits beyond the approval policy that a resumed run gets back. */
+export interface RunRecordBoundary {
+  /** The ceiling on the run's toolset. Absent means the agent's own tools. */
+  readonly toolAllowlist?: readonly string[];
+  readonly withholdInteractiveTools?: boolean;
+  readonly disablePersistence?: boolean;
+  /** Set when a remote door started the run. A remote run without a `toolAllowlist` is refused. */
+  readonly remoteCaller?: RemoteCaller;
+  /** The caps the whole run shares. A resumed segment gets what the earlier ones left. */
+  readonly budget?: RunBudget;
 }
 
 /**
@@ -45,6 +84,12 @@ export function createRunRecord(input: {
   readonly conversationId: string;
   readonly input: string;
   readonly now: Date;
+  readonly approvalPolicy?: AutoApprovePolicy;
+  readonly autoApprovedTools?: readonly string[];
+  readonly maxIterations?: number;
+  readonly workingDirectory?: string;
+  readonly boundary?: RunRecordBoundary;
+  readonly unattended?: boolean;
 }): RunRecord {
   const timestamp = input.now.toISOString();
   return {
@@ -55,5 +100,15 @@ export function createRunRecord(input: {
     input: input.input,
     createdAt: timestamp,
     updatedAt: timestamp,
+    ...(input.approvalPolicy !== undefined ? { approvalPolicy: input.approvalPolicy } : {}),
+    ...(input.autoApprovedTools !== undefined && input.autoApprovedTools.length > 0
+      ? { autoApprovedTools: input.autoApprovedTools }
+      : {}),
+    ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+    ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
+    ...(input.boundary !== undefined && Object.keys(input.boundary).length > 0
+      ? { boundary: input.boundary }
+      : {}),
+    ...(input.unattended === true ? { unattended: true } : {}),
   };
 }

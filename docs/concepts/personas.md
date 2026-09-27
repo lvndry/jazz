@@ -79,7 +79,7 @@ that the persona does not become a script.
 
 ## A persona can narrow tools, never widen them
 
-An optional `toolProfile` lets a persona restrict what agents using it may reach:
+An optional `tools` block in the frontmatter lets a persona restrict what agents using it may reach:
 
 - `categories` picks which built-in tool categories the persona wants. Omitted means all of
   them; an empty array means none, which is how `summarizer` runs with no tools at all.

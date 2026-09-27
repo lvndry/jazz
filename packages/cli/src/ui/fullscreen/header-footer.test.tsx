@@ -17,12 +17,12 @@
  */
 
 import type { CapturedFrame, CapturedSpan } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
-import { Footer, formatCompactCount, formatUsage } from "./Footer";
+import { Footer, formatUsage } from "./Footer";
 import { Header, headerGroups } from "./Header";
 import { hintsFor } from "./keymap";
 import { terminalCellWidth } from "./terminal-cells";
@@ -69,7 +69,7 @@ interface Rendered {
 }
 
 async function render(node: ReactNode, width: number, height = 3): Promise<Rendered> {
-  const { renderOnce, captureCharFrame, captureSpans, renderer } = await testRender(node, {
+  const { renderOnce, captureCharFrame, captureSpans, renderer } = await renderForTest(node, {
     width,
     height,
   });
@@ -124,6 +124,30 @@ describe("Header", () => {
     );
     const separators = [...row].filter((character) => character === getGlyphs().bullet);
     expect(separators.length).toBeLessThanOrEqual(3);
+  });
+
+  it("shows local host:port after the model and drops the host first on narrow screens", async () => {
+    const local = header({ model: "qwen3", localHost: "gpu.example:8000" });
+    const wide = await render(
+      <Header
+        model={local}
+        viewport={{ width: 100, height: 24 }}
+      />,
+      100,
+    );
+    expect(wide.row).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
+    expect(wide.row).toContain("apps 4 of 4");
+
+    const narrow = await render(
+      <Header
+        model={local}
+        viewport={{ width: 48, height: 24 }}
+      />,
+      48,
+    );
+    expect(narrow.row).toContain("qwen3");
+    expect(narrow.row).not.toContain("gpu.example:8000");
+    expect(terminalCellWidth(narrow.row)).toBe(48);
   });
 
   it("counts healthy connectors and names only the one needing action", async () => {
@@ -226,23 +250,6 @@ describe("Header", () => {
     expect(row).not.toContain("v0.14.2");
     expect(row).toContain("apps 4 of 4");
     expect(row).toContain("40%");
-  });
-});
-
-describe("formatCompactCount", () => {
-  it("steps through 100, 1k, 10k, 1M, 1B", () => {
-    expect(formatCompactCount(100)).toBe("100");
-    expect(formatCompactCount(999)).toBe("999");
-    expect(formatCompactCount(1_000)).toBe("1k");
-    expect(formatCompactCount(1_500)).toBe("1.5k");
-    expect(formatCompactCount(10_000)).toBe("10k");
-    expect(formatCompactCount(20_000)).toBe("20k");
-    expect(formatCompactCount(1_000_000)).toBe("1M");
-    expect(formatCompactCount(1_500_000)).toBe("1.5M");
-    expect(formatCompactCount(10_000_000)).toBe("10M");
-    expect(formatCompactCount(1_000_000_000)).toBe("1B");
-    expect(formatCompactCount(2_300_000_000)).toBe("2.3B");
-    expect(formatCompactCount(999_500)).toBe("1M");
   });
 });
 

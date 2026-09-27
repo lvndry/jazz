@@ -1,8 +1,11 @@
+/** Approved removal preserves the internal protection registry and its ancestors. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/errors";
+import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -18,20 +21,12 @@ import { buildKeyFromContext } from "../context-utils";
 
 const rmParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe(
-        "File or directory to remove. Absolute or relative to the session working directory.",
-      ),
-    recursive: z
-      .boolean()
-      .optional()
-      .describe("Required to remove a directory and its contents. Default false."),
+    path: z.string().min(1).describe("File or directory to remove."),
+    recursive: z.boolean().optional().describe("Set true to delete a directory."),
     force: z
       .boolean()
       .optional()
-      .describe("Treat a missing path as success, and ignore remove errors. Default false."),
+      .describe("Report success even when the path is missing or removal fails."),
   })
   .strict();
 
@@ -45,8 +40,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
   const config: ApprovalToolConfig<RmDeps, RmArgs> = {
     name: "rm",
     disclosure: "public",
-    description:
-      "Remove a file or directory. Directories require recursive: true. force reports success even when the path is missing or the remove fails. This is a permanent delete, not trash. To unstage a tracked git file, use execute_command with git rm.",
+    description: "Permanently delete a file or directory (no trash).",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
     validate: makeZodValidator(rmParameters),
@@ -55,6 +49,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
         const recurse = args.recursive === true ? " recursively" : "";
         return `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
       }),
@@ -64,6 +59,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
+        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
 
         try {
           // Basic safeguards: do not allow deleting root or home dir directly
@@ -105,13 +101,13 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
           if (args.force) {
             return {
               success: true,
-              result: `Removal attempted with force; error ignored: ${error instanceof Error ? error.message : String(error)}`,
+              result: `Removal attempted with force; error ignored: ${toError(error).message}`,
             };
           }
           return {
             success: false,
             result: null,
-            error: `rm failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `rm failed: ${toError(error).message}`,
           };
         }
       }),

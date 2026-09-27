@@ -1,6 +1,7 @@
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import chalk from "chalk";
 import { Effect } from "effect";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
@@ -684,6 +685,58 @@ describe("InkStreamingRenderer", () => {
       } finally {
         store.appendEphemeral = originalAppend;
         Effect.runSync(renderer.reset());
+      }
+    });
+
+    test("records a sub-agent's tool calls on its run as plain data", async () => {
+      const originalLevel = chalk.level;
+      chalk.level = 3;
+      const regionId = store.openEphemeral("subagent", "Solver", 12, {
+        task: "Read the file",
+        acceptsMessages: true,
+      });
+      const renderer = new InkStreamingRenderer(
+        "Solver",
+        false,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+        0,
+        { kind: "ephemeral", regionId },
+      );
+
+      try {
+        emitStreamStart(renderer);
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_start",
+            toolName: "search_tools",
+            toolCallId: "tc-plain",
+            arguments: { query: "execute_command" },
+          }),
+        );
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_complete",
+            toolCallId: "tc-plain",
+            result: "ok",
+            durationMs: 7,
+            summary: chalk.cyan("found 1 tool"),
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        const run = store
+          .getSubagentsSnapshot()
+          .runs.find((candidate) => candidate.id === regionId);
+        const tool = run?.entries.find((entry) => entry.kind === "tool");
+        expect(tool).toMatchObject({ kind: "tool", status: "ok", summary: "found 1 tool" });
+        const serialized = JSON.stringify(tool);
+        expect(serialized).toContain("execute_command");
+        expect(serialized).not.toContain("\\u001b");
+      } finally {
+        chalk.level = originalLevel;
+        Effect.runSync(renderer.reset());
+        store.collapseEphemeral(regionId, { durationMs: 0 });
       }
     });
 
@@ -1566,6 +1619,26 @@ describe("InkPresentationService approval rejection", () => {
 });
 
 describe("InkPresentationService sub-agent collapse line", () => {
+  test("routes a batch response to the sub-agent log", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(
+      service.openEphemeralRegion("subagent", "Researcher", {
+        agentRun: { task: "Find the answer", acceptsMessages: true },
+      }),
+    );
+    const outputBefore = store.getOutputSnapshot().entries.length;
+
+    await Effect.runPromise(
+      service.presentAgentResponse("Researcher", "The answer is 42.", {
+        ephemeralRegionId: regionId,
+      }),
+    );
+
+    const run = store.getSubagentsSnapshot().runs.find((candidate) => candidate.id === regionId);
+    expect(run?.entries).toEqual([{ kind: "response", text: "The answer is 42." }]);
+    expect(store.getOutputSnapshot().entries.length).toBe(outputBefore);
+  });
+
   const printed: OutputEntry[] = [];
   let originalPrintOutput: (typeof store)["printOutput"];
 

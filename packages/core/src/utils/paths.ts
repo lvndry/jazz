@@ -47,6 +47,44 @@ export function getJazzHomeDirectory(): string {
 }
 
 /**
+ * The global config file: `$JAZZ_CONFIG_PATH` when set, otherwise `$JAZZ_HOME/config.json`.
+ * Holds `daemon.token` when no keyring is available.
+ */
+export function getGlobalConfigFilePath(): string {
+  const override = process.env["JAZZ_CONFIG_PATH"]?.trim();
+  return override !== undefined && override.length > 0
+    ? expandHomePath(override)
+    : path.join(getJazzHomeDirectory(), "config.json");
+}
+
+/** The no-keyring secret store, written mode 600. */
+export function getSecretsFilePath(): string {
+  return path.join(getJazzHomeDirectory(), "secrets.json");
+}
+
+/** The directory lock held while `secrets.json` is rewritten. */
+export function getSecretsLockPath(): string {
+  return path.join(getJazzHomeDirectory(), ".secrets.lock");
+}
+
+const SECRETS_TEMP_PREFIX = ".secrets-";
+const SECRETS_TEMP_SUFFIX = ".tmp";
+
+/** Whether a basename is a secret temp file left by the former keyring writer. */
+export function isSecretsTempFileName(name: string): boolean {
+  return (
+    name.startsWith(SECRETS_TEMP_PREFIX) &&
+    name.endsWith(SECRETS_TEMP_SUFFIX) &&
+    name.length > SECRETS_TEMP_PREFIX.length + SECRETS_TEMP_SUFFIX.length
+  );
+}
+
+/** The lock held while the ChatGPT OAuth credential is refreshed. */
+export function getChatGptCredentialLockPath(): string {
+  return path.join(getJazzHomeDirectory(), ".chatgpt-credential.lock");
+}
+
+/**
  * Returns `{cwd}/.jazz`, the directory for optional project-local overrides.
  */
 export function getLocalJazzDirectory(): string {
@@ -83,6 +121,23 @@ export function getHistoryDirectory(): string {
  */
 export function getRunsDirectory(): string {
   return path.join(getJazzHomeDirectory(), "runs");
+}
+
+/**
+ * Returns the directory holding one JSON file per durable goal controller record.
+ * Goal records are separate from run records because one goal can span many runs.
+ */
+export function getGoalsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "goals");
+}
+
+export function getLoopsDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "loops");
+}
+
+/** Returns the directory holding one file per webhook: the delivery ids it has already run. */
+export function getWebhookDeliveriesDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "webhooks", "deliveries");
 }
 
 /**

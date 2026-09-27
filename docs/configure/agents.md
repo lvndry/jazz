@@ -1,5 +1,5 @@
 ---
-description: "Configure Jazz agents: primary and companion models, personas, context limits, tool restrictions, custom tools, environment access, and memory scopes."
+description: "Configure Jazz agents: primary and companion models, personas, context limits, tool restrictions, network access, custom tools, environment access, and memory scopes."
 ---
 
 # Agent configuration
@@ -27,6 +27,7 @@ is `jazz agent create`; edit the generated file for fields the wizard does not e
     "maxContextTokens": 64000,
     "temperature": 0.2,
     "deniedTools": ["execute_command"],
+    "network": { "allowPrivateHosts": ["homeassistant.local"] },
     "tools": ["publish_briefing"],
     "customTools": [
       {
@@ -105,6 +106,37 @@ exact tool names from `jazz tools list` or the [tool inventory](../tools/index.m
 uppercase environment-variable names from command secret scrubbing. Treat each exemption as a
 credential grant to every command the agent can run.
 
+## Network access
+
+The URLs an agent's model chooses (`http_request`, `web_fetch`, `read_pdf`, and pages rendered by
+`create_pdf` and `create_composition`) reach public internet hosts only. Loopback, private,
+link-local (including the cloud metadata address `169.254.169.254`), CGNAT and other non-public
+addresses are refused, on every redirect hop.
+
+`network.allowPrivateHosts` lists the private hosts this agent may reach, at most 64 entries:
+
+```json
+{
+  "config": {
+    "network": {
+      "allowPrivateHosts": ["homeassistant.local", "*.lan", "192.168.1.10", "10.0.0.0/8"]
+    }
+  }
+}
+```
+
+| Entry                 | Allows                                         |
+| --------------------- | ---------------------------------------------- |
+| `homeassistant.local` | that hostname, whatever address it resolves to |
+| `*.lan`               | every name ending in `.lan`                    |
+| `192.168.1.10`, `::1` | that address, reached by IP or by any hostname |
+| `192.168.1.0/24`      | every address in the block                     |
+
+Use a hostname entry for a name you control, and an address or block entry for a device with a
+fixed address. Unset means public hosts only. `jazz agent create` and `jazz agent edit` reject an
+entry that is not a hostname, wildcard, address or CIDR block. See
+[secrets and egress](../security/secrets-and-egress.md#network-egress) for what the guard checks.
+
 ## Custom tools
 
 `customTools` exposes a narrow function to the model without writing a Jazz plugin. A definition is
@@ -117,7 +149,8 @@ registered only when its name also appears in `tools`.
 - A `record` handler returns fixed text and is read-only.
 - A `command` handler spawns the argv directly, never through a shell, and writes validated arguments
   as JSON to stdin. It runs in the current working directory, uses Jazz's scrubbed environment,
-  and is always high-risk. `timeoutMs` may be 1–300000.
+  and is always high-risk: every call asks first, and runs unasked only under the `high-risk`
+  policy or when the tool is in `--auto-approve-tools`. `timeoutMs` may be 1–300000.
 
 For authenticated SaaS actions, prefer an MCP server whose schema, authentication, and errors are
 explicit. A command-backed webhook is useful when the HTTP endpoint itself is the stable interface.
@@ -135,3 +168,10 @@ memory, deny `manage_memory` in its persona, or run it with `jazz run --ephemera
 
 Run `jazz agent show <name>` to inspect the resolved agent and `/tools` inside chat to see the tools
 available to that run.
+
+In the interactive `jazz` home menu, choose **List agents**, move to an agent, and press Enter to
+inspect its configuration. The detail screen shows provider, model, reasoning, persona, input and
+output prices per million tokens, the effective host URL for a self-hosted model, model settings,
+tool access, companions, and timestamps. Use Up/Down to scroll and Escape to return to the list.
+Prices are shown as unknown when the model catalog has no rate; local models running on your own
+server show $0 for provider inference. API keys and custom tool commands remain hidden.

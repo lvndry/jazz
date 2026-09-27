@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
+import { toError } from "@/core/utils/errors";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -18,11 +19,8 @@ import { buildKeyFromContext } from "../context-utils";
 
 const mkdirParameters = z
   .object({
-    path: z
-      .string()
-      .min(1)
-      .describe("Directory to create. Absolute or relative to the session working directory."),
-    recursive: z.boolean().optional().describe("Create missing parent directories. Default true."),
+    path: z.string().min(1).describe("Directory to create."),
+    recursive: z.boolean().optional().describe("Create missing parents. Default true."),
   })
   .strict();
 
@@ -38,7 +36,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
     name: "mkdir",
     disclosure: "public",
     description:
-      "Create a directory. Parent directories are created automatically unless you set recursive to false. Calling this on a directory that already exists succeeds. For a new file, prefer write_file with createDirs: true instead of a separate mkdir.",
+      "Create a directory; succeeds if it already exists. To create a file, use write_file, which creates missing parent directories.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
     validate: makeZodValidator(mkdirParameters),
@@ -93,7 +91,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
           return {
             success: false,
             result: null,
-            error: `mkdir failed: ${error instanceof Error ? error.message : String(error)}`,
+            error: `mkdir failed: ${toError(error).message}`,
           };
         }
       }),

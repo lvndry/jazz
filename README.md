@@ -6,7 +6,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-![Jazz in the terminal](docs/assets/jazz_demo_github.gif)
+<video src="https://github.com/user-attachments/assets/e39dc2ec-1d68-4679-8077-2e2917819747" controls width="100%"></video>
 
 </div>
 
@@ -19,11 +19,13 @@ it grows into an everyday assistant.
 
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
-Discord bot on a server you own. Same agent, same tools, same memory. When a job needs your
-permission it asks you wherever you are, rather than stopping.
+Discord bot on a server you own. Same agent, same tools, same memory. In a bot conversation it
+asks you right there when a job needs your permission; anywhere else it parks the job and tells
+you on your phone through a [notify channel](docs/configure/notifications.md), where you can
+approve it from chat.
 
-18 providers are supported, including OpenAI, Anthropic, Google, Mistral, Groq, and
-OpenRouter, plus `ollama` and `llama.cpp` for local models with no API key. Everything else
+23 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and
+OpenRouter, plus `ollama`, `llama.cpp`, `vllm`, and `sglang` for self-hosted models with no API key unless the server requires one. Everything else
 connects through [MCP](https://modelcontextprotocol.io/).
 
 One agent can compose different models by capability: keep the model you trust for reasoning and
@@ -77,16 +79,17 @@ The [guides](docs/guides/index.md) walk through complete setups.
 
 ## Where it runs
 
-| Surface              | How you run it                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| Terminal             | `jazz`                                                                             |
-| Scripts & pipes      | `jazz run --json --agent dev "…"`                                                  |
-| Cron / launchd       | `jazz workflow schedule <name>`                                                    |
-| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                    |
-| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up`            |
-| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`              |
-| iMessage             | `jazz imessage` (hosted Photon line) or `jazz imessage --local` (your Mac account) |
-| WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`                |
+| Surface              | How you run it                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------- |
+| Terminal             | `jazz`                                                                              |
+| Scripts & pipes      | `jazz run --json --agent dev "…"`                                                   |
+| Cron / launchd       | `jazz workflow schedule <name>`                                                     |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                     |
+| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up`             |
+| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`               |
+| iMessage             | `jazz imessage` (hosted Photon line) or `jazz imessage --local` (your Mac account)  |
+| WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`                 |
+| Your SSH server      | [`/detach <host>`](docs/features/detach.md) in chat, then `jazz detach attach <id>` |
 
 Slack, Google Chat, or your own app work the same way. See
 [Chat platforms](docs/surfaces/chat.md).

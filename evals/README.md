@@ -17,6 +17,60 @@ bun run evals --agent eval-ceiling --samples 1 --stamp ceiling
 bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 ```
 
+Use `--task <id>` to run a single task, or `--domain <name>[,<name>...]` to run some domains, while
+developing a focused harness change. `--seed <n>` fixes the shuffled run order (a default seed
+is used otherwise). `--concurrency <n>` sets parallel samples, and `--samples-beyond-easy <n>` runs a
+different number of samples for medium, hard, and very hard tasks.
+
+Every sample runs with a private `JAZZ_HOME` holding the eval agents and only the `llm` block
+of your config, so samples cannot share memory or conversations and nothing reaches your own
+state, telemetry, MCP servers, or webhooks. Credentials come from the environment or the OS
+keyring; for a local server that needs a key, pass it at runtime (for example `VLLM_API_KEY`).
+
+### Adversarial multi-cycle scenarios
+
+`tasks/adversarial/` holds three easy and six hard scripted scenarios, each two or three
+`jazz run` cycles on one conversation with the workspace changed between them, and three
+goal-mode scenarios that run a real goal through a daemon. All are graded by state oracles and
+a safety-violation ledger; a goal that claims completion its oracle contradicts is a critical
+violation. Targets are fixed in `targets.ts`. Run a baseline, change the harness,
+then run again and pair the two:
+
+```bash
+VLLM_API_KEY=... bun run evals --agent eval-sut-vllm --domain adversarial --samples 10 --stamp adv-baseline
+VLLM_API_KEY=... bun run evals --agent eval-sut-vllm --domain adversarial --samples 10 \
+  --stamp adv-final --baseline evals/report/adv-baseline.json
+bun run evals --compare evals/report/adv-baseline.json evals/report/adv-final.json
+```
+
+The report's `sampleReport` has every sample's outcome, violations, tokens, cost and
+pricing-known flag, and elapsed time, plus per-tier bootstrap CIs; `metadata` records the
+agent, model, git revision, and seed. Comparing runs of different agents or models is refused.
+
+### Ambient LSP coding comparison
+
+The `tooluse-ambient-lsp-receipt` task compares the same weak model and prompt with LSP disabled
+(`eval-sut`) and enabled (`eval-sut-lsp`). It creates a private `JAZZ_HOME` per rollout, installs
+the current source plugin as a self-contained bundle through Jazz's digest/consent registry only for the variant, and points
+it at a deterministic local language server. The task asks for a normal TypeScript fix without
+mentioning LSP. Its check requires an exact edit, unchanged supporting code, ordinary `read_file`
+and `edit_file` calls, and no model-authored LSP tool call. The variant additionally checks that
+the server published a diagnostic for the file Jazz read; a dormant plugin cannot pass.
+
+```bash
+cp evals/agents/eval-sut*.json ~/.jazz/agents/
+bun run evals --agent eval-sut --ab eval-sut-lsp \
+  --task tooluse-ambient-lsp-receipt --samples 5 --stamp ambient-lsp
+```
+
+Compare pass@1 and Pass^k along with per-run token usage, cost, and elapsed time in the captured
+events. A single fixture proves the ambient path works, but it is not enough by itself to claim
+a general coding-quality gain. Add diverse coding tasks before making that claim.
+
+For a local vLLM, SGLang, or llama.cpp evaluation, point an eval agent at the running server and
+set its `llmProvider` to `vllm`, `sglang`, or `llamacpp`. The eval cost guardrail accepts these
+user-run providers; the server must still be available throughout the run.
+
 ### Personal memory design comparison
 
 The acceptance journey tests same-turn capture, unrelated and hypothetical turns, shopping-list
@@ -145,9 +199,7 @@ The kill test accepts **two of three** facts, because it runs through a real los
 compaction and demanding perfect recall would make it a coin flip. The blind-successor
 test demands all of them, because nothing lossy happens in it.
 
-These tasks get an **isolated `JAZZ_HOME`** (seeded with the eval agents) so they can
-write fixture working state without touching your real `~/.jazz`. Provider credentials
-still come from the environment.
+These tasks seed working state into the sample's private `JAZZ_HOME`.
 
 ```bash
 bun run evals --agent eval-sut --samples 5 --stamp continuity

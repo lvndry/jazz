@@ -28,6 +28,7 @@ import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-regi
 import { MAX_SOURCE_QUOTE_CHARS, formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
@@ -213,7 +214,7 @@ export function extractMemories(
         yield* logger.debug("Memory extraction before compaction failed; continuing", {
           agentId: parentAgent.id,
           conversationId,
-          error: error instanceof Error ? error.message : String(error),
+          error: toError(error).message,
         });
       }),
     ),

@@ -7,13 +7,17 @@
  * approval it needs is already answered.
  */
 
-import { hostname } from "node:os";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import type { ProviderName } from "@/core/constants/models";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
-import type { ApprovalOutcome } from "@/core/types/tools";
+import type { RunBudget } from "@/core/types/remote-door";
+import type { ApprovalOutcome, AutoApprovePolicy } from "@/core/types/tools";
+import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
-import type { AgentResponse } from "../types";
+import type { AgentResponse, RunStarter } from "../types";
+import type { RunRecord } from "./run-record";
 import type { RunId } from "./run-state";
 
 export class RunNotResumableError extends Error {
@@ -42,6 +46,76 @@ export interface ResumeRunOptions {
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
+  /** Preserve an unattended caller's authority ceiling across the park; overrides the policy stored on the run. */
+  readonly autoApprovePolicy?: AutoApprovePolicy;
+  /** What the resumed segment may spend; a goal or loop passes what its budget has left. */
+  readonly maxTokens?: number;
+  readonly maxCostUSD?: number;
+  readonly maxDurationMs?: number;
+  readonly maxIterations?: number;
+  readonly withholdInteractiveTools?: boolean;
+  /** What started the run, so the resumed segment keeps the tools that come with it. */
+  readonly startedBy?: RunStarter;
+  /**
+   * Provider keys for this resumed segment only, layered over the agent's own. A long-lived
+   * host process resolves them per segment so a key stored after it started still applies.
+   */
+  readonly providerApiKeys?: Partial<Record<ProviderName, string>>;
+}
+
+/**
+ * Whether answering a parked run with `outcome` grants it anything. Only a rejected approval
+ * grants nothing: approving runs the tool, and answering or declining a question or a file
+ * picker lets the run carry on past the point it stopped to ask about.
+ */
+export function answerGrantsSomething(outcome: ResumeRunOptions["outcome"]): boolean {
+  return outcome.kind !== "approval" || outcome.value.approved;
+}
+
+/** The smaller of two optional caps, or whichever one is set. */
+function tighterCap(recorded: number | undefined, requested: number | undefined) {
+  if (recorded === undefined) {
+    return requested;
+  }
+  return requested === undefined ? recorded : Math.min(recorded, requested);
+}
+
+/**
+ * What the run's recorded budget has left after the segments that already ran, or which cap is
+ * already used up. A cap applies to the whole run, so a resumed segment gets the remainder rather
+ * than the full amount again.
+ */
+export function remainingRunBudget(record: RunRecord): {
+  readonly budget: RunBudget;
+  readonly exhausted?: "token" | "cost" | "time";
+} {
+  const recorded = record.boundary?.budget;
+  if (recorded === undefined) {
+    return { budget: {} };
+  }
+  const maxTokens =
+    recorded.maxTokens === undefined ? undefined : recorded.maxTokens - (record.totalTokens ?? 0);
+  const maxCostUSD =
+    recorded.maxCostUSD === undefined ? undefined : recorded.maxCostUSD - (record.costUSD ?? 0);
+  const maxDurationMs =
+    recorded.maxDurationMs === undefined
+      ? undefined
+      : recorded.maxDurationMs - (record.activeDurationMs ?? 0);
+  const budget: RunBudget = {
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+    ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+  };
+  if (maxTokens !== undefined && maxTokens <= 0) {
+    return { budget, exhausted: "token" };
+  }
+  if (maxCostUSD !== undefined && maxCostUSD <= 0) {
+    return { budget, exhausted: "cost" };
+  }
+  if (maxDurationMs !== undefined && maxDurationMs <= 0) {
+    return { budget, exhausted: "time" };
+  }
+  return { budget };
 }
 
 export function resumeRun(options: ResumeRunOptions) {
@@ -69,36 +143,45 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
+    const boundary = record.boundary ?? {};
+    if (boundary.remoteCaller !== undefined && boundary.toolAllowlist === undefined) {
+      return yield* Effect.fail(
+        new RunNotResumableError(
+          options.runId,
+          `the ${boundary.remoteCaller.door} "${boundary.remoteCaller.name}" started it and its tool boundary was not recorded`,
+        ),
+      );
+    }
+    const remaining = remainingRunBudget(record);
+    if (remaining.exhausted !== undefined) {
+      return yield* Effect.fail(
+        new RunNotResumableError(options.runId, `its ${remaining.exhausted} budget is spent`),
+      );
+    }
+    const maxTokens = tighterCap(remaining.budget.maxTokens, options.maxTokens);
+    const maxCostUSD = tighterCap(remaining.budget.maxCostUSD, options.maxCostUSD);
+    const maxDurationMs = tighterCap(remaining.budget.maxDurationMs, options.maxDurationMs);
+    const withholdInteractiveTools =
+      boundary.withholdInteractiveTools === true || options.withholdInteractiveTools === true;
+
     const { snapshot, pending } = record.state;
-    const agent = yield* agentService
+    const storedAgent = yield* agentService
       .getAgent(record.agentId)
       .pipe(
         Effect.mapError(
           () => new RunNotResumableError(options.runId, `its agent ${record.agentId} is gone`),
         ),
       );
-
-    // Claimed before the work starts: two approvals racing on the same parked run would
-    // otherwise both replay the tool, and the transition table rejects the second.
-    yield* store
-      .transition(options.runId, {
-        kind: "working",
-        iteration: snapshot.iteration,
-        // Kept so a resume that dies mid-flight can be re-parked rather than stranded.
-        recovery: {
-          pending,
-          snapshot,
-          expiresAt: record.state.expiresAt,
-          pid: process.pid,
-          host: hostname(),
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
-        ),
-      );
+    const agent =
+      options.providerApiKeys === undefined
+        ? storedAgent
+        : {
+            ...storedAgent,
+            config: {
+              ...storedAgent.config,
+              llmApiKeys: { ...storedAgent.config.llmApiKeys, ...options.providerApiKeys },
+            },
+          };
 
     // The turn stopped on an assistant message whose tool calls never got results. Those
     // are what resume has to finish; anything already answered stays answered.
@@ -122,6 +205,27 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
     }
+
+    // Claim only after validating the complete snapshot. Two approvals racing on the same
+    // parked run still cannot replay the tool because the transition is atomic.
+    yield* store
+      .transition(options.runId, {
+        kind: "working",
+        iteration: snapshot.iteration,
+        owner: currentProcessOwner(),
+        recovery: {
+          pending,
+          snapshot,
+          expiresAt: record.state.expiresAt,
+          ...currentProcessOwner(),
+        },
+      })
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
+        ),
+      );
 
     // Everything this turn has already been answered, plus the answer just given. Building
     // the map from the new answer alone was the bug: a turn needing two approvals would stop
@@ -147,6 +251,26 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
+    if (record.workingDirectory !== undefined) {
+      const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+      if (Option.isSome(fileSystemContext)) {
+        yield* fileSystemContext.value
+          .setCwd(
+            { agentId: record.agentId, conversationId: record.conversationId },
+            record.workingDirectory,
+          )
+          .pipe(
+            Effect.mapError(
+              () =>
+                new RunNotResumableError(
+                  options.runId,
+                  `the directory it worked in, ${record.workingDirectory}, is gone`,
+                ),
+            ),
+          );
+      }
+    }
+
     const response: AgentResponse = yield* AgentRunner.run({
       agent,
       runId: options.runId,
@@ -157,8 +281,32 @@ export function resumeRun(options: ResumeRunOptions) {
       pendingToolCalls,
       ...resolved,
       parkWhenUnattended: true,
-      ...(options.autoApprovedTools !== undefined
-        ? { autoApprovedTools: options.autoApprovedTools }
+      ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
+      ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
+      ...(options.autoApprovePolicy !== undefined
+        ? { autoApprovePolicy: options.autoApprovePolicy }
+        : {}),
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(maxCostUSD !== undefined ? { maxCostUSD } : {}),
+      ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+      ...(options.maxIterations !== undefined ? { maxIterations: options.maxIterations } : {}),
+      ...(withholdInteractiveTools ? { withholdInteractiveTools: true } : {}),
+      ...(boundary.toolAllowlist !== undefined ? { toolAllowlist: boundary.toolAllowlist } : {}),
+      ...(boundary.disablePersistence === true ? { disablePersistence: true } : {}),
+      ...(boundary.remoteCaller !== undefined
+        ? { remoteCaller: boundary.remoteCaller, ingestUserInputPaths: false }
+        : {}),
+      ...(options.startedBy !== undefined ? { startedBy: options.startedBy } : {}),
+      origin: { source: options.startedBy ?? "resume" },
+      ...(record.autoApprovedTools !== undefined || options.autoApprovedTools !== undefined
+        ? {
+            autoApprovedTools: [
+              ...new Set([
+                ...(record.autoApprovedTools ?? []),
+                ...(options.autoApprovedTools ?? []),
+              ]),
+            ],
+          }
         : {}),
     });
 

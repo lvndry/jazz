@@ -1,5 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  answerNotices,
   doneSummary,
   FOLLOWUP_OPTIONS,
   followupChoices,
@@ -11,6 +15,26 @@ import type { JazzSuccessEnvelope } from "./jazz-run";
 import { renderPlain } from "./surface";
 
 const OK: JazzSuccessEnvelope = { ok: true, answer: "hi", costUSD: 0 };
+
+describe("answerNotices", () => {
+  test("says nothing for a complete answer with tools", () => {
+    expect(answerNotices(OK)).toEqual([]);
+  });
+
+  test("warns loudly when the model was sent no tools", () => {
+    const [notice] = answerNotices({ ...OK, toolsDisabled: true });
+
+    expect(notice).toContain("Tools were OFF");
+    expect(notice).toContain("capabilityOverrides");
+  });
+
+  test("warns about a cut-off answer and an iteration limit", () => {
+    expect(answerNotices({ ...OK, truncated: true, iterationLimited: true })).toEqual([
+      "⚠️ The answer was cut off at the model's output limit.",
+      "⚠️ The agent hit its iteration limit before finishing.",
+    ]);
+  });
+});
 
 describe("doneSummary", () => {
   test("names the tools that ran", () => {
@@ -91,43 +115,66 @@ describe("follow-ups", () => {
 });
 
 describe("planCompositionDelivery", () => {
+  const home = "/data/chats/tg_1";
   const base = {
     id: "abc",
     title: "Chart",
     sessionId: "session-1",
     filename: "chart.html",
-    htmlPath: "/tmp/chart.html",
+    htmlPath: `${home}/compositions/session-1/chart.html`,
   } as const;
+  const options = { home, publicUrlSettingName: "PUBLIC_URL" };
 
-  test("a static app is an image, which every surface can show", () => {
+  test("a static app is an image, read from the conversation's own compositions", () => {
+    const directory = mkdtempSync(join(tmpdir(), "answer-image-"));
+    mkdirSync(join(directory, "compositions", "session-1"), { recursive: true });
+    writeFileSync(join(directory, "compositions", "session-1", "abc.png"), Buffer.from([1, 2]));
+    const imagePath = join(directory, "compositions", "session-1", "abc.png");
     const plan = planCompositionDelivery(
-      { ...base, mode: "static", imagePath: "/tmp/abc.png" },
-      undefined,
-      "PUBLIC_URL",
+      { ...base, mode: "static", imagePath },
+      { ...options, home: directory },
     );
-    expect(plan).toEqual({ kind: "image", path: "/tmp/abc.png", caption: "Chart" });
+    expect(plan.kind).toBe("image");
+    if (plan.kind === "image") {
+      expect(plan.file.path).toBe(imagePath);
+      expect([...plan.file.bytes]).toEqual([1, 2]);
+      expect(plan.caption).toBe("Chart");
+    }
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  test("an image path outside the conversation's compositions is never sent", () => {
+    for (const imagePath of [
+      "/data/chats/tg_2/compositions/session-1/abc.png",
+      `${home}/config.json`,
+      `${home}/compositions/session-1/../../config.png`,
+      "/etc/shadow",
+    ]) {
+      expect(planCompositionDelivery({ ...base, mode: "static", imagePath }, options).kind).toBe(
+        "nothing",
+      );
+    }
   });
 
   test("a static app with no image is logged, not sent as an empty message", () => {
-    const plan = planCompositionDelivery({ ...base, mode: "static" }, undefined, "PUBLIC_URL");
+    const plan = planCompositionDelivery({ ...base, mode: "static" }, options);
     expect(plan.kind).toBe("nothing");
   });
 
-  test("an interactive app becomes a link under the configured origin", () => {
+  test("an interactive app becomes the link the bridge published", () => {
     const plan = planCompositionDelivery(
       { ...base, mode: "interactive" },
-      "https://jazz.example",
-      "PUBLIC_URL",
+      { ...options, publish: () => "https://jazz.example/compositions/1234" },
     );
     expect(plan).toEqual({
       kind: "link",
-      url: "https://jazz.example/compositions/session-1/chart.html",
+      url: "https://jazz.example/compositions/1234",
       title: "Chart",
     });
   });
 
-  test("with no origin it names the setting instead of failing silently", () => {
-    const plan = planCompositionDelivery({ ...base, mode: "interactive" }, undefined, "PUBLIC_URL");
+  test("with nowhere to publish it names the setting instead of failing silently", () => {
+    const plan = planCompositionDelivery({ ...base, mode: "interactive" }, options);
     expect(plan.kind).toBe("unavailable");
     expect(plan.kind === "unavailable" && renderPlain(plan.body)).toContain("PUBLIC_URL");
   });

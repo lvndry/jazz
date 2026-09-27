@@ -8,9 +8,11 @@
 
 import { pathToFileURL } from "node:url";
 import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import type { PluginArtifactInstaller } from "./artifact-installer";
-import { hashSourceTree } from "./github-source";
 import { pluginConsentDigest } from "./plugin-registry-service";
+import { verifySourceInstall } from "./source-integrity";
 import {
   ALL_AGENTS,
   type PluginLockRecord,
@@ -29,8 +31,8 @@ export interface EnabledPluginSnapshot {
 }
 
 function isPluginModule(value: unknown): value is JazzPluginModule {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const item = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const item = value;
   return (
     item["apiVersion"] === 1 &&
     typeof item["register"] === "function" &&
@@ -55,30 +57,36 @@ export class PluginModuleLoader {
 
   hasLoadedDigest = (digest: string): boolean => this.loaded.has(digest);
 
-  /** Confirm the installed code still hashes to its trusted digest and sits at its digest-addressed path. */
+  /**
+   * Confirm the installed code still hashes to its trusted digest, sits at its digest-addressed
+   * path, and imports nothing outside the digest-addressed directory.
+   */
   private async verifyDigestAddressed(pluginId: string, record: PluginLockRecord): Promise<void> {
     const digest = record.manifest.sha256;
     if (record.kind === "source") {
-      const expectedEntry = this.options.installer.sourceEntryPath(
-        digest,
-        record.manifest.artifact,
-      );
-      if (record.artifactPath !== expectedEntry) {
-        throw new Error(`Plugin ${pluginId} source entry is not digest-addressed`);
-      }
-      const actual = await hashSourceTree(this.options.installer.sourcePath(digest)).catch(
-        () => undefined,
-      );
-      if (actual !== digest) {
-        throw new Error(`Plugin ${pluginId} source tree is missing or failed digest verification`);
+      try {
+        await verifySourceInstall({
+          sourceRoot: this.options.installer.sourcePath(digest),
+          entry: record.manifest.artifact,
+          digest,
+          artifactPath: record.artifactPath,
+        });
+      } catch (error) {
+        throw new Error(`Plugin ${pluginId} failed verification: ${toError(error).message}`, {
+          cause: error,
+        });
       }
       return;
     }
     if (record.artifactPath !== this.options.installer.artifactPath(digest)) {
       throw new Error(`Plugin ${pluginId} artifact path is not digest-addressed`);
     }
-    if (!(await this.options.installer.verify(digest))) {
-      throw new Error(`Plugin ${pluginId} artifact is missing or failed digest verification`);
+    try {
+      await this.options.installer.assertIntact(digest);
+    } catch (error) {
+      throw new Error(`Plugin ${pluginId} failed verification: ${toError(error).message}`, {
+        cause: error,
+      });
     }
   }
 

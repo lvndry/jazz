@@ -2,8 +2,9 @@
  * Acquires plugin manifests and executable artifacts without executing them.
  *
  * Remote downloads are HTTPS-only, same-origin across redirects, byte-bounded,
- * and hashed while streaming. Local artifacts must be regular, non-symlink
- * files contained by the manifest directory. Verified modules are installed in
+ * and time-bounded. Local artifacts must be regular, non-symlink files contained
+ * by the manifest directory. A packed module may import only runtime built-ins,
+ * because its digest covers that one file. Verified modules are installed in
  * digest-addressed directories through a sibling partial directory + rename.
  */
 
@@ -11,46 +12,28 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { EXCLUDED_DIRECTORIES } from "./github-source";
+import { toError } from "@jazz/core/utils/errors";
+import { fetchWithinOrigins } from "./bounded-fetch";
+import { copySourceTree } from "./github-source";
 import {
   MAX_PLUGIN_ARTIFACT_BYTES,
   MAX_PLUGIN_MANIFEST_BYTES,
   parsePluginManifest,
+  parsePluginSourceEntry,
   type PluginManifest,
 } from "./manifest-schema";
+import { isPathWithin, scanPluginImportGraph } from "./source-integrity";
 
+/** The single module file inside a packed plugin's digest-addressed directory. */
+const PACKED_ARTIFACT_NAME = "plugin.mjs";
+/** Redirect hops a manifest or artifact download may take, all on the manifest's origin. */
 const MAX_REDIRECTS = 3;
+/** Deadline for one manifest or artifact download, redirects and body included. */
+const DOWNLOAD_TIMEOUT_MS = 15_000;
 
 export interface AcquiredManifest {
   readonly manifest: PluginManifest;
   readonly source: URL;
-}
-
-async function boundedResponseBytes(response: Response, limit: number): Promise<Uint8Array> {
-  const declared = response.headers.get("content-length");
-  if (declared !== null && Number(declared) > limit)
-    throw new Error(`Download exceeds ${limit} bytes`);
-  if (response.body === null) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const next = await reader.read();
-    if (next.done) break;
-    total += next.value.byteLength;
-    if (total > limit) {
-      await reader.cancel("download too large");
-      throw new Error(`Download exceeds ${limit} bytes`);
-    }
-    chunks.push(next.value);
-  }
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return joined;
 }
 
 async function fetchSameOrigin(
@@ -58,33 +41,21 @@ async function fetchSameOrigin(
   limit: number,
   fetchImpl: typeof fetch,
 ): Promise<{ readonly bytes: Uint8Array; readonly finalUrl: URL }> {
-  if (source.protocol !== "https:") throw new Error("Remote plugin sources must use HTTPS");
-  const allowedOrigin = source.origin;
-  let current = source;
-  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
-    const response = await fetchImpl(current, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
-      headers: { Accept: "application/json, text/javascript" },
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (location === null || redirects === MAX_REDIRECTS)
-        throw new Error("Invalid redirect chain");
-      const next = new URL(location, current);
-      if (next.protocol !== "https:" || next.origin !== allowedOrigin) {
-        throw new Error("Plugin download redirected outside its trusted HTTPS origin");
-      }
-      current = next;
-      continue;
-    }
-    if (!response.ok) throw new Error(`Plugin download failed with HTTP ${response.status}`);
-    if (new URL(response.url || current.toString()).origin !== allowedOrigin) {
-      throw new Error("Plugin download ended outside its trusted origin");
-    }
-    return { bytes: await boundedResponseBytes(response, limit), finalUrl: current };
+  if (source.protocol !== "https:") {
+    throw new Error("Remote plugin sources must use HTTPS");
   }
-  throw new Error("Invalid redirect chain");
+  const response = await fetchWithinOrigins(source, {
+    allowedOrigins: new Set([source.origin]),
+    limitBytes: limit,
+    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    maxRedirects: MAX_REDIRECTS,
+    headers: { Accept: "application/json, text/javascript" },
+    fetchImpl,
+  });
+  if (response.status < 200 || response.status > 299) {
+    throw new Error(`Plugin download failed with HTTP ${response.status}`);
+  }
+  return { bytes: response.bytes, finalUrl: response.finalUrl };
 }
 
 async function readRegularFile(filePath: string, limit: number): Promise<Uint8Array> {
@@ -94,11 +65,6 @@ async function readRegularFile(filePath: string, limit: number): Promise<Uint8Ar
   }
   if (linkStat.size > limit) throw new Error(`Plugin source exceeds ${limit} bytes`);
   return new Uint8Array(await fs.readFile(filePath));
-}
-
-function isWithin(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export async function acquirePluginManifest(
@@ -136,7 +102,7 @@ export class PluginArtifactInstaller {
   }
 
   artifactPath(digest: string): string {
-    return path.join(this.options.pluginDirectory, "artifacts", digest, "plugin.mjs");
+    return path.join(this.options.pluginDirectory, "artifacts", digest, PACKED_ARTIFACT_NAME);
   }
 
   /** The digest-addressed root of an installed source tree. */
@@ -144,15 +110,19 @@ export class PluginArtifactInstaller {
     return path.join(this.options.pluginDirectory, "sources", digest);
   }
 
-  /** The import entry inside an installed source tree, given the manifest's entry path. */
+  /**
+   * The import entry inside an installed source tree. Throws unless `entry` is a safe relative path,
+   * so the result always lies under the digest-addressed root.
+   */
   sourceEntryPath(digest: string, entry: string): string {
-    return path.join(this.sourcePath(digest), entry);
+    return path.join(this.sourcePath(digest), parsePluginSourceEntry(entry));
   }
 
   /**
-   * Copy an extracted source tree into its digest-addressed home, excluding `node_modules`/`.git` so
-   * the on-disk tree matches what was hashed. Idempotent: an existing tree at this digest is reused.
-   * The copy never overwrites a different tree, because the directory name is the tree's own hash.
+   * Copy an extracted source tree into its digest-addressed home with the same rules the hash uses
+   * (`node_modules`/`.git` skipped, symlinks and special files refused), so the on-disk tree matches
+   * what was hashed. Idempotent: an existing tree at this digest is reused. The copy never
+   * overwrites a different tree, because the directory name is the tree's own hash.
    */
   async commitSourceTree(sourceRoot: string, digest: string): Promise<string> {
     const finalDirectory = this.sourcePath(digest);
@@ -166,12 +136,8 @@ export class PluginArtifactInstaller {
     await fs.mkdir(parent, { recursive: true, mode: 0o700 });
     const partial = path.join(parent, `.${digest}.partial-${process.pid}-${Date.now()}`);
     try {
-      await fs.cp(sourceRoot, partial, {
-        recursive: true,
-        dereference: false,
-        errorOnExist: false,
-        filter: (candidate) => !EXCLUDED_DIRECTORIES.has(path.basename(candidate)),
-      });
+      await fs.mkdir(partial, { mode: 0o700 });
+      await copySourceTree(sourceRoot, partial);
       try {
         await fs.rename(partial, finalDirectory);
       } catch (error) {
@@ -201,6 +167,7 @@ export class PluginArtifactInstaller {
       if (createHash("sha256").update(existing).digest("hex") !== actual) {
         throw new Error("Existing digest-addressed plugin artifact was modified");
       }
+      await scanPluginImportGraph(finalDirectory, PACKED_ARTIFACT_NAME);
       return this.artifactPath(actual);
     } catch (error) {
       if (
@@ -220,8 +187,9 @@ export class PluginArtifactInstaller {
     );
     await fs.mkdir(partialDirectory, { mode: 0o700 });
     try {
-      const partialFile = path.join(partialDirectory, "plugin.mjs");
+      const partialFile = path.join(partialDirectory, PACKED_ARTIFACT_NAME);
       await fs.writeFile(partialFile, bytes, { mode: 0o600, flag: "wx" });
+      await scanPluginImportGraph(partialDirectory, PACKED_ARTIFACT_NAME);
       await fs.rename(partialDirectory, finalDirectory).catch(async (error: unknown) => {
         try {
           const existing = await readRegularFile(
@@ -240,10 +208,30 @@ export class PluginArtifactInstaller {
     return this.artifactPath(actual);
   }
 
+  /**
+   * Throw unless the packed artifact still hashes to `digest` and imports nothing but runtime
+   * built-ins, since its digest-addressed directory holds no other file it could import.
+   */
+  async assertIntact(digest: string): Promise<void> {
+    let bytes: Uint8Array;
+    try {
+      bytes = await readRegularFile(this.artifactPath(digest), MAX_PLUGIN_ARTIFACT_BYTES);
+    } catch (error) {
+      throw new Error(`artifact is missing or unreadable: ${toError(error).message}`, {
+        cause: error,
+      });
+    }
+    if (createHash("sha256").update(bytes).digest("hex") !== digest) {
+      throw new Error("artifact failed digest verification");
+    }
+    await scanPluginImportGraph(path.dirname(this.artifactPath(digest)), PACKED_ARTIFACT_NAME);
+  }
+
+  /** {@link assertIntact} as a boolean. */
   async verify(digest: string): Promise<boolean> {
     try {
-      const bytes = await readRegularFile(this.artifactPath(digest), MAX_PLUGIN_ARTIFACT_BYTES);
-      return createHash("sha256").update(bytes).digest("hex") === digest;
+      await this.assertIntact(digest);
+      return true;
     } catch {
       return false;
     }
@@ -261,10 +249,10 @@ export class PluginArtifactInstaller {
       const manifestPath = fileURLToPath(manifestSource);
       const base = await fs.realpath(path.dirname(manifestPath));
       const requested = path.resolve(base, manifest.artifact);
-      if (!isWithin(base, requested))
+      if (!isPathWithin(base, requested))
         throw new Error("Local plugin artifact escapes manifest directory");
       const real = await fs.realpath(requested);
-      if (!isWithin(base, real))
+      if (!isPathWithin(base, real))
         throw new Error("Local plugin artifact resolves outside manifest directory");
       return readRegularFile(real, MAX_PLUGIN_ARTIFACT_BYTES);
     }

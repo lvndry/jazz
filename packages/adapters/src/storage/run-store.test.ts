@@ -300,6 +300,29 @@ describe("FileRunStore hardening", () => {
     await nodeFs.rm(directory, { recursive: true, force: true });
   });
 
+  /**
+   * A reader must never see a finished run without the spend that goes with it: a goal
+   * settling it in that window would count the run as free.
+   */
+  it("writes a new state and what goes with it as one record", async () => {
+    const directory = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-runs-"));
+    const store = new FileRunStore(directory);
+    await Effect.runPromise(store.save(record(RUN_ID)));
+    await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 0 }));
+    await Effect.runPromise(
+      store.transition(RUN_ID, { kind: "completed", content: "done" }, (moved) => ({
+        ...moved,
+        totalTokens: 5_000,
+      })),
+    );
+    const stored = JSON.parse(
+      await nodeFs.readFile(path.join(directory, `${RUN_ID}.json`), "utf-8"),
+    ) as { state: { kind: string }; totalTokens?: number };
+    expect(stored.state.kind).toBe("completed");
+    expect(stored.totalTokens).toBe(5_000);
+    await nodeFs.rm(directory, { recursive: true, force: true });
+  });
+
   it("skips an unparseable record instead of failing the listing", async () => {
     const directory = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-runs-"));
     const store = new FileRunStore(directory);

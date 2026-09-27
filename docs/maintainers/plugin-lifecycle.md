@@ -24,10 +24,53 @@ Every transition takes `$JAZZ_HOME/plugins/.state.lock`. The artifact is written
 one atomic state-document replacement makes it current. An incompatible state schema fails closed;
 repair is explicit and must not silently erase grants or rollback artifacts.
 
+Saved current and rollback manifests pass through the install-time manifest validator on every
+state read. Omitted optional capabilities become empty collections before consent calculation;
+malformed manifests or IDs that disagree with the state entry fail closed with a plugin-state
+error. Reading does not rewrite the file or change trust, consent, or enablement. Existing consent
+grants must still match the current disclosure digest; normalization never grants consent.
+
 The module is imported only after the current lock has valid trust, consent, and agent enablement.
+Installation and runtime validation share the lifecycle-event vocabulary in
+`core/types/plugin.ts`, including approval events such as `permission-request`. A plugin declaring
+those events can load alongside its completion and input handlers; unknown or duplicate events
+are rejected at both boundaries.
+
 Registration is synchronous and sealed on return. Hook/provider registrations are session-local so
 concurrent agents cannot overwrite one another. Session disposal is best effort only: in-process ESM
 cannot be unloaded.
+
+## Code integrity
+
+A trust grant names a digest, and the digest covers a directory: the installed source tree
+(`plugins/sources/<digest>/`) or the digest-addressed directory holding a packed `plugin.mjs`
+(`plugins/artifacts/<digest>/`). `adapters/src/plugins/source-integrity.ts` keeps the imported code
+inside that directory. The same checks run at install, in `inspect`/`doctor` (`artifact valid`), and
+in `PluginModuleLoader` before every import, so a copy tampered with after trust is refused:
+
+- The source `entry` goes through `parsePluginSourceEntry` (no absolute path, `..`, `.`, or empty
+  segment), the recorded import path must equal the entry joined under the digest root, and the
+  entry's real path must be a regular file inside that root.
+- Extraction, copying (`copySourceTree`, `O_NOFOLLOW` per file), and hashing (`listSourceTree`)
+  refuse symlinks and special files instead of skipping them, so the hashed tree is the imported
+  tree.
+- `scanPluginImportGraph` walks static imports, re-exports, `require` calls, and literal dynamic
+  imports with `Bun.Transpiler.scanImports`, resolves each with `Bun.resolveSync` as the runtime
+  would, and refuses anything that is not a runtime built-in or a real file inside the directory.
+  Package specifiers are refused because `node_modules` is outside the digest; the SDK is
+  types-only and must be imported with `import type`. Imports are scanned without unused-import
+  trimming, and JavaScript is scanned as JSX, so the scan sees a superset of what the runtime loads.
+
+Install-time bundling was rejected for source installs: `Bun.build` evaluates Bun macros
+(`with { type: "macro" }`, including escaped spellings) while bundling and has no switch to turn
+them off, so bundling an untrusted tree would run its code before trust. `scanImports` parses
+without evaluating. Computed dynamic imports (`import(variable)`) are not statically visible; they
+are part of the reviewed source, like any other runtime behavior of trusted code.
+
+GitHub tarballs go through `fetchWithinOrigins` (`bounded-fetch.ts`): HTTPS only, every redirect
+hop on `api.github.com` or `codeload.github.com`, one deadline for the whole download, and byte caps
+on both the compressed body and the inflated tar stream (`DEFAULT_TARBALL_LIMITS`). Packed manifests
+and artifacts use the same helper pinned to the manifest's origin.
 
 ## Advisory dispatch
 

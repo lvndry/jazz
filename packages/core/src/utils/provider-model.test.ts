@@ -4,6 +4,8 @@ import { formatProviderDisplayName, parseProviderModel } from "./provider-model"
 describe("formatProviderDisplayName", () => {
   it("uses official provider branding and a readable fallback", () => {
     expect(formatProviderDisplayName("ai_gateway")).toBe("Vercel AI Gateway");
+    expect(formatProviderDisplayName("vllm")).toBe("vLLM");
+    expect(formatProviderDisplayName("sglang")).toBe("SGLang");
     expect(formatProviderDisplayName("custom_provider")).toBe("Custom Provider");
   });
 });
@@ -20,6 +22,20 @@ describe("parseProviderModel", () => {
     expect(parseProviderModel("openrouter/anthropic/claude-3.5")).toEqual({
       provider: "openrouter",
       model: "anthropic/claude-3.5",
+    });
+  });
+
+  it("parses slash-bearing vLLM model IDs", () => {
+    expect(parseProviderModel("vllm/Qwen/Qwen3-8B")).toEqual({
+      provider: "vllm",
+      model: "Qwen/Qwen3-8B",
+    });
+  });
+
+  it("parses slash-bearing SGLang model IDs", () => {
+    expect(parseProviderModel("sglang/Qwen/Qwen3-8B")).toEqual({
+      provider: "sglang",
+      model: "Qwen/Qwen3-8B",
     });
   });
 

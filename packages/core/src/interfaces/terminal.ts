@@ -53,9 +53,10 @@ export interface TerminalService {
   /**
    * Whether this terminal can actually prompt the user for input.
    *
-   * False for plain/non-TTY terminals whose prompt methods resolve
-   * immediately with defaults instead of asking. Callers gating
-   * destructive actions on a prompt must check this first.
+   * False for plain/non-TTY terminals. There, `ask` and `password` read the
+   * next line of stdin (resolving `undefined` once stdin ends) and every menu
+   * or confirmation resolves `undefined` without asking. Callers that need a
+   * real choice from a person must check this first.
    */
   readonly isInteractive: boolean;
 
@@ -115,7 +116,8 @@ export interface TerminalService {
 
   /**
    * Prompt the user for text input.
-   * Returns undefined if cancelled (e.g., Escape key) when cancellable or secret is true.
+   * Returns undefined if cancelled (e.g., Escape key) when cancellable or secret is true,
+   * and on a non-interactive terminal once stdin has no more lines.
    */
   readonly ask: (
     message: string,
@@ -140,18 +142,22 @@ export interface TerminalService {
   ) => Effect.Effect<string | undefined, never>;
 
   /**
-   * Prompt the user for password input (hidden)
+   * Prompt the user for password input (hidden).
+   * Returns undefined on a non-interactive terminal once stdin has no more lines.
    */
   readonly password: (
     message: string,
     options?: {
       validate?: (input: string) => boolean | string;
     },
-  ) => Effect.Effect<string, never>;
+  ) => Effect.Effect<string | undefined, never>;
 
   /**
    * Prompt the user to select from a list of options.
    * Returns undefined if cancelled (e.g., Escape key).
+   *
+   * With `customAnswer`, text typed into the filter is also offered as an answer; submitting it
+   * returns `customAnswer(text)`. Leave it unset when only the listed values are valid.
    */
   readonly select: <T = string>(
     message: string,
@@ -160,6 +166,7 @@ export interface TerminalService {
         string | { name: string; value: T; description?: string; disabled?: boolean }
       )[];
       default?: T;
+      customAnswer?: (text: string) => T;
     },
   ) => Effect.Effect<T | undefined, never>;
 

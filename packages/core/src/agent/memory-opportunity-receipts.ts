@@ -13,9 +13,11 @@ import { Effect } from "effect";
 import type { MemoryEntrySnapshot } from "@/core/interfaces/memory-service";
 import { formatPreferenceLine } from "@/core/memory/preference-line";
 import type { ChatMessage } from "@/core/types/message";
+import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
 import { getMemoryReceiptsDirectory } from "@/core/utils/paths";
-import { isValidStorageKey, toError, withLock, writeFileStringAtomic } from "@/core/utils/storage";
+import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
+import { isValidStorageKey, withLock, writeFileStringAtomic } from "@/core/utils/storage";
 
 /** Newest receipts kept per entry; `jazz memory explain` reads within this window. */
 export const MAX_RECEIPTS_PER_ENTRY = 128;
@@ -61,15 +63,15 @@ function withScopeLock<A>(
 
 function writeEpoch(fs: FileSystem.FileSystem, scopeDirectory: string): ReceiptEffect<string> {
   const epoch = randomUUID();
-  return fs.makeDirectory(scopeDirectory, { recursive: true }).pipe(
-    Effect.mapError(toError),
-    Effect.zipRight(
-      writeFileStringAtomic(fs, path.join(scopeDirectory, EPOCH_FILENAME), `${epoch}\n`, {
-        tempPrefix: "memory-receipt-epoch",
-      }),
-    ),
-    Effect.as(epoch),
-  );
+  return fs
+    .makeDirectory(scopeDirectory, { recursive: true, mode: stateDirectoryMode() })
+    .pipe(
+      Effect.mapError(toError),
+      Effect.zipRight(
+        writeFileStringAtomic(path.join(scopeDirectory, EPOCH_FILENAME), `${epoch}\n`),
+      ),
+      Effect.as(epoch),
+    );
 }
 
 /**
@@ -192,13 +194,17 @@ function storeReceipt(
     const fs = yield* FileSystem.FileSystem;
     const target = receiptPath(receipt, receiptsDirectory);
     const directory = path.dirname(target);
-    yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(toError));
+    yield* fs
+      .makeDirectory(directory, { recursive: true, mode: stateDirectoryMode() })
+      .pipe(Effect.mapError(toError));
     const content = `${JSON.stringify(receipt)}\n`;
     if (replaceExisting) {
-      yield* writeFileStringAtomic(fs, target, content, { tempPrefix: "memory-receipt" });
+      yield* writeFileStringAtomic(target, content);
     } else {
       const temporaryPath = path.join(directory, `.memory-receipt-${randomUUID()}.tmp`);
-      yield* fs.writeFileString(temporaryPath, content).pipe(Effect.mapError(toError));
+      yield* fs
+        .writeFileString(temporaryPath, content, { mode: stateFileMode() })
+        .pipe(Effect.mapError(toError));
       yield* fs.link(temporaryPath, target).pipe(
         Effect.catchIf(
           (error) => error._tag === "SystemError" && error.reason === "AlreadyExists",

@@ -15,11 +15,12 @@
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
+import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
+import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
 import packageJson from "../../../../../package.json";
 import type { ActivityState, TodoSnapshotItem } from "../activity-state";
@@ -30,7 +31,7 @@ import {
   scanFilePickerEntries,
 } from "../file-picker-files";
 import { wrapIndex } from "../picker-window";
-import { filterAndRank, type PickerChoice } from "../prompt-core";
+import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
@@ -38,9 +39,11 @@ import {
   useOutputSlice,
   usePromptSlice,
   useSessionSlice,
+  useSubagentsSlice,
   type EphemeralRegion,
   type PendingApproval,
 } from "../store";
+import type { SubagentRun } from "../subagent-runs";
 import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
@@ -60,6 +63,7 @@ import {
   moveCaretVertical,
   redo,
   selectAll,
+  typeCharacter,
   UP,
   type ComposerHistory,
   undo,
@@ -76,11 +80,16 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { hostForModel } from "../local-model-hosts";
+import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
+import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import {
@@ -94,8 +103,12 @@ import {
   type LiveTool,
   type Overlay,
   type StepLine,
+  type SubagentListModel,
   type ViewModel,
 } from "./types";
+
+/** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
+const SUBAGENT_NOTICE_MS = 2500;
 
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
@@ -197,6 +210,18 @@ function firstEnabledChoice(choices: readonly { readonly disabled?: boolean }[])
 
 function promptIsFilterable(prompt: PromptState): boolean {
   return prompt.type === "search" || prompt.type === "select";
+}
+
+/**
+ * The filter text a `select` would submit as its own answer: set only when the prompt accepts typed
+ * answers and something has been typed. Its row sits just past the last match.
+ */
+function typedAnswerFor(prompt: PromptState, filter: string): string | undefined {
+  if (prompt.type !== "select" || prompt.options?.resolveTypedAnswer === undefined) {
+    return undefined;
+  }
+  const text = filter.trim();
+  return text.length > 0 ? text : undefined;
 }
 
 function matchingChoiceIndices(choices: readonly Choice[], filter: string): number[] {
@@ -457,14 +482,26 @@ function overlayFromPrompt(
       const indices = filterable
         ? matchingChoiceIndices(choices, question.filter)
         : choices.map((_choice, index) => index);
+      const typedAnswer = typedAnswerFor(prompt, question.filter);
+      const matches = choiceModel(
+        indices.map((index) => choices[index] as Choice),
+        indices,
+      );
       return {
         kind: "question",
         mode: prompt.type === "checkbox" ? "checkbox" : "select",
         message: prompt.message,
-        choices: choiceModel(
-          indices.map((index) => choices[index] as Choice),
-          indices,
-        ),
+        choices:
+          typedAnswer === undefined
+            ? matches
+            : [
+                ...matches,
+                {
+                  label: typedAnswer,
+                  value: "typed-answer",
+                  description: TYPED_ANSWER_DESCRIPTION,
+                },
+              ],
         selected: question.selected,
         ...(filterable
           ? { filterable: true, filter: question.filter, filterCaret: question.filterCaret }
@@ -620,6 +657,15 @@ function plainOf(message: unknown): string {
 }
 
 /**
+ * Agent prose is re-parsed as markdown by the transcript, so its terminal
+ * hyperlinks go back to `[label](url)` before the strip — stripped as escapes,
+ * the label survives and the URL it pointed to is gone.
+ */
+function agentMarkdownOf(text: string): string {
+  return stripAnsiCodes(terminalHyperlinksToMarkdown(text));
+}
+
+/**
  * Output entries become blocks. Consecutive stream chunks are one agent turn
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
@@ -683,7 +729,8 @@ export function blocksFrom(
     }
 
     const plainText = entry.meta?.["plainText"];
-    const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
+    const source = typeof plainText === "string" ? plainText : textOf(entry.message);
+    const text = stripAnsiCodes(source);
     if (text.trim().length === 0) continue;
 
     if (entry.type === "user") {
@@ -715,12 +762,13 @@ export function blocksFrom(
       continue;
     }
     if (entry.type === "streamContent") {
+      const markdown = agentMarkdownOf(source);
       const last = blocks.at(-1);
       if (last?.kind === "agent") {
-        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${text}` };
+        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${markdown}` };
         continue;
       }
-      blocks.push({ id, seq: seq++, kind: "agent", markdown: text });
+      blocks.push({ id, seq: seq++, kind: "agent", markdown });
       continue;
     }
 
@@ -729,12 +777,13 @@ export function blocksFrom(
   }
 
   // The turn still being written, appended live so prose streams in place.
-  if (streaming.trim().length > 0) {
+  const streamingMarkdown = agentMarkdownOf(streaming);
+  if (streamingMarkdown.trim().length > 0) {
     blocks.push({
       id: "streaming",
       seq: seq++,
       kind: "agent",
-      markdown: streaming,
+      markdown: streamingMarkdown,
       streaming: true,
     });
   }
@@ -953,10 +1002,8 @@ function approvalFrom(
   const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
   const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
   const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
-  const alwaysLabel =
-    typeof command === "string"
-      ? `always allow ${extractCommandApprovalKey(command)}`
-      : `always allow ${pending.toolName}`;
+  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
+  const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
 
   return {
     kind: "approval",
@@ -985,7 +1032,7 @@ export function FullscreenBridge(): React.ReactNode {
   const promptSlice = usePromptSlice();
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
-  const streaming = stripAnsiCodes(output.streaming);
+  const streaming = output.streaming;
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -995,6 +1042,15 @@ export function FullscreenBridge(): React.ReactNode {
   busyRef.current = busy;
   const isYolo = session.isYolo;
   const regions = ephemeral.regions;
+  const subagentRuns = useSubagentsSlice().runs;
+  const subagentRunsRef = useRef(subagentRuns);
+  subagentRunsRef.current = subagentRuns;
+  // Null while the composer has the keyboard; otherwise the highlighted row.
+  const [agentCursor, agentCursorRef, setAgentCursor] = useSynchronizedState<number | null>(null);
+  // The sub-agent whose log is standing in for the conversation, if any.
+  const [inspectedId, inspectedIdRef, setInspectedId] = useSynchronizedState<string | null>(null);
+  const [subagentNotice, setSubagentNotice] = useState<string | undefined>(undefined);
+  const subagentNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prompt = promptSlice.prompt;
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
@@ -1056,6 +1112,11 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
+  const [skillField, skillFieldRef, setSkillField] = useSynchronizedState({ value: "", caret: 0 });
+  const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
+    null,
+  );
+  const [skillDetailOffset, skillDetailOffsetRef, setSkillDetailOffset] = useSynchronizedState(0);
   // The index reset for a replacement menu runs a frame after the menu lands;
   // a keypress in that gap must not read the old menu's selection into the new
   // one, so the index only counts for the menu it was moved on.
@@ -1133,8 +1194,25 @@ export function FullscreenBridge(): React.ReactNode {
   }, [approval, setApprovalArmedState]);
 
   useEffect(() => {
-    setMenuIndex(0);
-  }, [menu, setMenuIndex]);
+    setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
+    setSkillField({ value: "", caret: 0 });
+    setSkillDetail(null);
+    setSkillDetailOffset(0);
+  }, [menu, setMenuIndex, setSkillField, setSkillDetail, setSkillDetailOffset]);
+
+  // A new turn prunes the finished runs, and with them whatever was open or highlighted.
+  useEffect(() => {
+    if (subagentRuns.length === 0) setAgentCursor(null);
+    if (inspectedId !== null && !subagentRuns.some((run) => run.id === inspectedId)) {
+      setInspectedId(null);
+    }
+  }, [subagentRuns, inspectedId, setAgentCursor, setInspectedId]);
+
+  useEffect(() => {
+    return () => {
+      if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!busy) disarmQuit();
@@ -1343,6 +1421,48 @@ export function FullscreenBridge(): React.ReactNode {
     [promptRef, commitComposer],
   );
 
+  const flashSubagentNotice = useCallback((notice: string): void => {
+    if (subagentNoticeTimer.current !== undefined) clearTimeout(subagentNoticeTimer.current);
+    setSubagentNotice(notice);
+    subagentNoticeTimer.current = setTimeout(() => {
+      setSubagentNotice(undefined);
+      subagentNoticeTimer.current = undefined;
+    }, SUBAGENT_NOTICE_MS);
+  }, []);
+
+  /** Switching what the transcript shows lands at its live edge, as a submit does. */
+  const inspectSubagent = useCallback(
+    (id: string | null): void => {
+      setInspectedId(id);
+      setSubmitCount((count) => count + 1);
+    },
+    [setInspectedId],
+  );
+
+  /**
+   * Enter while a sub-agent is open addresses it, not the main conversation. The
+   * draft is kept when the sub-agent has already finished, so nothing typed is lost.
+   */
+  const sendToInspectedSubagent = useCallback((): void => {
+    const text = composerRef.current.text;
+    if (text.trim().length === 0) return;
+    const run = subagentRunsRef.current.find(
+      (candidate) => candidate.id === inspectedIdRef.current,
+    );
+    if (run === undefined) return;
+    if (!store.sendSubagentMessage(run.id, text)) {
+      flashSubagentNotice(
+        run.acceptsMessages
+          ? `${run.label} has finished; message not sent`
+          : `${run.label} can't take messages`,
+      );
+      return;
+    }
+    historyIndex.current = null;
+    commitComposer(EMPTY_COMPOSER);
+    setSubmitCount((count) => count + 1);
+  }, [commitComposer, flashSubagentNotice, inspectedIdRef]);
+
   /**
    * Inserts pasted text into whichever field currently owns typing.
    *
@@ -1353,6 +1473,12 @@ export function FullscreenBridge(): React.ReactNode {
     (raw: string): boolean => {
       const pasted = normalizePaste(raw);
       if (pasted.length === 0) return true;
+      if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
+        const flat = flattenPaste(pasted);
+        setSkillField((field) => insertTextAt(field.value, field.caret, flat));
+        setMenuIndex(0);
+        return true;
+      }
       if (menuRef.current !== null || approvalRef.current !== null) return true;
 
       if (searchQueryRef.current !== null) {
@@ -1423,7 +1549,14 @@ export function FullscreenBridge(): React.ReactNode {
       if (composerAvailable) insertAtCaret(pasted);
       return true;
     },
-    [insertAtCaret, updatePromptEditor, updatePromptFile, updatePromptQuestion],
+    [
+      insertAtCaret,
+      updatePromptEditor,
+      updatePromptFile,
+      updatePromptQuestion,
+      setSkillField,
+      setMenuIndex,
+    ],
   );
 
   // The approval card owns the keyboard while it is up. Enter accepts, Esc
@@ -1514,9 +1647,105 @@ export function FullscreenBridge(): React.ReactNode {
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
+        if (openMenu.kind === "skills") {
+          const detail = skillDetailRef.current;
+          if (detail !== null) {
+            if (name === "escape" || name === "return" || name === "enter") {
+              setSkillDetail(null);
+              setSkillDetailOffset(0);
+            } else if (
+              name === "up" ||
+              name === "k" ||
+              name === "down" ||
+              name === "j" ||
+              name === "pageup" ||
+              name === "pagedown"
+            ) {
+              const maxOffset = Math.max(
+                0,
+                skillDetailRows(detail, viewport.width).length - skillDetailBodyRows(viewport),
+              );
+              const step =
+                name === "pageup" || name === "pagedown" ? skillDetailBodyRows(viewport) : 1;
+              const direction = name === "up" || name === "k" || name === "pageup" ? -1 : 1;
+              setSkillDetailOffset(
+                Math.max(0, Math.min(maxOffset, skillDetailOffsetRef.current + direction * step)),
+              );
+            }
+            return true;
+          }
+          if (name === "escape") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          const field = skillFieldRef.current;
+          const matches = filterSkills(openMenu.skills, field.value);
+          const selected = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
+            const step = name === "pageup" || name === "pagedown" ? skillListRows(viewport) : 1;
+            const direction = name === "up" || name === "pageup" ? -1 : 1;
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(0, Math.min(Math.max(0, matches.length - 1), selected + direction * step)),
+            );
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const skill = matches[selected];
+            if (skill !== undefined) {
+              setSkillDetail(skill);
+              setSkillDetailOffset(0);
+            }
+            return true;
+          }
+          const nextField = applyTextFieldKey(field, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextField !== null) {
+            setSkillField(nextField);
+            if (nextField.value !== field.value) {
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(0);
+            }
+          }
+          return true;
+        }
+        if (openMenu.kind === "agent-details") {
+          const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+          const maxOffset = Math.max(
+            0,
+            agentDetailsRows(openMenu.fields, viewport.width).length -
+              agentDetailsBodyHeight(viewport),
+          );
+          if (name === "up" || name === "k" || name === "down" || name === "j") {
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(
+                0,
+                Math.min(maxOffset, menuSelection + (name === "up" || name === "k" ? -1 : 1)),
+              ),
+            );
+            return true;
+          }
+          if (name === "escape" || name === "q" || name === "return" || name === "enter") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          return true;
+        }
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
-        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
+        const menuSelection =
+          menuIndexForRef.current === openMenu
+            ? menuIndexRef.current
+            : openMenu.kind === "agents"
+              ? (openMenu.initialIndex ?? 0)
+              : 0;
         if (name === "up" || name === "k") {
           menuIndexForRef.current = openMenu;
           setMenuIndex(Math.max(0, menuSelection - 1));
@@ -1529,12 +1758,8 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (name === "return" || name === "enter") {
           if (openMenu.kind === "agents") {
-            if (openMenu.browse === true) {
-              store.completePrompt({ kind: "exit" });
-            } else {
-              const choice = openMenu.agents[menuSelection];
-              if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
-            }
+            const choice = openMenu.agents[menuSelection];
+            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
           } else {
             const choice = openMenu.options[menuSelection];
             if (choice !== undefined) {
@@ -1645,6 +1870,14 @@ export function FullscreenBridge(): React.ReactNode {
             setSearchCaret(nextField.caret);
           }
         }
+        return true;
+      }
+
+      // The approval mode belongs to the session, not the composer: it toggles while a slash
+      // command runs or one of its prompts is open, which both leave the composer unavailable.
+      // It stays behind the approval card above, so a pending decision cannot be flipped.
+      if (name === "tab" && shift) {
+        store.toggleMode();
         return true;
       }
 
@@ -1771,6 +2004,7 @@ export function FullscreenBridge(): React.ReactNode {
         const visibleChoices = choicesAtIndices(sourceChoices, filteredIndices);
         const allowCustom = allowsCustomAnswer(active, suggestions);
         const allowMultiple = allowsMultipleAnswers(active);
+        const typedAnswer = typedAnswerFor(active, questionState.filter);
 
         if (name === "up" || name === "down") {
           updatePromptQuestion((state) => ({
@@ -1779,7 +2013,7 @@ export function FullscreenBridge(): React.ReactNode {
               visibleChoices,
               state.selected,
               name === "up" ? -1 : 1,
-              allowCustom,
+              allowCustom || typedAnswer !== undefined,
             ),
           }));
           return true;
@@ -1826,6 +2060,10 @@ export function FullscreenBridge(): React.ReactNode {
         }
 
         if (name === "return" || name === "enter") {
+          if (typedAnswer !== undefined && questionState.selected === visibleChoices.length) {
+            active.options?.resolveTypedAnswer?.(typedAnswer);
+            return true;
+          }
           if (selectedCustom) {
             const value = questionState.custom.value.trim();
             if (value.length > 0) active.resolve(value);
@@ -1882,10 +2120,44 @@ export function FullscreenBridge(): React.ReactNode {
         return false;
       }
 
-      if (name === "tab" && shift) {
-        store.toggleMode();
+      // The sub-agent list has the keyboard: arrows move, Enter opens, Esc (or up
+      // past the first row) hands it back. Any other key returns to the composer
+      // and is handled there, so typing never needs a key to leave the list first.
+      const runsNow = subagentRunsRef.current;
+      const cursor = agentCursorRef.current;
+      if (cursor !== null) {
+        const lastRow = runsNow.length - 1;
+        if (lastRow < 0) {
+          setAgentCursor(null);
+        } else {
+          if (name === "up") {
+            setAgentCursor(cursor <= 0 ? null : cursor - 1);
+            return true;
+          }
+          if (name === "down") {
+            setAgentCursor(Math.min(lastRow, cursor + 1));
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const chosen = runsNow[Math.min(cursor, lastRow)];
+            setAgentCursor(null);
+            if (chosen !== undefined) inspectSubagent(chosen.id);
+            return true;
+          }
+          setAgentCursor(null);
+          if (name === "escape") return true;
+        }
+      }
+      if (name === "escape" && inspectedIdRef.current !== null) {
+        inspectSubagent(null);
         return true;
       }
+      if (name === "down" && runsNow.length > 0 && composerRef.current.text.length === 0) {
+        const firstRunning = runsNow.findIndex((run) => run.status === "running");
+        setAgentCursor(firstRunning < 0 ? 0 : firstRunning);
+        return true;
+      }
+
       if (isCtrlLetter({ name, ctrl }, "f")) {
         setSearchQuery("");
         setSearchCaret(0);
@@ -1926,7 +2198,17 @@ export function FullscreenBridge(): React.ReactNode {
         }
       }
 
-      const slashQuery = slashCommandQuery(composerRef.current.text);
+      if (
+        inspectedIdRef.current !== null &&
+        (name === "return" || name === "enter") &&
+        !isComposerNewline({ name, shift, option, meta })
+      ) {
+        sendToInspectedSubagent();
+        return true;
+      }
+
+      const slashQuery =
+        inspectedIdRef.current === null ? slashCommandQuery(composerRef.current.text) : null;
       const slashCommands = slashQuery === null ? [] : filterCommandsByPrefix(slashQuery);
       if (slashCommands.length > 0) {
         const selected = wrapCommandIndex(commandIndexRef.current, slashCommands.length);
@@ -2132,8 +2414,8 @@ export function FullscreenBridge(): React.ReactNode {
       if (!ctrl && !superKey && [...sequence].length === 1) {
         const code = sequence.codePointAt(0) ?? 0;
         if (code >= 0x20 && code !== 0x7f) {
-          const text = sequence === "!" && composerRef.current.text.length === 0 ? "! " : sequence;
-          insertAtCaret(text);
+          historyIndex.current = null;
+          commitComposer((current) => typeCharacter(current, sequence));
           return true;
         }
       }
@@ -2153,6 +2435,15 @@ export function FullscreenBridge(): React.ReactNode {
       updatePromptQuestion,
       updatePromptFile,
       disarmQuit,
+      agentCursorRef,
+      inspectedIdRef,
+      setAgentCursor,
+      inspectSubagent,
+      sendToInspectedSubagent,
+      setSkillField,
+      setSkillDetail,
+      setSkillDetailOffset,
+      setMenuIndex,
     ],
   );
 
@@ -2191,24 +2482,51 @@ export function FullscreenBridge(): React.ReactNode {
     [approval, prompt, commitComposer],
   );
 
+  const inspectedRun: SubagentRun | undefined =
+    inspectedId === null ? undefined : subagentRuns.find((run) => run.id === inspectedId);
+
   const previousBlocks = useRef<readonly Block[]>([]);
   const blocks = useMemo(() => {
-    const next = transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current);
+    const next =
+      inspectedRun === undefined
+        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
+        : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
-  }, [outputs, streaming, regions]);
+    // elapsedMs ticks the open sub-agent's heading clock.
+  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
 
-  const header = useMemo<HeaderModel>(
-    () => ({
+  const subagentList = useMemo<SubagentListModel | undefined>(() => {
+    if (subagentRuns.length === 0) return undefined;
+    const now = Date.now();
+    return {
+      items: subagentRuns.map((run) => subagentListItem(run, now)),
+      ...(agentCursor === null ? {} : { selected: agentCursor }),
+      ...(inspectedId === null ? {} : { inspecting: inspectedId }),
+    };
+    // elapsedMs ticks the per-row clocks.
+  }, [subagentRuns, agentCursor, inspectedId, elapsedMs]);
+
+  const header = useMemo<HeaderModel>(() => {
+    const localHost = hostForModel(stats.provider, stats.model, stats.localModelHosts);
+    return {
       version: packageJson.version,
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
+      ...(localHost === undefined ? {} : { localHost }),
       connectors: [...connectors].map(([name, status]) => ({ name, status })),
       contextUsed: stats.tokensInContext ?? 0,
       contextMax: stats.maxContextTokens ?? 0,
-    }),
-    [workingDirectory, stats.model, stats.tokensInContext, stats.maxContextTokens, connectors],
-  );
+    };
+  }, [
+    workingDirectory,
+    stats.model,
+    stats.provider,
+    stats.localModelHosts,
+    stats.tokensInContext,
+    stats.maxContextTokens,
+    connectors,
+  ]);
 
   const overlay = useMemo<Overlay | undefined>(() => {
     // An approval outranks search: it is a decision the agent is blocked on, and
@@ -2245,8 +2563,12 @@ export function FullscreenBridge(): React.ReactNode {
     approvalExpanded,
   ]);
 
+  const inspectedRunning = inspectedRun?.status === "running";
+  const inspectedSteerable = inspectedRunning && inspectedRun?.acceptsMessages === true;
   const input = useMemo<InputModel>(() => {
-    const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
+    const inspecting = inspectedRun !== undefined;
+    const commandItems =
+      commandQuery === null || inspecting ? [] : filterCommandsByPrefix(commandQuery);
     const mentionItems = mention === null ? [] : mentionEntries;
     const menu = mergeSuggestions(commandItems, mentionItems);
     const commands: InputModel["commands"] =
@@ -2261,9 +2583,18 @@ export function FullscreenBridge(): React.ReactNode {
       value: draft,
       caret: draftCaret,
       anchor: draftAnchor,
-      placeholder: busy ? "Type to queue for next turn" : "Ask anything",
+      placeholder:
+        inspectedRun !== undefined
+          ? inspectedSteerable
+            ? `Message ${inspectedRun.label}`
+            : inspectedRunning
+              ? `${inspectedRun.label} can't take messages · esc to go back`
+              : `${inspectedRun.label} finished · esc to go back`
+          : busy
+            ? "Type to queue for next turn"
+            : "Ask anything",
       queued: queue,
-      queueing: busy || queue.length > 0,
+      queueing: !inspecting && (busy || queue.length > 0),
       disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
       ...(commands === undefined ? {} : { commands }),
     };
@@ -2279,13 +2610,25 @@ export function FullscreenBridge(): React.ReactNode {
     commandIndex,
     mention,
     mentionEntries,
+    inspectedRun,
+    inspectedRunning,
+    inspectedSteerable,
   ]);
 
   const footer = useMemo<FooterModel>(
     () => ({
       mode: isYolo ? "yolo" : "safe",
       hints:
-        prompt !== null && hiddenPromptKeys(prompt) !== undefined ? prompt.message.split(", ") : [],
+        prompt !== null && hiddenPromptKeys(prompt) !== undefined
+          ? prompt.message.split(", ")
+          : agentCursor !== null
+            ? ["up down to choose", "enter to open", "esc to close"]
+            : inspectedRun !== undefined
+              ? inspectedSteerable
+                ? ["enter to send", "pgup to scroll", "esc back to main"]
+                : ["pgup to scroll", "esc back to main"]
+              : [],
+      ...(subagentNotice === undefined ? {} : { notice: subagentNotice }),
       ...(stats.promptTokens === undefined && stats.completionTokens === undefined
         ? {}
         : {
@@ -2295,7 +2638,18 @@ export function FullscreenBridge(): React.ReactNode {
       ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
     }),
-    [isYolo, prompt, stats.promptTokens, stats.completionTokens, stats.costUSD, elapsedMs],
+    [
+      isYolo,
+      prompt,
+      stats.promptTokens,
+      stats.completionTokens,
+      stats.costUSD,
+      elapsedMs,
+      agentCursor,
+      inspectedRun,
+      inspectedSteerable,
+      subagentNotice,
+    ],
   );
 
   const live = useMemo<LiveModel>(() => {
@@ -2326,10 +2680,11 @@ export function FullscreenBridge(): React.ReactNode {
       live,
       input,
       footer,
+      ...(subagentList === undefined ? {} : { subagents: subagentList }),
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
     }),
-    [header, blocks, runActive, live, input, footer, overlay],
+    [header, blocks, runActive, live, input, footer, subagentList, overlay],
   );
 
   // A menu the app is waiting on gets the real screen. The wizard publishes it
@@ -2340,7 +2695,23 @@ export function FullscreenBridge(): React.ReactNode {
   // its place. App's own `useKeyboard` call has to stay mounted for any of this
   // to receive a key at all — arrows, enter, or Ctrl+C.
   const overrideContent: React.ReactNode | undefined =
-    menu?.kind === "agents" ? (
+    menu?.kind === "skills" ? (
+      <SkillBrowser
+        skills={menu.skills}
+        query={skillField.value}
+        caret={skillField.caret}
+        selected={menuIndex}
+        detail={skillDetail}
+        detailOffset={skillDetailOffset}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agent-details" ? (
+      <AgentDetails
+        {...menu}
+        offset={menuIndex}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "agents" ? (
       <AgentPicker
         agents={menu.agents}
         selectedIndex={menuIndex}

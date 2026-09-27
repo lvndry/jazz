@@ -4,6 +4,7 @@ import { getGlobalUserDataDirectory } from "@jazz/core/utils/paths";
 import {
   getRunHistoryFilePath,
   loadRunHistory,
+  markInterruptedRuns,
   type WorkflowRunRecord,
 } from "@jazz/core/workflows/run-history";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
@@ -32,6 +33,7 @@ export function promptFailedRunsWarning() {
 
     if (scheduled.length === 0) return;
 
+    yield* markInterruptedRuns().pipe(Effect.catchAll(() => Effect.succeed(0)));
     const history = yield* loadRunHistory().pipe(
       Effect.catchAll(() => Effect.succeed([] as WorkflowRunRecord[])),
     );
@@ -60,7 +62,9 @@ export function promptFailedRunsWarning() {
 
     const failed: WorkflowRunRecord[] = [];
     for (const { record } of latestByWorkflow.values()) {
-      if (record.status === "failed") failed.push(record);
+      if (record.status === "failed" || record.status === "interrupted") {
+        failed.push(record);
+      }
     }
 
     if (failed.length === 0) return;

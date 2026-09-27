@@ -7,7 +7,12 @@ import { MAX_REMINDERS_PER_AGENT, REMINDER_TEXT_MAX_LENGTH } from "@jazz/core/co
 import type { ReminderOsScheduler } from "@jazz/core/wake-triggers/reminder-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
-import { ReminderServiceImpl, sweepDueReminders } from "./reminder-service";
+import {
+  claimDueReminders,
+  claimReminder,
+  ReminderServiceImpl,
+  settleReminder,
+} from "./reminder-service";
 
 let tmpDir: string;
 const originalSchedulerEnv = process.env["JAZZ_SCHEDULER"];
@@ -194,8 +199,8 @@ describe("cancel", () => {
   });
 });
 
-describe("sweepDueReminders", () => {
-  test("removes only due reminders, leaving future ones in place, across multiple agent files", async () => {
+describe("claimDueReminders", () => {
+  test("claims only due reminders across agent files, and removes them once delivered", async () => {
     const service = makeService();
     const now = Date.now();
 
@@ -207,12 +212,15 @@ describe("sweepDueReminders", () => {
 
     // Sweep at a time after the "1s" reminders have come due but well before "1d".
     const sweepAt = now + 5_000;
-    const fired = await runEffect(sweepDueReminders(tmpDir, sweepAt));
+    const fired = await runEffect(claimDueReminders(tmpDir, sweepAt));
 
-    const firedByAgent = new Map(fired.map((f) => [f.agentId, f.reminder.text]));
+    const firedByAgent = new Map(fired.map((claim) => [claim.agentId, claim.item.text]));
     expect(firedByAgent.get("agent-1")).toBe("due soon agent 1");
     expect(firedByAgent.get("agent-2")).toBe("due soon agent 2");
     expect(fired.length).toBe(2);
+    for (const claim of fired) {
+      await runEffect(settleReminder(tmpDir, claim.agentId, claim.item.id, { delivered: true }));
+    }
 
     const remainingAgent1 = await runEffect(service.list("agent-1"));
     expect(remainingAgent1.map((r) => r.text)).toEqual(["future agent 1"]);
@@ -223,7 +231,7 @@ describe("sweepDueReminders", () => {
 
   test("returns an empty array when the reminders directory does not exist yet", async () => {
     const emptyDir = path.join(tmpDir, "does-not-exist");
-    const fired = await runEffect(sweepDueReminders(emptyDir, Date.now()));
+    const fired = await runEffect(claimDueReminders(emptyDir, Date.now()));
     expect(fired).toEqual([]);
   });
 
@@ -232,7 +240,7 @@ describe("sweepDueReminders", () => {
     const outcome = await runEffect(service.add("agent-1", "1d", "not yet", "UTC"));
     expect(outcome.success).toBe(true);
 
-    const fired = await runEffect(sweepDueReminders(tmpDir, Date.now()));
+    const fired = await runEffect(claimDueReminders(tmpDir, Date.now()));
     expect(fired).toEqual([]);
 
     const list = await runEffect(service.list("agent-1"));
@@ -340,6 +348,20 @@ describe("osScheduler integration", () => {
     expect(calls).toEqual([]);
   });
 
+  test("never calls the os scheduler for an iMessage, WhatsApp or Photon agent id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
+    const service = makeService(scheduler);
+
+    for (const agentId of ["im_7", "wa_15551234567", "wag_120363", "ph_space"]) {
+      const added = await runEffect(service.add(agentId, "30m", "chat reminder", "UTC"));
+      expect(added.success).toBe(true);
+      if (!added.success) return;
+      expect(added.reminder.osSchedulerJobId).toBeUndefined();
+    }
+
+    expect(calls).toEqual([]);
+  });
+
   test("never calls the os scheduler for a Discord-hosted agent id", async () => {
     const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
     const service = makeService(scheduler);
@@ -352,5 +374,68 @@ describe("osScheduler integration", () => {
     await runEffect(service.cancel("dc_67890", added.reminder.id));
 
     expect(calls).toEqual([]);
+  });
+});
+
+describe("damaged and versioned reminder files", () => {
+  test("a torn file is quarantined, never overwritten", async () => {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    await runEffect(service.add("agent1", "2h", "first", "UTC"));
+    await runEffect(service.add("agent1", "3h", "second", "UTC"));
+    const filePath = path.join(tmpDir, "agent1.json");
+    const good = fs.readFileSync(filePath, "utf8");
+    fs.writeFileSync(filePath, good.slice(0, good.length - 40));
+
+    await runEffect(service.add("agent1", "4h", "third", "UTC"));
+
+    const quarantined = fs.readdirSync(tmpDir).filter((name) => name.includes(".corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    const aside = fs.readFileSync(path.join(tmpDir, quarantined[0] as string), "utf8");
+    expect(aside).toContain("second");
+    const current = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    expect(current.schemaVersion).toBe(2);
+    expect(current.reminders.map((reminder: { text: string }) => reminder.text)).toEqual(["third"]);
+  });
+
+  test("refuses a file written by a newer Jazz and leaves it untouched", async () => {
+    const filePath = path.join(tmpDir, "agent1.json");
+    const newer = JSON.stringify({ schemaVersion: 99, reminders: [] });
+    fs.writeFileSync(filePath, newer);
+    const result = await runEither(makeService(makeFakeOsScheduler().scheduler).list("agent1"));
+    expect(result._tag).toBe("Left");
+    expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
+  });
+});
+
+describe("at-least-once delivery", () => {
+  test("a failed desktop notification keeps the reminder with the reason", async () => {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    const outcome = await runEffect(service.add("agent-1", "1s", "stretch", "UTC"));
+    if (!outcome.success) throw new Error("add failed");
+    const claimed = await runEffect(claimReminder(tmpDir, "agent-1", outcome.reminder.id));
+    expect(claimed?.delivery?.status).toBe("firing");
+
+    await runEffect(
+      settleReminder(tmpDir, "agent-1", outcome.reminder.id, {
+        delivered: false,
+        error: "no desktop session",
+        retryable: true,
+      }),
+    );
+    const [kept] = await runEffect(service.list("agent-1"));
+    expect(kept?.delivery).toMatchObject({ status: "failed", lastError: "no desktop session" });
+  });
+
+  test("the sweep leaves agents it does not deliver for untouched", async () => {
+    const service = makeService(makeFakeOsScheduler().scheduler);
+    await runEffect(service.add("tg_42", "1s", "from a chat", "UTC"));
+    const claims = await runEffect(
+      claimDueReminders(tmpDir, Date.now() + 5_000, {
+        includeAgent: (agentId) => !agentId.startsWith("tg_"),
+      }),
+    );
+    expect(claims).toEqual([]);
+    const [pending] = await runEffect(service.list("tg_42"));
+    expect(pending?.delivery).toBeUndefined();
   });
 });

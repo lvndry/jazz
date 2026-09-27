@@ -23,7 +23,9 @@ import type {
   WorkspaceViewOutcome,
 } from "@jazz/core/interfaces/workspace-service";
 import { WorkspaceServiceTag } from "@jazz/core/interfaces/workspace-service";
+import { toError } from "@jazz/core/utils/errors";
 import { getWorkspaceDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
   abbreviateHomePath,
   requireValidAgentId,
@@ -145,11 +147,11 @@ export class WorkspaceServiceImpl implements WorkspaceService {
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseWorkspaceDirectory, agentId);
       yield* fs
-        .makeDirectory(rawRoot, { recursive: true })
-        .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+        .makeDirectory(rawRoot, { recursive: true, mode: stateDirectoryMode() })
+        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: toError,
       });
     });
   }
@@ -191,7 +193,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
         const content = yield* fs
           .readFileString(target)
-          .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
+          .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
         const lines = content.split("\n");
         const totalLines = lines.length;
 
@@ -272,7 +274,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, fileText);
 
           return {
             success: true,
@@ -301,9 +303,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
           if (occurrenceLines.length === 0) {
@@ -333,7 +333,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, updatedContent);
 
           return {
             success: true,
@@ -362,9 +362,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
           const lines = content.split("\n");
 
           if (insertLine < 0 || insertLine > lines.length) {
@@ -390,7 +388,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             );
           }
 
-          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "workspace" });
+          yield* writeFileStringAtomic(target, updatedContent);
 
           return {
             success: true,
@@ -428,9 +426,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           yield* fs
             .remove(target, { recursive: true })
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           return {
             success: true,
@@ -478,15 +474,14 @@ export class WorkspaceServiceImpl implements WorkspaceService {
           }
 
           yield* fs
-            .makeDirectory(path.dirname(destination), { recursive: true })
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .makeDirectory(path.dirname(destination), {
+              recursive: true,
+              mode: stateDirectoryMode(),
+            })
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
           yield* fs
             .rename(source, destination)
-            .pipe(
-              Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-            );
+            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 
           return {
             success: true,
