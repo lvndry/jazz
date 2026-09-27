@@ -7,7 +7,11 @@
  * secrets without each call site knowing it is handling one.
  */
 
-/** Keychain/libsecret service name under which Jazz stores its secrets. */
+/**
+ * Base Keychain/libsecret service name. Each Jazz home stores its secrets under
+ * `jazz.<home hash>` (see `keyringServiceName` in `keyring.ts`); the bare name holds only entries
+ * written before secrets were scoped per home, until the default home adopts them.
+ */
 export const KEYRING_SERVICE_NAME = "jazz";
 
 /**
