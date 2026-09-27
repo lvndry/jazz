@@ -153,8 +153,10 @@ sequenceDiagram
     B->>U: post answer
 ```
 
-Your bridge stores **nothing**. Storage is LRU-bounded per agent (100 conversations), so
-give each external chat its own key and let old ones age out.
+Your bridge stores **nothing**. Each agent keeps its 100 most recently used conversations
+(`history.maxConversationsPerAgent`), so give each external chat its own key and let old ones
+age out: they are archived under `~/.jazz/history/archive/`, not deleted. See
+[sizes and retention](../runtime-data/index.md#sizes-and-retention).
 
 Without `--conversation`, each invocation is a clean slate.
 

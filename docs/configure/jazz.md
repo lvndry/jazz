@@ -96,6 +96,18 @@ Command-line and workflow values override application defaults for that run.
 
 Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../features/long-running-work.md).
 
+## Logs and history retention
+
+| Key                                | Default | Meaning                                                                                  |
+| ---------------------------------- | ------: | ---------------------------------------------------------------------------------------- |
+| `logging.retentionDays`            |    `14` | Days a file in `~/.jazz/logs/` is kept after its last write                              |
+| `logging.maxTotalSizeMB`           |   `200` | Size cap for `~/.jazz/logs/`; the least recently written files are deleted first         |
+| `history.maxConversationsPerAgent` |   `100` | Conversations each agent keeps in its live history; older ones are archived, not deleted |
+
+Individual log files also rotate at 10 MB. Conversations a goal, loop or run still uses are never
+archived. See [sizes and retention](../runtime-data/index.md#sizes-and-retention) for everything
+Jazz keeps on disk and how each part is bounded.
+
 ## Output and notifications
 
 `output.mode` accepts `rendered`, `hybrid`, `raw`, or `quiet`. `JAZZ_OUTPUT_MODE` and `--output` override it. The other output fields control whether reasoning and tool execution are shown and whether completed reasoning collapses.
