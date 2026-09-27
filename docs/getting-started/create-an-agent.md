@@ -1,5 +1,5 @@
 ---
-description: "Configure a Jazz agent for a specific job: system prompt, model, provider, skills, and tool policy: defined in a single AGENT.md file."
+description: "Configure a Jazz agent for a specific job: model, provider, persona, skills, and tool policy, saved as one JSON file per agent."
 ---
 
 # Creating agents

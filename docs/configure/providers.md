@@ -56,7 +56,7 @@ For CI and containers, inject the environment variable from the platform's secre
 
 The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. OpenAI supports this for third-party agents. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
 
-Run `jazz config`, choose **LLM providers**, then **ChatGPT**, and pick how to sign in:
+Run `jazz`, choose **Update configuration**, then **LLM Providers**, then **ChatGPT**, and pick how to sign in:
 
 - **Open a browser on this machine** opens OpenAI's sign-in page and receives the result on `localhost:1455`. Finish or cancel any Codex CLI sign-in first, because it uses the same port.
 - **Enter a code on another device** shows a code to enter at `auth.openai.com/codex/device` from any phone or laptop. Use this over SSH and on servers without a browser.
@@ -65,7 +65,7 @@ Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in whe
 
 The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider. There is no environment variable for this provider, so CI and containers should use `openai` with an API key.
 
-To switch accounts or sign out, choose **ChatGPT** in `jazz config` again.
+To switch accounts or sign out, choose **ChatGPT** under **Update configuration** → **LLM Providers** again.
 
 ## OpenRouter for model portability
 
@@ -120,7 +120,7 @@ ollama serve
 jazz agent create
 ```
 
-The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz agent create` uses Ollama, it asks for the server URL and saves it; override it later with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or the `jazz config` → **LLM Providers** wizard, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
+The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz agent create` uses Ollama, it asks for the server URL and saves it; override it later with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or **Update configuration** → **LLM Providers** in the `jazz` home menu, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
 
 ```json
 {
@@ -141,7 +141,7 @@ Models tagged `:cloud` or `-cloud` execute through Ollama Cloud and need `OLLAMA
 
 ## llama.cpp
 
-Jazz connects to `llama-server` through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use the `jazz config` → **LLM Providers** wizard (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key`; when it answers 401, `jazz agent create` asks for the key, and `jazz config` → **LLM Providers** can set it.
+Jazz connects to `llama-server` through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use **Update configuration** → **LLM Providers** in the `jazz` home menu (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key`; when it answers 401, `jazz agent create` asks for the key, and **Update configuration** → **LLM Providers** can set it.
 
 ```bash
 llama-server -m /models/model.gguf --jinja --port 8080
@@ -152,7 +152,7 @@ Use `--jinja` when the model should call tools. Jazz reads `/props` for context 
 
 ## vLLM
 
-Use the separate `vllm` provider for a vLLM server. Its default base URL is `http://127.0.0.1:8000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.vllm.base_url`; you can also set `VLLM_BASE_URL` or use `jazz config` → **LLM Providers**. Jazz reads `/v1/models`: it selects the sole served ID automatically, or asks you to choose when the server lists several. On each run, Jazz refreshes the model list and uses the saved ID while it is still listed; if it disappears, Jazz uses the first live ID and its context window. Configure `llm.vllm.api_key` or `VLLM_API_KEY` if the server uses `--api-key`; an authorization error during agent creation prompts for the key.
+Use the separate `vllm` provider for a vLLM server. Its default base URL is `http://127.0.0.1:8000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.vllm.base_url`; you can also set `VLLM_BASE_URL` or use **Update configuration** → **LLM Providers** in the `jazz` home menu. Jazz reads `/v1/models`: it selects the sole served ID automatically, or asks you to choose when the server lists several. On each run, Jazz refreshes the model list and uses the saved ID while it is still listed; if it disappears, Jazz uses the first live ID and its context window. Configure `llm.vllm.api_key` or `VLLM_API_KEY` if the server uses `--api-key`; an authorization error during agent creation prompts for the key.
 
 ```bash
 vllm serve <model> --port 8000
@@ -163,7 +163,7 @@ Jazz uses vLLM's OpenAI-compatible chat API. Tool calls require a compatible mod
 
 ## SGLang
 
-Use the `sglang` provider for an SGLang server. The default base URL is `http://127.0.0.1:30000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.sglang.base_url`; `SGLANG_BASE_URL` and `jazz config` → **LLM Providers** also work. Jazz discovers current IDs from `/v1/models`, selecting the sole model automatically or offering a picker for multiple IDs such as loaded LoRA adapters. At the start of each run it keeps the saved ID if still served, otherwise uses the first current ID. It also reads the live `max_model_len` for context accounting; a LoRA card without a length inherits its listed base model's length.
+Use the `sglang` provider for an SGLang server. The default base URL is `http://127.0.0.1:30000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.sglang.base_url`; `SGLANG_BASE_URL` and **Update configuration** → **LLM Providers** in the `jazz` home menu also work. Jazz discovers current IDs from `/v1/models`, selecting the sole model automatically or offering a picker for multiple IDs such as loaded LoRA adapters. At the start of each run it keeps the saved ID if still served, otherwise uses the first current ID. It also reads the live `max_model_len` for context accounting; a LoRA card without a length inherits its listed base model's length.
 
 ```bash
 python -m sglang.launch_server --model-path <model> --port 30000

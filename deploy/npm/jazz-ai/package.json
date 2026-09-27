@@ -1,7 +1,7 @@
 {
   "name": "jazz-ai",
   "version": "0.0.0-placeholder",
-  "description": "One agent. Every surface. Your rules.",
+  "description": "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps.",
   "license": "MIT",
   "bin": {
     "jazz": "./bin/jazz"

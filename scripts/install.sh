@@ -49,7 +49,7 @@ detect_asset() {
   case "$arch" in
     x86_64 | amd64) arch="x64" ;;
     arm64 | aarch64) arch="arm64" ;;
-    *) fail "Unsupported architecture: $arch. Install from npm instead: npm install -g jazz-ai" ;;
+    *) fail "Unsupported architecture: $arch. Jazz ships binaries for x86_64 and arm64 only, on npm as well as here." ;;
   esac
 
   case "$os" in
@@ -60,7 +60,7 @@ detect_asset() {
         libc="-musl"
       fi
       ;;
-    *) fail "Unsupported operating system: $os. Install from npm instead: npm install -g jazz-ai" ;;
+    *) fail "Unsupported operating system: $os. Jazz runs on macOS and Linux. On Windows, run this installer inside WSL2: https://learn.microsoft.com/windows/wsl/install" ;;
   esac
 
   printf 'jazz-%s-%s%s' "$os" "$arch" "$libc"

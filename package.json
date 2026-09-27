@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/lvndry/jazz/issues"
   },
-  "description": "One agent. Every surface. Your rules.",
+  "description": "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps.",
   "engines": {
     "bun": ">=1.4.0",
     "node": ">=22.16.0",

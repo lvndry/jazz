@@ -16,7 +16,7 @@ jazz config set scheduler.mode in-process   # persists across restarts
 JAZZ_SCHEDULER=in-process jazz daemon
 ```
 
-You can also flip this from **Scheduler** in `jazz config`. See
+You can also flip this from **Update configuration** → **Scheduler** in the `jazz` home menu. See
 [Configuration → `scheduler`](../configure/jazz.md#scheduling) for both settings.
 
 A scheduled run is a [workflow](../concepts/workflows.md) handed to your OS scheduler.

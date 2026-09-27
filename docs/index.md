@@ -13,7 +13,7 @@ curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | 
 jazz
 ```
 
-The first run asks you to choose a model provider and creates an agent. You can then ask it to inspect files, work with git, read the web, or create artifacts. See the [quick start](./getting-started/quick-start.md) for the complete first session.
+The first run opens a home menu; choose **Create agent** to pick a model provider and name your agent. You can then ask it to inspect files, work with git, read the web, or create artifacts. See the [quick start](./getting-started/quick-start.md) for the complete first session.
 
 ## Choose what you need
 
