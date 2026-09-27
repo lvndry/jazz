@@ -354,7 +354,7 @@ export function runWorkflowCommand(
         yield* markFailed(errorMessage);
         if (isSchedulerTriggered) {
           yield* notifyWorkflowNotRun({
-            notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+            config: yield* (yield* AgentConfigServiceTag).appConfig,
             workflow: workflowName,
             deliver: workflow.metadata.deliver,
             agentId: agentIdentifier,
@@ -502,7 +502,7 @@ export function runWorkflowCommand(
     );
 
     yield* deliverWorkflowResult({
-      notifications: (yield* (yield* AgentConfigServiceTag).appConfig).notifications,
+      config: yield* (yield* AgentConfigServiceTag).appConfig,
       workflow: workflowName,
       deliver: workflow.metadata.deliver,
       agentId: agent.id,

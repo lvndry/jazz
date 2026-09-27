@@ -54,7 +54,7 @@ You must be able to add bots on that server (owner, or Manage Server).
 
 Open this URL in a browser, replacing `YOUR_APP_ID` with the Client ID from step 1:
 
-```
+```text
 https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applications.commands&permissions=311385246720
 ```
 
@@ -146,9 +146,9 @@ thought, and that message is replaced when the answer lands, so the full
 reasoning follows the answer as **Reasoning** spoilers you click to reveal.
 Very long runs are split across a few spoilers, and the last one says how much
 was left out; set `JAZZ_DISCORD_SHOW_REASONING=0` to drop them.
-Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
+Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per local day, from the spend ledger in the bridge's `JAZZ_HOME` (0 = no cap).
 If a completed run has no pricing metadata, its exact cost cannot be capped;
-the bot records it as unpriced and pauses later requests until the next UTC day.
+the bot records it as unpriced and pauses later requests until the next local day.
 
 **Servers vs DMs.** In a server the bot only answers when mentioned, when you
 reply to it, or in a thread it already joined (`DISCORD_REQUIRE_MENTION=1`,
@@ -196,7 +196,7 @@ they only set what a brand-new conversation starts on.
 | `JAZZ_APPROVAL_POLICY`        | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. This is what "safe" means for the deployment; a conversation on `/mode mode:yolo` runs at `high-risk` instead.                                                                                          |
 | `JAZZ_AUTO_APPROVE_TOOLS`     | none                                    | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
 | `JAZZ_RUN_TIMEOUT_MS`         | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
-| `JAZZ_DAILY_COST_CAP_USD`     | `0`                                     | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap.                                                                                                                                        |
+| `JAZZ_DAILY_COST_CAP_USD`     | `0`                                     | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the local day; `0` disables the cap.                                                                                                                                      |
 | `DISCORD_PUBLIC_BASE_URL`     | unset                                   | Public HTTPS origin used to link `create_composition`'s interactive pages. Unset disables interactive mode (static/image mode always works).                                                                                                                            |
 | `PUPPETEER_EXECUTABLE_PATH`   | `/usr/bin/chromium`                     | Browser used to screenshot `create_composition`'s static mode.                                                                                                                                                                                                          |
 

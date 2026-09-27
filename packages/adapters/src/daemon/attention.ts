@@ -6,8 +6,9 @@
  * or file, a goal stopped for review or at its cycle cap, a loop that stopped. `GET /waiting`,
  * `jazz daemon status`, the notifier, and `GET /events` all read it. `daemonGate` is asked before
  * the daemon starts any work of its own; it pauses the daemon once today's unattended spend
- * reaches a daily cap. `announceWaiting`, run every tick, tells the person about each new item
- * and about a pause, through the channels in `daemon.notify`.
+ * reaches a daily cap (read from the spend ledger). `announceWaiting`, run every tick, tells the
+ * person about each new item and about a pause, by queueing them on the `notify` targets'
+ * outbox (`notify/outbox.ts`), which delivers and retries them.
  */
 
 import type { GoalRecord } from "@jazz/core/agent/goal/goal-record";
@@ -15,30 +16,27 @@ import type { LoopRecord } from "@jazz/core/agent/loop/loop-record";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import {
   capLifted,
-  dailyCapReached,
   keepNotified,
   newlyWaiting,
+  parkedRunWaitingItem,
   pauseInForce,
   startOfNextLocalDay,
-  unattendedSpendToday,
   type DaemonPause,
-  type UnattendedSpend,
   type WaitingItem,
 } from "@jazz/core/daemon/attention";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import type { NotifyEvent } from "@jazz/core/notify/events";
+import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
+import { capStatuses, reachedMachineDailyCap, unattendedSpend } from "@jazz/core/spend/caps";
+import { readSpend } from "@jazz/core/spend/ledger";
 import type { AppConfig } from "@jazz/core/types/config";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
-import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { listOwnedGoals } from "@jazz/adapters/goals/goal-actions";
 import { listOwnedLoops } from "@jazz/adapters/loops/loop-actions";
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { readDaemonState, updateDaemonState } from "@jazz/adapters/storage/daemon-state-store";
-import { describePending } from "./resume-owned-run";
-
-/** How long a push to ntfy or a webhook may take before it is given up on. */
-const PUSH_TIMEOUT_MS = 10_000;
 
 /**
  * The configuration as the file says now: a long-lived daemon rereads it when it changed, so a
@@ -66,41 +64,16 @@ function runItem(
   const loop = owners.loops.find((candidate) => candidate.run?.runId === run.runId);
   const who =
     goal !== undefined ? goalLabel(goal) : loop !== undefined ? `Loop ${loop.name}` : "A run";
-  const described = describePending(pending);
-  const common = {
-    since: run.updatedAt,
+  return parkedRunWaitingItem({
     runId: run.runId,
     agentId: run.agentId,
+    pending,
+    since: run.updatedAt,
+    who,
     conversationId: goal?.sourceConversationId ?? loop?.sourceConversationId ?? run.conversationId,
     ...(goal !== undefined ? { goalId: goal.goalId } : {}),
     ...(loop !== undefined ? { loopId: loop.loopId } : {}),
-  };
-  switch (pending.kind) {
-    case "tool-approval":
-      return {
-        ...common,
-        key: `run:${run.runId}:${pending.request.toolCallId}`,
-        kind: "approval",
-        title: `${who} wants to use ${pending.request.toolName}`,
-        detail: described,
-      };
-    case "question":
-      return {
-        ...common,
-        key: `run:${run.runId}:${pending.toolCallId}`,
-        kind: "question",
-        title: `${who} has a question`,
-        detail: described,
-      };
-    case "file-picker":
-      return {
-        ...common,
-        key: `run:${run.runId}:${pending.toolCallId}`,
-        kind: "file",
-        title: `${who} needs a file`,
-        detail: described,
-      };
-  }
+  });
 }
 
 function goalItem(goal: GoalRecord): WaitingItem | undefined {
@@ -189,13 +162,16 @@ export function listWaiting(now: Date = new Date()) {
   });
 }
 
-/** What unattended runs have spent since local midnight. */
-export function spendToday(now: Date = new Date()) {
-  return Effect.flatMap(RunStoreTag, (runs) =>
-    Effect.map(runs.list({ includeTerminal: true }), (records) =>
-      unattendedSpendToday(records, now),
-    ),
+/** The spend ledger now, and what unattended runs spent since local midnight. */
+function ledgerSpend(now: Date) {
+  return readSpend(now.getTime()).pipe(
+    Effect.map((spend) => ({ spend, today: unattendedSpend(spend.today) })),
   );
+}
+
+/** What unattended runs have spent since local midnight, from the spend ledger. */
+export function spendToday(now: Date = new Date()) {
+  return Effect.map(ledgerSpend(now), ({ today }) => today);
 }
 
 export type DaemonGate =
@@ -226,7 +202,8 @@ export function daemonGate(now: Date = new Date()) {
       return gate;
     }
     const config = yield* liveConfig();
-    const limit = dailyCapReached(config.daemon, yield* spendToday(now));
+    const { spend } = yield* ledgerSpend(now);
+    const limit = reachedMachineDailyCap(config.daemon, spend);
     if (limit === undefined) {
       const gate: DaemonGate = { kind: "open" };
       return gate;
@@ -265,75 +242,16 @@ export function resumeDaemon(now: Date = new Date()) {
   );
 }
 
-export interface Announcement {
-  readonly title: string;
-  readonly body: string;
-  /** For a webhook: what happened, and the item or pause it is about. */
-  readonly event:
-    | { readonly type: "waiting"; readonly item: WaitingItem }
-    | { readonly type: "paused"; readonly pause: DaemonPause; readonly spend: UnattendedSpend };
-}
-
-function postWithin(url: string, init: RequestInit) {
-  return Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(PUSH_TIMEOUT_MS) });
-      if (!response.ok) {
-        throw new Error(`${url} answered ${String(response.status)}`);
-      }
-    },
-    catch: toError,
-  });
-}
-
-/**
- * Deliver one announcement through every configured channel. A channel that fails is logged and
- * skipped; one broken webhook must not keep a desktop notification from arriving.
- */
-export function announce(config: AppConfig, announcement: Announcement) {
-  return Effect.gen(function* () {
-    const logger = yield* LoggerServiceTag;
-    const notify = config.daemon?.notify;
-    const warn = (channel: string) => (error: Error) =>
-      logger.warn("Could not deliver a daemon notification", { channel, error: error.message });
-    if (notify?.desktop !== false && config.notifications?.enabled !== false) {
-      yield* sendDesktopNotification(announcement.title, announcement.body);
-    }
-    if (notify?.ntfyUrl !== undefined) {
-      yield* postWithin(notify.ntfyUrl, {
-        method: "POST",
-        headers: { Title: announcement.title, Tags: "jazz" },
-        body: announcement.body,
-      }).pipe(Effect.catchAll(warn("ntfy")));
-    }
-    if (notify?.webhookUrl !== undefined) {
-      yield* postWithin(notify.webhookUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: announcement.title,
-          body: announcement.body,
-          ...announcement.event,
-        }),
-      }).pipe(Effect.catchAll(warn("webhook")));
-    }
-  });
-}
-
-/** How to answer an item from a shell, for a notification body. */
-function answerHint(item: WaitingItem): string {
-  if (item.runId !== undefined && (item.kind === "approval" || item.kind === "question")) {
-    return item.kind === "approval"
-      ? `jazz runs approve ${item.runId} (or reject)`
-      : `jazz runs answer ${item.runId} --response "<your answer>"`;
-  }
-  if (item.goalId !== undefined) {
-    return `jazz goal show ${item.goalId.slice(0, 8)}`;
-  }
-  if (item.loopId !== undefined) {
-    return `jazz loop show ${item.loopId.slice(0, 8)}`;
-  }
-  return "open jazz";
+/** Queue one event on the `notify` targets, once per key. A failure to queue is logged. */
+function queueAnnouncement(config: AppConfig, event: NotifyEvent, dedupeKey: string) {
+  return enqueueNotification(notifyTargets(config), event, { dedupeKey }).pipe(
+    Effect.map((result) => result.queued.length > 0),
+    Effect.catchAll((error) =>
+      Effect.flatMap(LoggerServiceTag, (logger) =>
+        logger.warn("Could not queue a daemon notification", { error: error.message }),
+      ).pipe(Effect.as(false)),
+    ),
+  );
 }
 
 /**
@@ -346,22 +264,23 @@ export function announceWaiting(now: Date = new Date()) {
     const state = yield* readDaemonState();
     const items = yield* listWaiting(now);
     const fresh = newlyWaiting(items, state.notified);
+    let queued = false;
     for (const item of fresh) {
-      yield* announce(config, {
-        title: item.title,
-        body: `${item.detail}\n${answerHint(item)}`,
-        event: { type: "waiting", item },
-      });
+      queued = (yield* queueAnnouncement(config, { kind: "waiting", item }, item.key)) || queued;
     }
     const pause = pauseInForce(state, now);
     const pauseKey = pause?.kind === "daily-cap" ? `pause:${pause.at}` : undefined;
     const announcePause = pauseKey !== undefined && state.notified[pauseKey] === undefined;
-    if (announcePause && pause !== undefined) {
-      yield* announce(config, {
-        title: "Jazz paused its background work",
-        body: describePause(pause),
-        event: { type: "paused", pause, spend: yield* spendToday(now) },
-      });
+    if (announcePause && pause !== undefined && pauseKey !== undefined) {
+      queued =
+        (yield* queueAnnouncement(
+          config,
+          { kind: "paused", pause, reason: describePause(pause) },
+          pauseKey,
+        )) || queued;
+    }
+    if (queued) {
+      yield* drainNotifyOutbox();
     }
     if (fresh.length === 0 && !announcePause) {
       return fresh;
@@ -386,10 +305,11 @@ export function daemonStatusSnapshot(now: Date = new Date()) {
     const config = yield* liveConfig();
     const state = yield* readDaemonState();
     const pause = pauseInForce(state, now);
-    const spend = yield* spendToday(now);
+    const ledger = yield* ledgerSpend(now);
+    const spend = ledger.today;
     const capReached =
       pause === undefined && !capLifted(state, now)
-        ? dailyCapReached(config.daemon, spend)
+        ? reachedMachineDailyCap(config.daemon, ledger.spend)
         : undefined;
     return {
       paused: pause ?? null,
@@ -407,6 +327,7 @@ export function daemonStatusSnapshot(now: Date = new Date()) {
           : {}),
         ...(config.daemon?.dailyTokens !== undefined ? { tokens: config.daemon.dailyTokens } : {}),
       },
+      caps: capStatuses(config.daemon, ledger.spend),
       capLiftedToday: capLifted(state, now),
       waiting: yield* listWaiting(now),
     };

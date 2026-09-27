@@ -42,7 +42,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { SPEND_LEDGER_ENV, SPEND_RECORDED_BY_PARENT } from "@jazz/core/spend/ceilings";
+import { SPEND_LEDGER_ENV, SPEND_RECORDED_BY_PARENT } from "@jazz/core/spend/caps";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { applyBridgeConfigFile } from "./bridge-config-file";
 

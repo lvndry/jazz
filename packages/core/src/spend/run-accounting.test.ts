@@ -1,13 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Cause, Effect, Exit } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
+import { daemonStatePath } from "@/core/daemon/daemon-state";
 import { OUTBOX_FILE_KIND, outboxDirectory, outboxFilePath } from "@/core/notify/outbox";
 import type { AppConfig } from "@/core/types/config";
 import { readStateFile } from "@/core/utils/state-file";
-import { SPEND_LEDGER_ENV, SpendCeilingReachedError } from "./ceilings";
+import { SPEND_LEDGER_ENV, SpendCapReachedError } from "./caps";
 import { readSpend, recordSpend } from "./ledger";
 import { guardRunStart, type RunAccountingInput, settleRunAccounting } from "./run-accounting";
 
@@ -26,16 +28,17 @@ function temporaryHome(): string {
   return home;
 }
 
-const CHANNELS = { phone: { type: "telegram", chatId: "1" } } as const;
+const TARGETS = [{ name: "phone", kind: "telegram", chatId: "1" }] as const;
 
 function input(home: string, overrides: Partial<RunAccountingInput> = {}): RunAccountingInput {
   return {
     agentId: "agent",
     origin: { source: "workflow", name: "brief" },
     internal: false,
+    unattended: true,
     appConfig: {
-      spend: { dayUSD: 1 },
-      notifications: { channels: CHANNELS },
+      daemon: { dailyCostUSD: 1 },
+      notify: { targets: TARGETS },
     } as unknown as AppConfig,
     freeLocalModel: false,
     home,
@@ -54,36 +57,68 @@ function queued(home: string) {
 function spendOne(home: string, costUSD: number) {
   return Effect.runPromise(
     recordSpend(
-      { agentId: "agent", source: "workflow", costUSD, costKnown: true, tokens: 1 },
+      {
+        agentId: "agent",
+        source: "workflow",
+        costUSD,
+        costKnown: true,
+        tokens: 1,
+        unattended: true,
+      },
       home,
     ),
   );
 }
 
 describe("guardRunStart", () => {
-  it("refuses an unattended run once a ceiling is reached, and notifies once per window", async () => {
+  it("refuses an unattended run once a cap is reached, and notifies once per window", async () => {
     const home = temporaryHome();
     await spendOne(home, 1);
 
     const first = await Effect.runPromise(Effect.either(guardRunStart(input(home))));
     const second = await Effect.runPromise(Effect.either(guardRunStart(input(home))));
 
-    expect(first._tag === "Left" && first.left instanceof SpendCeilingReachedError).toBe(true);
+    expect(first._tag === "Left" && first.left instanceof SpendCapReachedError).toBe(true);
     expect(second._tag).toBe("Left");
     const items = await queued(home);
-    expect(items.map((item) => item.event.kind)).toEqual(["spend-ceiling"]);
+    expect(items.map((item) => item.event.kind)).toEqual(["spend-cap"]);
   });
 
-  it("lets chat through with the check, so the chat can warn", async () => {
+  it("lets an attended run through with the check, so the chat can warn", async () => {
     const home = temporaryHome();
     await spendOne(home, 1);
 
     const check = await Effect.runPromise(
-      guardRunStart(input(home, { origin: { source: "chat" } })),
+      guardRunStart(input(home, { origin: { source: "chat" }, unattended: false })),
     );
 
     expect(check.kind).toBe("reached");
     expect(await queued(home)).toEqual([]);
+  });
+
+  it("honors `jazz daemon resume` lifting the machine daily cap for today", async () => {
+    const home = temporaryHome();
+    await spendOne(home, 1);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    writeFileSync(
+      daemonStatePath(home),
+      JSON.stringify({ capLiftedUntil: tomorrow, notified: {} }),
+    );
+
+    const check = await Effect.runPromise(guardRunStart(input(home)));
+
+    expect(check.kind).toBe("clear");
+  });
+
+  it("never refuses a run answering a parked one", async () => {
+    const home = temporaryHome();
+    await spendOne(home, 1);
+
+    const check = await Effect.runPromise(
+      guardRunStart(input(home, { origin: { source: "resume" } })),
+    );
+
+    expect(check.kind).toBe("clear");
   });
 
   it("skips the check for a run whose parent records it", async () => {
@@ -100,7 +135,7 @@ describe("guardRunStart", () => {
 describe("settleRunAccounting", () => {
   const spend = { costUSD: 0.2, costIncomplete: false, totalTokens: 40 };
 
-  it("records a failed run's cost and tells the channel it failed", async () => {
+  it("records a failed run's cost and tells the targets it failed", async () => {
     const home = temporaryHome();
 
     await Effect.runPromise(
@@ -118,7 +153,7 @@ describe("settleRunAccounting", () => {
     });
   });
 
-  it("asks for an approval when an unattended run parks", async () => {
+  it("announces a parked run as waiting, with the key the daemon's tick uses", async () => {
     const home = temporaryHome();
     const park = new RunParkRequested({
       pending: {
@@ -139,10 +174,14 @@ describe("settleRunAccounting", () => {
 
     const items = await queued(home);
     expect(items[0]?.event).toMatchObject({
-      kind: "approval-needed",
-      runId: "run-2",
-      pending: "tool-approval",
-      request: "execute_command: rm -rf build",
+      kind: "waiting",
+      item: {
+        key: "run:run-2:call-1",
+        kind: "approval",
+        runId: "run-2",
+        title: "Workflow brief wants to use execute_command",
+        detail: "rm -rf build",
+      },
     });
   });
 
@@ -151,7 +190,7 @@ describe("settleRunAccounting", () => {
 
     await Effect.runPromise(
       settleRunAccounting(
-        input(home, { origin: { source: "chat" } }),
+        input(home, { origin: { source: "chat" }, unattended: false }),
         spend,
         Exit.failCause(Cause.fail(new Error("nope"))),
         "run-3",
@@ -175,5 +214,6 @@ describe("settleRunAccounting", () => {
 
     const ledger = await Effect.runPromise(readSpend(Date.now(), home));
     expect(ledger.today.total.unpricedRuns).toBe(0);
+    expect(ledger.today.unattended.runs).toBe(1);
   });
 });

@@ -304,11 +304,11 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
-    const notifications = (yield* (yield* AgentConfigServiceTag).appConfig).notifications;
+    const notifyConfig = yield* (yield* AgentConfigServiceTag).appConfig;
     const { entry, workflow, record } = claim;
     const notifyNotRun = (error: string) =>
       notifyWorkflowNotRun({
-        notifications,
+        config: notifyConfig,
         workflow: entry.workflowName,
         deliver: workflow.deliver,
         agentId: entry.agent,
@@ -379,7 +379,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
       Effect.tap(() => finish({ status: "completed" })),
       Effect.tap((response) =>
         deliverWorkflowResult({
-          notifications,
+          config: notifyConfig,
           workflow: entry.workflowName,
           deliver: workflow.deliver,
           agentId: agentResult.right.id,

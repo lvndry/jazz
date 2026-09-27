@@ -1,65 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import {
   capLifted,
-  dailyCapReached,
   keepNotified,
   newlyWaiting,
   parseDaemonState,
   pauseInForce,
   startOfNextLocalDay,
-  unattendedSpendToday,
   type WaitingItem,
 } from "./attention";
 
 const NOW = new Date(2026, 8, 27, 15, 0, 0);
 const TODAY = new Date(2026, 8, 27, 9, 0, 0).toISOString();
-const YESTERDAY = new Date(2026, 8, 26, 23, 30, 0).toISOString();
-
-describe("unattendedSpendToday", () => {
-  it("sums unattended runs started since local midnight, never a chat's", () => {
-    expect(
-      unattendedSpendToday(
-        [
-          { unattended: true, createdAt: TODAY, totalTokens: 1_000, costUSD: 0.5 },
-          { unattended: true, createdAt: TODAY, totalTokens: 500, costUSD: 0.25 },
-          { unattended: true, createdAt: YESTERDAY, totalTokens: 9_000, costUSD: 9 },
-          { createdAt: TODAY, totalTokens: 9_000, costUSD: 9 },
-        ],
-        NOW,
-      ),
-    ).toEqual({ runs: 2, totalTokens: 1_500, costUSD: 0.75, costKnown: true });
-  });
-
-  it("stops knowing the cost once one counted run has no price", () => {
-    const spend = unattendedSpendToday(
-      [
-        { unattended: true, createdAt: TODAY, totalTokens: 1_000, costUSD: 0.5 },
-        { unattended: true, createdAt: TODAY, totalTokens: 1_000 },
-      ],
-      NOW,
-    );
-    expect(spend.costKnown).toBe(false);
-    expect(spend.costUSD).toBeUndefined();
-  });
-});
-
-describe("dailyCapReached", () => {
-  const spend = { runs: 3, totalTokens: 10_000, costUSD: 2, costKnown: true };
-
-  it("is reached at the dollar cap only while the cost is known", () => {
-    expect(dailyCapReached({ dailyCostUSD: 2 }, spend)).toBe("cost");
-    expect(dailyCapReached({ dailyCostUSD: 3 }, spend)).toBeUndefined();
-    expect(
-      dailyCapReached({ dailyCostUSD: 1 }, { runs: 3, totalTokens: 10_000, costKnown: false }),
-    ).toBeUndefined();
-  });
-
-  it("is reached at the token cap, and never without a cap", () => {
-    expect(dailyCapReached({ dailyTokens: 10_000 }, spend)).toBe("tokens");
-    expect(dailyCapReached(undefined, spend)).toBeUndefined();
-    expect(dailyCapReached({}, spend)).toBeUndefined();
-  });
-});
 
 describe("the daemon's pause", () => {
   it("keeps a pause by the user until it is lifted", () => {

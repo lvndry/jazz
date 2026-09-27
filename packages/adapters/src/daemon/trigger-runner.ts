@@ -17,7 +17,7 @@
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import type { WakeTriggerRecord } from "@jazz/core/interfaces/wake-trigger-service";
-import { enqueueNotification } from "@jazz/core/notify/outbox";
+import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
 import { compactSpendLedger } from "@jazz/core/spend/ledger";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
@@ -112,15 +112,15 @@ export function deliverWakeTrigger(agentId: string, trigger: WakeTriggerRecord) 
   });
 }
 
-/** What a reminder records when it could be shown neither on the desktop nor on a channel. */
+/** What a reminder records when it could be shown neither on the desktop nor on a notify target. */
 const REMINDER_UNDELIVERABLE =
-  "No desktop notification could be shown (no notifier installed, or no desktop session on this host), and no notify channel takes reminders.";
+  "No desktop notification could be shown (no notifier installed, or no desktop session on this host), and no notify target takes reminders.";
 
 /**
  * Deliver a claimed reminder and settle the claim. The desktop comes first; when nothing can be
  * shown there (a headless host, a system service with no desktop session), the reminder is
- * handed to every notify channel that takes reminders. The outbox retries a channel that is
- * down, so a reminder handed over is delivered. With no desktop and no channel, the reminder
+ * handed to every notify target that takes reminders. The outbox retries a target that is
+ * down, so a reminder handed over is delivered. With no desktop and no target, the reminder
  * stays on disk as failed with that reason instead of being consumed unseen.
  */
 export function deliverReminder(agentId: string, reminder: ReminderRecord) {
@@ -128,7 +128,7 @@ export function deliverReminder(agentId: string, reminder: ReminderRecord) {
     const shown = yield* sendDesktopNotification("Jazz reminder", reminder.text).pipe(
       Effect.catchAll(() => Effect.succeed(false)),
     );
-    const handedOff = shown ? false : yield* handReminderToChannels(agentId, reminder);
+    const handedOff = shown ? false : yield* handReminderToTargets(agentId, reminder);
     const outcome: DeliveryOutcome =
       shown || handedOff
         ? { delivered: true }
@@ -141,14 +141,14 @@ export function deliverReminder(agentId: string, reminder: ReminderRecord) {
   });
 }
 
-function handReminderToChannels(agentId: string, reminder: ReminderRecord) {
+function handReminderToTargets(agentId: string, reminder: ReminderRecord) {
   return Effect.gen(function* () {
     const config = yield* AgentConfigServiceTag;
     const appConfig = yield* config.appConfig;
     const result = yield* enqueueNotification(
-      appConfig.notifications?.channels,
+      notifyTargets(appConfig),
       { kind: "reminder", agentId, text: reminder.text, fireAt: reminder.fireAt },
-      { excludeTypes: ["desktop"] },
+      { excludeKinds: ["desktop"] },
     ).pipe(
       Effect.catchAll((error) =>
         Effect.sync(() => {
@@ -324,6 +324,16 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
       );
     }
 
+    // Telling the person and keeping the books are not new work: a paused daemon still sends
+    // what it queued (including the notice that it paused) and compacts the ledger.
+    yield* forkOnce(
+      "notifications",
+      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
+    );
+    yield* forkOnce(
+      "spend ledger",
+      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
+    );
     if (!startNew) {
       return;
     }
@@ -334,14 +344,6 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
     yield* forkOnce(
       "job batches",
       work.drainJobBatches.pipe(Effect.catchAllCause(reportFailure("jobs"))),
-    );
-    yield* forkOnce(
-      "notifications",
-      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
-    );
-    yield* forkOnce(
-      "spend ledger",
-      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
     );
   });
 }

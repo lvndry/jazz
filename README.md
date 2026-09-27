@@ -21,7 +21,7 @@ Install it once and it runs everywhere. A terminal REPL, a one-shot command insi
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
 Discord bot on a server you own. Same agent, same tools, same memory. In a bot conversation it
 asks you right there when a job needs your permission; anywhere else it parks the job and tells
-you on your phone through a [notify channel](docs/configure/notifications.md), where you can
+you on your phone through a [notify target](docs/configure/notifications.md), where you can
 approve it from chat.
 
 23 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and

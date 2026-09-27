@@ -1,7 +1,12 @@
 /**
  * @fileoverview What `AgentRunner.run` does about money and about you, around every top-level
- * run: check the spend ceilings before it starts, record what it cost when it ends, and tell
- * the notify channel when it parks on a person or fails with nobody watching.
+ * run: check the `daemon` spend caps before it starts, record what it cost in the ledger when it
+ * ends, and tell the `notify` targets when it parks on a person or fails with nobody watching.
+ *
+ * A run is unattended when nobody could be asked while it runs (no presentation that can
+ * prompt): only those count toward the caps, only those are refused at one, and only their
+ * failures are notified. A run answering a parked one (`resume`) is never refused: that is the
+ * person acting on what already waits.
  *
  * Sub-agent and other internal runs are skipped: their cost is folded into the parent run's
  * total, which is recorded once. So is a run whose parent process records it from the run's
@@ -10,22 +15,24 @@
 
 import { Cause, Effect, Exit, Option } from "effect";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
-import type { PendingInput } from "@/core/agent/run/run-state";
+import { capLifted, parkedRunWaitingItem } from "@/core/daemon/attention";
+import { daemonStatePath, readDaemonStateFile } from "@/core/daemon/daemon-state";
 import type { NotifyEvent } from "@/core/notify/events";
-import { enqueueNotification } from "@/core/notify/outbox";
+import { enqueueNotification, notifyTargets } from "@/core/notify/outbox";
 import type { AppConfig } from "@/core/types/config";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import { toError } from "@/core/utils/errors";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
-  type CeilingCheck,
-  ceilingWindowKey,
-  checkSpendCeilings,
-  describeCeilingCheck,
+  type CapCheck,
+  capWindowKey,
+  checkSpendCaps,
+  describeCapCheck,
   isSpendRecordedByParent,
-  SpendCeilingReachedError,
-} from "./ceilings";
+  SpendCapReachedError,
+} from "./caps";
 import { localDayKey, localMonthKey, recordSpend } from "./ledger";
-import { isUnattendedSource, type RunOrigin } from "./sources";
+import type { RunOrigin } from "./sources";
 
 /**
  * A run's spend on exit: the dollars (undefined until something was priced), whether any of
@@ -41,43 +48,24 @@ export interface RunAccountingInput {
   readonly agentId: string;
   readonly origin: RunOrigin;
   readonly internal: boolean;
+  /** Nobody can be asked while this run works. */
+  readonly unattended: boolean;
   readonly appConfig: AppConfig;
   /** Whether the run's model is a free local one, so an unpriced run still costs nothing. */
   readonly freeLocalModel: boolean;
-  /** The Jazz home whose ledger and outbox are used; defaults to this process's. */
+  /** The Jazz home whose ledger, outbox and daemon state are used; defaults to this process's. */
   readonly home?: string;
 }
 
-function deliverTo(input: RunAccountingInput): { readonly channels?: readonly string[] } {
-  return input.origin.deliverTo === undefined ? {} : { channels: input.origin.deliverTo };
+function enqueueOptions(input: RunAccountingInput) {
+  return {
+    ...(input.origin.deliverTo !== undefined ? { targets: input.origin.deliverTo } : {}),
+    ...(input.home !== undefined ? { home: input.home } : {}),
+  };
 }
 
 function shouldAccount(input: RunAccountingInput): boolean {
   return !input.internal && !isSpendRecordedByParent();
-}
-
-/** Tell the notify channel once per ceiling and window that a run was refused. */
-function notifyCeiling(
-  input: RunAccountingInput,
-  check: Exclude<CeilingCheck, { kind: "clear" }>,
-): Effect.Effect<void> {
-  const now = Date.now();
-  const event: NotifyEvent = {
-    kind: "spend-ceiling",
-    source: input.origin.source,
-    agentId: input.agentId,
-    ...(input.origin.name !== undefined ? { name: input.origin.name } : {}),
-    message: describeCeilingCheck(check),
-  };
-  return enqueueNotification(input.appConfig.notifications?.channels, event, {
-    dedupeKey: ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) }),
-    now,
-    ...deliverTo(input),
-    ...(input.home !== undefined ? { home: input.home } : {}),
-  }).pipe(
-    Effect.asVoid,
-    Effect.catchAll((error) => reportAccountingError("queue a spend-ceiling notification", error)),
-  );
 }
 
 function reportAccountingError(what: string, error: unknown): Effect.Effect<void> {
@@ -86,52 +74,84 @@ function reportAccountingError(what: string, error: unknown): Effect.Effect<void
   });
 }
 
+/** Tell the notify targets once per cap and window that a run was refused. */
+function notifyCap(
+  input: RunAccountingInput,
+  check: Exclude<CapCheck, { kind: "clear" }>,
+): Effect.Effect<void> {
+  const now = Date.now();
+  const event: NotifyEvent = {
+    kind: "spend-cap",
+    source: input.origin.source,
+    agentId: input.agentId,
+    ...(input.origin.name !== undefined ? { name: input.origin.name } : {}),
+    message: describeCapCheck(check),
+  };
+  return enqueueNotification(notifyTargets(input.appConfig), event, {
+    dedupeKey: capWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) }),
+    now,
+    ...enqueueOptions(input),
+  }).pipe(
+    Effect.asVoid,
+    Effect.catchAll((error) => reportAccountingError("queue a spend-cap notification", error)),
+  );
+}
+
+/** Whether `jazz daemon resume` lifted the machine-wide daily cap for today. */
+function machineCapLifted(home: string | undefined): Effect.Effect<boolean> {
+  return Effect.promise(() =>
+    readDaemonStateFile(daemonStatePath(home ?? getJazzHomeDirectory())),
+  ).pipe(Effect.map((state) => capLifted(state, new Date())));
+}
+
 /**
- * Check the spend ceilings before a run starts. An unattended run that a ceiling blocks fails
- * with {@link SpendCeilingReachedError} and the notify channel is told; an attended one is
- * returned the check so its surface can warn, and proceeds.
+ * Check the spend caps before a run starts. An unattended run a cap covers fails with
+ * {@link SpendCapReachedError} and the notify targets are told; an attended one is returned the
+ * check so its surface can warn, and proceeds.
  */
-export function guardRunStart(input: RunAccountingInput): Effect.Effect<CeilingCheck, Error> {
+export function guardRunStart(input: RunAccountingInput): Effect.Effect<CapCheck, Error> {
   return Effect.gen(function* () {
-    if (!shouldAccount(input)) {
+    if (!shouldAccount(input) || input.origin.source === "resume") {
       return { kind: "clear" } as const;
     }
-    const check = yield* checkSpendCeilings(
-      input.appConfig.spend,
+    const check = yield* checkSpendCaps(
+      input.appConfig.daemon,
       { agentId: input.agentId, source: input.origin.source },
-      Date.now(),
-      input.home,
+      {
+        machineCapLifted: yield* machineCapLifted(input.home),
+        ...(input.home !== undefined ? { home: input.home } : {}),
+      },
     ).pipe(
       Effect.catchAll((error) =>
         reportAccountingError("read the spend ledger", error).pipe(
-          Effect.as<CeilingCheck>({ kind: "clear" }),
+          Effect.as<CapCheck>({ kind: "clear" }),
         ),
       ),
     );
-    if (check.kind === "clear" || !isUnattendedSource(input.origin.source)) {
+    if (check.kind === "clear" || !input.unattended) {
       return check;
     }
-    yield* notifyCeiling(input, check);
-    return yield* Effect.fail(new SpendCeilingReachedError(check));
+    yield* notifyCap(input, check);
+    return yield* Effect.fail(new SpendCapReachedError(check));
   });
 }
 
-function pendingText(pending: PendingInput): string {
-  switch (pending.kind) {
-    case "tool-approval":
-      return `${pending.request.toolName}: ${pending.request.message}`;
-    case "question":
-      return pending.request.question;
-    case "file-picker":
-      return pending.request.message;
+/** How a waiting item names what parked: "Goal ship-docs", "Loop deploy-watch", "A run". */
+function waiterName(origin: RunOrigin): string {
+  if (origin.name !== undefined && (origin.source === "goal" || origin.source === "loop")) {
+    return `${origin.source === "goal" ? "Goal" : "Loop"} ${origin.name}`;
   }
+  if (origin.name !== undefined && origin.source === "workflow") {
+    return `Workflow ${origin.name}`;
+  }
+  return "A run";
 }
 
-/** The notification a run's end calls for, if any. */
+/** The notification a run's end calls for, if any, with the key that sends it once. */
 export function runStopNotification(
-  input: Pick<RunAccountingInput, "agentId" | "origin">,
+  input: Pick<RunAccountingInput, "agentId" | "origin" | "unattended">,
   exit: Exit.Exit<unknown, unknown>,
-): { readonly event: NotifyEvent; readonly dedupeKey?: string } | undefined {
+): { readonly event: NotifyEvent; readonly dedupeKey: string } | undefined {
   if (Exit.isSuccess(exit)) {
     return undefined;
   }
@@ -141,22 +161,18 @@ export function runStopNotification(
     if (error.runId === undefined || error.expiresAt === undefined) {
       return undefined;
     }
-    return {
-      event: {
-        kind: "approval-needed",
-        runId: error.runId,
-        agentId: input.agentId,
-        source: input.origin.source,
-        ...(input.origin.name !== undefined ? { name: input.origin.name } : {}),
-        pending: error.pending.kind,
-        request: pendingText(error.pending),
-        expiresAt: error.expiresAt,
-      },
-    };
+    const item = parkedRunWaitingItem({
+      runId: error.runId,
+      agentId: input.agentId,
+      pending: error.pending,
+      since: new Date().toISOString(),
+      who: waiterName(input.origin),
+    });
+    return { event: { kind: "waiting", item }, dedupeKey: item.key };
   }
   if (
-    !isUnattendedSource(input.origin.source) ||
-    error instanceof SpendCeilingReachedError ||
+    !input.unattended ||
+    error instanceof SpendCapReachedError ||
     error instanceof GenerationInterruptedError ||
     Cause.isInterruptedOnly(exit.cause)
   ) {
@@ -198,16 +214,16 @@ export function settleRunAccounting(
         costUSD: spend.costUSD ?? 0,
         costKnown: priced && !spend.costIncomplete,
         tokens: spend.totalTokens,
+        unattended: input.unattended,
         runId,
       },
       input.home,
     ).pipe(Effect.catchAll((error) => reportAccountingError("record a run's spend", error)));
     const notification = runStopNotification(input, exit);
     if (notification !== undefined) {
-      yield* enqueueNotification(input.appConfig.notifications?.channels, notification.event, {
-        ...(notification.dedupeKey !== undefined ? { dedupeKey: notification.dedupeKey } : {}),
-        ...deliverTo(input),
-        ...(input.home !== undefined ? { home: input.home } : {}),
+      yield* enqueueNotification(notifyTargets(input.appConfig), notification.event, {
+        dedupeKey: notification.dedupeKey,
+        ...enqueueOptions(input),
       }).pipe(
         Effect.asVoid,
         Effect.catchAll((error) => reportAccountingError("queue a notification", error)),
@@ -217,18 +233,18 @@ export function settleRunAccounting(
 }
 
 /**
- * Between cycles of long-running work (goals, loops): whether a spend ceiling now blocks the
- * next run. The notify channel is told once per ceiling and window. The caller leaves the work
- * waiting rather than failing it, so it continues by itself once the window turns over or the
- * ceiling is raised.
+ * Between cycles of long-running work (goals, loops): whether a spend cap now blocks the next
+ * run. The notify targets are told once per cap and window. The caller leaves the work waiting
+ * rather than failing it, so it continues by itself once the window turns over or the cap is
+ * raised.
  */
 export function nextCycleBlockedBySpend(
-  input: Omit<RunAccountingInput, "internal" | "freeLocalModel">,
-): Effect.Effect<SpendCeilingReachedError | undefined> {
-  return guardRunStart({ ...input, internal: false, freeLocalModel: false }).pipe(
+  input: Omit<RunAccountingInput, "internal" | "freeLocalModel" | "unattended">,
+): Effect.Effect<SpendCapReachedError | undefined> {
+  return guardRunStart({ ...input, internal: false, freeLocalModel: false, unattended: true }).pipe(
     Effect.as(undefined),
     Effect.catchAll((error) =>
-      Effect.succeed(error instanceof SpendCeilingReachedError ? error : undefined),
+      Effect.succeed(error instanceof SpendCapReachedError ? error : undefined),
     ),
   );
 }

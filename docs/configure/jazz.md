@@ -100,9 +100,7 @@ Both values are fractions of the effective model context window. Jazz requires `
 
 `output.mode` accepts `rendered`, `hybrid`, `raw`, or `quiet`. `JAZZ_OUTPUT_MODE` and `--output` override it. The other output fields control whether reasoning and tool execution are shown and whether completed reasoning collapses.
 
-`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications. `notifications.channels` binds [notify channels](./notifications.md) (Telegram, Discord, a signed webhook, the desktop) for unattended results, reminders, parked approvals and failures.
-
-`spend` sets machine-wide [day and month spend ceilings](../concepts/budgets.md#day-and-month-ceilings), overall, per agent and for goals. All are unlimited until set.
+`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications; `enabled: false` also drops desktop [notify targets](./notifications.md).
 
 ## Scheduling
 
@@ -122,30 +120,30 @@ Both values are fractions of the effective model context window. Jazz requires `
 
 `peers` lists remote Jazz agents this installation has explicitly chosen to trust. Peer credentials belong in the keyring. See [Agent-to-agent](../concepts/agent-to-agent.md).
 
-## Daemon limits and notifications
+## Spend caps and notifications
 
 ```json
 {
   "daemon": {
     "dailyCostUSD": 3,
     "dailyTokens": 2000000,
-    "notify": {
-      "desktop": true,
-      "ntfyUrl": "https://ntfy.sh/my-private-jazz-topic",
-      "webhookUrl": "https://example.com/jazz-hook"
-    }
+    "monthlyCostUSD": 40,
+    "goals": { "dailyCostUSD": 1, "monthlyCostUSD": 15 },
+    "agents": { "inbox": { "dailyCostUSD": 0.5 } }
+  },
+  "notify": {
+    "targets": [
+      { "name": "desktop", "kind": "desktop" },
+      { "name": "phone", "kind": "ntfy", "url": "https://ntfy.sh/my-private-jazz-topic" },
+      { "name": "ops", "kind": "webhook", "url": "https://example.com/jazz-hook" }
+    ]
   }
 }
 ```
 
-`dailyCostUSD` and `dailyTokens` cap what unattended runs may spend per day, across all of them.
-Reaching one pauses `jazz daemon` until local midnight; `jazz daemon resume` lifts it for the rest
-of the day. Your chat turns never count. `notify` says where the daemon tells you something needs
-you or that it paused: `desktop` (on unless set to `false`, and off when `notifications.enabled`
-is `false`), an ntfy topic URL for a phone push, and a URL that gets each notification as a JSON
-POST with `type` (`waiting` or `paused`), `title`, `body`, and the item or pause. Pick an ntfy
-topic name nobody can guess: anyone who knows it can read what you are sent. See
-[Daemon](../concepts/daemon.md#when-it-needs-you).
+The `daemon` caps bound what unattended runs (the daemon's work, `jazz run`, workflows, webhooks, peers, goals, loops and triggers) may spend, counted from the machine-wide spend ledger. Your chat turns never count. Every cap is unset, meaning unlimited, until you set it. Reaching `dailyCostUSD` or `dailyTokens` pauses `jazz daemon` until local midnight (`jazz daemon resume` lifts it for the rest of the day), and any reached cap refuses the unattended runs it covers before they start. `goals` covers goal cycles and loop runs; `agents.<id>` covers one agent. See [daily and monthly caps](../concepts/budgets.md#daily-and-monthly-caps).
+
+`notify.targets` is where Jazz tells you something needs you, that the daemon paused, that unattended work failed or hit a cap, a reminder a desktop could not show, and a workflow's result. Unset, it is one desktop target. Kinds are `desktop`, `ntfy`, `webhook`, `telegram` and `discord`; secrets live in the keyring. Pick an ntfy topic name nobody can guess: anyone who knows it can read what you are sent. See [Notifications](./notifications.md).
 
 ## MCP overrides
 

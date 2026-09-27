@@ -247,7 +247,7 @@ one, runs begun from somewhere else entirely.
 
 A run parks when it hits something needing your approval and nobody is there to give it: see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
-With a [notify channel](configure/notifications.md) the approval request reaches your phone, and
+With a [notify target](configure/notifications.md) the approval request reaches your phone, and
 a Telegram or Discord bridge can answer it with `/approve <runId>`.
 
 ---
@@ -256,24 +256,24 @@ a Telegram or Discord bridge can answer it with `/approve <runId>`.
 
 What every run on this machine cost today and this month, from the machine-wide ledger under
 `$JAZZ_HOME/spend`, with a breakdown by source (chat, workflows, goals, loops, bots, ...) and by
-agent, and where each configured spend ceiling stands. `--json` emits
-`{ ok, day, month, today, thisMonth, ceilings, unreadableLines }`. See
-[Budgets](concepts/budgets.md#day-and-month-ceilings).
+agent, what unattended runs spent today, and where each `daemon` spend cap stands. `--json`
+emits `{ ok, day, month, today, thisMonth, caps, unreadableLines }`. See
+[Budgets](concepts/budgets.md#daily-and-monthly-caps).
 
 ---
 
 ## `jazz notify`
 
-Where results, reminders, parked approvals and failures reach you while you are away. See
-[Notifications](configure/notifications.md).
+Where results, reminders, parked approvals, failures and pauses reach you while you are away:
+the `notify.targets` list. See [Notifications](configure/notifications.md).
 
-| Command                   | Purpose                                                                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz notify list`        | List the configured channels. `--json`                                                                                                                                                 |
-| `jazz notify add <name>`  | Add or replace a channel: `--type telegram\|discord\|webhook\|desktop`, `--chat-id`, `--channel-id`, `--url`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
-| `jazz notify test <name>` | Send a test through one channel and report what it answered. `--json`                                                                                                                  |
-| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                         |
-| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                        |
+| Command                   | Purpose                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz notify list`        | List the targets (one desktop target while `notify.targets` is unset). `--json`                                                                                                             |
+| `jazz notify add <name>`  | Add or replace a target: `--kind desktop\|ntfy\|webhook\|telegram\|discord`, `--url`, `--chat-id`, `--channel-id`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
+| `jazz notify test <name>` | Send a test through one target and report what it answered. `--json`                                                                                                                        |
+| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                              |
+| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                             |
 
 ---
 

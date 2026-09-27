@@ -53,11 +53,12 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
-/** How much of a goal's objective names it in the spend ledger and in notifications. */
-const GOAL_NAME_CHARS = 80;
+/** A goal without a name is shown by the start of its id, as `jazz goal` commands accept it. */
+const GOAL_ID_PREFIX_CHARS = 8;
 
+/** How the ledger and notifications name a goal: the same label `jazz daemon status` shows. */
 function goalName(goal: GoalRecord): string {
-  return goal.plan.objective.slice(0, GOAL_NAME_CHARS);
+  return goal.name ?? goal.goalId.slice(0, GOAL_ID_PREFIX_CHARS);
 }
 
 /** A disposition is a small JSON object; this bounds a repair call that would ramble. */

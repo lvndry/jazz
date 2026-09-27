@@ -92,9 +92,9 @@ thought, and that bubble is replaced when the answer lands, so the full
 reasoning follows the answer as collapsed **Reasoning** quotes you tap to
 expand. Very long runs are split across a few quotes, and the last one says
 how much was left out; set `JAZZ_TELEGRAM_SHOW_REASONING=0` to drop them.
-Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
+Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per local day, from the spend ledger in the bridge's `JAZZ_HOME` (0 = no cap).
 If a completed run has no pricing metadata, its exact cost cannot be capped;
-the bot records it as unpriced and pauses later requests until the next UTC day.
+the bot records it as unpriced and pauses later requests until the next local day.
 
 **Location.** Share a location (📎 → Location) and the bot reverse-geocodes it
 (OpenStreetMap Nominatim) and hands the agent the coordinates + address, so you
@@ -205,12 +205,15 @@ third or fourth: pick a new account name/email and a new
 2. Authorize with an isolated data directory per account: gcalcli's cache
    path is keyed off `$XDG_DATA_HOME`, not `--config-folder`, so skipping
    this means the second account's login silently overwrites the first's:
+
    ```sh
    XDG_DATA_HOME=/data/xdg-data/gcalcli-account-a gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
    XDG_DATA_HOME=/data/xdg-data/gcalcli-account-b gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
    ```
+
    Run these one at a time, completing steps 3-4 for `account-a` before
    starting `account-b`: don't kick off both `init`s together.
+
 3. **If `init` hangs after you click Allow in the browser, this is a known
    issue, not a misconfiguration**: its local callback server can grab the
    wrong one of two connections a browser opens and block forever. Kill it and
@@ -242,10 +245,12 @@ third or fourth: pick a new account name/email and a new
    during initial setup and was only caught by checking step 4 below.
 
 4. Verify **before moving on to the next account**:
+
    ```sh
    XDG_DATA_HOME=/data/xdg-data/gcalcli-account-a gcalcli list
    XDG_DATA_HOME=/data/xdg-data/gcalcli-account-b gcalcli list
    ```
+
    Each must show that account's own calendars. If two accounts show the
    same calendars, redo the one that's wrong with the `login_hint`/`prompt`
    params from step 3.

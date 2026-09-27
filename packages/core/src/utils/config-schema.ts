@@ -29,8 +29,8 @@ import type {
   ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
+  CostCaps,
   DaemonConfig,
-  DaemonNotifyConfig,
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
@@ -56,16 +56,17 @@ import {
   type ReasoningControlSurface,
 } from "@/core/types/model-capabilities";
 import {
-  type DesktopNotifyChannel,
-  type DiscordNotifyChannel,
-  NOTIFY_CHANNEL_NAME_PATTERN,
+  type DesktopNotifyTarget,
+  type DiscordNotifyTarget,
   NOTIFY_SUBSCRIBABLE_EVENTS,
-  type TelegramNotifyChannel,
-  type WebhookNotifyChannel,
+  NOTIFY_TARGET_NAME_PATTERN,
+  type NotifyConfig,
+  type NtfyNotifyTarget,
+  type TelegramNotifyTarget,
+  type WebhookNotifyTarget,
 } from "@/core/types/notify";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
-import type { SpendConfig, SpendLimits } from "@/core/types/spend";
 import type { StreamingConfig } from "@/core/types/streaming";
 import type { WebhookConfig, WebhookConversationMode } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
@@ -329,68 +330,84 @@ const outputShape = {
 const notifyEvents = z.array(z.enum(NOTIFY_SUBSCRIBABLE_EVENTS));
 const httpUrl = described(z.url({ protocol: /^https?$/ }), "an http:// or https:// URL");
 
-const telegramChannelShape = {
-  type: z.literal("telegram"),
-  events: notifyEvents.exactOptional(),
-  chatId: text.exactOptional(),
-  botToken: text.exactOptional(),
-  apiBaseUrl: httpUrl.exactOptional(),
-  approveFromChat: flag.exactOptional(),
-} satisfies SchemaShape<TelegramNotifyChannel>;
-
-const discordChannelShape = {
-  type: z.literal("discord"),
-  events: notifyEvents.exactOptional(),
-  webhookUrl: text.exactOptional(),
-  channelId: text.exactOptional(),
-  botToken: text.exactOptional(),
-  apiBaseUrl: httpUrl.exactOptional(),
-  approveFromChat: flag.exactOptional(),
-} satisfies SchemaShape<DiscordNotifyChannel>;
-
-const webhookChannelShape = {
-  type: z.literal("webhook"),
-  events: notifyEvents.exactOptional(),
-  url: httpUrl.exactOptional(),
-  secret: text.exactOptional(),
-} satisfies SchemaShape<WebhookNotifyChannel>;
-
-const desktopChannelShape = {
-  type: z.literal("desktop"),
-  events: notifyEvents.exactOptional(),
-} satisfies SchemaShape<DesktopNotifyChannel>;
-
-const notifyChannelSchema = z.discriminatedUnion("type", [
-  z.strictObject(telegramChannelShape),
-  z.strictObject(discordChannelShape),
-  z.strictObject(webhookChannelShape),
-  z.strictObject(desktopChannelShape),
-]);
-
-/** Channel names are storage keys (the outbox keeps one file per channel). */
-const channelName = described(
-  safeRecordKey.regex(NOTIFY_CHANNEL_NAME_PATTERN),
+/** Target names are storage keys: the outbox keeps one file per target. */
+const targetName = described(
+  z.string().regex(NOTIFY_TARGET_NAME_PATTERN),
   "a lowercase name of letters, digits, - and _",
 );
+
+const targetCommon = { name: targetName, events: notifyEvents.exactOptional() };
+
+const desktopTargetShape = {
+  ...targetCommon,
+  kind: z.literal("desktop"),
+} satisfies SchemaShape<DesktopNotifyTarget>;
+
+const ntfyTargetShape = {
+  ...targetCommon,
+  kind: z.literal("ntfy"),
+  url: httpUrl,
+} satisfies SchemaShape<NtfyNotifyTarget>;
+
+const webhookTargetShape = {
+  ...targetCommon,
+  kind: z.literal("webhook"),
+  url: httpUrl,
+} satisfies SchemaShape<WebhookNotifyTarget>;
+
+const telegramTargetShape = {
+  ...targetCommon,
+  kind: z.literal("telegram"),
+  chatId: z.string().min(1),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<TelegramNotifyTarget>;
+
+const discordTargetShape = {
+  ...targetCommon,
+  kind: z.literal("discord"),
+  channelId: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<DiscordNotifyTarget>;
+
+const notifyTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject(desktopTargetShape),
+  z.strictObject(ntfyTargetShape),
+  z.strictObject(webhookTargetShape),
+  z.strictObject(telegramTargetShape),
+  z.strictObject(discordTargetShape),
+]);
+
+const notifyShape = {
+  targets: z
+    .array(notifyTargetSchema)
+    .refine(
+      (targets) => new Set(targets.map((target) => target.name)).size === targets.length,
+      "every target needs its own name",
+    )
+    .exactOptional(),
+} satisfies SchemaShape<NotifyConfig>;
 
 const notificationsShape = {
   enabled: flag.exactOptional(),
   sound: flag.exactOptional(),
-  channels: z.record(channelName, notifyChannelSchema).exactOptional(),
 } satisfies SchemaShape<NotificationsConfig>;
 
-const dollars = described(z.number().positive(), "a number of dollars greater than 0");
+const dollars = described(z.number().positive(), "a number greater than 0");
 
-const spendLimitsShape = {
-  dayUSD: dollars.exactOptional(),
-  monthUSD: dollars.exactOptional(),
-} satisfies SchemaShape<SpendLimits>;
+const costCapsShape = {
+  dailyCostUSD: dollars.exactOptional(),
+  monthlyCostUSD: dollars.exactOptional(),
+} satisfies SchemaShape<CostCaps>;
 
-const spendShape = {
-  ...spendLimitsShape,
-  goals: z.strictObject(spendLimitsShape).exactOptional(),
-  agents: z.record(nonEmptySafeRecordKey, z.strictObject(spendLimitsShape)).exactOptional(),
-} satisfies SchemaShape<SpendConfig>;
+const daemonShape = {
+  token: text.exactOptional(),
+  ...costCapsShape,
+  dailyTokens: positiveWholeNumber.exactOptional(),
+  goals: z.strictObject(costCapsShape).exactOptional(),
+  agents: z.record(nonEmptySafeRecordKey, z.strictObject(costCapsShape)).exactOptional(),
+} satisfies SchemaShape<DaemonConfig & { readonly token?: string }>;
 
 type OtlpSignal = NonNullable<OtlpTelemetryConfig["signals"]>[number];
 
@@ -512,21 +529,8 @@ const configFileShape = {
   peers: z.array(z.strictObject(peerShape)).exactOptional(),
   hosts: z.array(z.strictObject(hostShape)).exactOptional(),
   webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
-  daemon: z
-    .strictObject({
-      token: text.exactOptional(),
-      dailyCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
-      dailyTokens: positiveWholeNumber.exactOptional(),
-      notify: z
-        .strictObject({
-          desktop: flag.exactOptional(),
-          ntfyUrl: described(z.url(), "an https URL").exactOptional(),
-          webhookUrl: described(z.url(), "an http or https URL").exactOptional(),
-        } satisfies SchemaShape<DaemonNotifyConfig>)
-        .exactOptional(),
-    } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
-    .exactOptional(),
-  spend: z.strictObject(spendShape).exactOptional(),
+  daemon: z.strictObject(daemonShape).exactOptional(),
+  notify: z.strictObject(notifyShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */

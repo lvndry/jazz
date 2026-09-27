@@ -11,6 +11,7 @@ import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { recordSpend } from "@jazz/core/spend/ledger";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -72,6 +73,24 @@ function record(runId: string, state: RunState, extra: Partial<RunRecord> = {}):
     state,
     ...extra,
   };
+}
+
+/** One run in the spend ledger, as `AgentRunner.run` records it. */
+function spent(options: { unattended: boolean; costUSD?: number; tokens?: number }) {
+  return Effect.runPromise(
+    recordSpend({
+      agentId: "agent-1",
+      source: options.unattended ? "workflow" : "chat",
+      costUSD: options.costUSD ?? 0,
+      costKnown: true,
+      tokens: options.tokens ?? 1,
+      unattended: options.unattended,
+    }),
+  );
+}
+
+function webhookTarget(port: number | undefined): AppConfig["notify"] {
+  return { targets: [{ name: "hook", kind: "webhook", url: `http://127.0.0.1:${String(port)}/` }] };
 }
 
 function parkedOn(toolName: string, expiresInMs = 60_000): RunState {
@@ -178,24 +197,12 @@ describe("listWaiting", () => {
 });
 
 describe("daemonGate", () => {
-  it("pauses itself at the daily cap, counting only unattended runs, and a resume lifts it for the day", async () => {
+  it("pauses itself at the daily cap, counting only unattended runs in the ledger, and a resume lifts it for the day", async () => {
     const test = harness({ daemon: { dailyCostUSD: 1 } } as AppConfig);
-    await test.run(
-      test.runs.save(
-        record("chat-turn", { kind: "completed", content: "" }, { costUSD: 5, totalTokens: 1 }),
-      ),
-    );
+    await spent({ unattended: false, costUSD: 5 });
     expect((await test.run(daemonGate())).kind).toBe("open");
 
-    await test.run(
-      test.runs.save(
-        record(
-          "night-run",
-          { kind: "completed", content: "" },
-          { unattended: true, costUSD: 1.2, totalTokens: 1 },
-        ),
-      ),
-    );
+    await spent({ unattended: true, costUSD: 1.2 });
     const gate = await test.run(daemonGate());
     expect(gate).toMatchObject({ kind: "paused", pause: { kind: "daily-cap", limit: "cost" } });
     expect((await test.run(readDaemonState())).paused?.kind).toBe("daily-cap");
@@ -222,15 +229,7 @@ describe("daemonGate", () => {
     ) as Layer.Layer<never>;
     const run = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, unknown>);
-    await run(
-      runs.save(
-        record(
-          "night-run",
-          { kind: "completed", content: "" },
-          { unattended: true, totalTokens: 50 },
-        ),
-      ),
-    );
+    await spent({ unattended: true, tokens: 50 });
     expect((await run(daemonGate())).kind).toBe("open");
     current = { ...current, daemon: { dailyTokens: 10 } };
     expect((await run(daemonGate())).kind).toBe("paused");
@@ -246,7 +245,7 @@ describe("daemonGate", () => {
 });
 
 describe("announceWaiting", () => {
-  it("posts each new item once to the webhook, with how to answer it", async () => {
+  it("posts each new item once to the webhook target, with how to answer it", async () => {
     const received: { title: string; body: string; type: string }[] = [];
     const server = Bun.serve({
       port: 0,
@@ -256,11 +255,7 @@ describe("announceWaiting", () => {
       },
     });
     try {
-      const test = harness({
-        daemon: {
-          notify: { desktop: false, webhookUrl: `http://127.0.0.1:${String(server.port)}/` },
-        },
-      } as AppConfig);
+      const test = harness({ notify: webhookTarget(server.port) } as AppConfig);
       await test.run(test.runs.save(record("run-a", parkedOn("execute_command"))));
 
       await test.run(announceWaiting());
@@ -291,20 +286,10 @@ describe("announceWaiting", () => {
     });
     try {
       const test = harness({
-        daemon: {
-          dailyTokens: 10,
-          notify: { desktop: false, webhookUrl: `http://127.0.0.1:${String(server.port)}/` },
-        },
+        daemon: { dailyTokens: 10 },
+        notify: webhookTarget(server.port),
       } as AppConfig);
-      await test.run(
-        test.runs.save(
-          record(
-            "night-run",
-            { kind: "completed", content: "" },
-            { unattended: true, totalTokens: 50 },
-          ),
-        ),
-      );
+      await spent({ unattended: true, tokens: 50 });
       await test.run(daemonGate());
       await test.run(announceWaiting());
       await test.run(announceWaiting());

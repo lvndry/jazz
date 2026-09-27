@@ -1,11 +1,11 @@
 /**
  * `jazz spend`: what this machine's runs cost today and this month, broken down by agent and by
- * source, and where each configured spend ceiling stands. Reads the machine-wide ledger under
+ * source, and where each configured `daemon` spend cap stands. Reads the machine-wide ledger under
  * `$JAZZ_HOME/spend` (see `@jazz/core/spend/ledger`).
  */
 
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import { ceilingStatuses } from "@jazz/core/spend/ceilings";
+import { type CapStatus, capStatuses } from "@jazz/core/spend/caps";
 import { type DaySpend, readSpend, type SpendTotals } from "@jazz/core/spend/ledger";
 import { SPEND_SOURCE_LABELS, type SpendSource } from "@jazz/core/spend/sources";
 import { Effect } from "effect";
@@ -42,6 +42,17 @@ function sourceEntries(day: DaySpend): ReadonlyArray<readonly [string, SpendTota
   );
 }
 
+function describeCap(cap: CapStatus): string {
+  const amount = (value: number) =>
+    cap.measure === "cost" ? dollars(value) : `${value.toLocaleString("en-US")} tokens`;
+  const state = cap.reached
+    ? "  REACHED"
+    : cap.unpricedRuns > 0
+      ? `  not enforced: ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"}`
+      : "";
+  return `  ${cap.key.padEnd(34)}  ${amount(cap.spent)} of ${amount(cap.limit)}${state}`;
+}
+
 export function spendCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
@@ -51,22 +62,19 @@ export function spendCommand(options: { readonly json: boolean }) {
       return;
     }
     const spend = report.right;
-    const ceilings = ceilingStatuses(appConfig.spend, spend);
-    const ceilingLines =
-      ceilings.length === 0
-        ? ["", "Ceilings: none (unlimited). Set them with `jazz config` > Spend limits."]
-        : [
+    const caps = capStatuses(appConfig.daemon, spend);
+    const capLines =
+      caps.length === 0
+        ? [
             "",
-            "Ceilings",
-            ...ceilings.map(
-              (ceiling) =>
-                `  ${ceiling.key.padEnd(28)}  ${dollars(ceiling.spentUSD)} of ${dollars(ceiling.limitUSD)}${ceiling.reached ? "  REACHED" : ""}`,
-            ),
-          ];
+            "Caps: none (unlimited). Set them with `jazz` > Update configuration > Spend Limits.",
+          ]
+        : ["", "Caps (unattended runs only; chat never counts)", ...caps.map(describeCap)];
     const text = [
       `Today (${spend.day}):       ${describeTotals(spend.today.total)}`,
       `This month (${spend.monthKey}): ${describeTotals(spend.month.total)}`,
-      ...ceilingLines,
+      `Unattended today:         ${describeTotals(spend.today.unattended)}`,
+      ...capLines,
       ...breakdown("This month by source", sourceEntries(spend.month)),
       ...breakdown("This month by agent", Object.entries(spend.month.byAgent)),
       ...(spend.unreadableLines > 0
@@ -81,7 +89,7 @@ export function spendCommand(options: { readonly json: boolean }) {
         month: spend.monthKey,
         today: spend.today,
         thisMonth: spend.month,
-        ceilings,
+        caps,
         unreadableLines: spend.unreadableLines,
       },
       text,

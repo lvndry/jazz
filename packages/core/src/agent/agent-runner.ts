@@ -30,7 +30,7 @@ import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
-import { type PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
@@ -962,10 +962,13 @@ export class AgentRunner {
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
 
+        const presentation = yield* Effect.serviceOption(PresentationServiceTag);
         const accounting: RunAccountingInput = {
           agentId: options.agent.id,
           origin: options.origin ?? DEFAULT_RUN_ORIGIN,
           internal: options.internal === true,
+          unattended:
+            Option.isNone(presentation) || presentation.value.canPromptForApproval?.() !== true,
           appConfig,
           freeLocalModel: isZeroCostLocalModel(
             options.agent.config.llmProvider,
