@@ -24,6 +24,7 @@ import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
 import { LLMRequestError } from "../../types/errors";
 import type { RecursiveRunner } from "../context/summarizer";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Mocks
@@ -604,5 +605,221 @@ describe("executeWithStreaming", () => {
     expect(interruptCalls.length).toBeGreaterThanOrEqual(2);
     expect(typeof interruptCalls[0]).toBe("function");
     expect(interruptCalls[interruptCalls.length - 1]).toBeNull();
+  });
+});
+
+/**
+ * A streaming run against a scripted LLM service, with the renderer's interrupt handler exposed
+ * so a test can press Esc at a chosen moment.
+ */
+function makeStreamingHarness(input: {
+  readonly llmService: LLMService;
+  readonly maxRetries?: number;
+  readonly maxDurationMs?: number;
+}) {
+  const interrupt: { current: (() => void) | null } = { current: null };
+  const renderer = {
+    handleEvent: () => Effect.void,
+    setInterruptHandler: (handler: (() => void) | null) =>
+      Effect.sync(() => {
+        if (handler !== null) {
+          interrupt.current = handler;
+        }
+      }),
+    reset: () => Effect.void,
+    flush: () => Effect.void,
+  };
+  const presentationService = {
+    ...mockPresentationService,
+    createStreamingRenderer: () => Effect.succeed(renderer),
+  } as any;
+  const agent = {
+    id: "agent-1",
+    name: "test-agent",
+    config: { persona: "default", llmModel: "gpt-4", llmProvider: "openai" },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  } as any;
+  const options: AgentRunnerOptions = { conversationId: "conv-1", agent, userInput: "hello" };
+  const runContext: AgentRunContext = {
+    actualConversationId: "conv-1",
+    context: { agentId: "agent-1", conversationId: "conv-1", unrestrictedTools: true },
+    tools: [],
+    messages: [{ role: "user", content: "hello" }],
+    runMetrics: createAgentRunMetrics({
+      agent,
+      conversationId: "conv-1",
+      provider: "openai",
+      model: "gpt-4",
+      maxIterations: DEFAULT_MAX_ITERATIONS,
+      maxCostUSD: undefined,
+    }),
+    provider: "openai",
+    model: "gpt-4",
+    agent,
+    expandedToolNames: [],
+    connectedMCPServers: [],
+    knownSkills: [],
+    maxIterations: DEFAULT_MAX_ITERATIONS,
+    maxCostUSD: undefined,
+    maxTokens: undefined,
+    maxDurationMs: input.maxDurationMs,
+    maxRetries: input.maxRetries ?? 1,
+  };
+  const layer = Layer.mergeAll(
+    Layer.succeed(LoggerServiceTag, mockLogger),
+    Layer.succeed(PresentationServiceTag, presentationService),
+    Layer.succeed(LLMServiceTag, input.llmService),
+    Layer.succeed(ToolRegistryTag, mockToolRegistry),
+    Layer.succeed(MCPServerManagerTag, mockMCPServerManager),
+    Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+    Layer.succeed(FileSystem.FileSystem, mockFileSystem),
+    Layer.succeed(TerminalServiceTag, mockTerminalService),
+    Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
+    Layer.succeed(SkillServiceTag, mockSkillService),
+    Layer.succeed(MemoryServiceTag, {} as any),
+    Layer.succeed(WorkspaceServiceTag, {} as any),
+    Layer.succeed(WakeTriggerServiceTag, {} as any),
+    Layer.succeed(JobQueueServiceTag, {} as any),
+    Layer.succeed(ReminderServiceTag, {} as any),
+    Layer.succeed(GoalStoreTag, {} as any),
+    Layer.succeed(PeerLedgerServiceTag, {} as any),
+    Layer.succeed(PeerTokenServiceTag, {} as any),
+  );
+  const run = () =>
+    Effect.runPromise(
+      executeWithStreaming(
+        options,
+        runContext,
+        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+        { enabled: true },
+        false,
+        () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),
+      ).pipe(Effect.provide(layer)),
+    );
+  return { run, interrupt };
+}
+
+/** A stream that never emits, recording when its consumer abandons it. */
+function hangingStream(onAbandoned: () => void): Stream.Stream<never, never> {
+  return Stream.async<never, never>(() => Effect.sync(onAbandoned));
+}
+
+function scriptedLLMService(
+  createStreamingChatCompletion: LLMService["createStreamingChatCompletion"],
+  createChatCompletion: LLMService["createChatCompletion"] = () =>
+    Effect.fail(new LLMRequestError({ provider: "openai", message: "unused" })),
+): LLMService {
+  return {
+    createStreamingChatCompletion,
+    createChatCompletion,
+    listProviders: () => Effect.succeed([]),
+    getProvider: () => Effect.fail(new Error("")),
+    supportsNativeWebSearch: () => Effect.succeed(false),
+    resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
+  } as unknown as LLMService;
+}
+
+describe("executeWithStreaming cancellation", () => {
+  it("Esc during retry backoff stops the run without waiting out the backoff", async () => {
+    let attempts = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 5,
+      llmService: scriptedLLMService(() => {
+        attempts += 1;
+        return Effect.succeed({
+          stream: Stream.fail(new LLMRequestError({ provider: "openai", message: "overloaded" })),
+          response: Effect.fail(new LLMRequestError({ provider: "openai", message: "overloaded" })),
+          cancel: Effect.void,
+        });
+      }),
+    });
+
+    const startedAt = Date.now();
+    const pending = harness.run();
+    await Bun.sleep(200);
+    harness.interrupt.current?.();
+    const result = await pending;
+
+    expect(result.interrupted).toBe(true);
+    expect(attempts).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(900);
+  });
+
+  it("Esc during a stalled stream abandons the stream so its provider request is aborted", async () => {
+    let abandoned = 0;
+    const harness = makeStreamingHarness({
+      llmService: scriptedLLMService(() =>
+        Effect.succeed({
+          stream: hangingStream(() => {
+            abandoned += 1;
+          }),
+          response: Effect.never,
+          cancel: Effect.void,
+        }),
+      ),
+    });
+
+    const pending = harness.run();
+    await Bun.sleep(100);
+    harness.interrupt.current?.();
+    const result = await pending;
+
+    expect(result.interrupted).toBe(true);
+    expect(abandoned).toBe(1);
+  });
+
+  it("Esc during the non-streaming fallback stops the run", async () => {
+    let fallbackAbandoned = 0;
+    const harness = makeStreamingHarness({
+      maxRetries: 0,
+      llmService: scriptedLLMService(
+        () =>
+          Effect.succeed({
+            stream: Stream.fail(new LLMRequestError({ provider: "openai", message: "stalled" })),
+            response: Effect.fail(new LLMRequestError({ provider: "openai", message: "stalled" })),
+            cancel: Effect.void,
+          }),
+        () =>
+          Effect.never.pipe(
+            Effect.onInterrupt(() =>
+              Effect.sync(() => {
+                fallbackAbandoned += 1;
+              }),
+            ),
+          ),
+      ),
+    });
+
+    const pending = harness.run();
+    await Bun.sleep(100);
+    harness.interrupt.current?.();
+    const result = await pending;
+
+    expect(result.interrupted).toBe(true);
+    expect(fallbackAbandoned).toBe(1);
+  });
+
+  it("the run's time budget stops a model call that never finishes", async () => {
+    let abandoned = 0;
+    const harness = makeStreamingHarness({
+      maxDurationMs: 300,
+      llmService: scriptedLLMService(() =>
+        Effect.succeed({
+          stream: hangingStream(() => {
+            abandoned += 1;
+          }),
+          response: Effect.never,
+          cancel: Effect.void,
+        }),
+      ),
+    });
+
+    const startedAt = Date.now();
+    const result = await harness.run();
+
+    expect(result.durationCapped).toBe(true);
+    expect(abandoned).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 });

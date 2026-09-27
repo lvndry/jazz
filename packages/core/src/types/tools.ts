@@ -447,6 +447,12 @@ export interface ToolExecutionContext {
    */
   readonly recordChildCostUnknown?: () => void;
   /**
+   * What is left of the running agent's own budgets at the moment of the call. A sub-agent
+   * spawned here runs under these, so delegating work can never outlast or outspend the
+   * parent. Absent fields are uncapped.
+   */
+  readonly remainingRunBudget?: () => RemainingRunBudget;
+  /**
    * Commands that are always auto-approved for execute_command tool.
    * Each entry is a prefix — a command is approved if it starts with any entry.
    */
@@ -484,4 +490,10 @@ export interface ToolExecutionContext {
    */
   readonly timezone?: string;
   readonly [key: string]: unknown;
+}
+
+/** A run's unspent budgets, as handed to a sub-agent it spawns. */
+export interface RemainingRunBudget {
+  /** Wall-clock milliseconds before the run's `maxDurationMs` deadline. */
+  readonly maxDurationMs?: number;
 }

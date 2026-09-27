@@ -79,7 +79,7 @@ Run `jazz config validate` for the same diagnostics and a non-zero exit status, 
 | `maxTokens`             |   unset | Own prompt and completion tokens; child tokens are not included                                               |
 | `maxDurationMs`         |   unset | Wall-clock budget with model warnings before termination                                                      |
 
-Cost, token, and duration limits are checked between iterations. One model call or tool phase can cross a limit before Jazz stops the next iteration. An external `--timeout` is a separate hard deadline around the entire run.
+Cost and token limits are checked between iterations. One model call or tool phase can cross them before Jazz stops the next iteration. The duration limit is a deadline: when it passes, Jazz interrupts whatever is running (a model call, a shell command, a sub-agent), closes any unfinished tool call, and returns what the run had so far. Sub-agents run under what is left of it. An external `--timeout` is a separate hard deadline around the entire run that ends it as a failure.
 
 Command-line and workflow values override application defaults for that run.
 

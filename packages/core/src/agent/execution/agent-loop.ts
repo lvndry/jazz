@@ -5,7 +5,7 @@
  */
 
 import { realpath } from "node:fs/promises";
-import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { Cause, Duration, Effect, Fiber, Option, Ref } from "effect";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   recordMemoryRecall,
@@ -25,7 +25,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ChatMessage, ConversationMessages } from "@/core/types";
+import type { ChatMessage, ConversationMessages, RemainingRunBudget } from "@/core/types";
 import { parseGeneratedArtifacts } from "@/core/types/artifact";
 import {
   type AttachmentKind,
@@ -604,6 +604,25 @@ function closeDanglingToolCalls(
   }
 }
 
+/** The result a dangling tool call is closed with when the run's time budget stopped it. */
+const DEADLINE_TOOL_RESULT =
+  "Tool execution stopped: the run reached its time budget before this tool returned a result.";
+
+/**
+ * What is left of a run's own budgets right now. Duration counts from the run's start, so a
+ * run already past its deadline has 0 left, never a negative figure.
+ */
+function remainingRunBudget(
+  runMetrics: LoopDeps["runMetrics"],
+  maxDurationMs: number | undefined,
+): RemainingRunBudget {
+  if (maxDurationMs === undefined) {
+    return {};
+  }
+  const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+  return { maxDurationMs: Math.max(0, maxDurationMs - elapsedMs) };
+}
+
 /** The result a dangling tool call is closed with when its turn failed before it returned. */
 const FAILED_TURN_TOOL_RESULT =
   "Tool execution did not finish: the run failed before this tool returned a result.";
@@ -743,6 +762,7 @@ function handleToolPhase(
       recordChildCostUnknown: () => {
         runMetrics.childCostUnknown = true;
       },
+      remainingRunBudget: () => remainingRunBudget(runMetrics, deps.maxDurationMs),
       attachMedia: (attachment: MessageAttachment) => {
         if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
         pendingAttachments.push(attachment);
@@ -1165,14 +1185,29 @@ function runIteration(
 
     const allowMemoryExtraction = mayExtractMemories(options);
     const messagesBeforeCompact = state.currentMessages;
-    state.currentMessages = yield* Summarizer.compactIfNeeded(
+    const compaction = Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
       actualConversationId,
       runRecursive,
       contextWindowMaxTokens,
       allowMemoryExtraction,
-    );
+    ).pipe(Effect.map(Option.some));
+    // A summarizer call is a model call of its own; Esc has to reach it like any other.
+    const interruptSignal = strategy.getInterruptSignal?.();
+    const compacted =
+      interruptSignal === undefined
+        ? yield* compaction
+        : yield* Effect.raceFirst(
+            compaction,
+            interruptSignal.pipe(Effect.as(Option.none<ChatMessage[]>())),
+          );
+    if (Option.isNone(compacted)) {
+      yield* observer.onInterrupted(agent.name);
+      yield* logger.debug("Interrupted during compaction, breaking loop");
+      return { kind: "interrupted" } as const;
+    }
+    state.currentMessages = compacted.value as typeof state.currentMessages;
     const justCompacted = state.currentMessages !== messagesBeforeCompact;
 
     // The summarizer is its own agent run; its completion idles the live zone.
@@ -1664,9 +1699,29 @@ export function executeAgentLoop(
         for (let i = 0; i < maxIterations && !interrupted; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
-            const step = yield* runIteration(state, i, deps).pipe(
+            const iteration = runIteration(state, i, deps).pipe(
               Effect.tapError((error) => reportFailedTurn(error, state, options)),
             );
+            const remainingMs = remainingRunBudget(runMetrics, maxDurationMs).maxDurationMs;
+            // The deadline interrupts the iteration wherever it is (a model call, a tool
+            // batch, a sub-agent), so `maxDurationMs` is a wall-clock limit rather than a
+            // check that only runs once an iteration has finished.
+            const outcome =
+              remainingMs === undefined
+                ? Option.some(yield* iteration)
+                : yield* iteration.pipe(Effect.timeoutOption(Duration.millis(remainingMs)));
+            if (Option.isNone(outcome)) {
+              closeDanglingToolCalls(state, DEADLINE_TOOL_RESULT);
+              durationCapped = true;
+              state.iterationsUsed = i + 1;
+              yield* observer.onDurationCapReached(
+                agent.name,
+                maxDurationMs ?? 0,
+                Date.now() - runMetrics.startedAt.getTime(),
+              );
+              break;
+            }
+            const step = outcome.value;
             if (step.kind === "interrupted") {
               finished = true;
               interrupted = true;
@@ -1708,9 +1763,9 @@ export function executeAgentLoop(
             }
           }
 
-          // Same soft-checkpoint timing as maxCostUSD/maxTokens. The 50/80/90% pressure
-          // nudges are injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage);
-          // this is the hard stop once the budget is actually exhausted.
+          // An iteration that finished right at the deadline stops here rather than
+          // starting another with no time left. The 50/80/90% pressure nudges are
+          // injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage).
           if (maxDurationMs !== undefined) {
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             if (elapsedMs >= maxDurationMs) {
