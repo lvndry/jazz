@@ -3,12 +3,9 @@
  */
 
 import * as path from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
-import { FILE_LOCK_TIMEOUT_MS } from "@jazz/core/constants/agent";
-import { toError } from "@jazz/core/utils/errors";
+import { FILE_LOCK_MAX_WAIT_MS, withFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { withLock } from "@jazz/core/utils/storage";
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import {
   detectKeyringBackend,
   keyringDelete,
@@ -30,18 +27,14 @@ const CREDENTIAL_ACCOUNT = "chatgpt.oauth.credential";
  */
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
-/**
- * Cap on the token-refresh request, which runs while holding the credential lock. It stays under
- * FILE_LOCK_TIMEOUT_MS so the lock is never reclaimed as stale while a refresh still holds it.
- */
+/** Cap on the token-refresh request, which runs while holding the credential lock. */
 const REFRESH_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * How long to keep retrying for the credential lock. The shared lock helper gives up after a few
- * seconds, which a sign-out waiting behind a slow refresh would exceed; this covers the longest
- * refresh plus the stale-lock window.
+ * How long to wait for the credential lock: a sign-out queued behind the slowest refresh, on
+ * top of the shared lock's own crash-recovery budget.
  */
-const LOCK_WAIT_DEADLINE_MS = FILE_LOCK_TIMEOUT_MS + REFRESH_REQUEST_TIMEOUT_MS;
+const LOCK_WAIT_DEADLINE_MS = FILE_LOCK_MAX_WAIT_MS + REFRESH_REQUEST_TIMEOUT_MS;
 
 export const CHATGPT_SIGN_IN_REQUIRED_MESSAGE =
   "Not signed in to ChatGPT. Run `jazz config`, choose LLM providers, then ChatGPT.";
@@ -98,11 +91,6 @@ const keyringStorage: CredentialStorage = {
   },
 };
 
-/** Marks an error raised by the locked operation, as opposed to by acquiring the lock. */
-class LockedOperationError {
-  constructor(readonly error: Error) {}
-}
-
 export interface ChatGPTCredentialStore {
   readonly load: () => Promise<ChatGPTCredential | undefined>;
   /** Record a new sign-in. Waits for any refresh in flight, so it cannot be overwritten. */
@@ -155,27 +143,8 @@ export function createChatGPTCredentialStore(dependencies: {
     }
   };
 
-  async function locked<A>(operation: () => Promise<A>): Promise<A> {
-    const guarded = Effect.tryPromise({
-      try: operation,
-      catch: (error) => new LockedOperationError(toError(error)),
-    });
-    const deadline = Date.now() + LOCK_WAIT_DEADLINE_MS;
-    for (;;) {
-      // `runPromise` would wrap a failure in a FiberFailure and hide the error's type.
-      const outcome = await Effect.runPromise(
-        Effect.either(withLock(lockPath(), guarded)).pipe(Effect.provide(NodeFileSystem.layer)),
-      );
-      if (Either.isRight(outcome)) {
-        return outcome.right;
-      }
-      if (outcome.left instanceof LockedOperationError) {
-        throw outcome.left.error;
-      }
-      if (Date.now() >= deadline) {
-        throw outcome.left;
-      }
-    }
+  function locked<A>(operation: () => Promise<A>): Promise<A> {
+    return withFileLock(lockPath(), operation, { maxWaitMs: LOCK_WAIT_DEADLINE_MS });
   }
 
   const refreshUnderLock = (rejectedAccess: string | undefined): Promise<ChatGPTCredential> =>

@@ -37,14 +37,21 @@ import type {
   JobQueueService,
   JobRecord,
 } from "@jazz/core/interfaces/job-queue-service";
-import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
+import { JobBatchRecordSchema, JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import {
+  CorruptStateFileError,
+  readStateFile,
+  type StateFileKind,
+  writeStateFile,
+} from "@jazz/core/utils/state-file";
+import {
+  isValidStorageKey,
   requireValidAgentId,
   requireValidStorageKey,
   withLock,
-  writeFileStringAtomic,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
@@ -92,33 +99,43 @@ function agentEnqueueLockPath(baseDirectory: string, agentId: string): string {
   return path.join(baseDirectory, `${agentId}.enqueue.lock`);
 }
 
-function readBatchFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-): Effect.Effect<JobBatchRecord | null, Error> {
-  return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
-    if (!exists) return null;
+const JOB_BATCH_FILE_KIND: StateFileKind<JobBatchRecord> = {
+  noun: "job batch",
+  schemaVersion: 1,
+  parse: (document) => {
+    const parsed = JobBatchRecordSchema.safeParse(document);
+    return parsed.success
+      ? { ok: true, content: parsed.data }
+      : { ok: false, error: parsed.error.message };
+  },
+  serialize: (batch) => ({ ...batch }),
+};
 
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
-    try {
-      return JSON.parse(content) as JobBatchRecord;
-    } catch {
-      return null;
-    }
-  });
+/**
+ * Read one batch under its lock. A corrupt file is quarantined and reads as absent, so it no
+ * longer counts as active or blocks the agent's other batches.
+ */
+function readBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null, Error> {
+  return readStateFile(filePath, JOB_BATCH_FILE_KIND, { onCorrupt: "quarantine" }).pipe(
+    Effect.map((batch) => batch ?? null),
+  );
 }
 
-function writeBatchFile(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  batch: JobBatchRecord,
-): Effect.Effect<void, Error> {
-  return writeFileStringAtomic(fs, filePath, `${JSON.stringify(batch, null, 2)}\n`, {
-    tempPrefix: "job-batch",
-  });
+/**
+ * Read one batch without its lock, for looks that are re-made under the lock. A corrupt file
+ * is reported as `"corrupt"` so the caller takes the locked path that quarantines it.
+ */
+function peekBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null | "corrupt"> {
+  return readStateFile(filePath, JOB_BATCH_FILE_KIND, { onCorrupt: "fail" }).pipe(
+    Effect.map((batch) => batch ?? null),
+    Effect.catchAll((error) =>
+      Effect.succeed(error instanceof CorruptStateFileError ? ("corrupt" as const) : null),
+    ),
+  );
+}
+
+function writeBatchFile(filePath: string, batch: JobBatchRecord): Effect.Effect<void, Error> {
+  return writeStateFile(filePath, JOB_BATCH_FILE_KIND, batch);
 }
 
 function isTerminalStatus(status: JobRecord["status"]): boolean {
@@ -184,7 +201,10 @@ export class JobQueueServiceImpl implements JobQueueService {
 
       const fs = yield* FileSystem.FileSystem;
       yield* fs
-        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), { recursive: true })
+        .makeDirectory(agentDirectory(baseJobBatchDirectory, agentId), {
+          recursive: true,
+          mode: stateDirectoryMode(),
+        })
         .pipe(Effect.mapError(toError));
 
       const outcome = yield* withLock(
@@ -200,11 +220,12 @@ export class JobQueueServiceImpl implements JobQueueService {
 
           let activeCount = 0;
           for (const existingBatchId of existingBatchIds) {
-            const existing = yield* readBatchFile(
-              fs,
+            const existing = yield* peekBatchFile(
               batchFilePath(baseJobBatchDirectory, agentId, existingBatchId),
             );
-            if (existing !== null && existing.completedAt === null) activeCount++;
+            if (existing !== null && existing !== "corrupt" && existing.completedAt === null) {
+              activeCount++;
+            }
           }
           if (activeCount >= MAX_ACTIVE_BATCHES_PER_AGENT) {
             return {
@@ -254,7 +275,7 @@ export class JobQueueServiceImpl implements JobQueueService {
             })),
           };
 
-          yield* writeBatchFile(fs, batchFilePath(baseJobBatchDirectory, agentId, batchId), batch);
+          yield* writeBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId), batch);
           return { success: true, batch } satisfies EnqueueBatchOutcome;
         }),
       );
@@ -268,8 +289,12 @@ export class JobQueueServiceImpl implements JobQueueService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       yield* requireValidStorageKey(batchId, "batch id", JobQueueGuardrailViolation);
-      const fs = yield* FileSystem.FileSystem;
-      return yield* readBatchFile(fs, batchFilePath(baseJobBatchDirectory, agentId, batchId));
+      const batch = yield* readStateFile(
+        batchFilePath(baseJobBatchDirectory, agentId, batchId),
+        JOB_BATCH_FILE_KIND,
+        { onCorrupt: "fail" },
+      );
+      return batch ?? null;
     });
   };
 
@@ -291,11 +316,8 @@ export class JobQueueServiceImpl implements JobQueueService {
 
       const batches: JobBatchRecord[] = [];
       for (const batchId of batchIds) {
-        const batch = yield* readBatchFile(
-          fs,
-          batchFilePath(baseJobBatchDirectory, agentId, batchId),
-        );
-        if (batch !== null) batches.push(batch);
+        const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+        if (batch !== null && batch !== "corrupt") batches.push(batch);
       }
       return batches.sort((left, right) => right.createdAt - left.createdAt);
     });
@@ -306,13 +328,12 @@ export class JobQueueServiceImpl implements JobQueueService {
     return Effect.gen(function* () {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       yield* requireValidStorageKey(batchId, "batch id", JobQueueGuardrailViolation);
-      const fs = yield* FileSystem.FileSystem;
 
       return yield* withLock(
         batchLockPath(baseJobBatchDirectory, agentId, batchId),
         Effect.gen(function* () {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-          const batch = yield* readBatchFile(fs, filePath);
+          const batch = yield* readBatchFile(filePath);
           if (batch === null) {
             return {
               success: false,
@@ -338,7 +359,7 @@ export class JobQueueServiceImpl implements JobQueueService {
             jobs,
             completedAt: allTerminal ? now : batch.completedAt,
           };
-          yield* writeBatchFile(fs, filePath, updated);
+          yield* writeBatchFile(filePath, updated);
 
           return {
             success: true,
@@ -376,9 +397,10 @@ export function listAgentIdsWithActiveBatches(
     const names = yield* fs
       .readDirectory(baseJobBatchDirectory)
       .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-    // Per-agent enqueue locks (`<agentId>.enqueue.lock`) live alongside the per-agent
-    // subdirectories in this same directory — filter those out.
-    return names.filter((name) => !name.endsWith(".lock"));
+    // Per-agent enqueue locks (`<agentId>.enqueue.lock`, and the `.guard` a lock takes while it
+    // is reclaimed or released) live alongside the per-agent subdirectories; only a
+    // storage-safe name is an agent id.
+    return names.filter((name) => isValidStorageKey(name));
   });
 }
 
@@ -418,11 +440,8 @@ export function nextClaimableAt(
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
       const batchId = name.slice(0, -".json".length);
-      const batch = yield* readBatchFile(
-        fs,
-        batchFilePath(baseJobBatchDirectory, agentId, batchId),
-      ).pipe(Effect.catchAll(() => Effect.succeed(null)));
-      if (batch === null || batch.completedAt !== null) continue;
+      const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+      if (batch === null || batch === "corrupt" || batch.completedAt !== null) continue;
 
       for (const job of batch.jobs) {
         if (job.status !== "pending") continue;
@@ -463,7 +482,7 @@ export function claimDueJobs(
         batchLockPath(baseJobBatchDirectory, agentId, batchId),
         Effect.gen(function* () {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-          const batch = yield* readBatchFile(fs, filePath);
+          const batch = yield* readBatchFile(filePath);
           if (batch === null || batch.completedAt !== null) return [] as ClaimedJob[];
 
           const currentlyRunning = batch.jobs.filter((job) => job.status === "running").length;
@@ -497,7 +516,7 @@ export function claimDueJobs(
           });
 
           if (claimedHere.length > 0) {
-            yield* writeBatchFile(fs, filePath, { ...batch, jobs });
+            yield* writeBatchFile(filePath, { ...batch, jobs });
           }
           return claimedHere;
         }),
@@ -583,12 +602,11 @@ export function completeJob(
   outcome: JobRunOutcome,
 ): Effect.Effect<CompleteJobResult, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
     return yield* withLock(
       batchLockPath(baseJobBatchDirectory, agentId, batchId),
       Effect.gen(function* () {
         const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-        const batch = yield* readBatchFile(fs, filePath);
+        const batch = yield* readBatchFile(filePath);
         if (batch === null)
           return { batchNowComplete: false, batch: null } satisfies CompleteJobResult;
 
@@ -605,7 +623,7 @@ export function completeJob(
           jobs,
           completedAt: allTerminal ? (batch.completedAt ?? now) : batch.completedAt,
         };
-        yield* writeBatchFile(fs, filePath, updated);
+        yield* writeBatchFile(filePath, updated);
 
         return {
           batchNowComplete: allTerminal && !wasAlreadyComplete,
@@ -651,12 +669,12 @@ export function reclaimExpiredLeases(
         // per batch per tick to discover, almost always, that there was nothing to reclaim. The
         // decision is re-made under the lock below, so a lease that expires between the two reads
         // is caught on the next tick rather than lost.
-        const unlockedPeek = yield* readBatchFile(
-          fs,
+        const unlockedPeek = yield* peekBatchFile(
           batchFilePath(baseJobBatchDirectory, agentId, batchId),
-        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        );
         const peekHasExpiredLease =
           unlockedPeek !== null &&
+          unlockedPeek !== "corrupt" &&
           unlockedPeek.completedAt === null &&
           unlockedPeek.jobs.some(
             (job) =>
@@ -668,7 +686,7 @@ export function reclaimExpiredLeases(
           batchLockPath(baseJobBatchDirectory, agentId, batchId),
           Effect.gen(function* () {
             const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
-            const batch = yield* readBatchFile(fs, filePath);
+            const batch = yield* readBatchFile(filePath);
             if (batch === null || batch.completedAt !== null) return null;
 
             const expired = batch.jobs.filter(
@@ -699,7 +717,7 @@ export function reclaimExpiredLeases(
               jobs,
               completedAt: allTerminal ? now : batch.completedAt,
             };
-            yield* writeBatchFile(fs, filePath, updated);
+            yield* writeBatchFile(filePath, updated);
             return allTerminal
               ? ({ agentId, batch: updated } satisfies ReclaimedBatchCompletion)
               : null;

@@ -9,12 +9,20 @@
  * than read, and a rewrite replaces the name instead of writing through it.
  *
  * Writes take the same lock the agent's `ReminderServiceImpl` takes, so a sweep never races
- * the agent adding one, and the rewritten file goes back to the conversation's uid.
+ * the agent adding one, and the rewritten file goes back to the conversation's uid. The file is
+ * read and written in the agent's own versioned format (`REMINDER_FILE_KIND`); a file that is
+ * corrupt or from a newer Jazz reads as empty and is never rewritten here, so its reminders are
+ * not lost (the agent's own service quarantines a corrupt one on its next access).
  */
 
 import { NodeFileSystem } from "@effect/platform-node";
-import { reminderFileName, reminderLockName } from "@jazz/adapters/reminder-service";
+import {
+  REMINDER_FILE_KIND,
+  reminderFileName,
+  reminderLockName,
+} from "@jazz/adapters/reminder-service";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
+import { decodeStateFile, encodeStateFile } from "@jazz/core/utils/state-file";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import { openDirectory, type Ownership, type PinnedDirectory } from "./sandbox-fs";
@@ -37,16 +45,22 @@ function openReminders(home: string): PinnedDirectory | undefined {
   }
 }
 
-function parseReminders(raw: string | undefined): ReminderRecord[] {
+type ReminderFileRead =
+  | { readonly writable: true; readonly reminders: ReminderRecord[] }
+  | { readonly writable: false; readonly reminders: readonly [] };
+
+function parseReminders(raw: string | undefined, fileName: string): ReminderFileRead {
   if (raw === undefined) {
-    return [];
+    return { writable: true, reminders: [] };
   }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
-  } catch {
-    return [];
+  const decoded = decodeStateFile(raw, fileName, REMINDER_FILE_KIND);
+  if (decoded.status === "ok") {
+    return { writable: true, reminders: decoded.content };
   }
+  console.error(
+    `[jazz] ${fileName} is left untouched: ${decoded.status === "newer" ? decoded.error.message : decoded.reason}`,
+  );
+  return { writable: false, reminders: [] };
 }
 
 /** Agent ids with a reminder file in `home`, for a sweep over a shared directory. */
@@ -72,7 +86,8 @@ export function readReminders(home: string, agentId: string): ReminderRecord[] {
     return [];
   }
   try {
-    return parseReminders(reminders.readText(reminderFileName(agentId)));
+    const fileName = reminderFileName(agentId);
+    return [...parseReminders(reminders.readText(fileName), fileName).reminders];
   } finally {
     reminders.close();
   }
@@ -98,9 +113,13 @@ async function rewriteReminders(
   try {
     const fileName = reminderFileName(agentId);
     const operation = Effect.sync(() => {
-      const { kept, removed } = select(parseReminders(reminders.readText(fileName)));
+      const current = parseReminders(reminders.readText(fileName), fileName);
+      if (!current.writable) {
+        return [];
+      }
+      const { kept, removed } = select(current.reminders);
       if (removed.length > 0) {
-        reminders.writeBytes(fileName, `${JSON.stringify(kept, null, 2)}\n`, {
+        reminders.writeBytes(fileName, encodeStateFile(REMINDER_FILE_KIND, [...kept]), {
           owner: ownership?.owner,
           mode: ownership?.fileMode ?? DEFAULT_FILE_MODE,
         });

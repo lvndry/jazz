@@ -21,7 +21,12 @@ are independent:
   their manifests describe expected use but do not confine code.
 - **Remote surfaces:** bots, daemon clients, webhooks, invites, and peers decide who can start work.
 - **Persistence:** config, transcripts, work state, logs, and telemetry remain readable to the OS
-  account unless the host provides stronger isolation.
+  account unless the host provides stronger isolation. Jazz writes them owner-only (`0600` files,
+  `0700` directories) and repairs an older, wider home once on first start, so other accounts on
+  the machine cannot read them ([runtime data](../runtime-data/index.md#permissions)).
+  Setgid homes with traversal-only access for other accounts (typically `2751`) are
+  operator-managed bridge roots: CLI repair leaves their hierarchy alone and delegates to the
+  bridge entrypoint, preserving access to isolated conversation homes and shared personas.
 
 ## Controls Jazz enforces
 

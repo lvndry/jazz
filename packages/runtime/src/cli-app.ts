@@ -21,6 +21,8 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
+import { securePrivateHome } from "@jazz/core/utils/private-home";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
@@ -2838,14 +2840,22 @@ function registerWorkflowCommands(program: Command): void {
 }
 
 /**
- * Create and configure the CLI application
- *
- * Sets up the Commander.js program with all available commands including:
- * - Agent management (create, list, get, edit, delete, chat)
- * - Configuration management (get, set, show)
- * - MCP server management
- * - Update command
+ * Keep `$JAZZ_HOME` private to this account before the command writes into it. A failure is
+ * reported, never fatal: the command the user asked for still runs.
  */
+function secureJazzHome(): void {
+  try {
+    const report = securePrivateHome();
+    if (report.failures > 0) {
+      process.stderr.write(
+        `Could not make ${report.failures} item(s) in ${getJazzHomeDirectory()} private to this account; other accounts on this machine may be able to read them.\n`,
+      );
+    }
+  } catch (error) {
+    process.stderr.write(`Could not make the Jazz home private: ${toError(error).message}\n`);
+  }
+}
+
 /**
  * The first command-line operand (a subcommand name, typo or not), skipping the
  * program's own options and the values they take. `jazz --no-tui` and
@@ -2881,6 +2891,15 @@ export function firstOperand(program: Command, args: readonly string[]): string 
   return undefined;
 }
 
+/**
+ * Create and configure the CLI application
+ *
+ * Sets up the Commander.js program with all available commands including:
+ * - Agent management (create, list, get, edit, delete, chat)
+ * - Configuration management (get, set, show)
+ * - MCP server management
+ * - Update command
+ */
 export function createCLIApp(argv: readonly string[] = process.argv): Command {
   const program = new Command();
 
@@ -2918,6 +2937,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     if (opts["dataDir"]) {
       process.env["JAZZ_HOME"] = path.resolve(opts["dataDir"] as string);
     }
+    secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
   });
 
