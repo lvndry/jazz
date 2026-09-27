@@ -119,6 +119,17 @@ describe("validateGoalEvaluation", () => {
 describe("quoteAppears", () => {
   const output = ["Ran 42 tests across 7 files.\n 42 pass\n  0 fail\nDone in 1.2s"];
 
+  /**
+   * The regression: a model quoted a read_file result as `content: "1|finished"`, stored as
+   * `"content":"1|finished"`, and a completion that was true was rejected turn after turn.
+   */
+  it("matches a JSON result quoted with different quote marks and spacing", () => {
+    const stored = ['{"path":"/work/done.txt","content":"1|finished","truncated":false}'];
+    expect(quoteAppears('content: "1|finished"', stored)).toBe(true);
+    expect(quoteAppears("content: '1|finished'", stored)).toBe(true);
+    expect(quoteAppears('content: "1|unfinished"', stored)).toBe(false);
+  });
+
   it("ignores whitespace reflow and surrounding quote marks", () => {
     expect(quoteAppears('"42 pass 0 fail"', output)).toBe(true);
   });

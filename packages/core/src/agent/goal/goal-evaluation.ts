@@ -181,17 +181,27 @@ export function toolOutputTexts(messages: readonly ChatMessage[]): string[] {
   return texts;
 }
 
-function collapseWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+/**
+ * Text as a quote is compared: whitespace collapsed, quote marks dropped, and no spacing around
+ * JSON punctuation. A model quoting a JSON result writes `content: "done"` for what is stored as
+ * `"content":"done"`; the words and their order are what have to match.
+ */
+function normalizeForQuote(text: string): string {
+  return text
+    .replace(/["'`]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([:,=[\]{}])\s*/g, "$1")
+    .trim();
 }
 
 /**
- * Whether a quote occurs in one tool result, ignoring whitespace differences and allowing up
- * to two `...` elisions whose fragments appear in order. Models reflow and trim long lines
- * when they quote, and neither changes what was observed.
+ * Whether a quote occurs in one tool result, ignoring whitespace, quote marks, and spacing
+ * around JSON punctuation, and allowing up to two `...` elisions whose fragments appear in
+ * order. Models reflow and trim long lines when they quote, and neither changes what was
+ * observed.
  */
 export function quoteAppears(quote: string, toolOutputs: readonly string[]): boolean {
-  const fragments = collapseWhitespace(quote.replace(/^["'`\s]+|["'`\s]+$/g, ""))
+  const fragments = normalizeForQuote(quote)
     .split(/\s*(?:\.\.\.|…)\s*/)
     .filter((fragment) => fragment.length > 0);
   const quotedChars = fragments.reduce(
@@ -206,7 +216,7 @@ export function quoteAppears(quote: string, toolOutputs: readonly string[]): boo
     return false;
   }
   return toolOutputs.some((output) => {
-    const haystack = collapseWhitespace(output);
+    const haystack = normalizeForQuote(output);
     let from = 0;
     for (const fragment of fragments) {
       const found = haystack.indexOf(fragment, from);

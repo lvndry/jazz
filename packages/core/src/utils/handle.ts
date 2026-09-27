@@ -61,3 +61,36 @@ export function findByNameOrIdPrefix<Named extends { readonly name?: string }>(
   const matches = records.filter((record) => idOf(record).startsWith(handle));
   return matches.length === 1 ? matches[0] : undefined;
 }
+
+/** Words that carry no meaning in a name, skipped when naming something after its text. */
+const FILLER_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "for",
+  "if",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "of",
+  "on",
+  "or",
+  "please",
+  "the",
+  "then",
+  "to",
+  "whether",
+]);
+
+/** The first `count` meaningful words of `text`, to name something after it. */
+export function leadingWords(text: string, count: number): string {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length > 0 && !FILLER_WORDS.has(word))
+    .slice(0, count)
+    .join(" ");
+}

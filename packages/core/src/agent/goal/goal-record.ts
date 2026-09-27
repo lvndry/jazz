@@ -195,6 +195,11 @@ export function newProposedGoal(options: {
   readonly name: string;
   readonly workingDirectory: string;
   readonly sourceConversationId: string | undefined;
+  /**
+   * The conversation its work continues; a goal set in a chat continues that chat, so a
+   * handoff to the daemon picks up where the chat left off. A private one when absent.
+   */
+  readonly conversationId?: string;
   readonly request: string;
   readonly plan: GoalPlan;
   readonly budget?: GoalBudget;
@@ -209,7 +214,7 @@ export function newProposedGoal(options: {
     ...(options.sourceConversationId !== undefined
       ? { sourceConversationId: options.sourceConversationId }
       : {}),
-    conversationId: generateConversationId("goal"),
+    conversationId: options.conversationId ?? generateConversationId("goal"),
     workingDirectory: options.workingDirectory,
     request: options.request,
     plan: options.plan,
@@ -218,6 +223,24 @@ export function newProposedGoal(options: {
     usage: options.usage ?? NO_GOAL_USAGE,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+/**
+ * The plan of a goal the user set directly with `/goal <objective>`: no planning step, the
+ * objective is its one success criterion and its one step, so a completion claim still has to
+ * show with tool output that the objective holds.
+ */
+export function directGoalPlan(objective: string): GoalPlan {
+  return {
+    revision: 1,
+    objective,
+    successCriteria: [objective],
+    constraints: [],
+    assumptions: [],
+    feasibility: { assessment: "plausible", rationale: "Set directly by the user." },
+    steps: [{ id: "objective", objective, successCriteria: [objective], state: "pending" }],
+    verification: ["Show with tool output that the objective holds."],
   };
 }
 

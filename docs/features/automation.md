@@ -21,7 +21,7 @@ Two distinctions decide most choices. A **workflow** is a prompt you wrote and c
 trigger** runs the agent again in the same conversation; a **reminder** just delivers a note and
 runs nothing. See [deferred work](../concepts/deferred-work.md) for the last two. A **loop** is
 lighter than a workflow: one prompt rerun on an interval or cron schedule in its own
-conversation, which ends itself once its purpose is met; see [`jazz loop`](../commands.md#jazz-loop).
+conversation, which ends itself once its purpose is met; see [Goals and loops](./goals-and-loops.md).
 
 Unattended runs cannot answer interactive questions. They must decline gated actions, receive an explicit auto-approval policy, or use `--park` so a person can approve and resume the saved run later.
 

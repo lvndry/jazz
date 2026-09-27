@@ -1,5 +1,5 @@
 ---
-description: "Explore Jazz agent features including tools, approvals, long-running work, memory, automation, media understanding, webhooks, peers, and chat surfaces."
+description: "Explore Jazz agent features including tools, approvals, goals and loops, long-running work, memory, automation, media understanding, webhooks, peers, and chat surfaces."
 ---
 
 # Jazz features
@@ -49,6 +49,13 @@ Every tool declares risk, disclosure, and egress properties. Jazz can withhold a
 ## Survive long jobs
 
 Jazz warns the model as iteration, time, token, cost, or context budgets fill. It compacts old history, preserves recent tool-call structure, and gives the agent working state that survives context loss. Read [Long-running work](./long-running-work.md).
+
+## Keep going until it is done
+
+`/goal <objective>` keeps the agent working toward an objective, turn after turn, in the chat you
+are in, until it proves the objective holds with tool output. Leave with it unfinished and Jazz
+offers to finish it in the background. `/loop` reruns a prompt on a schedule until what it watches
+for happens. See [Goals and loops](./goals-and-loops.md).
 
 ## Continue on your own server
 

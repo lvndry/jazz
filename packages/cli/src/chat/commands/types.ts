@@ -2,7 +2,6 @@
  * Shared types for chat slash-command parsing, dispatch, and results.
  */
 
-import type { ChatTurnOptions } from "@jazz/core/agent/types";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -84,6 +83,8 @@ export interface CommandResult {
   messageForAgent?: string;
   /** New session-wide limits set by /limit (a full replacement, not a patch — an absent field means "no limit"). */
   newSessionLimits?: SessionLimits;
+  /** A goal the chat now works toward: its next turn starts right after the command. */
+  attendGoal?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
@@ -125,8 +126,6 @@ export interface CommandContext {
   sessionStartedAt: Date;
   /** Current auto-approve policy (for /mode display). */
   autoApprovePolicy?: AutoApprovePolicy;
-  /** This chat's options for a run, built fresh each call, for runs a command starts (a goal's cycles). */
-  chatTurnOptions?: () => ChatTurnOptions;
   /** Currently auto-approved command prefixes (for /mode display). */
   autoApprovedCommands?: readonly string[];
   /** Commands persisted in config (always auto-approved across sessions). */

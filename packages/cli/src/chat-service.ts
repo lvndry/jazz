@@ -12,9 +12,13 @@ import {
   bumpPromotionThreshold,
   type CommandApprovals,
 } from "@jazz/adapters/command-approval-tracker";
+import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/daemon/goal-worker";
+import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
-import type { ChatTurnOptions } from "@jazz/core/agent/types";
+import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
+import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag, type ChatService } from "@jazz/core/interfaces/chat-service";
@@ -67,7 +71,15 @@ import {
   setPluginCommands,
   setSkillCommands,
 } from "./chat/commands";
-import { announceWaitingGoals, offerGoalHandoffs, offerProposedGoals } from "./chat/commands/goal";
+import {
+  announceGoalTurn,
+  announceWaitingGoals,
+  goalLayers,
+  offerGoalHandoffs,
+  offerProposedGoals,
+  pauseOnExit,
+  settledHere,
+} from "./chat/commands/goal";
 import { announceWaitingLoops } from "./chat/commands/loop";
 import {
   confirmSessionLimitOverage,
@@ -310,6 +322,11 @@ export class ChatServiceImpl implements ChatService {
       // editing (error path).
       let lastTurnErrored = false;
 
+      // The goal this chat is working toward, and whether its next turn is due. A goal turn is
+      // an ordinary turn whose prompt comes from the goal instead of the user.
+      let attendedGoalId: string | undefined;
+      let goalContinues = false;
+
       while (chatActive) {
         let userMessage: string | undefined;
         const queued = store.peekQueue();
@@ -318,7 +335,25 @@ export class ChatServiceImpl implements ChatService {
         // for the queue to go into the chat now, not to be re-edited.
         const flushRequested = store.consumeFlushQueue();
 
-        if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
+        // What the user typed meanwhile goes first; the goal picks up again after it.
+        let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
+        if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
+          goalContinues = false;
+          const goalId = attendedGoalId;
+          goalTurn = yield* goalLayers(claimChatGoalTurn(goalId)).pipe(
+            Effect.catchAll(() => Effect.succeed(undefined)),
+          );
+          if (goalTurn === undefined) {
+            const next = yield* goalLayers(Effect.flatMap(getOwnedGoal(goalId), settledHere)).pipe(
+              Effect.catchAll(() => Effect.succeed(undefined)),
+            );
+            attendedGoalId = next;
+            goalContinues = next !== undefined;
+            continue;
+          }
+          yield* announceGoalTurn(goalTurn.goal);
+          userMessage = goalTurn.prompt;
+        } else if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
           // Clean prior turn → drain the next queued turn without re-prompting.
           // A command at the head runs alone through the command path below;
           // prose entries are combined. Anything left is picked up next loop.
@@ -366,6 +401,9 @@ export class ChatServiceImpl implements ChatService {
         const trimmedMessage = (userMessage ?? "").trim();
         const lowerMessage = trimmedMessage.toLowerCase();
         if (lowerMessage === "/exit" || lowerMessage === "exit" || lowerMessage === "quit") {
+          if (attendedGoalId !== undefined) {
+            yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
+          }
           yield* offerGoalHandoffs().pipe(
             Effect.catchAll((error) =>
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
@@ -402,12 +440,13 @@ export class ChatServiceImpl implements ChatService {
         }
 
         let messageForAgent = userMessage;
-        let trustMessageAsMemorySource = true;
+        let trustMessageAsMemorySource = goalTurn === undefined;
 
         // A message with interior newlines (multi-line composition or a
         // combined prose drain) is prose even when it starts with "/" or "!" —
         // command parsing would silently discard everything after line one.
         if (
+          goalTurn === undefined &&
           (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
           !trimmedMessage.includes("\n")
         ) {
@@ -437,7 +476,6 @@ export class ChatServiceImpl implements ChatService {
               sessionStartedAt,
               lastUsedAgentId,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
-              chatTurnOptions,
               ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
               ...(latestConfig.autoApprovedCommands?.length
                 ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
@@ -474,6 +512,12 @@ export class ChatServiceImpl implements ChatService {
             }
 
             if (commandResult.newConversationId !== undefined) {
+              // A goal belongs to its conversation; leaving it pauses the goal there.
+              if (attendedGoalId !== undefined && commandResult.attendGoal === undefined) {
+                yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
+                attendedGoalId = undefined;
+                goalContinues = false;
+              }
               conversationId = commandResult.newConversationId;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -568,6 +612,11 @@ export class ChatServiceImpl implements ChatService {
               );
             }
 
+            if (commandResult.attendGoal !== undefined) {
+              attendedGoalId = commandResult.attendGoal;
+              goalContinues = true;
+            }
+
             if (commandResult.resendMessage !== undefined) {
               // /retry — fall through to the agent run with the replayed
               // message instead of prompting again.
@@ -625,13 +674,22 @@ export class ChatServiceImpl implements ChatService {
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
-            ...(ephemeral ? { disablePersistence: true } : { offersGoalProposals: true }),
+            ...(ephemeral
+              ? { disablePersistence: true }
+              : goalTurn === undefined
+                ? { offersGoalProposals: true }
+                : {}),
+            ...(goalTurn !== undefined ? goalTurn.runOptions : {}),
           };
 
           // Run the agent with proper error handling
           yield* emitLifecycle("user-prompt", { prompt: trimmedMessage.slice(0, 2000) });
           store.setChatBusy(true);
-          const response = yield* AgentRunner.run(runnerOptions).pipe(
+          const turn = AgentRunner.run(runnerOptions);
+          // A goal turn is recorded as a run, which is how the goal is charged for it.
+          const response = yield* (
+            goalTurn === undefined ? turn : turn.pipe(Effect.provide(makeFileRunStoreLayer()))
+          ).pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 lastTurnErrored = true;
@@ -798,8 +856,24 @@ export class ChatServiceImpl implements ChatService {
             });
           }
 
-          if (!ephemeral) {
-            yield* offerProposedGoals(conversationId, chatTurnOptions);
+          if (goalTurn !== undefined) {
+            const outcome: RunOutcome<AgentResponse> = lastTurnErrored
+              ? { kind: "failed", error: "The turn failed." }
+              : { kind: "finished", response };
+            const claimed = goalTurn;
+            const next = yield* goalLayers(
+              Effect.flatMap(settleChatGoalTurn(claimed.goal, claimed.runId, outcome), settledHere),
+            ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            attendedGoalId = next ?? attendedGoalId;
+            goalContinues = next !== undefined;
+          } else if (!ephemeral) {
+            const accepted = yield* offerProposedGoals(conversationId).pipe(
+              Effect.catchAll(() => Effect.succeed(undefined)),
+            );
+            if (accepted !== undefined) {
+              attendedGoalId = accepted;
+              goalContinues = true;
+            }
           }
 
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)

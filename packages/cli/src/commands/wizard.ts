@@ -1,14 +1,15 @@
 import os from "node:os";
-import { conversationsWaitingOnUser } from "@jazz/adapters/goals/goal-actions";
+import { listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
-import { loopsWaitingOnUser } from "@jazz/adapters/loops/loop-actions";
+import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
+import { WAITING_ON_USER_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -23,7 +24,9 @@ import { toError } from "@jazz/core/utils/errors";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
+import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
+import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
@@ -97,25 +100,7 @@ export function wizardCommand() {
       }
 
       if (hasConversationHistory) {
-        const waiting = yield* Effect.all([
-          conversationsWaitingOnUser(),
-          loopsWaitingOnUser().pipe(
-            Effect.map(
-              (loops) =>
-                new Set(
-                  loops
-                    .map((loop) => loop.sourceConversationId)
-                    .filter((id): id is string => id !== undefined),
-                ),
-            ),
-          ),
-        ]).pipe(
-          Effect.map(([fromGoals, fromLoops]) => new Set([...fromGoals, ...fromLoops])),
-          Effect.provide(makeFileGoalStoreLayer()),
-          Effect.provide(makeFileLoopStoreLayer()),
-          Effect.provide(makeFileRunStoreLayer()),
-          Effect.catchAll(() => Effect.succeed(new Set<string>())),
-        );
+        const waiting = yield* waitingConversations();
         menuOptions.push({
           label:
             waiting.size === 0
@@ -505,8 +490,41 @@ const MAX_RESUME_CHOICES = 50;
 /**
  * Load all saved conversations across agents, show a selector, and resume the chosen one
  */
+/**
+ * Conversations with a goal or loop that can go no further until the user acts, each with what
+ * it waits on in words, so the resume list can say which conversation needs them and why.
+ */
+function waitingConversations() {
+  return Effect.gen(function* () {
+    const waiting = new Map<string, string>();
+    const goals = yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES });
+    for (const goal of goals) {
+      if (goal.sourceConversationId !== undefined) {
+        const pending = yield* pendingGoalInput(goal);
+        waiting.set(
+          goal.sourceConversationId,
+          `goal ${goalHandle(goal)} ${goalStatus(goal, pending)}`,
+        );
+      }
+    }
+    for (const loop of yield* loopsWaitingOnUser()) {
+      if (loop.sourceConversationId !== undefined && !waiting.has(loop.sourceConversationId)) {
+        const pending = yield* pendingLoopInput(loop);
+        waiting.set(loop.sourceConversationId, `loop ${loop.name} ${loopStatus(loop, pending)}`);
+      }
+    }
+    return waiting;
+  }).pipe(
+    Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
+    Effect.provide(makeFileRunStoreLayer()),
+    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+  );
+}
+
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
+    const waiting = yield* waitingConversations();
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
@@ -536,13 +554,22 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       return;
     }
 
-    entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    // Waiting conversations first, so the one the menu counted is the one on top.
+    entries.sort(
+      (a, b) =>
+        Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
+        new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const choices = entries.map((entry, idx) => ({
-      name: `${entry.title} · ${agentModelString(entry.agent.config)}`,
-      value: String(idx),
-    }));
+    const choices = entries.map((entry, idx) => {
+      const waitingOn = waiting.get(entry.conversationId);
+      return {
+        name: `${waitingOn !== undefined ? "● " : ""}${entry.title} · ${agentModelString(entry.agent.config)}`,
+        ...(waitingOn !== undefined ? { description: `waiting for you: ${waitingOn}` } : {}),
+        value: String(idx),
+      };
+    });
 
     const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,

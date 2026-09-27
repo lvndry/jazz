@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { findByNameOrIdPrefix, HANDLE_PATTERN, handleFrom, uniqueHandle } from "./handle";
+import {
+  findByNameOrIdPrefix,
+  HANDLE_PATTERN,
+  handleFrom,
+  leadingWords,
+  uniqueHandle,
+} from "./handle";
 
 describe("handleFrom", () => {
   it("keeps a suggestion that is already a handle", () => {
@@ -67,5 +73,18 @@ describe("findByNameOrIdPrefix", () => {
     expect(
       findByNameOrIdPrefix([...records, { id: "3f2a0000", name: "x" }], "3f2a", idOf),
     ).toBeUndefined();
+  });
+});
+
+describe("leadingWords", () => {
+  it("takes the first meaningful words of the text", () => {
+    expect(leadingWords("Check whether the deploy finished and tell me", 3)).toBe(
+      "check deploy finished",
+    );
+    expect(leadingWords("Read status.txt in the current directory", 3)).toBe("read status txt");
+  });
+
+  it("is empty when the text has only filler words", () => {
+    expect(leadingWords("if it is the", 3)).toBe("");
   });
 });

@@ -24,12 +24,15 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import {
-  holdAttendance,
+  claimChatGoalTurn,
   resumeGoalRun,
-  runAttendedCycles,
   runDueGoals,
+  settleChatGoalTurn,
 } from "@jazz/adapters/daemon/goal-worker";
-import { loadConversation } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversation,
+  loadConversationOrNull,
+} from "@jazz/adapters/history/conversation-history-service";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 
@@ -764,67 +767,89 @@ describe("resumeGoalRun", () => {
 
 const DEAD_CHAT = { pid: 999_999_999, host: hostname() };
 
-describe("a goal run in front of the user", () => {
-  it("runs its cycles here as turns of the chat, with its live mode, approvals, and queue", async () => {
+describe("a goal worked on in chat", () => {
+  it("claims a turn for the chat to run: counted, recorded as a goal run, told to ask inline", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));
-    const runner = scriptRunner(test, COMPLETE);
-    const mode = () => "high-risk" as const;
-    const checkQueuedMessage = () => "also keep the README";
-    let cycles = 0;
-    try {
-      const attended = await run(
-        test,
-        holdAttendance(
-          GOAL_ID,
-          runAttendedCycles(GOAL_ID, {
-            turnOptions: () => ({
-              autoApprovePolicy: mode,
-              autoApprovedCommands: ["git status"],
-              checkQueuedMessage,
-            }),
-            onCycle: () => Effect.sync(() => void cycles++),
-          }),
-        ),
-      );
-      expect(attended.kind).toBe("attended");
-    } finally {
-      runner.mockRestore();
-    }
+    const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    expect(turn?.runOptions.startedBy).toBe("goal");
+    expect(turn?.runOptions.runId).toBe(turn?.runId);
+    expect(turn?.prompt).toContain(`[goal cycle ${turn?.runId ?? ""}]`);
+    expect(turn?.prompt).toContain("ask_user_question");
     const goal = await current(test);
-    expect(goal.state.kind).toBe("completed");
-    expect(cycles).toBe(1);
-    expect(test.prompts[0]?.autoApprovePolicy).toBe(mode);
-    expect(test.prompts[0]?.autoApprovedCommands).toEqual(["git status"]);
-    expect(test.prompts[0]?.checkQueuedMessage).toBe(checkQueuedMessage);
+    expect(goal.usage.cycles).toBe(1);
+    expect(goal.cycle?.runId).toBe(turn?.runId);
   });
 
-  it("pauses where the user stopped a cycle, keeping its spend", async () => {
+  it("pauses where the user stopped a turn, keeping its spend", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));
-    const runner = spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
-      Effect.gen(function* () {
-        yield* test.runs.save(record(options.runId ?? "", { kind: "completed", content: "" }));
-        return {
-          content: "",
-          conversationId: "goal-chat",
-          messages: [],
-          interrupted: true,
-        } as unknown as AgentResponse;
-      })) as unknown as typeof AgentRunner.run);
-    try {
-      await run(
-        test,
-        holdAttendance(GOAL_ID, runAttendedCycles(GOAL_ID, { turnOptions: () => ({}) })),
-      );
-    } finally {
-      runner.mockRestore();
+    const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    if (turn === undefined) {
+      throw new Error("no turn claimed");
     }
-    const goal = await current(test);
-    expect(goal.state.kind).toBe("paused");
-    expect(goal.cycle).toBeUndefined();
-    expect(goal.attendedBy).toBeUndefined();
-    expect(goal.usage.totalTokens).toBe(1_200);
+    await run(test, test.runs.save(record(turn.runId, { kind: "completed", content: "" })));
+    const goal = await run(
+      test,
+      settleChatGoalTurn(turn.goal, turn.runId, {
+        kind: "finished",
+        response: { content: "", conversationId: "chat", messages: [], interrupted: true } as never,
+      }),
+    );
+    expect(goal?.state.kind).toBe("paused");
+    expect(goal?.cycle).toBeUndefined();
+    expect(goal?.usage.totalTokens).toBe(1_200);
+  });
+
+  it("completes from the turn's report and leaves the chat's conversation to the chat", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    if (turn === undefined) {
+      throw new Error("no turn claimed");
+    }
+    await run(test, test.runs.save(record(turn.runId, { kind: "completed", content: "Done." })));
+    const report = JSON.stringify({
+      status: "complete",
+      summary: "Header test passes.",
+      evidence: [{ criterion: 1, quote: "1 pass 0 fail" }],
+    });
+    const messages: ChatMessage[] = [
+      { role: "user", content: turn.prompt },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: { name: "execute_command", arguments: "{}" },
+          },
+          {
+            id: "call-2",
+            type: "function",
+            function: { name: "report_goal_cycle", arguments: report },
+          },
+        ],
+      },
+      { role: "tool", name: "execute_command", content: TOOL_OUTPUT, tool_call_id: "call-1" },
+      {
+        role: "tool",
+        name: "report_goal_cycle",
+        content: JSON.stringify({ success: true, result: { recorded: true } }),
+        tool_call_id: "call-2",
+      },
+      { role: "assistant", content: "Done." },
+    ];
+    const goal = await run(
+      test,
+      settleChatGoalTurn(turn.goal, turn.runId, {
+        kind: "finished",
+        response: { content: "Done.", conversationId: "chat", messages } as never,
+      }),
+    );
+    expect(goal?.state.kind).toBe("completed");
+    expect(await run(test, loadConversationOrNull(AGENT_ID, turn.goal.conversationId))).toBeNull();
   });
 
   it("is left alone by the daemon while its chat lives", async () => {
@@ -858,15 +883,5 @@ describe("a goal run in front of the user", () => {
     expect(test.prompts).toHaveLength(0);
     expect(goal.state.kind).toBe("paused");
     expect(goal.attendedBy).toBeUndefined();
-  });
-
-  it("refuses to attend a goal another live chat is running", async () => {
-    const test = harness();
-    await run(
-      test,
-      test.goals.create(testGoal({ attendedBy: { pid: process.ppid, host: hostname() } })),
-    );
-    const attended = await run(test, holdAttendance(GOAL_ID, Effect.succeed("ran")));
-    expect(attended.kind).toBe("attended-elsewhere");
   });
 });

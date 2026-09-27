@@ -25,7 +25,7 @@ import {
   type GoalRecord,
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
-import { CLAIMED_GOAL_STATES, isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
+import { CLAIMED_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
 import { addSpend, reachedLimit, remainingCaps } from "@jazz/core/agent/goal/goal-usage";
 import { runToOutcome, type RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
@@ -38,7 +38,7 @@ import {
 } from "@jazz/core/agent/run/run-spend";
 import { reparkedState } from "@jazz/core/agent/run/run-state";
 import { goalCycleReport } from "@jazz/core/agent/tools/goal-report";
-import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
+import type { AgentResponse, AgentRunnerOptions } from "@jazz/core/agent/types";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
@@ -54,7 +54,7 @@ import {
   loadConversationOrNull,
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
-import { claimOwnerStatus, inFlight, isThisProcess } from "./runs-in-flight";
+import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
 /**
  * Iterations one cycle may take before it must report, unless the goal's budget sets its
@@ -219,10 +219,32 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
     }
     const second = validateGoalEvaluation(repaired.right.content, goal.plan, cycleMessages);
     return {
-      evaluation: second.kind === "valid" ? second : first,
+      evaluation: second.kind === "valid" ? withRejection(second, first, reported) : first,
       repair: yield* repairSpend(agent, repaired.right.usage, repairMs),
     };
   });
+}
+
+/**
+ * A repaired disposition that carries on the goal, told why the cycle's own report was not
+ * accepted, so the next cycle fixes the report instead of redoing work that is already done.
+ */
+function withRejection(
+  repaired: Extract<GoalEvaluationResult, { kind: "valid" }>,
+  rejected: GoalEvaluationResult,
+  reported: string | undefined,
+): GoalEvaluationResult {
+  const { evaluation } = repaired;
+  if (rejected.kind !== "invalid" || reported === undefined || evaluation.status !== "continue") {
+    return repaired;
+  }
+  return {
+    kind: "valid",
+    evaluation: {
+      ...evaluation,
+      nextAction: `${evaluation.nextAction} The last report_goal_cycle was not accepted: ${rejected.reason} If the work is done, report again with quotes copied word for word from tool output.`,
+    },
+  };
 }
 
 /**
@@ -365,24 +387,7 @@ function claimCycle(goal: GoalRecord) {
   });
 }
 
-/**
- * How a chat runs a goal's cycles in front of the user: with the chat's own approval mode,
- * read live so a Shift+Tab switch applies mid-cycle, instead of the goal's unattended grant.
- */
-export interface GoalAttendance {
-  /** The chat's options for a run, read fresh for each cycle so it runs like any turn there. */
-  readonly turnOptions: () => ChatTurnOptions;
-  /** Told before each cycle starts, so the chat can say which one is running. */
-  readonly onCycle?: (goal: GoalRecord) => Effect.Effect<void>;
-}
-
-function runCycle(
-  goal: GoalRecord,
-  agent: Agent,
-  runId: string,
-  caps: SpendBudget,
-  attendance?: GoalAttendance,
-) {
+function runCycle(goal: GoalRecord, agent: Agent, runId: string, caps: SpendBudget) {
   return Effect.gen(function* () {
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const placed = yield* fileSystemContext
@@ -404,15 +409,11 @@ function runCycle(
       AgentRunner.run({
         agent,
         runId,
-        userInput: goalCyclePrompt(goal, runId, { attended: attendance !== undefined }),
+        userInput: goalCyclePrompt(goal, runId),
         conversationId: goal.conversationId,
         maxIterations: goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
         ...caps,
-        ...(attendance !== undefined
-          ? attendance.turnOptions()
-          : goal.approvalPolicy !== undefined
-            ? { autoApprovePolicy: goal.approvalPolicy }
-            : {}),
+        ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
         parkWhenUnattended: true,
         startedBy: "goal",
         conversationHistory: [...(prior?.messages ?? [])],
@@ -432,11 +433,22 @@ function runCycle(
  * paused, so nothing carries on that they did not ask for; resuming continues from the
  * transcript. A cancel already recorded on the cycle still wins.
  */
-function settleInterruptedCycle(goal: GoalRecord, runId: string, messages: readonly ChatMessage[]) {
+/**
+ * Where a settled cycle's transcript goes: the worker saves it to the goal's conversation, but a
+ * turn the chat ran is already in the chat's conversation, which the chat saves itself.
+ */
+type CycleTranscript = "save" | "chat-owned";
+
+function settleInterruptedCycle(
+  goal: GoalRecord,
+  runId: string,
+  messages: readonly ChatMessage[],
+  transcript: CycleTranscript = "save",
+) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
-    if (messages.length > 0) {
+    if (transcript === "save" && messages.length > 0) {
       yield* saveGoalTranscript(goal, messages);
     }
     const current = yield* goals.get(goal.goalId);
@@ -456,95 +468,58 @@ function settleInterruptedCycle(goal: GoalRecord, runId: string, messages: reado
   });
 }
 
-/** Attempts at a read-modify-write of a goal before giving up on concurrent writers. */
-const ATTENDANCE_WRITE_ATTEMPTS = 3;
-
-/** Write the goal's attendance, re-reading it after a concurrent write. */
-function writeAttendance(
-  goalId: string,
-  change: (goal: GoalRecord) => GoalRecordInput | undefined,
-) {
-  return Effect.gen(function* () {
-    const goals = yield* GoalStoreTag;
-    for (let attempt = 0; attempt < ATTENDANCE_WRITE_ATTEMPTS; attempt++) {
-      const goal = yield* goals.get(goalId);
-      const next = goal === undefined ? undefined : change(goal);
-      if (goal === undefined || next === undefined) {
-        return goal;
-      }
-      const saved = yield* goals.compareAndSet(goalId, goal.version, next).pipe(Effect.either);
-      if (saved._tag === "Right") {
-        return saved.right;
-      }
-    }
-    return yield* goals.get(goalId);
-  });
-}
-
 function withoutAttendance(goal: GoalRecord): GoalRecordInput {
   const { attendedBy: _attendedBy, ...rest } = asInput(goal);
   return rest;
 }
 
 /**
- * Run `work` with this process attending the goal, so the daemon leaves it alone meanwhile.
- * Attendance is released however `work` ends, including an interrupt, so the goal is never
- * left marked as watched by a chat that stopped watching it. Refused while another live
- * process attends it.
+ * Claim the next turn of a goal the chat runs itself, as a cycle: budget-checked, counted, and
+ * marked in flight. Returns the prompt and run options for an ordinary chat turn, so the turn
+ * renders like any other; undefined when the goal is no longer active here.
  */
-export type Attended<A> =
-  { readonly kind: "attended"; readonly value: A } | { readonly kind: "attended-elsewhere" };
-
-export function holdAttendance<A, E, R>(goalId: string, work: Effect.Effect<A, E, R>) {
-  const owner = currentProcessOwner();
-  return Effect.acquireUseRelease(
-    writeAttendance(goalId, (goal) =>
-      isTerminalGoal(goal.state) ||
-      (goal.attendedBy !== undefined &&
-        !isThisProcess(goal.attendedBy) &&
-        localOwnerStatus(goal.attendedBy) === "alive")
-        ? undefined
-        : { ...asInput(goal), attendedBy: owner },
-    ),
-    (goal): Effect.Effect<Attended<A>, E, R> =>
-      goal === undefined || isTerminalGoal(goal.state) || isThisProcess(goal.attendedBy)
-        ? Effect.map(work, (value) => ({ kind: "attended", value }))
-        : Effect.succeed({ kind: "attended-elsewhere" }),
-    () =>
-      writeAttendance(goalId, (goal) =>
-        isThisProcess(goal.attendedBy) ? withoutAttendance(goal) : undefined,
-      ).pipe(Effect.ignore),
-  );
+export function claimChatGoalTurn(goalId: string) {
+  return Effect.gen(function* () {
+    const goals = yield* GoalStoreTag;
+    const goal = yield* goals.get(goalId);
+    if (goal === undefined || goal.state.kind !== "active" || goal.cycle !== undefined) {
+      return undefined;
+    }
+    const claim = yield* claimCycle(goal);
+    if (claim === undefined) {
+      return undefined;
+    }
+    return {
+      goal: claim.goal,
+      runId: claim.runId,
+      prompt: goalCyclePrompt(claim.goal, claim.runId, { attended: true }),
+      runOptions: {
+        runId: claim.runId,
+        maxIterations: claim.goal.budget.maxIterationsPerCycle ?? DEFAULT_CYCLE_ITERATIONS,
+        ...claim.caps,
+        startedBy: "goal",
+      } satisfies Partial<AgentRunnerOptions>,
+    };
+  });
 }
 
 /**
- * Run the goal's cycles here, one after another, until it stops being active: completed,
- * waiting on the user, out of budget, paused, or stopped by the user mid-cycle. Call inside
- * {@link holdAttendance}. Returns the goal as it was left.
+ * Settle a goal turn the chat ran, from how it ended, and return the goal as it now stands. An
+ * interrupted turn pauses the goal. The chat keeps its own conversation, so nothing is saved here.
  */
-export function runAttendedCycles(goalId: string, attendance: GoalAttendance) {
+export function settleChatGoalTurn(
+  goal: GoalRecord,
+  runId: string,
+  outcome: RunOutcome<AgentResponse>,
+) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
-    for (;;) {
-      const goal = yield* goals.get(goalId);
-      if (goal === undefined || goal.state.kind !== "active" || goal.cycle !== undefined) {
-        return goal;
-      }
-      const claim = yield* claimCycle(goal);
-      if (claim === undefined) {
-        return yield* goals.get(goalId);
-      }
-      if (attendance.onCycle !== undefined) {
-        yield* attendance.onCycle(claim.goal);
-      }
-      const ending = yield* inFlight(
-        claim.runId,
-        runCycle(claim.goal, claim.agent, claim.runId, claim.caps, attendance),
-      );
-      if (ending === "interrupted") {
-        return yield* goals.get(goalId);
-      }
+    if (outcome.kind === "finished" && outcome.response.interrupted === true) {
+      yield* settleInterruptedCycle(goal, runId, [], "chat-owned");
+    } else {
+      yield* settleRunOutcome(goal, runId, outcome, "chat-owned");
     }
+    return yield* goals.get(goal.goalId);
   });
 }
 
@@ -567,10 +542,15 @@ function releaseAbandonedAttendance(goal: GoalRecord) {
   );
 }
 
-function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<AgentResponse>) {
+function settleRunOutcome(
+  goal: GoalRecord,
+  runId: string,
+  outcome: RunOutcome<AgentResponse>,
+  transcript: CycleTranscript = "save",
+) {
   return Effect.gen(function* () {
     if (outcome.kind === "parked") {
-      if (outcome.park.messages !== undefined) {
+      if (transcript === "save" && outcome.park.messages !== undefined) {
         yield* saveGoalTranscript(goal, outcome.park.messages);
       }
       yield* settleParkedCycle(goal.goalId, runId);
@@ -581,7 +561,9 @@ function settleRunOutcome(goal: GoalRecord, runId: string, outcome: RunOutcome<A
       return;
     }
     const messages = outcome.response.messages ?? [];
-    yield* saveGoalTranscript(goal, messages);
+    if (transcript === "save") {
+      yield* saveGoalTranscript(goal, messages);
+    }
     yield* finishCycle(
       goal.goalId,
       runId,

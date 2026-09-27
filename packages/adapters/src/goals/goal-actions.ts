@@ -29,11 +29,7 @@ import {
   type GoalRecord,
   type GoalRecordInput,
 } from "@jazz/core/agent/goal/goal-record";
-import {
-  CLAIMED_GOAL_STATES,
-  isGoalClaimed,
-  WAITING_ON_USER_GOAL_STATES,
-} from "@jazz/core/agent/goal/goal-state";
+import { CLAIMED_GOAL_STATES, isGoalClaimed } from "@jazz/core/agent/goal/goal-state";
 import { addSpend, DEFAULT_GOAL_BUDGET } from "@jazz/core/agent/goal/goal-usage";
 import { agentRunSpend, priceOneOffCall, type CallSpend } from "@jazz/core/agent/run/run-spend";
 import { GoalStoreTag, type GoalStore } from "@jazz/core/interfaces/goal-store";
@@ -280,6 +276,8 @@ export function activateGoal(options: {
   /** Absolute directory the goal works in. */
   readonly workingDirectory: string;
   readonly sourceConversationId?: string;
+  /** The conversation its work continues; see `newProposedGoal`. */
+  readonly conversationId?: string;
   readonly budget?: Partial<GoalBudget>;
   /** The authority the user grants with the acceptance, for running unattended. */
   readonly approvalPolicy?: ApprovalPolicyLevel;
@@ -299,6 +297,7 @@ export function activateGoal(options: {
         name,
         workingDirectory: options.workingDirectory,
         sourceConversationId: options.sourceConversationId,
+        ...(options.conversationId !== undefined ? { conversationId: options.conversationId } : {}),
         request: options.request,
         plan: options.plan,
         budget: { ...DEFAULT_GOAL_BUDGET, ...options.budget },
@@ -358,19 +357,6 @@ function runBy(
     ...(runner.attendedBy !== undefined ? { attendedBy: runner.attendedBy } : {}),
     ...(runner.approvalPolicy !== undefined ? { approvalPolicy: runner.approvalPolicy } : {}),
   };
-}
-
-/** The conversations with a goal that can go no further until the user acts on it. */
-export function conversationsWaitingOnUser() {
-  return Effect.map(
-    listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES }),
-    (goals) =>
-      new Set(
-        goals
-          .map((goal) => goal.sourceConversationId)
-          .filter((conversationId): conversationId is string => conversationId !== undefined),
-      ),
-  );
 }
 
 /** Goals the agent proposed in a conversation that still wait for the user's answer. */

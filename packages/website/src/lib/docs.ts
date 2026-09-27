@@ -29,7 +29,12 @@ const PINNED_ORDER: Record<string, string[]> = {
     "getting-started/create-an-agent",
     "getting-started/local-models",
   ],
-  features: ["features/long-running-work", "features/automation", "features/media"],
+  features: [
+    "features/goals-and-loops",
+    "features/long-running-work",
+    "features/automation",
+    "features/media",
+  ],
   surfaces: ["surfaces/headless", "surfaces/chat", "surfaces/ci", "surfaces/scheduled"],
   concepts: [
     "concepts/agents",

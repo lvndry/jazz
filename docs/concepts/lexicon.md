@@ -61,6 +61,13 @@ unattended bridge memory across invocations.
 | **Work journal** | Append-only record of what happened, written at each compaction.                                                                                      | the runtime                        |
 | **Memory**       | Facts that stay true _between_ conversations.                                                                                                         | the model, via `manage_memory`     |
 
+## Work that outlasts a turn
+
+| Term     | What it is                                                                                                                                                                                          | Started by                                               |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Goal** | An objective the agent keeps working toward, turn after turn, until it proves it holds with tool output. Each turn toward it is a **cycle**. See [Goals and loops](../features/goals-and-loops.md). | the user (`/goal`, `jazz goal`), or accepting a proposal |
+| **Loop** | A prompt rerun on a schedule, in a conversation of its own, until it ends itself or hits a limit. Each rerun is a **run**.                                                                          | the user (`/loop`, `jazz loop`)                          |
+
 **Work state is subjective; a run is objective.** Work state is the agent's diary and can
 be wrong or stale. A run's state is a fact about a process. They can disagree without
 either being broken: a model can be planning its next step while the run it is planning
