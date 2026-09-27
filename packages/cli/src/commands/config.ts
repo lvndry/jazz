@@ -1,4 +1,8 @@
-import { envVarForSecretPath, isSecretPath } from "@jazz/adapters/secrets/registry";
+import {
+  envVarForSecretPath,
+  isSecretPath,
+  redactSecretValues,
+} from "@jazz/adapters/secrets/registry";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -20,27 +24,37 @@ import { ConfigCard } from "../ui/ConfigCard";
  * CLI commands for configuration management
  */
 
+/** Options shared by the commands that print configuration values. */
+export interface ConfigReadOptions {
+  /** Print secrets in full instead of redacting them. */
+  readonly reveal?: boolean;
+}
+
 /**
- * List all configuration values
+ * Print the merged configuration. Secrets (provider keys, tokens, OTLP and MCP headers, MCP env
+ * values), including those merged in from the keyring or the environment, are redacted unless
+ * `reveal` is set.
  */
-export function listConfigCommand(): Effect.Effect<
-  void,
-  never,
-  AgentConfigService | TerminalService
-> {
+export function listConfigCommand(
+  options: ConfigReadOptions = {},
+): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const config = yield* configService.appConfig;
+    const reveal = options.reveal === true;
 
-    const json = JSON.stringify(config, null, 2);
+    const json = JSON.stringify(reveal ? config : redactSecretValues(config), null, 2);
+    const note = reveal
+      ? "Showing full values, including secrets."
+      : "Secrets are redacted. Pass --reveal to print them.";
 
     if (process.stdout.isTTY) {
       yield* terminal.log(
         ink(
           React.createElement(ConfigCard, {
             title: "Current configuration",
-            note: "Showing full values (including secrets).",
+            note,
             json,
           }),
         ),
@@ -53,11 +67,12 @@ export function listConfigCommand(): Effect.Effect<
 }
 
 /**
- * Get a configuration value
- * Supports nested keys (e.g., "llm.openai.api_key")
+ * Print one configuration value. Supports nested keys (e.g. "llm.openai.api_key"). A secret, or a
+ * section holding one, is redacted unless `reveal` is set.
  */
 export function getConfigCommand(
   key: string,
+  options: ConfigReadOptions = {},
 ): Effect.Effect<void, never, AgentConfigService | TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -77,7 +92,8 @@ export function getConfigCommand(
       }
     }
 
-    yield* terminal.log(JSON.stringify(value, null, 2));
+    const shown = options.reveal === true ? value : redactSecretValues(value, parts.join("."));
+    yield* terminal.log(JSON.stringify(shown, null, 2));
   });
 }
 

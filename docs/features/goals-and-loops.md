@@ -49,9 +49,13 @@ Leave the chat with a goal unfinished and Jazz asks whether to keep working on i
 what it may do unasked: reading only, low-risk changes, or everything. `jazz daemon` then carries on
 in the same conversation. Anything above the authority you picked waits for you.
 
-When it needs you, the next `jazz` lists the conversation first under **Resume conversation (N
-waiting for you)**, marked with what it is waiting on. Open it and the chat shows the question or
-approval and carries on once you answer.
+When it needs you, the daemon tells you right away: a desktop notification, or a push to your
+phone if you set up [ntfy](../configure/jazz.md#daemon-limits-and-notifications). The next `jazz`
+lists the conversation first under **Resume conversation (N waiting for you)**, marked with what it
+is waiting on; open it and the chat shows the question or approval and carries on once you answer.
+`jazz daemon status` shows everything waiting, and `jazz daemon pause` stops background work until
+you resume it. A daily dollar or token cap (`daemon.dailyCostUSD`, `daemon.dailyTokens`) pauses it
+on its own.
 
 ### Goals Jazz proposes
 

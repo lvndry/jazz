@@ -15,8 +15,15 @@ there is no keyring.
 One file decides which config paths hold a secret: `packages/adapters/src/secrets/registry.ts`.
 That is why `jazz config set llm.openai.api_key` never lands in `config.json`.
 
-Read-back is one-way. `jazz config show` redacts, and a token is printed once, when it is minted.
-Print it twice and it accumulates in scrollback and supervisor logs.
+The OS keyring is shared by every Jazz home on the account, so each home files its entries under
+its own service, `jazz.<hash of the home path>`. A `JAZZ_HOME` or `--data-dir` home cannot read the
+keys of another. `jazz mcp add --env` and `--header` values are secrets too: they go to the keyring,
+and `~/.agents/mcp.json` (mode 0600) keeps only their names.
+
+Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
+env and header values and values merged in from the keyring or the environment; `--reveal` is the
+explicit exception. A token is printed once, when it is minted. Print it twice and it accumulates
+in scrollback and supervisor logs.
 
 Provider keys can also come from the environment, which is the normal path in a container where
 no keyring exists. Never put a token in an agent prompt, a workflow file, or committed project
@@ -109,7 +116,13 @@ A server definition arrives from outside, including its command, its arguments, 
 advertises.
 
 Jazz records whether you trust it separately from the definition itself. Your trust is not part
-of the config somebody handed you.
+of the config somebody handed you: it is read only from your global `~/.jazz/config.json`, and
+applies only to servers defined in your own `~/.agents/mcp.json`. A repository's
+`./.agents/mcp.json` can add servers, which stay untrusted, but cannot replace one of yours or
+inherit its trust by reusing its name.
+
+OAuth tokens are bound to the server's name and URL. A definition that reuses a name with another
+URL gets no token.
 
 An untrusted server's tools are not exposed broadly. Treat adding one the way you would treat
 `curl | sh`, because the trust decision is the same shape.

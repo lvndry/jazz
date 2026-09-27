@@ -123,6 +123,12 @@ enablement is scoped to one agent. Inspect the digest, hooks, destinations, data
 secrets before granting either. Disable or remove a plugin and restart long-lived Jazz processes
 to evict code that was already imported. See [Plugins](docs/configure/plugins.md).
 
+Before either the plugin or the built-in classifier runs, Jazz marks a command `high-risk` when it
+is malformed or contains substitution, a file redirection, or a command name built from a
+variable. That check reads syntax only; judging what a given program does is left to the
+classifier or plugin. No classifier verdict can lower those. See
+[Approvals](docs/security/approvals.md#shell-commands-are-classified-individually).
+
 `classify.command-risk` is a policy hook, not a passive advisory. For an `execute_command` call whose
 declared risk is `unknown`, its `read-only` or `low-risk` result can make the active policy skip an
 approval prompt. Jazz sends the hook only the bounded command string, after the operator has
@@ -164,8 +170,12 @@ one binary over raising the whole tier:
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-Matching uses a parsed key (binary + first subcommand), never a raw prefix. `git status` does
-not also permit `git status && rm -rf /`. Full tiers: [Tools reference](docs/tools/index.md).
+Matching uses a key parsed the way the shell reads the command (the binary, plus the next word
+when it is not a flag), never a raw prefix. A command with control operators (`&&`, `||`, `;`,
+`|`, `&`), command or process substitution, redirection, or a leading `NAME=value` assignment
+has no key and always asks: `git status` does not also permit `git status && rm -rf /`,
+`git status $(rm x)`, `git status > ~/.bashrc`, or `PAGER=x git status`. Wrappers such as
+`sudo` stay in the key. Full rules: [Approvals](docs/security/approvals.md#narrowing-without-raising-the-policy).
 
 ### Be deliberate on surfaces that accept input from other people
 
@@ -210,6 +220,8 @@ Jazz resolves every secret in this order, and uses the first hit:
    on. Nothing touches disk. Best for containers and CI.
 2. **OS keyring**: macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
    when available. Keys already sitting in `~/.jazz/config.json` are moved here on next start.
+   Entries are scoped to the Jazz home (service `jazz.<hash of the home path>`), so one
+   `JAZZ_HOME` cannot read another's keys.
 3. **`~/.jazz/config.json`**: the fallback when there is no keyring, e.g. a headless server with
    no session D-Bus. Jazz creates the file mode `0600` and repairs looser modes on load, but the
    keys are plaintext to anyone who can read that file (including `root`).
