@@ -310,6 +310,68 @@ describe("spawn_subagent time budget", () => {
     }
   });
 
+  it("runs the child under what is left of the parent's cost and token budgets", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        remainingRunBudget: () => ({ maxCostUSD: 0.4, maxTokens: 12_000 }),
+      });
+
+      expect(captured?.maxCostUSD).toBe(0.4);
+      expect(captured?.maxTokens).toBe(12_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("charges the parent for a child that failed", async () => {
+    const charged: number[] = [];
+    let unknown = 0;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      options.onRunSpend?.({ costUSD: 0.07, costIncomplete: true, totalTokens: 4_000 });
+      return Effect.fail(new Error("child crashed")) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        recordChildCost: (costUSD: number) => charged.push(costUSD),
+        recordChildCostUnknown: () => {
+          unknown += 1;
+        },
+      }).catch(() => undefined);
+
+      expect(charged).toEqual([0.07]);
+      expect(unknown).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses to delegate once the parent's money is spent", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, {
+        remainingRunBudget: () => ({ maxCostUSD: 0 }),
+      })) as { readonly success: boolean; readonly error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("money");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("refuses to delegate once the parent's time budget is spent", async () => {
     const spy = spyOn(AgentRunner, "runRecursive");
     try {

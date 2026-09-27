@@ -16,6 +16,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
+import type { RemainingRunBudget } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -23,6 +24,7 @@ import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import type { RunSpendReport } from "../metrics/agent-run-metrics";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -268,11 +270,12 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           }
 
           const remainingBudget = context.remainingRunBudget?.() ?? {};
-          if (remainingBudget.maxDurationMs !== undefined && remainingBudget.maxDurationMs <= 0) {
+          const exhausted = exhaustedBudget(remainingBudget);
+          if (exhausted !== undefined) {
             return {
               success: false,
               result: null,
-              error: "No time is left in this run's budget to delegate. Finish with what you have.",
+              error: `No ${exhausted} is left in this run's budget to delegate. Finish with what you have.`,
             };
           }
 
@@ -337,6 +340,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             });
           }
 
+          let childSpend: RunSpendReport | undefined;
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
@@ -351,6 +355,22 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             ...(remainingBudget.maxDurationMs !== undefined
               ? { maxDurationMs: remainingBudget.maxDurationMs }
               : {}),
+            ...(remainingBudget.maxCostUSD !== undefined
+              ? { maxCostUSD: remainingBudget.maxCostUSD }
+              : {}),
+            ...(remainingBudget.maxTokens !== undefined
+              ? { maxTokens: remainingBudget.maxTokens }
+              : {}),
+            // Every way the child ends, a failure included, is paid for by the parent.
+            onRunSpend: (spend) => {
+              childSpend = spend;
+              if (spend.costUSD !== undefined && spend.costUSD > 0) {
+                context.recordChildCost?.(spend.costUSD);
+              }
+              if (spend.costIncomplete) {
+                context.recordChildCostUnknown?.();
+              }
+            },
             ephemeralRegionId: regionId,
             ...(presentation.takeEphemeralRegionMessage
               ? {
@@ -410,20 +430,10 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             ),
           );
 
-          // Fold the sub-agent's cost into the parent run's total so aggregated
-          // pricing (one-shot JSON envelope, workflow history) includes sub-agent
-          // spend. The interactive footer aggregates separately via each renderer.
-          if (response.costUSD && context.recordChildCost) {
-            context.recordChildCost(response.costUSD);
-          }
-          // A child whose spend could not be priced poisons the parent's total:
-          // without this the parent reports a confident costUSD that silently
-          // omits the child, and cost-capped callers keep serving under the cap.
           const childCostUnknown =
-            response.costIncomplete === true ||
+            childSpend?.costIncomplete === true ||
             (response.costUSD === undefined &&
               !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
-          if (childCostUnknown) context.recordChildCostUnknown?.();
 
           let result = response.content;
           if (!result?.trim() && response.messages?.length) {
@@ -593,7 +603,11 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             }),
           }).tokens;
 
-          const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
+          const runRecursive: RecursiveRunner = (runOpts) =>
+            AgentRunner.runRecursive({
+              ...runOpts,
+              ...(context.recordSideSpend ? { onRunSpend: context.recordSideSpend } : {}),
+            });
 
           // The same path automatic compaction takes, so an earlier summary is merged
           // into the new one rather than dropped, and the result is journaled. Memory
@@ -641,4 +655,18 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       },
     }),
   ] as Tool<ToolRequirements>[];
+}
+
+/** The first budget the parent has used up, named for the refusal, or undefined. */
+function exhaustedBudget(remaining: RemainingRunBudget): string | undefined {
+  if (remaining.maxDurationMs !== undefined && remaining.maxDurationMs <= 0) {
+    return "time";
+  }
+  if (remaining.maxCostUSD !== undefined && remaining.maxCostUSD <= 0) {
+    return "money";
+  }
+  if (remaining.maxTokens !== undefined && remaining.maxTokens <= 0) {
+    return "token allowance";
+  }
+  return undefined;
 }

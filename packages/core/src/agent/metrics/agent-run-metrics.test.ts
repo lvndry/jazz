@@ -17,6 +17,7 @@ import {
   finalizeAgentRun,
   recordClassifierUsage,
   recordDecisionUsage,
+  recordSideSpend,
   recordLLMRetry,
   recordLLMUsage,
   recordToolDefinitionTokens,
@@ -302,6 +303,35 @@ describe("computeRunCost", () => {
 
     expect(costUSD).toBeCloseTo(0.1 + 0.2, 8);
     expect(costIncomplete).toBe(false);
+  });
+
+  it("adds side spend (summaries, memory extraction, classifier) to the run's cost", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 1_000_000;
+    recordSideSpend(metrics, { costUSD: 0.5, costIncomplete: false });
+
+    expect(computeRunCost(metrics, pricing)).toEqual({ costUSD: 1.5, costIncomplete: false });
+
+    recordSideSpend(metrics, { costUSD: undefined, costIncomplete: true });
+    expect(computeRunCost(metrics, pricing).costIncomplete).toBe(true);
+  });
+
+  it("prices cache writes at the cache-write rate", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 1_000_000;
+    metrics.totalCacheWriteTokens = 1_000_000;
+
+    const priced = computeRunCost(metrics, { ...pricing, cacheWritePricePerMillion: 1.25 });
+
+    expect(priced).toEqual({ costUSD: 1.25, costIncomplete: false });
+  });
+
+  it("marks the cost incomplete when cache writes have no known rate", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 1_000_000;
+    metrics.totalCacheWriteTokens = 400_000;
+
+    expect(computeRunCost(metrics, pricing).costIncomplete).toBe(true);
   });
 
   it("reports the cost as incomplete when a model call returned no usage", () => {

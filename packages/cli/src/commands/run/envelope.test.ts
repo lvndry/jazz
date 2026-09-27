@@ -73,12 +73,30 @@ describe("formatOneShotError", () => {
     expect(formatOneShotError("Agent not found", { json: false })).toBe("Agent not found\n");
   });
 
-  it("json mode emits an ok:false envelope including costUSD", () => {
-    expect(JSON.parse(formatOneShotError("boom", { json: true }, 0.5))).toEqual({
+  it("json mode carries what a failed run spent", () => {
+    expect(
+      JSON.parse(
+        formatOneShotError(
+          "boom",
+          { json: true },
+          { costUSD: 0.5, costKnown: true, totalTokens: 1_000 },
+        ),
+      ),
+    ).toEqual({
       ok: false,
       error: "boom",
       costUSD: 0.5,
+      costKnown: true,
+      tokenUsage: { totalTokens: 1_000 },
     });
+  });
+
+  it("json mode reports an unpriced failed run as unknown, not free", () => {
+    const envelope = JSON.parse(
+      formatOneShotError("boom", { json: true }, { costKnown: false, totalTokens: 300 }),
+    );
+    expect(envelope.costUSD).toBe(0);
+    expect(envelope.costKnown).toBe(false);
   });
 
   it("json mode defaults costUSD to 0", () => {

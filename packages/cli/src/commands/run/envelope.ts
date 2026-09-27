@@ -162,15 +162,38 @@ export function formatOneShotParked(
   );
 }
 
-/** Format a failure (plain message to stderr, or JSON envelope to stdout in --json mode). */
+/** What a failed run had spent before it stopped. */
+export interface OneShotSpend {
+  /** Absent when nothing could be priced. */
+  readonly costUSD?: number;
+  /** Whether costUSD is based on pricing metadata rather than an unknown-price fallback. */
+  readonly costKnown: boolean;
+  readonly totalTokens: number;
+}
+
+/**
+ * Format a failure (plain message to stderr, or JSON envelope to stdout in --json mode).
+ *
+ * A run that failed, timed out or was cancelled after reaching the model still spent money,
+ * so its envelope carries `spend` when there is one: a caller enforcing a spending cap has to
+ * count failed runs too. A failure before any model call reports `costUSD: 0`.
+ */
 export function formatOneShotError(
   message: string,
   options: OneShotOutputOptions,
-  costUSD = 0,
+  spend?: OneShotSpend,
 ): string {
-  return options.json
-    ? `${JSON.stringify({ ok: false, error: message, costUSD })}\n`
-    : `${message}\n`;
+  if (!options.json) {
+    return `${message}\n`;
+  }
+  return `${JSON.stringify({
+    ok: false,
+    error: message,
+    costUSD: spend?.costUSD ?? 0,
+    ...(spend !== undefined
+      ? { costKnown: spend.costKnown, tokenUsage: { totalTokens: spend.totalTokens } }
+      : {}),
+  })}\n`;
 }
 
 /**

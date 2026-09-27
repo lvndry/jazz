@@ -8,7 +8,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import { isRunCostKnown, runSpendAsCallSpend } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -29,6 +29,7 @@ import { describeReasoningAdjustment } from "@/cli/helpers/reasoning";
 import {
   ONE_SHOT_EXIT,
   formatOneShotError,
+  type OneShotSpend,
   formatOneShotParked,
   formatOneShotResult,
   type OneShotOutputOptions,
@@ -242,10 +243,10 @@ const writeStdout = (message: string): Effect.Effect<void, never> =>
 const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
-  costUSD = 0,
+  spend?: OneShotSpend,
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, costUSD);
+    const formatted = formatOneShotError(message, options, spend);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -285,6 +286,8 @@ export function runAgentOnceCommand(
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
   const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
+  // Set when the run ends however it ends, so a failure envelope can report what it spent.
+  let runSpend: OneShotSpend | undefined;
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -442,6 +445,13 @@ export function runAgentOnceCommand(
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
+      onRunSpend: (spend) => {
+        runSpend = runSpendAsCallSpend(
+          spend,
+          agentForRun.config.llmProvider,
+          agentForRun.config.llmModel,
+        );
+      },
     });
 
     // `raceFirst`, not `race`: `race` waits for the first success, so a deadline that fails
@@ -556,7 +566,7 @@ export function runAgentOnceCommand(
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),
     ),
-    Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions, runSpend)),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),

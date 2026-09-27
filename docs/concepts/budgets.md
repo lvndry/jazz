@@ -19,6 +19,22 @@ the money goes. Use a token cap on a model nobody has priced, because it needs n
 Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentDepth` (3), where
 `0` disables delegation outright.
 
+## What the cost includes
+
+`costUSD`, and the `maxCostUSD` cap, count every model call the run paid for:
+
+- its own turns, with prompt-cache reads at the cache-read rate and cache writes at the
+  cache-write rate;
+- every sub-agent it spawned, including one that failed or was stopped;
+- the calls it makes for itself: compaction summaries, memory extraction before compaction,
+  and the command-risk classifier.
+
+A sub-agent runs under what its parent has left: the remaining time, the remaining
+`maxCostUSD` (while the parent's spend is fully priced) and the remaining `maxTokens`. Once
+any of them is used up, the parent is told to finish with what it has instead of delegating.
+Sub-agents running at the same time each get that same remainder, so their total can still
+pass the cap until the parent's next check stops it.
+
 ## Where to set them
 
 Three places, narrowest wins:
@@ -63,9 +79,12 @@ one, so you get asked to confirm rather than losing work in flight.
 }
 ```
 
-A failed envelope still carries `costUSD`, because a run that timed out still spent money and an
-unattended deployment has to account for it. `jazz workflow history <name>` shows the same
-figures per scheduled run.
+A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`, because a run that
+failed or timed out still spent money and an unattended deployment has to account for it. A run
+killed from outside leaves no envelope; `--events spend` streams `run_spend` events with the
+running total so the caller can use the last one. The chat bridges do exactly that: their daily
+spend cap counts failed, timed-out and cancelled runs, not only answered ones.
+`jazz workflow history <name>` shows the same figures per scheduled run, failed runs included.
 
 ## When a cap stops the run
 
@@ -101,6 +120,10 @@ the number.
 
 One unknown child makes the parent's total unknown too. Reporting the sum of the parts it
 happened to know would be worse than admitting it cannot say.
+
+The same goes for cache writes: when the pricing data has no cache-write rate for the model,
+they are priced at the plain input rate and the total is marked unknown, since providers such as
+Anthropic charge more for them.
 
 The edge case that proves the rule: an Ollama model with a cloud tag has a local provider name
 and remote billing, so it does not count as free.

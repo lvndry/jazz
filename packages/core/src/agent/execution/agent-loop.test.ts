@@ -214,6 +214,8 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       totalCacheReadTokens: 0,
       childCostUSD: 0,
       childCostUnknown: false,
+      sideCostUSD: 0,
+      sideCostUnknown: false,
       usageMissing: false,
       iterationSummaries: [],
       errors: [],

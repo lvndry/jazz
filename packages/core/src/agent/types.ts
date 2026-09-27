@@ -18,7 +18,7 @@ import type {
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
-import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
 
 /**
  * Configuration options for running an agent conversation.
@@ -120,12 +120,16 @@ export interface AgentRunnerOptions {
   readonly maxTokens?: number;
   /**
    * Wall-clock spend budget in ms. The agent gets ephemeral pressure nudges at 50/80/90%
-   * elapsed (mirroring the iteration and context budget nudges), then the run is stopped
-   * between iterations once elapsed time reaches the budget — same soft-checkpoint timing
-   * as `maxCostUSD`/`maxTokens`, not a preemptive interrupt mid-call.
+   * elapsed (mirroring the iteration and context budget nudges); once the budget is reached
+   * the run is stopped wherever it is, a model call or tool included, and returns what it had.
    * If not specified, falls back to `maxDurationMs` in app config; unset at both means uncapped.
    */
   readonly maxDurationMs?: number;
+  /**
+   * Called once when the run ends, however it ends (answer, failure, interruption), with what
+   * it spent. The one place a caller learns the cost of a run that produced no response.
+   */
+  readonly onRunSpend?: (spend: RunSpendReport) => void;
   /**
    * Full conversation history to date, including prior assistant, user, and tool messages.
    * Use this to preserve context across turns (e.g., approval flows, multi-step tasks).
