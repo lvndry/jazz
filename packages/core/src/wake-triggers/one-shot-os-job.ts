@@ -15,7 +15,7 @@ import { toError } from "@/core/utils/errors";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
 import { escapeShellArg, getLaunchdPath } from "../workflows/scheduler-service";
-import { getGlobalUserDataDirectory } from "./../utils/paths";
+import { getOneShotJobLogsDirectory } from "./../utils/paths";
 import { getJazzSchedulerInvocation } from "./../utils/runtime";
 import { execCommand, execCommandWithStdinCapturingOutput } from "./../utils/shell";
 
@@ -89,7 +89,7 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
         ];
 
         const fireDate = new Date(fireAt);
-        const logDir = path.join(getGlobalUserDataDirectory(), "logs");
+        const logDir = getOneShotJobLogsDirectory();
 
         // StartCalendarInterval has no Year key — a plist left behind would in theory refire
         // a year later. In practice this never happens: the fired command unloads and deletes

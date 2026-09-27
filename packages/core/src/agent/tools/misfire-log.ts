@@ -11,10 +11,13 @@
  * Append-only JSONL, unparseable lines skipped, failures swallowed — the same discipline
  * as the peer ledger, for the same reason: losing a misfire entry must never fail the
  * tool call that produced it.
+ *
+ * Bounded (`bounded-jsonl.ts`): past `MISFIRE_LOG_MAX_BYTES` the file rotates to
+ * `misfires.jsonl.1`, and reads scan backwards from the end instead of loading the file.
  */
-import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
+import { appendBoundedJsonlLine, readJsonlNewestFirst } from "@/core/utils/bounded-jsonl";
 import { getMisfireLogDirectory } from "@/core/utils/paths";
 import { jsonBigIntReplacer } from "./tool-logging";
 
@@ -22,6 +25,9 @@ const MISFIRE_LOG_FILENAME = "misfires.jsonl";
 
 /** Cap on the serialized args written to a misfire entry. */
 const MAX_LOGGED_ARGS_LENGTH = 2_000;
+
+/** Size at which the misfire log rotates: at least 1,500 entries even with maximal args. */
+export const MISFIRE_LOG_MAX_BYTES = 4 * 1024 * 1024;
 
 export type MisfireKind = "runtime_error" | "tool_not_found";
 
@@ -38,10 +44,6 @@ export function misfireLogPath(): string {
   return path.join(getMisfireLogDirectory(), MISFIRE_LOG_FILENAME);
 }
 
-function serialize(entry: MisfireEntry): string {
-  return `${JSON.stringify(entry)}\n`;
-}
-
 function serializeArgs(args: Record<string, unknown> | undefined): string | undefined {
   if (args === undefined) {
     return undefined;
@@ -53,26 +55,6 @@ function serializeArgs(args: Record<string, unknown> | undefined): string | unde
       : serialized;
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Whether the last write was cut off mid-line, mirroring the peer ledger's guard: a
- * process killed mid-append must not splice the next entry into a broken line.
- */
-async function endsMidLine(): Promise<boolean> {
-  let handle;
-  try {
-    handle = await nodeFs.open(misfireLogPath(), "r");
-    const { size } = await handle.stat();
-    if (size === 0) return false;
-    const tail = Buffer.alloc(1);
-    await handle.read(tail, 0, 1, size - 1);
-    return tail.toString("utf-8") !== "\n";
-  } catch {
-    return false;
-  } finally {
-    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -95,13 +77,9 @@ export function recordMisfire(
         durationMs,
         ...(serializedArgs !== undefined ? { args: serializedArgs } : {}),
       };
-      await nodeFs.mkdir(getMisfireLogDirectory(), { recursive: true });
-      const line = serialize(entry);
-      await nodeFs.appendFile(
-        misfireLogPath(),
-        (await endsMidLine()) ? `\n${line}` : line,
-        "utf-8",
-      );
+      await appendBoundedJsonlLine(misfireLogPath(), JSON.stringify(entry), {
+        maxBytes: MISFIRE_LOG_MAX_BYTES,
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));
@@ -127,20 +105,18 @@ export function readMisfires(filter?: {
   readonly limit?: number;
 }): Effect.Effect<readonly MisfireEntry[], never> {
   return Effect.tryPromise({
-    try: () => nodeFs.readFile(misfireLogPath(), "utf-8"),
+    try: () =>
+      readJsonlNewestFirst(misfireLogPath(), {
+        parse: (line) => {
+          const entry = parseLine(line);
+          return entry === undefined ||
+            (filter?.toolName !== undefined && entry.toolName !== filter.toolName)
+            ? undefined
+            : entry;
+        },
+        limit: filter?.limit,
+        maxBytes: 2 * MISFIRE_LOG_MAX_BYTES,
+      }),
     catch: (error) => error,
-  }).pipe(
-    Effect.map((content) => {
-      const entries: MisfireEntry[] = [];
-      for (const line of content.split("\n")) {
-        const entry = parseLine(line);
-        if (entry === undefined) continue;
-        if (filter?.toolName !== undefined && entry.toolName !== filter.toolName) continue;
-        entries.push(entry);
-      }
-      entries.reverse();
-      return filter?.limit === undefined ? entries : entries.slice(0, filter.limit);
-    }),
-    Effect.catchAll(() => Effect.succeed([] as readonly MisfireEntry[])),
-  );
+  }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly MisfireEntry[])));
 }

@@ -8,14 +8,21 @@
  * Append-only JSONL, unparseable lines skipped, failures swallowed — the same
  * discipline as the misfire log, for the same reason: losing a recall entry must
  * never fail the run that produced it.
+ *
+ * Bounded (`bounded-jsonl.ts`): past `MEMORY_RECALL_LOG_MAX_BYTES` the file rotates to
+ * `memory-recall.jsonl.1`, so the recall rate describes recent runs, and reads scan
+ * backwards from the end instead of loading the file.
  */
-import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
+import { appendBoundedJsonlLine, readJsonlNewestFirst } from "@/core/utils/bounded-jsonl";
 import { getMemoryRecallLogDirectory } from "@/core/utils/paths";
 
 const MEMORY_RECALL_LOG_FILENAME = "memory-recall.jsonl";
+
+/** Size at which the recall log rotates; an entry is about 200 bytes, so roughly 20,000 runs. */
+export const MEMORY_RECALL_LOG_MAX_BYTES = 4 * 1024 * 1024;
 
 export const VIEW_MEMORY_TOOL_NAME = "view_memory";
 export const MANAGE_MEMORY_TOOL_NAME = "manage_memory";
@@ -105,26 +112,6 @@ export function analyzeMemoryRecall(
   return { memoryToolsOffered, viewedBeforeFirstAnswer, viewCallCount, writeCallCount };
 }
 
-/**
- * Whether the last write was cut off mid-line: a process killed mid-append must
- * not splice the next entry into a broken line.
- */
-async function endsMidLine(): Promise<boolean> {
-  let handle;
-  try {
-    handle = await nodeFs.open(memoryRecallLogPath(), "r");
-    const { size } = await handle.stat();
-    if (size === 0) return false;
-    const tail = Buffer.alloc(1);
-    await handle.read(tail, 0, 1, size - 1);
-    return tail.toString("utf-8") !== "\n";
-  } catch {
-    return false;
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
-}
-
 /** Append one recall entry. Failure is swallowed: see file header. */
 export function recordMemoryRecall(input: {
   readonly agentId: string;
@@ -141,13 +128,9 @@ export function recordMemoryRecall(input: {
         ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
         ...analyzeMemoryRecall(input.messages, input.memoryToolsOffered),
       };
-      await nodeFs.mkdir(getMemoryRecallLogDirectory(), { recursive: true });
-      const line = `${JSON.stringify(entry)}\n`;
-      await nodeFs.appendFile(
-        memoryRecallLogPath(),
-        (await endsMidLine()) ? `\n${line}` : line,
-        "utf-8",
-      );
+      await appendBoundedJsonlLine(memoryRecallLogPath(), JSON.stringify(entry), {
+        maxBytes: MEMORY_RECALL_LOG_MAX_BYTES,
+      });
     },
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.void));
@@ -174,22 +157,20 @@ export function readMemoryRecalls(filter?: {
   readonly limit?: number;
 }): Effect.Effect<readonly MemoryRecallEntry[], never> {
   return Effect.tryPromise({
-    try: () => nodeFs.readFile(memoryRecallLogPath(), "utf-8"),
+    try: () =>
+      readJsonlNewestFirst(memoryRecallLogPath(), {
+        parse: (line) => {
+          const entry = parseLine(line);
+          return entry === undefined ||
+            (filter?.surface !== undefined && entry.surface !== filter.surface)
+            ? undefined
+            : entry;
+        },
+        limit: filter?.limit,
+        maxBytes: 2 * MEMORY_RECALL_LOG_MAX_BYTES,
+      }),
     catch: (error) => error,
-  }).pipe(
-    Effect.map((content) => {
-      const entries: MemoryRecallEntry[] = [];
-      for (const line of content.split("\n")) {
-        const entry = parseLine(line);
-        if (entry === undefined) continue;
-        if (filter?.surface !== undefined && entry.surface !== filter.surface) continue;
-        entries.push(entry);
-      }
-      entries.reverse();
-      return filter?.limit !== undefined ? entries.slice(0, filter.limit) : entries;
-    }),
-    Effect.catchAll(() => Effect.succeed([] as readonly MemoryRecallEntry[])),
-  );
+  }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly MemoryRecallEntry[])));
 }
 
 /** Recall rate per surface, counting only runs that were offered the tools. */
