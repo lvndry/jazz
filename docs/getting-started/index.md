@@ -17,4 +17,6 @@ Use this path if you have not run Jazz before.
    - run work [headlessly](../surfaces/headless.md) or [on a schedule](../surfaces/scheduled.md);
    - connect [MCP servers](../configure/mcp.md) or a [web-search provider](../configure/web-search.md).
 
+To remove Jazz later, [uninstall](./uninstall.md) lists everything it puts on the machine.
+
 Jazz uses one agent definition across every surface. You do not need to recreate an agent when you move from the terminal to a script, schedule, webhook, or chat bot.

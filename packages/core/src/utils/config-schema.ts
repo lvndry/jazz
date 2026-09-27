@@ -419,7 +419,6 @@ const otlpShape = {
   headers: z.record(safeRecordKey, text).exactOptional(),
   serviceName: text.exactOptional(),
   resourceAttributes: z.record(safeRecordKey, text).exactOptional(),
-  captureContent: flag.exactOptional(),
   timeoutMs: wholeNumber.exactOptional(),
   maxQueuedBytes: positiveWholeNumber.exactOptional(),
   maxQueueAgeMs: positiveWholeNumber.exactOptional(),
@@ -714,6 +713,10 @@ function describeNumber(schema: z.ZodNumber): string {
 
 function alternatives(schema: z.ZodType): string[] {
   const inner = unwrap(schema);
+  const described = expectedDescriptions.get(inner);
+  if (described !== undefined) {
+    return [described];
+  }
   if (inner instanceof z.ZodBoolean) return ["true", "false"];
   if (inner instanceof z.ZodEnum) return inner.options.map(String);
   if (inner instanceof z.ZodLiteral) return [...inner.values].map(String);
@@ -727,7 +730,7 @@ function alternatives(schema: z.ZodType): string[] {
 }
 
 /** What a value at this schema must look like, in words: "a whole number of 0 or more". */
-function describeExpected(schema: z.ZodType | undefined): string {
+export function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
 }
 

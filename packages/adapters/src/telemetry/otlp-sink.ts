@@ -84,7 +84,6 @@ export class OtlpTelemetrySink implements TelemetrySink {
         serviceName: this.config.serviceName,
         serviceVersion: this.serviceVersion,
         resourceAttributes: this.config.resourceAttributes,
-        captureContent: this.config.captureContent,
       };
       const requests: { signal: "traces" | "logs"; body: string }[] = [];
       if (this.config.signals.includes("traces") && events.some(isSpanEvent)) {

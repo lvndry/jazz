@@ -1,5 +1,5 @@
 ---
-description: "What a Jazz webhook is: one authenticated URL bound to one agent and one fixed prompt, with the payload quoted as data, each delivery run once, and the caller bounded like any counterparty."
+description: "What a Jazz webhook is: one authenticated URL bound to one agent and a fixed prompt, the payload quoted as data, each delivery run once, the caller bounded."
 ---
 
 # Webhooks

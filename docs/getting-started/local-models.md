@@ -33,7 +33,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
-   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable. In a conversation, the terminal header shows the resolved `host:port` beside a local model when there is room; it hides credentials and does not show a local endpoint for Ollama Cloud models.
+   Or set it interactively: run `jazz`, choose **Update configuration** → **LLM Providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable. In a conversation, the terminal header shows the resolved `host:port` beside a local model when there is room; it hides credentials and does not show a local endpoint for Ollama Cloud models.
 
 3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 
@@ -56,7 +56,7 @@ With `JAZZ_OFFLINE=1` (or `true`), Jazz skips these product-service requests:
 
 - **No update check**: the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
 - **No models.dev fetch**: the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
-- **No library fetch**: `jazz persona browse` and `jazz workflow browse` read the snapshots at `~/.jazz/cache/persona-registry.json` and `~/.jazz/cache/workflow-registry.json` from a previous online run, and error if there is none. Point `JAZZ_LIBRARY_URL` at an internal library to browse and install inside the airgap.
+- **No library fetch**: `jazz persona browse`, `jazz workflow browse` and `jazz skill browse` read the snapshots at `~/.jazz/cache/persona-registry.json`, `~/.jazz/cache/workflow-registry.json` and `~/.jazz/cache/skill-registry.json` from a previous online run, and error if there is none. Installing from the library is refused offline. Point `JAZZ_LIBRARY_URL` at an internal library, with `JAZZ_OFFLINE` unset, to browse and install inside the airgap.
 
 It does **not** block inference, `web_fetch`, `http_request`, remote MCP, OTLP export, or a command the agent runs. In an air-gapped deployment, use a local provider, disable OTLP export, omit network-capable tools and MCP servers, and enforce egress at the OS, container, or firewall boundary.
 

@@ -1,5 +1,5 @@
 ---
-description: "Authenticate every way into a Jazz agent: chat allowlists, per-webhook tokens and signatures, the daemon and operator tokens, and peer tiers, plus what to do before binding a public port."
+description: "Authenticate every way into a Jazz agent: chat allowlists, webhook tokens and signatures, daemon and operator tokens, peer tiers, and checks before binding a public port."
 ---
 
 # Surface access

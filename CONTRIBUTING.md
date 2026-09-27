@@ -18,9 +18,12 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | `packages/adapters`     | Service implementations (LLM, storage, MCP, keyring, etc.)              | `core`                           |
 | `packages/cli`          | Ink/OpenTUI commands and presentation                                   | `core`                           |
 | `packages/runtime`      | Composition root: wires core+adapters+cli into the `jazz` binary        | `core`, `adapters`, `cli`        |
-| `packages/bot-shared`   | Shared run-logging/usage helpers for the bot bridges                    | `core`                           |
+| `packages/bot-shared`   | Shared turn, approval, run-logging and usage code for the bot bridges   | `core`, `adapters`               |
 | `packages/telegram-bot` | Telegram bridge                                                         | `core`, `adapters`, `bot-shared` |
 | `packages/discord-bot`  | Discord bridge                                                          | `core`, `adapters`, `bot-shared` |
+| `packages/imessage-bot` | iMessage bridge through your own Mac, via the `imsg` CLI                | `core`, `adapters`, `bot-shared` |
+| `packages/photon-bot`   | iMessage bridge through a hosted Photon line                            | `core`, `adapters`, `bot-shared` |
+| `packages/whatsapp-bot` | WhatsApp bridge, linked as a device via Baileys                         | `core`, `adapters`, `bot-shared` |
 | `packages/website`      | Astro docs/marketing site, reads `docs/` as a content collection        | `cli` (design tokens only)       |
 | `packages/plugin-sdk`   | Public plain-JavaScript/types ABI for external plugin authors           | nothing                          |
 | `plugins/*`             | Reviewed optional plugins; never imported by core                       | `plugin-sdk` only                |
@@ -140,6 +143,9 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 
 - [ ] `bun run typecheck` passes
 - [ ] `bun run lint` passes
+- [ ] `bun run test:typecheck` passes (typechecks the test files, which `typecheck` skips)
+- [ ] Docs changes pass `bun run docs:lint`, `bun run docs:check-links` and `bun run docs:check-metadata`
+- [ ] Changes under `plugins/` pass `bun run plugin:catalog`
 - [ ] `bun test` passes
 - [ ] `bun run test:e2e` passes (`jazz run --json` against a scripted model server)
 - [ ] `bun run build:binary` succeeds

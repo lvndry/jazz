@@ -160,7 +160,7 @@ jazz imessage --local     # your Apple account; macOS 14+
 jazz whatsapp     # links as a device, the way WhatsApp Web does
 ```
 
-Setup walkthrough: [Reaching your agent from a chat app](../guides/deploy-a-chat-agent.md#imessage).
+Setup walkthrough: [Reaching your agent from a chat app](../guides/deploy-a-chat-agent.md#imessage-with-a-hosted-line).
 Full tables: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/README.md),
 [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
 

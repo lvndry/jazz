@@ -99,7 +99,7 @@ export function isSpanEvent(event: TelemetryEvent): boolean {
   return !NON_SPAN_EVENT_TYPES.has(event.type);
 }
 
-export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan {
+export function toSpan(event: TelemetryEvent): OtlpSpan {
   const { runId, isRunScoped, traceId, spanId, parentSpanId } = spanIdentityOf(event);
   const isRunSpan = event.type === "agent_run_completed" || event.type === "agent_run_failed";
   const isToolSpan = event.type === "tool_invocation" || event.type === "tool_error";
@@ -110,7 +110,7 @@ export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan
   const isError = ERROR_EVENT_TYPES.has(event.type);
 
   const attributes = [
-    ...eventToAttributes(event, captureContent),
+    ...eventToAttributes(event),
     ...(isRunScoped ? [stringAttribute("jazz.run.id", runId)] : []),
   ];
   if (isRunSpan) {
@@ -157,9 +157,7 @@ export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan
 
 export function buildTracesPayload(
   events: readonly TelemetryEvent[],
-  options: ResourceOptions & {
-    readonly captureContent: boolean;
-  },
+  options: ResourceOptions,
 ): OtlpTracesPayload {
   return {
     resourceSpans: [
@@ -170,7 +168,7 @@ export function buildTracesPayload(
         scopeSpans: [
           {
             scope: { name: "jazz", version: options.serviceVersion },
-            spans: events.filter(isSpanEvent).map((event) => toSpan(event, options.captureContent)),
+            spans: events.filter(isSpanEvent).map((event) => toSpan(event)),
           },
         ],
       },

@@ -120,6 +120,19 @@ describe("SkillRegistryService", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses to download an entry offline", async () => {
+    mockFetch(routes());
+    await run(service().listEntries());
+
+    process.env["JAZZ_OFFLINE"] = "1";
+    const fetchMock = mockFetch(routes());
+    const failure = await runFailure(service().fetchSkill("release-council"));
+
+    expect(failure).toMatchObject({ _tag: "NetworkError" });
+    expect(String((failure as { reason?: unknown } | null)?.reason)).toContain("offline");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a catalog source outside the registry origin", async () => {
     mockFetch({
       [`${BASE_URL}/skills.json`]: JSON.stringify({

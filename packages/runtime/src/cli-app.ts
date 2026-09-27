@@ -3199,7 +3199,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   program
     .name("jazz")
     .description(
-      "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
+      "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps",
     )
     .version(packageJson.version, "--version", "Print the Jazz version");
 

@@ -282,7 +282,8 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
 
   /**
    * Find one entry by name (case-insensitive) and download its markdown from the
-   * library's own origin. Validating the markdown is the caller's job.
+   * library's own origin. Validating the markdown is the caller's job. Offline, the
+   * entry is still looked up in the cached index, but the download is refused.
    */
   fetchEntry(name: string): Effect.Effect<LibraryDownload<TEntry>, NetworkError | ValidationError> {
     return Effect.gen(
@@ -312,6 +313,16 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
               message: `Library entry "${entry.name}" points outside the registry`,
               value: entry.url,
               suggestion: `Jazz refuses to install a ${kind} hosted off the library's own origin. Report this catalog entry.`,
+            }),
+          );
+        }
+
+        if (isOfflineMode()) {
+          return yield* Effect.fail(
+            new NetworkError({
+              url: sourceUrl,
+              reason: `Jazz is running offline, so it cannot download ${kind} "${entry.name}"`,
+              suggestion: `Unset JAZZ_OFFLINE to install from the library, or point JAZZ_LIBRARY_URL at a library on your network.`,
             }),
           );
         }
