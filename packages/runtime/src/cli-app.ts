@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
@@ -21,6 +22,7 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
+import type { ShutdownSignal } from "@jazz/core/utils/process";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
 import packageJson from "../../../package.json";
@@ -52,6 +54,8 @@ interface CliRunOptions {
   readonly skipUpdateCheck?: boolean;
   /** Live until the user leaves. Print-and-exit commands omit this. */
   readonly session?: boolean;
+  /** Report a run a shutdown signal stopped, for commands with a one-envelope stdout. */
+  readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -80,6 +84,16 @@ async function runCliAction(
     console.error("Fatal error:", error);
     throw error;
   }
+}
+
+/**
+ * The one stdout envelope of a `--json` run that a signal stopped: `ok:false`
+ * with `error` and `code` set to `interrupted`, plus which signal it was.
+ */
+function printInterruptedEnvelope(signal: ShutdownSignal): void {
+  process.stdout.write(
+    formatOneShotError("interrupted", { json: true }, 0, { code: "interrupted", signal }),
+  );
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -374,7 +388,11 @@ function registerRunCommand(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: true, skipUpdateCheck: true },
+          {
+            skipCatchUp: true,
+            skipUpdateCheck: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );
@@ -2622,7 +2640,12 @@ function registerWorkflowCommands(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json, session: true },
+          {
+            skipCatchUp: isWorkflowRunCommand,
+            skipUpdateCheck: json,
+            session: true,
+            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+          },
         );
       },
     );

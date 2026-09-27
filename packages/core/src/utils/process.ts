@@ -1,7 +1,17 @@
 /**
- * Whether a process recorded by pid (a lock holder, a run's owner) is still running.
+ * Process helpers: the exit codes for shutdown signals, and whether a process
+ * recorded by pid (a lock holder, a run's owner) is still running.
  */
 import { hostname } from "node:os";
+
+/** The signals Jazz treats as a request to shut down. */
+export type ShutdownSignal = "SIGINT" | "SIGTERM";
+
+/** Exit code for a process stopped by a signal: 128 plus the signal number, as shells report it. */
+export const SIGNAL_EXIT_CODE: Readonly<Record<ShutdownSignal, number>> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
 
 /** A process that holds something: a lock, a cycle, a working run. */
 export interface ProcessOwner {
