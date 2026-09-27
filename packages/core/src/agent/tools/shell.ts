@@ -24,7 +24,6 @@ import {
   formatCappedStream,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-import { inboundCommandProvenance } from "./inbound-commands";
 
 /**
  * Format a timeout duration for the approval prompt. Unlike `formatDuration`
@@ -766,7 +765,6 @@ This command will be executed on your system. Only approve commands you trust.`;
             stderrChars: result.stderr.length,
           });
 
-          const untrusted = inboundCommandProvenance("execute_command", command);
           return {
             success: true,
             result: {
@@ -777,7 +775,8 @@ This command will be executed on your system. Only approve commands you trust.`;
               stderr: result.stderr,
               success: result.exitCode === 0,
             },
-            ...(untrusted !== undefined ? { untrusted } : {}),
+            // Jazz cannot tell what a command read, so its output is always outside content.
+            untrusted: { kind: "external", source: "execute_command output" },
           };
         } catch (error) {
           const errorMessage = toError(error).message;

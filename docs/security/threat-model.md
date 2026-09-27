@@ -76,12 +76,14 @@ headers on cross-origin redirects, and streams bodies against a byte cap. An age
 network only through the hosts listed in `network.allowPrivateHosts`.
 
 Tool results that carry someone else's words (web pages, API responses, search results, MCP output,
-peer answers, mail and web commands run through the shell, files outside the working directory)
+peer answers, the output of every shell and custom command, files outside the working directory)
 reach the model inside a labelled `<untrusted-content>` envelope, and a standing system-prompt rule
 tells it to read them as data. Once a run has read external content, egress tools stop
 auto-approving below `high-risk` for the rest of that run and its sub-agents: they prompt, park, or
 are declined. A plain GET of a URL that already appears in the user's messages or in content the run
-read, and `web_search` (which only reaches the configured provider), stay automatic.
+read, and `web_search` (which only reaches the configured provider), stay automatic. Jazz cannot
+tell what a command read, so any `execute_command` run counts as external content: after one,
+egress below `high-risk` needs approval.
 
 A network-backed command-risk plugin is a separate egress boundary. Jazz projects only the bounded
 command string into `classify.command-risk`; it does not include conversation history, tool results,
@@ -92,10 +94,10 @@ destination, and a local operator must consent to those declarations for the cur
 
 Secrets resolve from environment variables, then the OS keyring, then a mode-`0600` local config
 fallback when no keyring is usable. The read tools (`read_file`, `read_pdf`, `pdf_page_count`,
-`grep`, `find`, `ls`) refuse that fallback, `$JAZZ_HOME/config.json` (which can hold the daemon
-token), secret lock files, SSH, AWS, GnuPG, netrc and other common credential stores, OS keyring
-files and `/proc/*/environ`, after resolving symlinks. `execute_command` is gated by approval
-instead and does not consult that list. Shell children lose variables whose names look credential-bearing
+`grep`, `find`, `ls`) refuse Jazz's own secret files after resolving symlinks: that fallback, the
+global config file (which can hold the daemon token), and their lock and temp files. Credentials
+other programs keep, such as `~/.ssh`, are not on that list; the OS user or container the agent
+runs as has to keep them out of reach. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
 telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
 events omit command text, tool arguments, results, and prompt/completion text. The local tool audit
@@ -151,8 +153,9 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Prompt-injection immunity:** hostile content can steer actions already permitted by the toolset
   and active policy.
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
-  The private-network and credential-file checks cover Jazz's own fetch and read tools, not
-  programs the shell runs.
+  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and the
+  read tools refuse only Jazz's own secret files, so other programs' credentials (`~/.ssh`, cloud
+  CLI tokens) are readable by any read tool.
 - **DNS rebinding:** the guarded fetch resolves a hostname before the runtime connects and
   resolves it again to connect, so a name whose answer changes in between (a zero-TTL rebinding
   record) can still reach a private address. IP-literal URLs and redirect targets are unaffected.

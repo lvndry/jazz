@@ -150,6 +150,30 @@ describe("taintedEgressNeedsApproval", () => {
     expect(needsApproval("http_request", { method: "POST", url: link }, { messages })).toBe(true);
   });
 
+  it("keeps a research run working after a shell command tainted it", () => {
+    const shellTainted = createEgressTaint();
+    shellTainted.mark("execute_command output");
+    const link = "https://news.example/story";
+    const searchResults: ChatMessage = {
+      role: "tool",
+      name: "web_search",
+      tool_call_id: "s",
+      content: frameUntrusted(`1. ${link}`, { kind: "external", source: "web_search results" }),
+    };
+    const gate = (toolName: string, args: Record<string, unknown>) =>
+      taintedEgressNeedsApproval({
+        toolName,
+        egress: true,
+        args,
+        policy: "read-only",
+        taint: shellTainted,
+        messages: [searchResults],
+      });
+    expect(gate("web_search", { query: "follow-up" })).toBe(false);
+    expect(gate("web_fetch", { url: link })).toBe(false);
+    expect(gate("web_fetch", { url: "https://collector.example/?d=x" })).toBe(true);
+  });
+
   it("gates MCP calls, whose arguments go wherever the server sends them", () => {
     expect(needsApproval("mcp_linear_search", { query: "secret" })).toBe(true);
   });

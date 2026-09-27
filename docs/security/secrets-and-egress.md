@@ -75,29 +75,31 @@ To let an agent reach a service on your own network, list it in the agent's
 A hostname entry allows whatever that name resolves to, so list names you control. An address or
 CIDR entry allows those addresses behind any name.
 
-## Read tools and credential files
+## Read tools and Jazz's secret files
 
-`read_file`, `read_pdf`, `pdf_page_count`, `grep`, `find` and `ls` refuse paths that hold
-credentials, after resolving symlinks, so a model steered by something it read cannot put a key in
-its context:
+`read_file`, `read_pdf`, `pdf_page_count`, `grep`, `find` and `ls` refuse Jazz's own secret files,
+after resolving symlinks, so a model steered by something it read cannot put Jazz's keys in its
+context:
 
-- `$JAZZ_HOME/secrets.json`, `$JAZZ_HOME/config.json` (it can hold the daemon token),
-  `$JAZZ_HOME/daemon.token`, and the secret lock and temp files beside them;
-- `~/.ssh`, `~/.aws/credentials` and the AWS SSO and CLI caches, `~/.gnupg`, `~/.netrc`,
-  `~/.git-credentials`, `~/.docker/config.json`, `~/.kube/config`, `~/.config/gh/hosts.yml`,
-  `~/.config/gcloud`, `~/.password-store`, the OS keyring files, and `~/.agents/mcp.json`;
-- `/proc/*/environ`.
+- `$JAZZ_HOME/secrets.json`, the no-keyring secret store;
+- the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which holds the
+  daemon token when no keyring is available;
+- the lock and temp files written beside them while they change.
 
-A search that spans one of them, such as `grep` over your home directory, leaves its matches out.
-When a task genuinely needs one of these files, run the command yourself with `! <command>`.
+A search that spans them, such as `grep` over `$JAZZ_HOME`, leaves their matches out.
+
+Credentials other programs keep, such as `~/.ssh` or a cloud CLI's token cache, are not on the
+list: Jazz cannot know every program's layout. Keep them out of the agent's reach with a dedicated
+OS user or container (see [unattended runs](./unattended-runs.md)).
 
 ## Content from outside is labelled
 
 Results that carry someone else's words arrive inside an `<untrusted-content>` envelope that names
 the source before and after the text: `web_fetch`, `web_search`, `http_request`, `read_pdf` URLs,
-MCP tools and resources, `ask_peer`, `execute_command` runs of mail, calendar and web programs
-(`himalaya`, `gcalcli`, `curl`, `gh` and others), and `read_file` of a file outside the working
-directory. The system prompt tells the model to read that content as data and to take instructions
+MCP tools and resources, `ask_peer`, the output of every `execute_command` and custom command
+tool, and `read_file` of a file outside the working directory. Command output counts because Jazz
+cannot tell what a command read: `himalaya` printing your inbox and `ls` look the same from
+outside. The system prompt tells the model to read that content as data and to take instructions
 only from you. After a run reads external content, egress tools need approval below `high-risk`;
 see [unattended runs](./unattended-runs.md#egress-after-untrusted-input).
 
@@ -117,9 +119,9 @@ An untrusted server's tools are not exposed broadly. Treat adding one the way yo
 None of it replaces operating-system permissions or network isolation. A shell tool running as
 your user reaches whatever your user reaches.
 
-Scrubbing the environment stops a key being read out of `env`, and the read tools refuse
-`~/.aws/credentials`. Neither stops a shell command from reading it: `execute_command` is gated by
-approval, not by the credential-file list.
+Scrubbing the environment stops a key being read out of `env`. It does not stop a read tool or a
+shell command from reading `~/.aws/credentials`: the read tools refuse only Jazz's own secret
+files, and `execute_command` is gated by approval.
 
 If that matters for your deployment, the answer is a dedicated OS user or a container, not a
 tighter approval policy. See [unattended runs](./unattended-runs.md).

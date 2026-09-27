@@ -154,8 +154,9 @@ export interface ToolCallResult {
  * Where untrusted text in a tool result came from, as declared by the tool that produced it.
  *
  * `external` is content from off this machine or from another party (web pages, API responses,
- * MCP servers, mail, peers). `local-file` is a file outside the run's working directory: framed
- * because anybody may have written it, but it does not change what the run may send.
+ * MCP servers, shell and custom-command output, peers). `local-file` is a file outside the run's
+ * working directory: framed because anybody may have written it, but it does not change what the
+ * run may send.
  */
 export interface UntrustedProvenance {
   readonly kind: "external" | "local-file";

@@ -8,7 +8,9 @@
  * asked. So a run carries one piece of state, `EgressTaint`:
  *
  * - It is marked the first time a tool result with `external` untrusted provenance enters the
- *   context (web pages, API responses, MCP results, mail read through the shell, peer answers).
+ *   context: web pages, API responses, search results, MCP results, peer answers, and the output
+ *   of every shell or custom command (Jazz cannot tell what a command read, so any command
+ *   output counts, which means egress after any shell command needs a person below `high-risk`).
  *   A run whose history already holds such a result starts marked, so resuming or continuing a
  *   conversation does not reset it. Sub-agents share their parent's taint in both directions.
  * - Once marked, an egress tool (`egress: true`) is no longer auto-approved by the `read-only`
