@@ -34,7 +34,11 @@ import {
   type MessageAttachment,
 } from "@/core/types/attachment";
 import type { ChatCompletionResponse } from "@/core/types/chat";
-import { GenerationInterruptedError, LLMRateLimitError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  LLMRateLimitError,
+  LLMRequestError,
+} from "@/core/types/errors";
 import type { MemoryDelivery } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput, WorkspaceFileActivity } from "@/core/types/plugin";
@@ -61,7 +65,7 @@ import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
-import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
 import { closeUnansweredToolCalls } from "../context/unanswered-tool-calls";
@@ -263,6 +267,10 @@ interface LoopState {
   toolCompactionAnnounced: boolean;
   /** Repetition nudges already sent; a repeat after one stops the run. */
   meltdownNudges: number;
+  /** Set once the user was told compaction cannot progress, so it is said once, not per turn. */
+  compactionStuckWarned: boolean;
+  /** Set while retrying after a prompt-too-long rejection, so a second one fails the run. */
+  overflowRecoveryUsed: boolean;
   /**
    * Set once a goal proposal is saved: accepting it is the user's decision, so the rest of
    * the turn may only describe the plan, never start it. Later completions are asked for
@@ -1064,6 +1072,89 @@ function withoutToolCalls(completion: ChatCompletionResponse): ChatCompletionRes
   return rest;
 }
 
+/**
+ * Trim the history to `budgetTokens` (the trim budget by default), logging the rung and telling
+ * the user what was dropped. Returns whether anything was removed.
+ */
+function trimHistory(
+  state: LoopState,
+  deps: LoopDeps,
+  budgetTokens?: number,
+): Effect.Effect<boolean, never, LoggerService | AgentConfigService> {
+  const { agent, options, actualConversationId, runContextWindowManager, observer, logger } = deps;
+  return Effect.gen(function* () {
+    const trimUpdate = yield* runContextWindowManager.trim(
+      state.currentMessages,
+      logger,
+      agent.id,
+      actualConversationId,
+      ...(budgetTokens !== undefined ? [budgetTokens] : []),
+    );
+    state.currentMessages = trimUpdate.messages;
+    if (trimUpdate.result === undefined || trimUpdate.result.messagesRemoved === 0) {
+      return false;
+    }
+    yield* logContextRung(logger, {
+      rung: "trim",
+      agentId: agent.id,
+      conversationId: actualConversationId,
+      tokensBefore: trimUpdate.result.estimatedTokensBefore,
+      tokensAfter: trimUpdate.result.estimatedTokens,
+      budgetTokens: runContextWindowManager.contextBudgetTokens,
+      messagesBefore: trimUpdate.result.originalCount,
+      messagesAfter: trimUpdate.result.trimmedCount,
+    });
+    if (!options.internal) {
+      yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+    }
+    return true;
+  });
+}
+
+/**
+ * What an overflow retry trims to when compaction cannot shrink the history: this fraction
+ * of the history's own estimated size. The provider just proved the estimate too optimistic,
+ * so trimming to the configured budget would likely overflow again.
+ */
+const OVERFLOW_TRIM_RATIO = 0.7;
+
+/**
+ * After the provider rejected a request as too long for the model: compact the history
+ * whatever its estimated fill, or trim it to OVERFLOW_TRIM_RATIO of its size when compaction
+ * cannot run. Returns whether the history shrank, so the caller can retry.
+ */
+function recoverFromContextOverflow(
+  state: LoopState,
+  deps: LoopDeps,
+): Effect.Effect<
+  boolean,
+  never,
+  | LLMService
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | PresentationService
+  | ToolRequirements
+> {
+  const { agent, options, actualConversationId, runRecursive, contextWindowMaxTokens } = deps;
+  return Effect.gen(function* () {
+    const compacted = yield* Summarizer.compact(
+      state.currentMessages,
+      agent,
+      actualConversationId,
+      runRecursive,
+      contextWindowMaxTokens,
+      mayExtractMemories(options),
+    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (compacted !== undefined && compacted.tokensAfter < compacted.tokensBefore) {
+      state.currentMessages = compacted.messages;
+      return true;
+    }
+    const estimatedTokens = deps.runContextWindowManager.totalRequestTokens(state.currentMessages);
+    return yield* trimHistory(state, deps, Math.floor(estimatedTokens * OVERFLOW_TRIM_RATIO));
+  });
+}
+
 type RunIterationResult =
   { kind: "continue" } | { kind: "final" } | { kind: "interrupted" } | { kind: "stalled" };
 
@@ -1209,8 +1300,7 @@ function runIteration(
     }
 
     const allowMemoryExtraction = mayExtractMemories(options);
-    const messagesBeforeCompact = state.currentMessages;
-    const compaction = Summarizer.compactIfNeeded(
+    const compactionAttempt = Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
       actualConversationId,
@@ -1222,18 +1312,40 @@ function runIteration(
     const interruptSignal = strategy.getInterruptSignal?.();
     const compacted =
       interruptSignal === undefined
-        ? yield* compaction
+        ? yield* compactionAttempt
         : yield* Effect.raceFirst(
-            compaction,
-            interruptSignal.pipe(Effect.as(Option.none<ChatMessage[]>())),
+            compactionAttempt,
+            interruptSignal.pipe(Effect.as(Option.none<AutoCompaction>())),
           );
     if (Option.isNone(compacted)) {
       yield* observer.onInterrupted(agent.name);
       yield* logger.debug("Interrupted during compaction, breaking loop");
       return { kind: "interrupted" } as const;
     }
-    state.currentMessages = compacted.value as typeof state.currentMessages;
-    const justCompacted = state.currentMessages !== messagesBeforeCompact;
+    const autoCompaction = compacted.value;
+    if (autoCompaction.kind === "compacted") {
+      state.currentMessages = autoCompaction.messages;
+      state.compactionStuckWarned = false;
+    } else if (autoCompaction.kind === "stuck" || autoCompaction.kind === "failed") {
+      // Compaction could not bring the history down, so go straight to the rung below it,
+      // trimmed to the compaction threshold rather than left to grow into the trim budget.
+      if (!options.internal && (autoCompaction.kind === "failed" || !state.compactionStuckWarned)) {
+        yield* observer.onCompactionUnavailable(
+          agent.name,
+          autoCompaction.kind === "failed"
+            ? autoCompaction.reason
+            : "everything over the limit is recent history",
+        );
+      }
+      if (autoCompaction.kind === "stuck") {
+        state.compactionStuckWarned = true;
+      }
+      yield* trimHistory(state, deps, runContextWindowManager.compactThresholdTokens);
+    }
+    // The floor before sending: a history still over the trim budget is trimmed now, not
+    // after the provider has already rejected or truncated it.
+    yield* trimHistory(state, deps);
+    const justCompacted = autoCompaction.kind === "compacted";
 
     // The summarizer is its own agent run; its completion idles the live zone.
     // Restore thinking so the parent looks mid-task, not finished.
@@ -1350,11 +1462,31 @@ function runIteration(
             }),
           );
     const completionStartTime = Date.now();
-    const result = yield* strategy.getCompletion(
-      messagesForLLM,
-      iterationIndex,
-      !state.awaitingGoalDecision,
-    );
+    const attempt = yield* strategy
+      .getCompletion(messagesForLLM, iterationIndex, !state.awaitingGoalDecision)
+      .pipe(Effect.either);
+    if (attempt._tag === "Left") {
+      const error = attempt.left;
+      const overflowed = error instanceof LLMRequestError && error.contextOverflow === true;
+      if (!overflowed || state.overflowRecoveryUsed) {
+        return yield* Effect.fail(error);
+      }
+      state.overflowRecoveryUsed = true;
+      yield* logger.warn("Provider rejected the request as too long; shrinking history to retry", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+      });
+      if (!options.internal) {
+        yield* observer.onContextOverflow(agent.name);
+      }
+      const shrank = yield* recoverFromContextOverflow(state, deps);
+      if (!shrank) {
+        return yield* Effect.fail(error);
+      }
+      return { kind: "continue" } as const;
+    }
+    state.overflowRecoveryUsed = false;
+    const result = attempt.right;
     if (memoryOpportunities !== undefined && pendingReceipts !== undefined) {
       const tickets = yield* Fiber.join(pendingReceipts);
       yield* memoryOpportunities.complete(tickets, requestMessages);
@@ -1450,28 +1582,7 @@ function runIteration(
 
     state.currentMessages.push(assistantMessage);
 
-    const trimUpdate = yield* runContextWindowManager.trim(
-      state.currentMessages,
-      logger,
-      agent.id,
-      actualConversationId,
-    );
-    state.currentMessages = trimUpdate.messages;
-    if (trimUpdate.result !== undefined) {
-      yield* logContextRung(logger, {
-        rung: "trim",
-        agentId: agent.id,
-        conversationId: actualConversationId,
-        tokensBefore: trimUpdate.result.estimatedTokensBefore,
-        tokensAfter: trimUpdate.result.estimatedTokens,
-        budgetTokens: runContextWindowManager.contextBudgetTokens,
-        messagesBefore: trimUpdate.result.originalCount,
-        messagesAfter: trimUpdate.result.trimmedCount,
-      });
-      if (!options.internal) {
-        yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
-      }
-    }
+    yield* trimHistory(state, deps);
 
     if (completion.toolCalls && completion.toolCalls.length > 0) {
       const toolPhase = yield* handleToolPhase(
@@ -1510,6 +1621,7 @@ function runIteration(
     state.response = {
       ...state.response,
       content: visibleContent,
+      ...(completion.finishReason !== undefined ? { finishReason: completion.finishReason } : {}),
       ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
       // Media the model itself returned, joining anything tools produced earlier in the run.
       ...(completion.artifacts && completion.artifacts.length > 0
@@ -1669,6 +1781,8 @@ export function executeAgentLoop(
           contextPressureWarned: false,
           toolCompactionAnnounced: false,
           meltdownNudges: 0,
+          compactionStuckWarned: false,
+          overflowRecoveryUsed: false,
           awaitingGoalDecision: false,
         };
         let finished = false;

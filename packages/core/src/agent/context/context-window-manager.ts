@@ -177,12 +177,16 @@ export class ContextWindowManager {
    * Returns a new array of messages and the trim metadata.
    * Preserves the system message, the compaction summary, its continuation and pinned
    * messages, the protected recent turns, and tool call/result pairing.
+   *
+   * @param budgetTokens - The size to trim to. Defaults to the trim budget; a caller escalating
+   *   past a compaction that could not run passes a lower one.
    */
   trim(
     messages: ConversationMessages,
     logger: LoggerService,
     agentId: string,
     conversationId: string,
+    budgetTokens: number = this.config.maxTokens,
   ): Effect.Effect<
     { messages: ConversationMessages; result: TrimResult | undefined },
     never,
@@ -190,7 +194,7 @@ export class ContextWindowManager {
   > {
     const overheadTokens = this.requestOverheadTokens();
     const currentTokens = this.calculateTotalTokens(messages) + overheadTokens;
-    if (currentTokens <= this.config.maxTokens) {
+    if (currentTokens <= budgetTokens) {
       return Effect.succeed({ messages, result: undefined });
     }
 
@@ -241,7 +245,7 @@ export class ContextWindowManager {
 
       const tokens = this.counter.countMessage(msg, this.modelHint);
 
-      if (accumulatedTokens + tokens > this.config.maxTokens) {
+      if (accumulatedTokens + tokens > budgetTokens) {
         break;
       }
 
@@ -301,7 +305,7 @@ export class ContextWindowManager {
         agentId,
         conversationId,
         limits: {
-          maxTokens: this.config.maxTokens,
+          maxTokens: budgetTokens,
           protectedRecentTurns: protectedTurns,
         },
         originalCount: trimResult.originalCount,

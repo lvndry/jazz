@@ -156,6 +156,10 @@ function recordingObserver() {
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
     onStalled: (name: string) => Effect.sync(() => void calls.push(`stalled:${name}`)),
+    onCompactionUnavailable: (name: string, reason: string) =>
+      Effect.sync(() => void calls.push(`compaction-unavailable:${name}:${reason}`)),
+    onContextOverflow: (name: string) =>
+      Effect.sync(() => void calls.push(`context-overflow:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onHistoryTrimmed: (name: string, messagesRemoved: number) =>
@@ -701,6 +705,139 @@ describe("executeAgentLoop", () => {
     expect(pressureWarning).toBeDefined();
     expect(pressureWarning).toContain(`${maxContextTokens.toLocaleString()} tokens`);
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
+  });
+
+  function longHistory(): ChatMessage[] {
+    const filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);
+    return [
+      { role: "system", content: "system prompt" },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `turn ${index}: ${filler}`,
+      })),
+    ];
+  }
+
+  it("shrinks the history and retries once when the provider says the prompt is too long", async () => {
+    const seenLengths: number[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        seenLengths.push(messages.length);
+        return seenLengths.length === 1
+          ? Effect.fail(
+              new LLMRequestError({
+                provider: "openai",
+                message: "prompt is too long",
+                statusCode: 400,
+                contextOverflow: true,
+              }),
+            )
+          : Effect.succeed({
+              completion: { id: "c2", model: "gpt-4", content: "fits now" },
+              interrupted: false,
+            });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ messages: longHistory() as any }),
+        displayConfig,
+        strategy,
+        observer,
+        summarizing,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("fits now");
+    expect(calls).toContain("context-overflow:test-agent");
+    expect(seenLengths[1]).toBeLessThan(seenLengths[0] ?? 0);
+  });
+
+  it("fails the run when the retry after an overflow is rejected too", async () => {
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.fail(
+          new LLMRequestError({
+            provider: "openai",
+            message: "prompt is too long",
+            statusCode: 400,
+            contextOverflow: true,
+          }),
+        );
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const summarizing: RecursiveRunner = () =>
+      Effect.succeed({ content: "## Goal\nkeep going", conversationId: "s" } as AgentResponse);
+
+    await expect(
+      Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext({ messages: longHistory() as any }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          summarizing,
+        ).pipe(Effect.provide(TestLayer)),
+      ),
+    ).rejects.toThrow("prompt is too long");
+    expect(calls).toBe(2);
+  });
+
+  it("trims instead of failing the run when the summarizer fails", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "answered" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const failingSummarizer: RecursiveRunner = () => Effect.fail(new Error("summarizer offline"));
+    const messages = longHistory();
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens: Math.ceil(usedTokens / 0.9) },
+    } as any;
+    const { observer, calls } = recordingObserver();
+
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        observer,
+        failingSummarizer,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(response.content).toBe("answered");
+    expect(calls).toContain("compaction-unavailable:test-agent:summarizer offline");
+    expect(calls.some((entry) => entry.startsWith("history-trimmed:"))).toBe(true);
   });
 
   it("tells the model to consolidate once context passes the warn threshold", () => {

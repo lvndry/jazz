@@ -3,6 +3,7 @@ import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
+import type { CompletionFinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
@@ -395,6 +396,8 @@ export interface AgentResponse {
    * it had already been told once to change approach. The answer is whatever it had produced.
    */
   readonly stalled?: boolean;
+  /** Why the model stopped generating its final answer, when the provider said. */
+  readonly finishReason?: CompletionFinishReason;
 }
 
 /**

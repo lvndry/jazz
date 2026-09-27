@@ -937,7 +937,11 @@ describe("executeWithStreaming retries", () => {
         }
         return Effect.succeed({
           stream: Stream.fromIterable([
-            { type: "complete" as const, response: completeResponse("after waiting") },
+            {
+              type: "complete" as const,
+              response: completeResponse("after waiting"),
+              totalDurationMs: 1,
+            },
           ]),
           response: Effect.succeed(completeResponse("after waiting")),
           cancel: Effect.void,

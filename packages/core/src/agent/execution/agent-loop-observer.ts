@@ -32,6 +32,10 @@ export interface AgentLoopObserver {
   onEmptyResponse(agentName: string): Effect.Effect<void, never, never>;
   /** The agent kept repeating the same tool calls after being told to change approach. */
   onStalled(agentName: string): Effect.Effect<void, never, never>;
+  /** Compaction was needed but could not run or failed; older history is trimmed instead. */
+  onCompactionUnavailable(agentName: string, reason: string): Effect.Effect<void, never, never>;
+  /** The provider rejected a request as too long for the model; history is shrunk to retry. */
+  onContextOverflow(agentName: string): Effect.Effect<void, never, never>;
   /** The agent runs on a local server whose real context window Jazz could not determine. */
   onContextWindowUnknown(agentName: string, advice: string): Effect.Effect<void, never, never>;
   /**
@@ -86,6 +90,16 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       ),
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
+    onCompactionUnavailable: (agentName, reason) =>
+      presentation.presentWarning(
+        agentName,
+        `could not compact the conversation (${reason}) - trimming older messages instead`,
+      ),
+    onContextOverflow: (agentName) =>
+      presentation.presentWarning(
+        agentName,
+        "the model rejected the request as too long for its context - shrinking history and retrying once",
+      ),
     onStalled: (agentName) =>
       presentation.presentWarning(
         agentName,

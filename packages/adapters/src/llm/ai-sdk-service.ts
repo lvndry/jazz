@@ -139,7 +139,11 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
-import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+import {
+  resolveStreamIdleTimeoutMs,
+  StreamProcessor,
+  toCompletionFinishReason,
+} from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
@@ -2133,10 +2137,12 @@ class AISDKService implements LLMService {
 
         const reasoningParts = extractReasoningParts(result.response.messages, providerName);
 
+        const finishReason = toCompletionFinishReason(result.finishReason);
         const resultObj: ChatCompletionResponse = {
           id: shortUUID.generate(),
           model: responseModel,
           content,
+          ...(finishReason !== undefined ? { finishReason } : {}),
           ...(reasoningParts ? { reasoningParts } : {}),
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
