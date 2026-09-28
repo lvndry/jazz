@@ -15,6 +15,12 @@
 
 import { memo, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import {
+  CONTEXT_WARN_PERCENT,
+  contextPercent,
+  meterFilledCells as filledCells,
+  meterTone,
+} from "../meter";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
@@ -26,10 +32,6 @@ import type { Connector, HeaderModel, Viewport } from "./types";
  * accent and whose remainder is the border tone.
  */
 const METER_CELLS = 10;
-
-/** A context window filling up is worth noticing before it is a problem. */
-const CONTEXT_WARN_PERCENT = 80;
-const CONTEXT_ERROR_PERCENT = 92;
 
 /** Cells between the name and the model, and between the right-hand facts. */
 const NEAR_GAP = "  ";
@@ -46,24 +48,14 @@ export interface HeaderGroup {
   readonly segments: readonly HeaderSegment[];
 }
 
-export function contextPercent(used: number, max: number): number {
-  if (!(max > 0)) return 0;
-  return Math.min(100, Math.max(0, Math.round((used / max) * 100)));
-}
-
 /** The lit run of the meter: the accent while calm, then warning, then error. */
 export function meterColor(percent: number): string {
-  if (percent > CONTEXT_ERROR_PERCENT) return THEME.error;
-  if (percent > CONTEXT_WARN_PERCENT) return THEME.warning;
-  return THEME.primary;
+  const tone = meterTone(percent);
+  return tone === "error" ? THEME.error : tone === "warning" ? THEME.warning : THEME.primary;
 }
 
-/** Any use at all lights one cell, so a live session never looks like an empty gauge. */
 export function meterFilledCells(percent: number): number {
-  if (percent <= 0) {
-    return 0;
-  }
-  return Math.max(1, Math.round((percent / 100) * METER_CELLS));
+  return filledCells(percent, METER_CELLS);
 }
 
 function meterGroup(model: HeaderModel, glyphs: GlyphSet): HeaderGroup {

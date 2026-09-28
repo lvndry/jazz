@@ -1,3 +1,4 @@
+import { report } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import type { EphemeralRegion } from "../store";
 import type { OutputEntry } from "../types";
@@ -205,5 +206,21 @@ describe("conversation flow entries", () => {
     expect(blocks).toEqual([
       expect.objectContaining({ kind: "notice", tone: "receipt", text: "9.7s · 2 steps" }),
     ]);
+  });
+});
+
+describe("command reports", () => {
+  it("travel as data, so the transcript sets them in jazz's voice rather than as styled text", () => {
+    const answer = report("theme", [{ kind: "field", key: "current", value: "jazz, dark" }]);
+    const entry: OutputEntry = {
+      id: "r1",
+      type: "log",
+      message: "\u001b[1mtheme\u001b[22m current jazz, dark",
+      timestamp: new Date("2026-08-23T12:00:02.000Z"),
+      meta: { report: answer, plainText: "theme     current   jazz, dark" },
+    };
+    const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
+    expect(block?.kind).toBe("report");
+    expect(block?.kind === "report" ? block.report : undefined).toBe(answer);
   });
 });

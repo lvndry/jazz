@@ -4,6 +4,7 @@
  */
 
 import {
+  isTerminalReport,
   TerminalServiceTag,
   type TerminalOutput,
   type TerminalService,
@@ -18,8 +19,11 @@ import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
 import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
+import { reportAnsiText } from "@/cli/ui/report-ansi";
+import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
 import { CHALK_THEME } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
@@ -224,11 +228,16 @@ export class InkTerminalService implements TerminalService {
 
   log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      const entry: OutputEntry = {
-        type: "log",
-        message,
-        timestamp: new Date(),
-      };
+      // A report travels as data so the fullscreen interface can set it in its own
+      // voice; the styled string is what the scrollback renderer prints.
+      const entry: OutputEntry = isTerminalReport(message)
+        ? {
+            type: "log",
+            message: reportAnsiText(message),
+            timestamp: new Date(),
+            meta: { report: message, plainText: reportPlainText(message, getGlyphs()) },
+          }
+        : { type: "log", message, timestamp: new Date() };
       const logId = store.printOutput(entry);
       return logId;
     });
@@ -614,6 +623,8 @@ export class PlainTerminalService implements TerminalService {
     return Effect.sync(() => {
       if (typeof message === "string") {
         this.write(message);
+      } else if (isTerminalReport(message)) {
+        this.write(reportPlainText(message, getGlyphs()));
       }
       // Ink nodes are silently ignored in plain terminal mode
       return undefined;

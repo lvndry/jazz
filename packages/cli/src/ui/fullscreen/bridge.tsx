@@ -15,6 +15,7 @@
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
+import { isTerminalReport } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
@@ -746,6 +747,12 @@ export function blocksFrom(
       continue;
     }
 
+    const commandReport = entry.meta?.["report"];
+    if (isTerminalReport(commandReport)) {
+      blocks.push({ id, seq: seq++, kind: "report", report: commandReport });
+      continue;
+    }
+
     const plainText = entry.meta?.["plainText"];
     const source = typeof plainText === "string" ? plainText : textOf(entry.message);
     const text = stripAnsiCodes(source);
@@ -894,6 +901,8 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.text === current.text &&
         previous.tone === current.tone
       );
+    case "report":
+      return current.kind === "report" && previous.report === current.report;
     case "divider":
       return current.kind === "divider" && previous.label === current.label;
     case "lane":

@@ -9,13 +9,81 @@ export interface TerminalInkNode {
   readonly node: unknown;
 }
 
+/** How a report value reads: plain text, or one of the semantic status tones. */
+export type ReportTone = "text" | "muted" | "accent" | "success" | "warning" | "error";
+
+/**
+ * A mark in front of a listed item: the current one, an active one, an idle one,
+ * one that needs attention, or one turned off.
+ */
+export type ReportMarker = "current" | "active" | "inactive" | "attention" | "disabled";
+
+/**
+ * One row of a command report.
+ *
+ * - `field`: a key and its value, e.g. `model  openai/gpt-5.6`. Numeric values in one run right-align.
+ * - `item`: a listed thing with an optional marker and a muted detail column.
+ * - `meter`: a used-of-total bar with its caption.
+ * - `text`: a line of prose.
+ * - `group`: the heading of the rows that follow, with an optional count.
+ * - `gap`: one blank row between groups.
+ */
+export type ReportRow =
+  | {
+      readonly kind: "field";
+      readonly key: string;
+      readonly value: string;
+      readonly tone?: ReportTone;
+      readonly detail?: string;
+    }
+  | {
+      readonly kind: "item";
+      readonly name: string;
+      readonly detail?: string;
+      readonly marker?: ReportMarker;
+      readonly tone?: ReportTone;
+    }
+  | {
+      readonly kind: "meter";
+      readonly used: number;
+      readonly total: number;
+      readonly caption: string;
+    }
+  | { readonly kind: "text"; readonly text: string; readonly tone?: ReportTone }
+  | { readonly kind: "group"; readonly label: string; readonly count?: string }
+  | { readonly kind: "gap" };
+
+/**
+ * What a slash command says back, as data rather than pre-styled text: a short
+ * label naming the command, its rows, and at most one line of explanation.
+ * Each terminal lays it out in jazz's own voice, distinct from the agent's.
+ */
+export interface TerminalReport {
+  readonly _tag: "report";
+  readonly label: string;
+  readonly rows: readonly ReportRow[];
+  readonly note?: string;
+}
+
+/** Build a command report for `terminal.log`. */
+export function report(label: string, rows: readonly ReportRow[], note?: string): TerminalReport {
+  return { _tag: "report", label, rows, ...(note === undefined ? {} : { note }) };
+}
+
+export function isTerminalReport(value: unknown): value is TerminalReport {
+  return (
+    typeof value === "object" && value !== null && (value as { _tag?: unknown })._tag === "report"
+  );
+}
+
 /**
  * Terminal output that can be written to the UI.
  *
  * - `string`: standard terminal text
  * - `TerminalInkNode`: an Ink React node (rendered only by Ink-based terminal implementations)
+ * - `TerminalReport`: a command's structured answer, laid out by each terminal
  */
-export type TerminalOutput = string | TerminalInkNode;
+export type TerminalOutput = string | TerminalInkNode | TerminalReport;
 
 /** Stable presentation categories shared by live and persisted terminal output. */
 export const TERMINAL_OUTPUT_KINDS = [

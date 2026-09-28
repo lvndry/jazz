@@ -54,6 +54,7 @@ import {
   sourceLanguageFromPath,
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
 import { getThemeRevision, THEME } from "../theme";
 import { linkAtColumn, openLink } from "./open-link";
 import {
@@ -902,6 +903,8 @@ function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
   // Ctrl+R expands each thought in place, and without a gap two walls of
   // text read as one.
   if (block.kind === "reasoning" && previous.kind === "reasoning") return true;
+  // Two command answers in a row are two answers, not one list.
+  if (block.kind === "report") return true;
   return family(block) !== family(previous);
 }
 
@@ -1020,6 +1023,8 @@ function rowsForBlock(
       return reasoningRows(block, geometry, glyphs);
     case "notice":
       return noticeRows(block, geometry, glyphs);
+    case "report":
+      return reportRows(block, geometry, glyphs);
     case "divider":
       return dividerRows(block, geometry, glyphs);
     case "lane":
@@ -1526,6 +1531,67 @@ function noticeRows(
       meta: [],
     });
   }
+  return rows;
+}
+
+function reportColor(role: ReportRole): Segment {
+  switch (role) {
+    case "label":
+      return { text: "", fg: THEME.secondary, bold: true };
+    case "text":
+      return { text: "", fg: THEME.selected };
+    case "strong":
+      return { text: "", fg: THEME.selected, bold: true };
+    case "secondary":
+      return { text: "", fg: THEME.secondary };
+    case "muted":
+      return { text: "", fg: THEME.muted };
+    case "accent":
+      return { text: "", fg: THEME.primary };
+    case "success":
+      return { text: "", fg: THEME.success };
+    case "warning":
+      return { text: "", fg: THEME.warning };
+    case "error":
+      return { text: "", fg: THEME.error };
+    case "border":
+      return { text: "", fg: THEME.border };
+  }
+}
+
+/**
+ * A command's answer in jazz's own voice: an empty gutter (the agent's marker
+ * never appears), the command's name in the label column, and every other row
+ * hanging under the value column. A row wider than the measure wraps under its
+ * own column rather than back to the label.
+ */
+function reportRows(
+  block: Extract<Block, { kind: "report" }>,
+  geometry: Geometry,
+  glyphs: GlyphSet,
+): RenderRow[] {
+  const rows: RenderRow[] = [];
+  const lines = reportLines(block.report, glyphs);
+  // The first line's label is padded to the value column, so its width is the
+  // column every other row, and every wrapped continuation, hangs under.
+  const labelColumn = terminalCellWidth(lines[0]?.segments[0]?.text ?? "");
+  const paint = (segments: readonly ReportSegment[]): Segment[] =>
+    segments.map((segment) => ({ ...reportColor(segment.role), text: segment.text }));
+  const hang: Segment = { text: " ".repeat(labelColumn), fg: THEME.muted };
+  lines.forEach((line, lineIndex) => {
+    const head = lineIndex === 0 ? paint(line.segments.slice(0, 1)) : [hang];
+    const body = paint(lineIndex === 0 ? line.segments.slice(1) : line.segments);
+    const wrapped = body.length === 0 ? [[]] : wrap(body, geometry.prose - labelColumn);
+    wrapped.forEach((content, wrapIndex) => {
+      rows.push({
+        key: `${block.id}:${String(lineIndex)}:${String(wrapIndex)}`,
+        gutter: [BLANK_CELL, BLANK_CELL],
+        content: [...(wrapIndex === 0 ? head : [hang]), ...content],
+        contentWidth: geometry.prose,
+        meta: [],
+      });
+    });
+  });
   return rows;
 }
 

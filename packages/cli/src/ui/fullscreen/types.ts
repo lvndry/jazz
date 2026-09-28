@@ -17,6 +17,7 @@
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
+import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
@@ -120,6 +121,15 @@ export interface NoticeBlock extends BlockBase {
   readonly tone: "info" | "warn" | "error" | "receipt";
 }
 
+/**
+ * A slash command's answer, kept as data so it reads as jazz speaking: the
+ * command's name in the label column, aligned rows under the value column.
+ */
+export interface ReportBlock extends BlockBase {
+  readonly kind: "report";
+  readonly report: TerminalReport;
+}
+
 export interface DividerBlock extends BlockBase {
   readonly kind: "divider";
   readonly label: string;
@@ -142,6 +152,7 @@ export type Block =
   | ReasoningBlock
   | ToolReceiptBlock
   | NoticeBlock
+  | ReportBlock
   | DividerBlock
   | LaneBlock;
 

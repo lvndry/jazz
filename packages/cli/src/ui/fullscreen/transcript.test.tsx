@@ -12,6 +12,7 @@
  * this repo's suite (colour off) cannot do.
  */
 
+import { report as commandReport } from "@jazz/core/interfaces/terminal";
 import { RGBA, TextAttributes, type CapturedSpan } from "@opentui/core";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
@@ -697,6 +698,61 @@ describe("notices and dividers", () => {
       expect(marker).not.toBe(agentMarker);
     }
     expect(rows.find((row) => row.key.startsWith("r:"))?.content[0]?.fg).toBe(THEME.muted);
+  });
+});
+
+describe("command reports", () => {
+  const contextReport: Block = {
+    id: "c",
+    seq: 1,
+    kind: "report",
+    report: commandReport(
+      "context",
+      [
+        { kind: "meter", used: 82_000, total: 200_000, caption: "82k of 200k" },
+        { kind: "field", key: "system", value: "9k" },
+        { kind: "field", key: "tools", value: "12k" },
+      ],
+      "compacts at 80%",
+    ),
+  };
+
+  it("speak in jazz's voice: an empty gutter, the name bold in its own column", () => {
+    const rows = transcriptRows([contextReport], WIDE);
+    for (const row of rows) {
+      expect(row.gutter[0]?.text.trim()).toBe("");
+    }
+    const first = rows[0];
+    expect(first?.content[0]?.text.trimEnd()).toBe("context");
+    expect(first?.content[0]?.bold).toBe(true);
+    expect(first?.content[0]?.fg).toBe(THEME.secondary);
+  });
+
+  it("hang every row after the first under the value column", () => {
+    const texts = transcriptRows([contextReport], WIDE).map((row) =>
+      row.content.map((segment) => segment.text).join(""),
+    );
+    const valueColumn = texts[0]?.indexOf("82k") ?? -1;
+    expect(texts[1]?.indexOf("system")).toBe(valueColumn);
+    expect(texts[2]?.indexOf("tools")).toBe(valueColumn);
+    expect(texts.at(-1)?.indexOf("compacts")).toBe(valueColumn);
+  });
+
+  it("wrap a long row under its own column and never past the measure", () => {
+    const long: Block = {
+      id: "l",
+      seq: 1,
+      kind: "report",
+      report: commandReport("help", [{ kind: "text", text: "word ".repeat(60).trim() }]),
+    };
+    const rows = transcriptRows([long], WIDE);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      const text = row.content.map((segment) => segment.text).join("");
+      expect(terminalCellWidth(text)).toBeLessThanOrEqual(row.contentWidth);
+    }
+    const second = rows[1]?.content.map((segment) => segment.text).join("") ?? "";
+    expect(second.indexOf("word")).toBe("help".length + 6);
   });
 });
 
