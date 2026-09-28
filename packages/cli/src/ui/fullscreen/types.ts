@@ -106,6 +106,8 @@ export interface ToolReceiptBlock extends BlockBase {
   readonly status: "ok" | "failed" | "denied";
   /** Shown only on failure, with the remedy inline. */
   readonly reason?: string;
+  /** What the failed call did not do, when that is certain: `nothing was sent`. */
+  readonly notDone?: string;
   readonly remedyKey?: string;
   readonly durationMs?: number;
   readonly detail?: string;

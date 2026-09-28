@@ -13,7 +13,7 @@
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { sourceLanguageFromPath } from "./syntax-spans";
 
-export type ApprovalClass =
+export type ActionClass =
   "send" | "delete" | "run" | "edit" | "write" | "move" | "copy" | "create" | "act";
 
 export interface ApprovalDiffRow {
@@ -35,7 +35,7 @@ export interface ApprovalCommand {
 }
 
 export interface ApprovalIntent {
-  readonly kind: ApprovalClass;
+  readonly kind: ActionClass;
   /** Two or three words for the title row, in the warning hue: `can't be unsent`. */
   readonly headline?: string;
   readonly accept: string;
@@ -149,7 +149,7 @@ export function parseApprovalDiff(diff: string): ApprovalDiff | undefined {
   return { rows, added, removed };
 }
 
-function classify(toolName: string): ApprovalClass {
+export function actionClass(toolName: string): ActionClass {
   if (SHELL_TOOLS.has(toolName)) return "run";
   if (DELETE_TOOLS.has(toolName)) return "delete";
   if (EDIT_TOOLS.has(toolName)) return "edit";
@@ -172,7 +172,7 @@ function runHeadline(command: string, riskLevel: ToolRiskLevel | undefined): str
 }
 
 export function approvalIntent(input: ApprovalIntentInput): ApprovalIntent {
-  const kind = classify(input.toolName);
+  const kind = actionClass(input.toolName);
   const diff = input.previewDiff === undefined ? undefined : parseApprovalDiff(input.previewDiff);
   switch (kind) {
     case "send":

@@ -19,6 +19,7 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { Box, Text } from "ink";
 import React from "react";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
+import { failureOutcome } from "./failure-outcome";
 import {
   compactToolArguments,
   formatToolArguments,
@@ -444,6 +445,10 @@ export function reduceEvent(
           : receiptOutcome(event.result);
       const argsPreview = toolEntry?.argsPreview?.trim();
       const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
+      const failure =
+        failureReason !== undefined && !denied && toolName !== undefined
+          ? failureOutcome(toolName, failureReason)
+          : undefined;
       const receipt = {
         app: toolName ?? "tool",
         summary: failed ? "" : (outcome ?? ""),
@@ -451,6 +456,8 @@ export function reduceEvent(
         durationMs: event.durationMs,
         ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
         ...(failureReason !== undefined && !denied ? { reason: failureReason } : {}),
+        ...(failure?.notDone === undefined ? {} : { notDone: failure.notDone }),
+        ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
         ...(!failed && plainBody.length > 0 && plainBody !== outcome ? { detail: summary } : {}),
         ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
       };

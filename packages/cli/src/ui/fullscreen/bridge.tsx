@@ -625,6 +625,8 @@ interface ToolReceiptMeta {
   readonly args?: string;
   readonly durationMs?: number;
   readonly reason?: string;
+  readonly notDone?: string;
+  readonly remedyKey?: string;
   readonly detail?: string;
   readonly classifiedRisk?: string;
 }
@@ -643,6 +645,8 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
     ...(typeof record["args"] === "string" ? { args: record["args"] } : {}),
     ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
     ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
+    ...(typeof record["notDone"] === "string" ? { notDone: record["notDone"] } : {}),
+    ...(typeof record["remedyKey"] === "string" ? { remedyKey: record["remedyKey"] } : {}),
     ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
     ...(typeof record["classifiedRisk"] === "string"
       ? { classifiedRisk: record["classifiedRisk"] }
@@ -741,6 +745,8 @@ export function blocksFrom(
         status: receipt.status,
         ...(receipt.args === undefined ? {} : { args: receipt.args }),
         ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
+        ...(receipt.notDone === undefined ? {} : { notDone: receipt.notDone }),
+        ...(receipt.remedyKey === undefined ? {} : { remedyKey: receipt.remedyKey }),
         ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
         ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
         ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
@@ -923,6 +929,7 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.status === current.status &&
         previous.reason === current.reason &&
         previous.remedyKey === current.remedyKey &&
+        previous.notDone === current.notDone &&
         previous.durationMs === current.durationMs &&
         previous.detail === current.detail &&
         previous.expanded === current.expanded &&

@@ -1390,8 +1390,13 @@ function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet, budget: numb
   if (reason !== undefined && reason.length > 0) {
     segments.push({ text: ` ${glyphs.bullet} ${reason}`, fg: THEME.secondary });
   }
+  if (block.notDone !== undefined) {
+    segments.push({ text: ` ${glyphs.bullet} ${block.notDone}`, fg: THEME.secondary });
+  }
   if (block.remedyKey !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} ${block.remedyKey}`, fg: THEME.muted });
+    segments.push({ text: ` ${glyphs.bullet} `, fg: THEME.muted });
+    segments.push({ text: block.remedyKey, fg: THEME.selected, bold: true });
+    segments.push({ text: " to fix", fg: THEME.muted });
   }
   if (block.classifiedRisk !== undefined) {
     segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
