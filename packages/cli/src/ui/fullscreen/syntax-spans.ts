@@ -97,6 +97,153 @@ function fenceLanguage(info: string): string {
   return info.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 }
 
+/**
+ * How a language spells a comment and a quote. The lexer is shared across
+ * languages, so these are the only places where languages actually differ in
+ * ways that repaint a whole line: a `//` in a shell URL, a `#` in a CSS colour
+ * or a JS private field, and an apostrophe in prose are all ordinary text.
+ */
+interface LexicalRules {
+  /** `//` line comments and `/* *\/` block comments. */
+  readonly slashComments: boolean;
+  /** `#` line comments, recognised only at the start of a token. */
+  readonly hashComments: boolean;
+  /** `--` line comments, recognised only at the start of a token. */
+  readonly dashComments: boolean;
+  /** Whether quotes, numbers and keywords are painted at all. */
+  readonly tokens: boolean;
+  /** A `'` opens a string only when it closes within a character literal's reach. */
+  readonly shortSingleQuotes: boolean;
+}
+
+const HASH_LANGUAGES = new Set([
+  "bash",
+  "conf",
+  "console",
+  "dockerfile",
+  "elixir",
+  "ex",
+  "exs",
+  "fish",
+  "ini",
+  "ksh",
+  "make",
+  "makefile",
+  "nix",
+  "perl",
+  "pl",
+  "powershell",
+  "ps1",
+  "py",
+  "pyw",
+  "python",
+  "r",
+  "rb",
+  "ruby",
+  "sh",
+  "shell",
+  "shellsession",
+  "tf",
+  "toml",
+  "yaml",
+  "yml",
+  "zsh",
+]);
+
+const SLASH_LANGUAGES = new Set([
+  "c",
+  "cc",
+  "cjs",
+  "cpp",
+  "cs",
+  "csharp",
+  "css",
+  "cts",
+  "dart",
+  "go",
+  "golang",
+  "h",
+  "hpp",
+  "java",
+  "javascript",
+  "js",
+  "json5",
+  "jsonc",
+  "jsx",
+  "kotlin",
+  "kt",
+  "kts",
+  "less",
+  "mjs",
+  "mts",
+  "objc",
+  "php",
+  "proto",
+  "rs",
+  "rust",
+  "scala",
+  "scss",
+  "swift",
+  "ts",
+  "tsx",
+  "typescript",
+  "zig",
+]);
+
+const DASH_LANGUAGES = new Set(["haskell", "hs", "lua", "psql", "sql"]);
+
+/** Fences whose body is prose or data rather than code, where colouring would lie. */
+const PLAIN_LANGUAGES = new Set([
+  "log",
+  "markdown",
+  "md",
+  "output",
+  "plain",
+  "plaintext",
+  "text",
+  "txt",
+]);
+
+/** Languages with a `'` that is not a string: Rust lifetimes, and `'` alone. */
+const SHORT_QUOTE_LANGUAGES = new Set(["rs", "rust"]);
+
+function lexicalRules(language: string): LexicalRules {
+  const name = fenceLanguage(language);
+  if (PLAIN_LANGUAGES.has(name)) {
+    return {
+      slashComments: false,
+      hashComments: false,
+      dashComments: false,
+      tokens: false,
+      shortSingleQuotes: false,
+    };
+  }
+  if (name === "json") {
+    return {
+      slashComments: false,
+      hashComments: false,
+      dashComments: false,
+      tokens: true,
+      shortSingleQuotes: false,
+    };
+  }
+  const known = HASH_LANGUAGES.has(name) || SLASH_LANGUAGES.has(name) || DASH_LANGUAGES.has(name);
+  return {
+    // An untagged fence could be anything, so it takes the comment forms that
+    // are unambiguous at a token start and never a `//` glued to a `:`.
+    slashComments: SLASH_LANGUAGES.has(name) || !known,
+    hashComments: HASH_LANGUAGES.has(name) || !known,
+    dashComments: DASH_LANGUAGES.has(name),
+    tokens: true,
+    shortSingleQuotes: SHORT_QUOTE_LANGUAGES.has(name),
+  };
+}
+
+/** A token starts at the line start or after whitespace or an opening bracket. */
+function atTokenStart(line: string, index: number): boolean {
+  return index === 0 || /[\s([{;|&]/.test(line[index - 1] ?? "");
+}
+
 export function looksLikeUnifiedDiff(language: string, lines: readonly string[]): boolean {
   const name = fenceLanguage(language);
   if (name === "diff" || name === "patch") return true;
@@ -170,6 +317,9 @@ type LexerMode =
 
 const CODE_MODE: LexerMode = { kind: "code" };
 
+/** Longest character literal, quotes included: `'\u{1F600}'`. */
+const SHORT_QUOTE_REACH = 12;
+
 function isStringQuote(character: string): character is StringQuote {
   return character === '"' || character === "'" || character === "`";
 }
@@ -204,7 +354,12 @@ function scanBlockCommentEnd(
 function paintCodeLine(
   line: string,
   incoming: LexerMode,
+  rules: LexicalRules,
+  explicitLanguage: boolean,
 ): { readonly spans: readonly SyntaxSpan[]; readonly mode: LexerMode } {
+  if (!rules.tokens) {
+    return { spans: [{ text: line, fg: THEME.selected }], mode: CODE_MODE };
+  }
   const spans: SyntaxSpan[] = [];
   let index = 0;
   let mode = incoming;
@@ -231,15 +386,26 @@ function paintCodeLine(
     const character = line[index] ?? "";
     const next = line[index + 1] ?? "";
 
-    if (character === "/" && next === "/") {
+    // A tagged slash language treats every `//` outside a string as a comment.
+    // Untagged, only one that starts a token does, so `https://` stays text.
+    if (
+      rules.slashComments &&
+      character === "/" &&
+      next === "/" &&
+      (explicitLanguage || atTokenStart(line, index))
+    ) {
       pushSpan(spans, line.slice(index), THEME.muted);
       break;
     }
-    if (character === "#") {
+    if (rules.hashComments && character === "#" && atTokenStart(line, index)) {
       pushSpan(spans, line.slice(index), THEME.muted);
       break;
     }
-    if (character === "/" && next === "*") {
+    if (rules.dashComments && character === "-" && next === "-" && atTokenStart(line, index)) {
+      pushSpan(spans, line.slice(index), THEME.muted);
+      break;
+    }
+    if (rules.slashComments && character === "/" && next === "*") {
       const scanned = scanBlockCommentEnd(line, index + 2);
       pushSpan(spans, line.slice(index, scanned.end), THEME.muted);
       index = scanned.end;
@@ -252,6 +418,17 @@ function paintCodeLine(
 
     if (isStringQuote(character)) {
       const scanned = scanStringEnd(line, index + 1, character);
+      // `'a` in Rust is a lifetime, not the start of a string: a character
+      // literal closes within a few cells or it was never one.
+      if (
+        character === "'" &&
+        rules.shortSingleQuotes &&
+        (!scanned.closed || scanned.end - index > SHORT_QUOTE_REACH)
+      ) {
+        pushSpan(spans, character, THEME.secondary);
+        index += 1;
+        continue;
+      }
       pushSpan(spans, line.slice(index, scanned.end), THEME.syntaxValue);
       index = scanned.end;
       if (!scanned.closed) {
@@ -288,8 +465,9 @@ function paintCodeLine(
   };
 }
 
-export function highlightCodeLine(line: string): readonly SyntaxSpan[] {
-  return paintCodeLine(line, CODE_MODE).spans;
+export function highlightCodeLine(line: string, language = ""): readonly SyntaxSpan[] {
+  return paintCodeLine(line, CODE_MODE, lexicalRules(language), fenceLanguage(language) !== "")
+    .spans;
 }
 
 export function highlightFenceLines(
@@ -299,9 +477,11 @@ export function highlightFenceLines(
   if (looksLikeUnifiedDiff(language, lines)) {
     return lines.map((line) => highlightDiffLine(line));
   }
+  const rules = lexicalRules(language);
+  const explicitLanguage = fenceLanguage(language) !== "";
   let mode: LexerMode = CODE_MODE;
   return lines.map((line) => {
-    const painted = paintCodeLine(line, mode);
+    const painted = paintCodeLine(line, mode, rules, explicitLanguage);
     mode = painted.mode;
     return painted.spans;
   });
