@@ -18,13 +18,10 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
-import {
-  inlineSegments,
-  parseProse,
-  Transcript,
-  transcriptRows,
-  type RenderRow,
-} from "./Transcript";
+import { Transcript, transcriptRows, type RenderRow, type Segment } from "./Transcript";
+import { parseInlineMarkdown } from "../markdown/inline";
+import { parseMarkdown } from "../markdown/parse";
+import { markdownRoleColor, type MarkdownRole } from "../markdown/spans";
 import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
 import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
@@ -35,6 +32,16 @@ beforeAll(() => {
 });
 
 const WIDE: Viewport = { width: 120, height: 34 };
+
+const parseProse = parseMarkdown;
+
+/** Inline spans painted the way the transcript paints them, so assertions read in colours. */
+function inlineSegments(text: string, role: MarkdownRole): Segment[] {
+  return parseInlineMarkdown(text, role).map(({ role: spanRole, ...rest }) => ({
+    ...rest,
+    fg: markdownRoleColor(spanRole),
+  }));
+}
 const NARROW: Viewport = { width: 80, height: 34 };
 
 /**
@@ -970,7 +977,7 @@ describe("parenthesis ordered lists", () => {
     const items = parseProse(markdown);
     const texts = items.flatMap((item) => {
       if (item.kind === "text") {
-        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+        return [[item.marker, ...item.spans].map((segment) => segment?.text ?? "").join("")];
       }
       return [];
     });
@@ -995,7 +1002,7 @@ describe("parenthesis ordered lists", () => {
     const items = parseProse(markdown);
     const texts = items.flatMap((item) => {
       if (item.kind === "text") {
-        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+        return [[item.marker, ...item.spans].map((segment) => segment?.text ?? "").join("")];
       }
       return [];
     });
@@ -1009,7 +1016,7 @@ describe("parenthesis ordered lists", () => {
     const items = parseProse("Heading\n1. Cloves\n2. Garlic");
     const texts = items.flatMap((item) => {
       if (item.kind === "text") {
-        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+        return [[item.marker, ...item.spans].map((segment) => segment?.text ?? "").join("")];
       }
       return [];
     });
@@ -1048,7 +1055,7 @@ describe("inline emphasis", () => {
     const fg = THEME.secondary;
     const segments = inlineSegments(
       "plain **bold** __also bold__ *italic* _also italic_ ***both*** <u>under</u> ~~old~~ `code` [label](https://example.com)",
-      fg,
+      "secondary",
     );
 
     expect(segments.map((segment) => segment.text).join("")).toBe(
@@ -1115,7 +1122,7 @@ describe("inline emphasis", () => {
   });
 
   it("nests overlapping emphasis without leftover markers", () => {
-    const nested = inlineSegments("**bold *and italic* still**", THEME.selected);
+    const nested = inlineSegments("**bold *and italic* still**", "text");
     expect(nested.map((segment) => segment.text).join("")).toBe("bold and italic still");
     expect(nested.every((segment) => !segment.text.includes("*"))).toBe(true);
     expect(nested.find((segment) => segment.text.includes("bold"))?.bold).toBe(true);
@@ -1125,7 +1132,7 @@ describe("inline emphasis", () => {
     });
     expect(nested.find((segment) => segment.text.includes("still"))?.italic).not.toBe(true);
 
-    const reversed = inlineSegments("*italic **and bold** still*", THEME.selected);
+    const reversed = inlineSegments("*italic **and bold** still*", "text");
     expect(reversed.map((segment) => segment.text).join("")).toBe("italic and bold still");
     expect(reversed.find((segment) => segment.text.includes("and bold"))).toMatchObject({
       bold: true,
@@ -1134,7 +1141,7 @@ describe("inline emphasis", () => {
   });
 
   it("leaves intraword underscores alone", () => {
-    const segments = inlineSegments("see bail_logement_loue and foo_bar_baz", THEME.selected);
+    const segments = inlineSegments("see bail_logement_loue and foo_bar_baz", "text");
     expect(segments).toEqual([
       { text: "see bail_logement_loue and foo_bar_baz", fg: THEME.selected },
     ]);
@@ -1399,7 +1406,7 @@ describe("transcript links", () => {
   it("carries a markdown link's target on its span", () => {
     const segments = inlineSegments(
       "read [the guide](https://example.com/guide) first",
-      THEME.secondary,
+      "secondary",
     );
     const label = segments.find((segment) => segment.text === "the guide");
     expect(label).toMatchObject({
@@ -1413,7 +1420,7 @@ describe("transcript links", () => {
   it("turns a bare URL into an underlined link without swallowing punctuation", () => {
     const segments = inlineSegments(
       "install from https://example.com/install.sh. Or (see https://example.com/docs) or <https://example.com/a>",
-      THEME.selected,
+      "text",
     );
     const links = segments.filter((segment) => segment.link !== undefined);
     expect(links.map((segment) => segment.link)).toEqual([
@@ -1434,7 +1441,7 @@ describe("transcript links", () => {
   });
 
   it("leaves a URL inside a code span as code", () => {
-    const segments = inlineSegments("run `curl https://example.com`", THEME.selected);
+    const segments = inlineSegments("run `curl https://example.com`", "text");
     expect(segments.some((segment) => segment.link !== undefined)).toBe(false);
   });
 });
@@ -1519,7 +1526,7 @@ describe("lists", () => {
   it("joins a lazy continuation line into its item", () => {
     const items = parseProse("- first half\n  second half\n- next");
     const texts = items.flatMap((item) =>
-      item.kind === "text" ? [item.segments.map((segment) => segment.text).join("")] : [],
+      item.kind === "text" ? [item.spans.map((segment) => segment.text).join("")] : [],
     );
     expect(texts).toEqual(["first half second half", "next"]);
   });
