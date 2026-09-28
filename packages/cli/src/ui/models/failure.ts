@@ -29,6 +29,26 @@ const AUTH_FAILURE =
 const CONNECTION_FAILURE =
   /\b(econnrefused|econnreset|not connected|connection (?:closed|refused|lost)|server (?:is )?(?:not running|unavailable))\b/i;
 
+/**
+ * What a call you declined did not do. Always true: a declined call never ran, so unlike a
+ * failure it cannot have done half its work.
+ */
+const DECLINED: Record<ActionClass, string> = {
+  send: "nothing was sent",
+  delete: "nothing was deleted",
+  write: "the file was not changed",
+  edit: "the file was not changed",
+  move: "nothing was moved",
+  copy: "nothing was copied",
+  create: "nothing was changed",
+  run: "the command did not run",
+  act: "it did not run",
+};
+
+export function declinedOutcome(toolName: string): string {
+  return DECLINED[actionClass(toolName)];
+}
+
 export interface FailureOutcome {
   readonly notDone?: string;
   readonly remedy?: string;

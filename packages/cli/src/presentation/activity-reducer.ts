@@ -28,7 +28,7 @@ import {
 import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
-import { failureOutcome } from "../ui/models/failure";
+import { declinedOutcome, failureOutcome } from "../ui/models/failure";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
@@ -457,6 +457,7 @@ export function reduceEvent(
         ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
         ...(failureReason !== undefined && !denied ? { reason: failureReason } : {}),
         ...(failure?.notDone === undefined ? {} : { notDone: failure.notDone }),
+        ...(denied && toolName !== undefined ? { notDone: declinedOutcome(toolName) } : {}),
         ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
         ...(!failed && plainBody.length > 0 && plainBody !== outcome ? { detail: summary } : {}),
         ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
@@ -464,7 +465,9 @@ export function reduceEvent(
 
       // The Ink line carries the same two facts the fullscreen receipt shows: what the
       // failed call did not do, and the command that fixes it.
-      if (failed && summary !== undefined && failure !== undefined) {
+      if (denied && summary !== undefined && toolName !== undefined) {
+        summary = `${summary} · ${declinedOutcome(toolName)}`;
+      } else if (failed && summary !== undefined && failure !== undefined) {
         const extras = [
           failure.notDone,
           failure.remedy === undefined ? undefined : `${failure.remedy} to fix`,

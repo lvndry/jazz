@@ -1378,6 +1378,9 @@ function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet, budget: numb
       }
     }
     segments.push({ text: "  denied", fg: THEME.warning });
+    if (block.notDone !== undefined) {
+      segments.push({ text: ` ${glyphs.bullet} ${block.notDone}`, fg: THEME.muted });
+    }
     return segments;
   }
   // Failure keeps a colour and states the reason inline. A short reason stays

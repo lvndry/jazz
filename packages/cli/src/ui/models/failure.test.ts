@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { failureOutcome } from "./failure";
+import { declinedOutcome, failureOutcome } from "./failure";
 
 describe("failureOutcome", () => {
   it("says a refused send sent nothing and names the reconnect for an expired sign-in", () => {
@@ -30,5 +30,14 @@ describe("failureOutcome", () => {
     expect(failureOutcome("mcp_slack_post_message", "channel_not_found")).toEqual({
       notDone: "nothing was sent",
     });
+  });
+});
+
+describe("declinedOutcome", () => {
+  it("says what a declined call did not do, for every kind of call", () => {
+    expect(declinedOutcome("rm")).toBe("nothing was deleted");
+    expect(declinedOutcome("mcp_gmail_send_email")).toBe("nothing was sent");
+    expect(declinedOutcome("execute_command")).toBe("the command did not run");
+    expect(declinedOutcome("web_search")).toBe("it did not run");
   });
 });
