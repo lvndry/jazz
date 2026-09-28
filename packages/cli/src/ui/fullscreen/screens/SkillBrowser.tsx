@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { windowStart } from "./AgentPicker";
 import { getGlyphs } from "../../glyphs";
 import { filterSkills, skillDetailRows, skillLine } from "../../skill-browser";
-import { THEME } from "../../theme";
+import { groundPaint, THEME } from "../../theme";
 import { CaretValue } from "../overlays/TextPrompt";
 import { clipTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
@@ -64,7 +64,7 @@ export function SkillBrowser({
           width: viewport.width,
           height: viewport.height,
           flexDirection: "column",
-          backgroundColor: THEME.canvas,
+          backgroundColor: groundPaint(),
         }}
       >
         <box style={{ height: 1, flexShrink: 0 }} />
@@ -119,7 +119,7 @@ export function SkillBrowser({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />
