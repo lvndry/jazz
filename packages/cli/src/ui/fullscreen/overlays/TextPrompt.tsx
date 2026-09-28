@@ -165,14 +165,13 @@ export function CaretValue({
   placeholder,
 }: CaretValueProps): ReactNode {
   if (value.length === 0 && (placeholder ?? "").length > 0) {
-    const hint = clip(oneLine(placeholder ?? ""), width);
-    const chars = terminalGraphemes(hint);
+    // The caret owns its cell and the placeholder starts one cell later, so the hint is read
+    // whole instead of losing its first letter under the caret.
+    const hint = clip(oneLine(placeholder ?? ""), Math.max(0, width - 1));
     return (
       <text style={{ flexShrink: 0 }}>
-        <span style={{ fg: THEME.muted, attributes: TextAttributes.INVERSE }}>
-          {chars[0] ?? " "}
-        </span>
-        <span style={{ fg: THEME.muted }}>{chars.slice(1).join("")}</span>
+        <span style={{ fg: THEME.primary, attributes: TextAttributes.INVERSE }}> </span>
+        <span style={{ fg: THEME.muted }}>{hint}</span>
       </text>
     );
   }

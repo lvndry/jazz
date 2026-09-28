@@ -11,7 +11,7 @@ import { filterCommandsByPrefix, type ChatCommandInfo } from "@jazz/cli/chat/com
 import { applyAtMention } from "./at-mention";
 import { ChatInput } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
-import { StepperLine } from "./components/PromptParts";
+import { CommandSuggestionItem, StepperLine } from "./components/PromptParts";
 import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
@@ -24,7 +24,7 @@ import { initialChoiceIndex } from "./prompt-core/picker-adapter";
 import { readPromptStep } from "./prompt-core/stepper";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
-import { mergeSuggestions, type SuggestionPrefix } from "./suggestion-menu";
+import { mergeSuggestions } from "./suggestion-menu";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 import { useFileMentions } from "./use-file-mentions";
@@ -50,40 +50,6 @@ const CONFIRM_OPTIONS = [
  * shrinking-region erase bug, and a 20-row dropdown is unscannable anyway.
  */
 const MAX_VISIBLE_SUGGESTIONS = 8;
-
-interface CommandSuggestionItemProps {
-  command: ChatCommandInfo;
-  isSelected: boolean;
-  /** Sigil the row completes: "/" for a command, "@" for a file path. */
-  prefix?: SuggestionPrefix;
-}
-
-function CommandSuggestionItem({
-  command,
-  isSelected,
-  prefix = "/",
-}: CommandSuggestionItemProps): React.ReactElement {
-  return (
-    <Box marginLeft={1}>
-      <Text
-        {...(isSelected ? { color: THEME.selected } : {})}
-        bold={isSelected}
-      >
-        {isSelected ? "> " : "  "}
-        {prefix}
-        {command.name}
-      </Text>
-      {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
-      {command.source ? (
-        <Text color={THEME.muted}>
-          {" "}
-          ({command.source === "skill" ? "skill" : command.source === "plugin" ? "plugin" : "mcp"})
-        </Text>
-      ) : null}
-      <Text dimColor> – {command.description}</Text>
-    </Box>
-  );
-}
 
 /**
  * Hidden input that waits for Enter key without showing any visible UI.
@@ -442,6 +408,7 @@ function PromptComponent({
                     command={cmd}
                     isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
                     prefix={menu?.prefix ?? "/"}
+                    query={menu?.prefix === "/" ? value.slice(1) : undefined}
                   />
                 ))}
                 {hiddenSuggestionsBelow > 0 && (

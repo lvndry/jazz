@@ -13,6 +13,7 @@
  */
 import { report, type TerminalReport } from "@jazz/core/interfaces/terminal";
 import { closestMatch } from "@jazz/core/utils/string";
+import { rankCommands } from "@/cli/ui/suggestion-menu";
 import type { BuiltinCommandType } from "./types";
 
 /** How /help and the docs show the shell escape, which is not a slash command. */
@@ -393,17 +394,7 @@ function allCommands(): readonly ChatCommandInfo[] {
  * by alias. Case-insensitive.
  */
 export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
-  const lower = query.toLowerCase();
-  const all = allCommands();
-  const prefixMatches = all.filter((command) =>
-    namesOf(command).some((name) => name.startsWith(lower)),
-  );
-  if (lower.length === 0) return prefixMatches;
-  const substringMatches = all.filter(
-    (command) =>
-      !prefixMatches.includes(command) && namesOf(command).some((name) => name.includes(lower)),
-  );
-  return [...prefixMatches, ...substringMatches];
+  return rankCommands(allCommands(), query);
 }
 
 /** The registered skill, MCP prompt, and plugin commands, for /help's own sections. */

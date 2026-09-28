@@ -115,32 +115,42 @@ export interface ActiveMenuOption {
   readonly hint?: string;
 }
 
-/** A one-key action on the home screen. `key` is `enter` or a single printable character. */
+/** A slash command home's composer runs, such as `/resume`. */
+export interface ActiveHomeCommand {
+  /** Without the slash. */
+  readonly name: string;
+  readonly description: string;
+  readonly value: string;
+}
+
+/** One row of the first-run list: an action and the value home answers with. */
 export interface ActiveHomeAction {
-  readonly key: string;
   readonly label: string;
   readonly value: string;
 }
 
-/** A conversation the home screen offers to reopen, opened with its number key. */
-export interface ActiveHomeConversation {
-  readonly key: string;
-  readonly value: string;
-  readonly title: string;
-  readonly agent: string;
-  /** What it waits on when `waiting`, otherwise how it last stood. */
-  readonly detail: string;
-  /** Relative age, already worded: "9m ago", "yesterday". */
-  readonly age: string;
-  /** The agent is blocked until the user answers. */
-  readonly waiting: boolean;
+/** An agent home offers to start a conversation with. */
+export interface ActiveHomeAgent {
+  readonly id: string;
+  readonly name: string;
+  readonly model: string;
+  readonly persona: string;
+  /** When it was last in a conversation, already worded: "2h ago". Absent when never. */
+  readonly lastUsed?: string;
 }
 
-/** One part of the home status line. `fixKey` names the action that resolves a warning. */
-export interface ActiveHomeStatus {
-  readonly text: string;
-  readonly tone?: "warning";
-  readonly fixKey?: string;
+/** A conversation whose goal or loop is blocked on you. */
+export interface ActiveHomeWaiting {
+  readonly key: string;
+  readonly value: string;
+  /** What it is about, in words. */
+  readonly title: string;
+  readonly agent: string;
+  readonly reason: "question" | "approval" | "review" | "stopped";
+  /** Relative age, already worded: "1d ago". */
+  readonly age: string;
+  /** The question, or the decision it needs. */
+  readonly detail?: string;
 }
 
 /** Something the first-run screen found already set up on this machine. */
@@ -150,18 +160,31 @@ export interface ActiveHomeDetection {
 }
 
 /**
- * The home screen as data. Actions are addressed by key rather than by position, so a home
- * that is refreshed after it was first shown (conversations load after the agent list) never
- * moves an action out from under a key that was already pressed.
+ * The home screen as data. The renderer owns which agent is chosen and what is typed, and
+ * answers with the chosen agent and the text; the actions are addressed by key.
  */
 export interface ActiveHome {
   readonly kind: "home";
-  readonly greeting: string;
-  readonly conversations: readonly ActiveHomeConversation[];
-  readonly actions: readonly ActiveHomeAction[];
-  readonly status: readonly ActiveHomeStatus[];
-  /** Present when there is no agent yet: the one-line pitch and what setup found. */
-  readonly firstRun?: { readonly detected: readonly ActiveHomeDetection[] };
+  /** Identifies one showing of home. A refresh keeps it, so the choice and the typing survive. */
+  readonly shownAt: number;
+  /** The recent agents, most recent first. */
+  readonly agents: readonly ActiveHomeAgent[];
+  /** Every agent, for the "all N" hint. */
+  readonly agentCount: number;
+  /** The agent chosen when home opens; the first offered when absent. */
+  readonly targetAgentId?: string;
+  /** Text to put back in the composer, after the agent picker. */
+  readonly draft?: string;
+  readonly waiting: readonly ActiveHomeWaiting[];
+  /** What `/` offers in the composer. */
+  readonly commands: readonly ActiveHomeCommand[];
+  /** A readiness problem, shown on the right of the footer with the command that fixes it. */
+  readonly warning?: { readonly text: string; readonly fix: string };
+  /** Present when there is no agent yet: what setup found, and what to do about it. */
+  readonly firstRun?: {
+    readonly detected: readonly ActiveHomeDetection[];
+    readonly actions: readonly ActiveHomeAction[];
+  };
 }
 
 export interface ActiveAgentChoice {
@@ -212,7 +235,9 @@ export type SurfaceIntent = ActiveMenu;
 
 /** How a renderer answers the surface currently published on the store. */
 export type PromptResult =
-  { readonly kind: "select"; readonly value: string } | { readonly kind: "exit" };
+  /** `text` carries what was typed with the choice, such as home's first message. */
+  | { readonly kind: "select"; readonly value: string; readonly text?: string }
+  | { readonly kind: "exit" };
 
 export interface CurrentConversation {
   readonly agentId: string;

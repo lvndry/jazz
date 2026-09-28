@@ -28,12 +28,14 @@ import {
 } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
+import { HOME_COMMANDS, type HomeState } from "../../models/home-view";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };
 const HUGE: Viewport = { width: 200, height: 40 };
+const TALL: Viewport = { width: 100, height: 40 };
 
 /**
  * Verified-safe ranges: ASCII, Latin-1, General Punctuation, Math Operators,
@@ -52,17 +54,17 @@ function safeCharacter(codePoint: number): boolean {
 
 const FIRST_RUN: HomeModel = {
   version: "0.14.2",
-  cwd: "~/work",
-  greeting: "",
-  conversations: [],
-  actions: [
-    { key: "enter", label: "start setup", value: "create-agent" },
-    { key: "o", label: "use Ollama, no key needed", value: "create-agent:ollama" },
-    { key: "s", label: "settings", value: "config" },
-    { key: "q", label: "quit", value: "exit" },
-  ],
-  status: [],
+  shownAt: 1,
+  agents: [],
+  agentCount: 0,
+  waiting: [],
+  commands: HOME_COMMANDS,
   firstRun: {
+    actions: [
+      { label: "Start setup", value: "create-agent" },
+      { label: "Use Ollama, no key needed", value: "create-agent:ollama" },
+      { label: "Settings", value: "config" },
+    ],
     detected: [
       { label: "OPENAI_API_KEY", detail: "in your environment" },
       { label: "Ollama", detail: "running on this machine with 3 models" },
@@ -72,42 +74,47 @@ const FIRST_RUN: HomeModel = {
 
 const SETTLED: HomeModel = {
   version: "0.14.2",
-  cwd: "~/work",
-  greeting: "Good morning.",
-  conversations: [
+  shownAt: 1,
+  agents: [
+    { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "now" },
+    { id: "luna", name: "luna", model: "gpt-5.6-luna", persona: "default", lastUsed: "2h ago" },
+    {
+      id: "long",
+      name: "lysk-server-vllm-agent",
+      model: "qwen3.8-27b-instruct-awq-long",
+      persona: "coder",
+      lastUsed: "1d ago",
+    },
+  ],
+  agentCount: 31,
+  targetAgentId: "sol",
+  waiting: [
     {
       key: "1",
-      value: "open:a1:c1",
-      title: "Wedding planning",
-      agent: "Basil",
-      detail: "goal venue waiting for your answer",
-      age: "9m ago",
-      waiting: true,
+      value: "open:luna:c1",
+      title: "Wedding venue",
+      agent: "luna",
+      reason: "question",
+      age: "1d ago",
+      detail: "Which venue should I confirm with Dana?",
     },
     {
       key: "2",
-      value: "open:a2:c2",
-      title: "Weekly review",
-      agent: "Cass",
-      detail: "14 messages",
+      value: "open:sol:c2",
+      title: "Organize Downloads",
+      agent: "sol",
+      reason: "review",
       age: "1d ago",
-      waiting: false,
+      detail: "Found 214 old exports. Delete them, or keep the newest 20?",
     },
   ],
-  actions: [
-    { key: "enter", label: "new conversation with Basil", value: "new-conversation" },
-    { key: "a", label: "another agent", value: "pick-agent" },
-    { key: "n", label: "new agent", value: "create-agent" },
-    { key: "r", label: "resume", value: "resume-conversation" },
-    { key: "l", label: "agents", value: "list-agents" },
-    { key: "s", label: "settings", value: "config" },
-    { key: "q", label: "quit", value: "exit" },
-  ],
-  status: [
-    { text: "4 agents" },
-    { text: "no model provider has a key", tone: "warning", fixKey: "s" },
-  ],
+  commands: HOME_COMMANDS,
+  warning: { text: "no model provider has a key", fix: "/settings" },
 };
+
+function homeState(patch: Partial<HomeState> = {}): HomeState {
+  return { agentId: "sol", waitingValue: undefined, draft: "", commandIndex: 0, ...patch };
+}
 
 const AGENTS: readonly AgentChoice[] = [
   {
@@ -245,131 +252,137 @@ function expectNothingOverflows(drawn: Drawn, viewport: Viewport): void {
 }
 
 describe("home screen", () => {
-  it("leads with what is waiting for you, ahead of what you were last in", async () => {
-    const drawn = await draw(
+  function drawHome(
+    model: HomeModel,
+    viewport: Viewport,
+    patch: Partial<HomeState> = {},
+  ): Promise<Drawn> {
+    const state = homeState(patch);
+    return draw(
       <Home
-        model={SETTLED}
-        viewport={WIDE}
+        model={model}
+        viewport={viewport}
+        state={state}
+        caret={[...state.draft].length}
       />,
-      WIDE,
+      viewport,
     );
-    const waiting = drawn.rows.findIndex((row) => row.includes("Wedding planning"));
-    const recent = drawn.rows.findIndex((row) => row.includes("Weekly review"));
-    const actions = drawn.rows.findIndex((row) => row.includes("new conversation with Basil"));
-    expect(waiting).toBeGreaterThan(-1);
-    expect(waiting).toBeLessThan(recent);
-    expect(recent).toBeLessThan(actions);
-    expect(drawn.text).toContain("1 conversation is waiting for you.");
-    expect(drawn.text).toContain("waiting · 9m ago");
-    expect(drawn.text).toContain("goal venue waiting for your answer");
+  }
+
+  it("leads with a filled New conversation button that names its agent", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    const button = drawn.rows.findIndex((row) => row.includes("+ New conversation"));
+    const composer = drawn.rows.findIndex((row) => row.includes("Or type your first message"));
+    const agents = drawn.rows.findIndex((row) => row.includes("Start with another agent"));
+    expect(button).toBeGreaterThan(-1);
+    expect(button).toBeLessThan(composer);
+    expect(composer).toBeLessThan(agents);
+    expect(drawn.rows[button]).toContain("with sol  gpt-5.6-sol");
+    expect(drawn.rows[composer]).toContain("enter sends to sol");
+    const fill = spanWithText(drawn.frame, " + New conversation ");
+    expect(fill.attributes & TextAttributes.BOLD).toBeTruthy();
+    const [red, green, blue] = fill.bg.toInts();
+    expect(
+      [red, green, blue].reduce((hex, channel) => hex + channel.toString(16).padStart(2, "0"), "#"),
+    ).toBe(THEME.primary.toLowerCase());
   });
 
-  it("marks the waiting conversation with the accent bar and leaves the other unbarred", async () => {
-    const glyphs = getGlyphs();
-    const drawn = await draw(
-      <Home
-        model={SETTLED}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    const barred = drawn.rows.filter((row) => row.startsWith(glyphs.bandBar));
-    expect(barred).toHaveLength(2);
-    expect(barred.every((row) => !row.includes("Weekly review"))).toBe(true);
-    expect(hexOf(spanWithText(drawn.frame, glyphs.bandBar))).toBe(THEME.primary.toUpperCase());
+  it("re-targets the button and the composer when another agent is chosen", async () => {
+    const drawn = await drawHome(SETTLED, TALL, { agentId: "luna" });
+    expect(drawn.text).toContain("with luna  gpt-5.6-luna");
+    expect(drawn.text).toContain("enter sends to luna");
+    const chosen = drawn.rows.find((row) => row.includes("› luna"));
+    expect(chosen).toBeDefined();
   });
 
-  it("offers every action as a single key, with the number keys for conversations", async () => {
-    const drawn = await draw(
-      <Home
-        model={SETTLED}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    expect(drawn.text).toContain("enter new conversation with Basil");
-    expect(drawn.text).toContain("1–2 open one");
-    for (const label of ["a another agent", "n new agent", "r resume", "s settings", "q quit"]) {
-      expect(drawn.text).toContain(label);
-    }
-    expect(spanWithText(drawn.frame, "enter").attributes & TextAttributes.BOLD).toBeTruthy();
+  it("sets agents as a table and cuts a long value to its column", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    const rows = drawn.rows.filter((row) => /everyday|coder/.test(row));
+    const modelColumn = rows.map((row) => row.search(/gpt-5\.6|qwen3/));
+    expect(new Set(modelColumn).size).toBe(1);
+    const long = rows.find((row) => row.includes("lysk"));
+    expect(long).toMatch(/lysk\S*…\s{2,}qwen/);
   });
 
-  it("says how the setup stands on one line, with the fix key beside a warning", async () => {
-    const drawn = await draw(
-      <Home
-        model={SETTLED}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    const status = drawn.rows.filter((row) => row.includes("4 agents"));
-    expect(status).toHaveLength(1);
-    expect(status[0]).toContain("no model provider has a key  s");
-    expect(hexOf(spanWithText(drawn.frame, "no model provider has a key"))).toBe(
-      THEME.warning.toUpperCase(),
-    );
+  it("shows waiting conversations by title with what they need", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    expect(drawn.text).toContain("Waiting for you");
+    const venue = drawn.rows.find((row) => row.includes("Wedding venue")) ?? "";
+    expect(venue).toContain("asked 1d ago");
+    expect(drawn.text).toContain("Which venue should I confirm with Dana?");
+    expect(drawn.text).toContain("needs review · 1d");
+    expect(drawn.text).not.toContain("untitled");
   });
 
-  it("carries no tagline, environment report or CRUD menu", async () => {
-    const drawn = await draw(
-      <Home
-        model={SETTLED}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    for (const gone of [
-      "what would you like to do?",
-      "Edit agent",
-      "Delete agent",
-      "darwin",
-      "setup",
-    ]) {
-      expect(drawn.text).not.toContain(gone);
-    }
-    expect(drawn.rows.at(-1)).toContain("jazz 0.14.2");
-    expect(drawn.rows.at(-1)).toContain("~/work");
+  it("drops the waiting section when nothing waits", async () => {
+    const drawn = await drawHome({ ...SETTLED, waiting: [] }, TALL);
+    expect(drawn.text).not.toContain("Waiting for you");
   });
 
-  it("gives up the status line, then conversations, before it gives up an action", () => {
-    const short: Viewport = { width: 100, height: 11 };
-    const rows = homeRows(SETTLED, short);
-    const text = rows.map((row) => row.segments.map((segment) => segment.text).join("")).join("\n");
+  it("puts the hints in the footer with the warning on the right, and no path", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    const footer = drawn.rows.at(-1) ?? "";
+    expect(footer).toContain("/ commands   ↓ waiting   tab all agents   esc quit");
+    expect(footer.trimEnd().endsWith("no model provider has a key  /settings")).toBe(true);
+    expect(drawn.text).not.toContain("~/");
+    expect(drawn.text).not.toContain("n new agent");
+  });
+
+  it("moves the selection into waiting and says enter opens it", async () => {
+    const drawn = await drawHome(SETTLED, TALL, { waitingValue: "open:sol:c2" });
+    expect(drawn.rows.find((row) => row.includes("› Organize Downloads"))).toBeDefined();
+    expect(drawn.rows.some((row) => row.includes("› sol"))).toBe(false);
+    expect(drawn.text).toContain("enter opens Organize Downloads");
+    const button = spanWithText(drawn.frame, " + New conversation ");
+    expect(button.attributes & TextAttributes.BOLD).toBeFalsy();
+  });
+
+  it("shows the command menu under the composer with matched letters bold", async () => {
+    const drawn = await drawHome(SETTLED, TALL, { draft: "/re" });
+    const descriptions = HOME_COMMANDS.map((command) => command.description);
+    const menu = drawn.rows.filter((row) => descriptions.some((text) => row.includes(text)));
+    expect(menu).toHaveLength(1);
+    expect(menu[0]).toContain("/resume");
+    expect(drawn.text).toContain("enter runs /resume");
+    const matched = allSpans(drawn.frame).filter((span) => span.text === "re");
+    expect(matched.some((span) => (span.attributes & TextAttributes.BOLD) !== 0)).toBe(true);
+  });
+
+  it("draws the caret before the placeholder, never over its first letter", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    const composer = drawn.rows.find((row) => row.includes("type your first message")) ?? "";
+    expect(composer).toContain(" Or type your first message");
+  });
+
+  it("anchors the block near the top and keeps the chosen agent on a short terminal", () => {
+    const tall = homeRows(SETTLED, TALL, homeState());
+    const firstInk = tall.findIndex((row) => row.kind === "composer" || row.segments.length > 0);
+    expect(firstInk).toBeLessThanOrEqual(3);
+    const short: Viewport = { width: 100, height: 14 };
+    const rows = homeRows(SETTLED, short, homeState({ agentId: "long" }));
+    const text = rows
+      .map((row) =>
+        row.kind === "composer" ? "composer" : row.segments.map((part) => part.text).join(""),
+      )
+      .join("\n");
     expect(rows.length).toBeLessThanOrEqual(short.height - 1);
-    expect(text).not.toContain("4 agents");
-    expect(text).toContain("q quit");
-    expect(text).toContain("new conversation with Basil");
+    expect(text).toContain("+ New conversation");
+    expect(text).toContain("composer");
+    expect(text).toContain("lysk");
   });
 
-  it("introduces jazz on first run and names what it already found", async () => {
-    const drawn = await draw(
-      <Home
-        model={FIRST_RUN}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
+  it("introduces jazz on first run and names what it found", async () => {
+    const drawn = await drawHome(FIRST_RUN, TALL, { agentId: undefined });
     expect(drawn.text).toContain("One agent for your email, calendar, files and the web.");
-    expect(drawn.text).toContain("1 pick a model");
-    expect(drawn.text).toContain("3 say hello");
     expect(drawn.text).toContain("Found OPENAI_API_KEY in your environment");
-    expect(drawn.text).toContain("and Ollama running on this machine with 3 models");
-    expect(drawn.text).toContain("enter start setup");
-    expect(drawn.text).toContain("o use Ollama, no key needed");
+    expect(drawn.rows.find((row) => row.includes("› Start setup"))).toContain("enter");
+    expect(drawn.text).toContain("Use Ollama, no key needed");
+    expect(drawn.text).not.toContain("New conversation");
   });
 
-  it("keeps a right margin and never paints outside its bands", async () => {
-    const drawn = await draw(
-      <Home
-        model={SETTLED}
-        viewport={HUGE}
-      />,
-      HUGE,
-    );
+  it("keeps a right margin at any width", async () => {
+    const drawn = await drawHome(SETTLED, HUGE);
     expectNothingOverflows(drawn, HUGE);
-    expect(inkDensity(drawn.rows)).toBeLessThan(0.2);
-    expect(breathingShare(drawn.rows)).toBeGreaterThan(0.4);
   });
 });
 
@@ -671,17 +684,20 @@ describe("both screens in ascii glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("still marks identity, waiting conversations and selection with ASCII alone", async () => {
+  it("still marks identity, the waiting bar and selection with ASCII alone", async () => {
     const glyphs = getGlyphs();
     const home = await draw(
       <Home
         model={SETTLED}
-        viewport={WIDE}
+        viewport={TALL}
+        state={homeState()}
+        caret={0}
       />,
-      WIDE,
+      TALL,
     );
     expect(home.text).toContain(`${glyphs.note} jazz`);
-    expect(home.rows.filter((row) => row.startsWith(glyphs.bandBar))).toHaveLength(2);
+    expect(home.rows.some((row) => row.startsWith(glyphs.bandBar))).toBe(true);
+    expect(home.rows.some((row) => row.includes("› sol"))).toBe(true);
 
     const picker = await draw(
       <AgentPicker

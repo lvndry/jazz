@@ -20,7 +20,8 @@ import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
-import { store } from "../store";
+import { HOME_COMMANDS } from "../models/home-view";
+import { store, type ActiveHome } from "../store";
 import { applyTheme, THEME } from "../theme";
 import { pickThemeInteractively } from "../theme-picker-prompt";
 import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
@@ -797,100 +798,164 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
+  const homeSurface = (overrides: Partial<ActiveHome> = {}): ActiveHome => ({
+    kind: "home",
+    shownAt: 1,
+    agents: [
+      { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "now" },
+      { id: "luna", name: "luna", model: "gpt-5.6-luna", persona: "default" },
+    ],
+    agentCount: 2,
+    targetAgentId: "sol",
+    waiting: [],
+    commands: HOME_COMMANDS,
+    ...overrides,
+  });
+
   it("draws the home surface the wizard publishes", async () => {
     const text = await frame(() => {
-      store.setActiveMenu({
-        kind: "home",
-        greeting: "Good morning.",
-        conversations: [
-          {
-            key: "1",
-            value: "open:a1:c1",
-            title: "Wedding planning",
-            agent: "Basil",
-            detail: "goal venue waiting for your answer",
-            age: "9m ago",
-            waiting: true,
-          },
-        ],
-        actions: [
-          { key: "enter", label: "new conversation with Basil", value: "new-conversation" },
-          { key: "q", label: "quit", value: "exit" },
-        ],
-        status: [{ text: "4 agents" }],
-      });
+      store.setActiveMenu(homeSurface());
     });
-    expect(text).toContain("Wedding planning");
-    expect(text).toContain("enter new conversation with Basil");
-    expect(text).toContain("4 agents");
+    expect(text).toContain("+ New conversation");
+    expect(text).toContain("with sol");
+    expect(text).toContain("Start with another agent");
     store.setActiveMenu(null);
   });
 
-  it("routes home keys by key, so a refresh that adds conversations cannot move enter", async () => {
+  it("sends the typed first message to the agent chosen with the arrows", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    const answers: { value: string; text?: string }[] = [];
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), (result) => {
+        if (result.kind === "select") {
+          answers.push({
+            value: result.value,
+            ...(result.text === undefined ? {} : { text: result.text }),
+          });
+        }
+      });
+    });
+    await flush();
+    await mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(flush);
+    for (const character of "hi there") {
+      await mockInput.pressKey(character === " " ? " " : character);
+    }
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    renderer.destroy();
+    expect(answers).toEqual([{ value: "start:luna", text: "hi there" }]);
+  });
+
+  it("keeps the choice and the typing when home is refreshed, and resets on a new showing", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    const answers: string[] = [];
+    const record = (result: { kind: string; value?: string }): void => {
+      answers.push(result.value ?? result.kind);
+    };
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), record);
+    });
+    await flush();
+    await mockInput.pressKey("ARROW_DOWN");
+    await mockInput.pressKey("k");
+    await settleKeypress(flush);
+    updateForTest(() => {
+      store.refreshActiveMenu(
+        homeSurface({
+          waiting: [
+            {
+              key: "1",
+              value: "open:sol:c1",
+              title: "Wedding venue",
+              agent: "sol",
+              reason: "question",
+              age: "1d ago",
+            },
+          ],
+        }),
+      );
+    });
+    await flush();
+    const refreshed = captureCharFrame();
+    expect(refreshed).toContain("with luna");
+    expect(refreshed).toContain("Wedding venue");
+    // Letters always type on home; none of them is a shortcut.
+    await mockInput.pressKey("r");
+    await settleKeypress(flush);
+    expect(answers).toEqual([]);
+    expect(captureCharFrame()).toContain("kr");
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface({ shownAt: 2 }), record);
+    });
+    await flush();
+    const fresh = captureCharFrame();
+    renderer.destroy();
+    store.setActiveMenu(null);
+    expect(fresh).toContain("with sol");
+    expect(fresh).toContain("Or type your first message");
+  });
+
+  it("runs a slash command from the home composer without starting a conversation", async () => {
     const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
       width: WIDTH,
       height: HEIGHT,
     });
     await renderOnce();
     const answers: string[] = [];
-    const actions = [
-      { key: "enter", label: "new conversation", value: "new-conversation" },
-      { key: "r", label: "resume", value: "resume-conversation" },
-    ];
     updateForTest(() => {
-      store.setActiveMenu(
-        { kind: "home", greeting: "", conversations: [], actions, status: [] },
-        (result) => answers.push(result.kind === "select" ? result.value : "exit"),
-      );
-      // The history lands after the screen went up and puts conversations ahead of the actions.
-      store.refreshActiveMenu({
-        kind: "home",
-        greeting: "",
-        conversations: [
-          {
-            key: "1",
-            value: "open:a1:c1",
-            title: "Wedding planning",
-            agent: "Basil",
-            detail: "14 messages",
-            age: "1d ago",
-            waiting: false,
-          },
-        ],
-        actions,
-        status: [],
+      store.setActiveMenu(homeSurface(), (result) => {
+        answers.push(result.kind === "select" ? result.value : "exit");
       });
     });
     await flush();
+    for (const character of "/res") {
+      await mockInput.pressKey(character);
+    }
+    await settleKeypress(flush);
     await mockInput.pressKey("RETURN");
     await settleKeypress(flush);
-    expect(answers).toEqual(["new-conversation"]);
-
-    updateForTest(() => {
-      store.setActiveMenu(
-        { kind: "home", greeting: "", conversations: [], actions, status: [] },
-        (result) => answers.push(result.kind === "select" ? result.value : "exit"),
-      );
-    });
-    await flush();
-    await mockInput.pressKey("x");
-    await settleKeypress(flush);
-    expect(answers).toEqual(["new-conversation"]);
-    await mockInput.pressKey("r");
-    await settleKeypress(flush);
-    expect(answers).toEqual(["new-conversation", "resume-conversation"]);
     renderer.destroy();
+    expect(answers).toEqual(["resume-conversation"]);
+  });
+
+  it("quits home with esc on an empty composer and with ctrl+c", async () => {
+    for (const quit of ["escape", "ctrl-c"] as const) {
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+        width: WIDTH,
+        height: HEIGHT,
+      });
+      await renderOnce();
+      const answers: string[] = [];
+      updateForTest(() => {
+        store.setActiveMenu(homeSurface(), (result) => {
+          answers.push(result.kind);
+        });
+      });
+      await flush();
+      if (quit === "escape") {
+        await mockInput.pressKey("ESCAPE");
+      } else {
+        await mockInput.pressKey("c", { ctrl: true });
+      }
+      await settleKeypress(flush);
+      renderer.destroy();
+      expect(answers).toEqual(["exit"]);
+    }
   });
 
   it("drops a refresh for a menu that was already answered", () => {
     store.setActiveMenu(null);
-    store.refreshActiveMenu({
-      kind: "home",
-      greeting: "",
-      conversations: [],
-      actions: [],
-      status: [],
-    });
+    store.refreshActiveMenu(homeSurface());
     expect(store.getActiveMenuSnapshot()).toBeNull();
   });
 

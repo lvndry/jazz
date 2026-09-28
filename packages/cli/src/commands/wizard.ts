@@ -26,25 +26,26 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
-import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
 import { environmentKeyDetections, ollamaOrigin, probeOllamaModels } from "./home-detection";
-import {
-  buildHome,
-  homeActions,
-  homeConversations,
-  homeStatus,
-  parseOpenConversationValue,
-  type HomeConversationSource,
-} from "./home-surface";
+import { buildHome } from "./home-surface";
 import { sessionOpenLine } from "./session-open";
 import { configuredProviderNames } from "../ui/models/configured-providers";
+import {
+  PICK_AGENT,
+  briefDetail,
+  parseOpenConversationValue,
+  readableTitle,
+  waitingTag,
+  startedAgentId,
+  type AgentUsage,
+  type WaitingSource,
+} from "../ui/models/home-view";
 import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**
@@ -72,29 +73,33 @@ function wizardSession() {
 
     yield* promptNotificationsOnFirstRun(configService, terminal);
 
-    // Main wizard loop - keeps running until user exits
     let shouldExit = false;
+    // The agent chosen in the full picker, and what was typed before opening it, so home comes
+    // back as it was left.
+    let targetAgentId: string | undefined;
+    let draft: string | undefined;
 
     while (!shouldExit) {
       const agents = yield* agentService.listAgents();
-
-      // Last used agent, from runtime state: it is the agent enter starts a conversation with.
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
-      const defaultAgent = sortAgents(agents, lastUsedAgentId)[0];
       const appConfig = yield* configService.appConfig;
       const providerCount = configuredProviderNames(appConfig).length;
 
-      const selection = yield* showHome({
+      const answer = yield* showHome({
         agents,
-        defaultAgent,
+        lastUsedAgentId,
+        targetAgentId,
+        draft,
         providerCount,
-        firstRunDetections:
-          agents.length === 0 ? firstRunDetections(appConfig) : Effect.succeed(undefined),
+        appConfig,
       });
+      const selection = answer.value;
+      targetAgentId = undefined;
+      draft = undefined;
 
       // Handle the selected action
       switch (selection) {
@@ -104,25 +109,10 @@ function wizardSession() {
           break;
         }
 
-        case "new-conversation": {
-          if (defaultAgent !== undefined) {
-            yield* startChatWithAgent(defaultAgent);
-            yield* terminal.clear();
-          }
-          break;
-        }
-
-        case "pick-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "pick an agent",
-            "start",
-          );
-          if (selectedAgent) {
-            yield* startChatWithAgent(selectedAgent);
-            yield* terminal.clear();
-          }
+        case PICK_AGENT: {
+          const picked = yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "choose");
+          targetAgentId = picked?.id ?? answer.targetAgentId;
+          draft = answer.text;
           break;
         }
 
@@ -246,6 +236,19 @@ function wizardSession() {
           break;
 
         default: {
+          const startedId = startedAgentId(selection);
+          if (startedId !== undefined) {
+            const agent = agents.find((candidate) => candidate.id === startedId);
+            if (agent !== undefined) {
+              const message = answer.text?.trim() ?? "";
+              yield* startChatWithAgent(
+                agent,
+                message.length > 0 ? { initialMessage: message } : {},
+              );
+              yield* terminal.clear();
+            }
+            break;
+          }
           const opened = parseOpenConversationValue(selection);
           const agent =
             opened === null
@@ -267,24 +270,25 @@ function wizardSession() {
   }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
-/** Everything the home loop needs to know about the agents before it shows the screen. */
+/** Everything home needs before it goes up. */
 interface HomeContext {
   readonly agents: readonly Agent[];
-  readonly defaultAgent: Agent | undefined;
+  readonly lastUsedAgentId: string | null;
+  readonly targetAgentId: string | undefined;
+  readonly draft: string | undefined;
   readonly providerCount: number;
-  /** Only computed on first run, where a key in the environment or a local Ollama is a fast path. */
-  readonly firstRunDetections: Effect.Effect<FirstRunDetections | undefined, never, never>;
+  readonly appConfig: AppConfig;
 }
 
-interface FirstRunDetections {
-  readonly detected: readonly ActiveHomeDetection[];
-  readonly ollamaModels: number | undefined;
+/** What home answered: the value, what was typed, and the agent chosen when it was answered. */
+interface HomeAnswer {
+  readonly value: string;
+  readonly text?: string;
+  readonly targetAgentId?: string;
 }
 
 /** A key exported in the environment, and a local Ollama if one answers quickly. */
-function firstRunDetections(
-  appConfig: AppConfig,
-): Effect.Effect<FirstRunDetections | undefined, never, never> {
+function firstRunDetections(appConfig: AppConfig) {
   return Effect.promise(async () => {
     const ollamaConfig: unknown = (appConfig.llm as Record<string, unknown> | undefined)?.[
       "ollama"
@@ -305,88 +309,197 @@ function firstRunDetections(
   });
 }
 
-/** Saved conversations across every agent, as the home screen lists them. */
-function conversationSources(agents: readonly Agent[]) {
+/** When each agent was last in a conversation, and each conversation's saved title. */
+function conversationActivity(agents: readonly Agent[]) {
   return Effect.gen(function* () {
-    const sources: HomeConversationSource[] = [];
+    const lastUsedMs = new Map<string, number>();
+    const titles = new Map<string, string>();
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
       for (const conversation of history.conversations) {
-        sources.push({
-          agentId: agent.id,
-          agentName: agent.name,
-          conversationId: conversation.conversationId,
-          title: conversation.title,
-          startedAt: conversation.startedAt,
-          endedAt: conversation.endedAt,
-          messageCount: conversation.messageCount,
-        });
+        titles.set(conversation.conversationId, conversation.title);
+        const at = new Date(conversation.endedAt ?? conversation.startedAt).getTime();
+        if (Number.isFinite(at) && at > (lastUsedMs.get(agent.id) ?? -1)) {
+          lastUsedMs.set(agent.id, at);
+        }
       }
     }
-    return sources;
+    return { lastUsedMs, titles };
   });
+}
+
+function agentUsage(
+  agents: readonly Agent[],
+  lastUsedMs: ReadonlyMap<string, number>,
+): AgentUsage[] {
+  return agents.map((agent) => {
+    const used = lastUsedMs.get(agent.id);
+    return {
+      id: agent.id,
+      name: agent.name,
+      model: agent.config.llmModel,
+      persona: agent.config.persona,
+      ...(used === undefined ? {} : { lastUsedMs: used }),
+    };
+  });
+}
+
+/**
+ * Goals and loops blocked on the user, as home's waiting section. Each is titled from its name,
+ * what it was asked to do, or its conversation's first message, and says what it needs.
+ */
+function waitingWork(agents: readonly Agent[], titles: ReadonlyMap<string, string>, nowMs: number) {
+  return Effect.gen(function* () {
+    const agentName = (id: string): string =>
+      agents.find((agent) => agent.id === id)?.name ?? "an agent";
+    const age = (iso: string): string => formatRelativeWhen(new Date(iso).getTime(), nowMs);
+    const work: WaitingSource[] = [];
+    const seen = new Set<string>();
+    for (const goal of yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES })) {
+      const conversationId = goal.sourceConversationId;
+      if (conversationId === undefined || seen.has(conversationId)) {
+        continue;
+      }
+      seen.add(conversationId);
+      const pending = yield* pendingGoalInput(goal);
+      const state = goal.state;
+      const reason =
+        state.kind === "review-required"
+          ? state.question === undefined
+            ? "review"
+            : "question"
+          : pending?.kind === "question" ||
+              (state.kind === "awaiting-input" && state.reason === "question")
+            ? "question"
+            : state.kind === "proposed"
+              ? "review"
+              : "approval";
+      const detail =
+        pending?.described ??
+        (state.kind === "review-required" ? (state.question ?? state.reason) : undefined) ??
+        (state.kind === "proposed" ? "Accept the plan to start it." : undefined);
+      const conversationTitle = titles.get(conversationId);
+      work.push({
+        agentId: goal.agentId,
+        agentName: agentName(goal.agentId),
+        conversationId,
+        reason,
+        age: age(goal.updatedAt),
+        objective: goal.plan.objective,
+        ...(goal.name === undefined ? {} : { workName: goal.name }),
+        ...(conversationTitle === undefined ? {} : { conversationTitle }),
+        ...(detail === undefined ? {} : { detail }),
+      });
+    }
+    for (const loop of yield* loopsWaitingOnUser()) {
+      const conversationId = loop.sourceConversationId;
+      if (conversationId === undefined || seen.has(conversationId)) {
+        continue;
+      }
+      seen.add(conversationId);
+      const pending = yield* pendingLoopInput(loop);
+      const conversationTitle = titles.get(conversationId);
+      work.push({
+        agentId: loop.agentId,
+        agentName: agentName(loop.agentId),
+        conversationId,
+        reason:
+          pending === undefined ? "stopped" : pending.kind === "question" ? "question" : "approval",
+        age: age(loop.updatedAt),
+        workName: loop.name,
+        objective: loop.prompt,
+        ...(conversationTitle === undefined ? {} : { conversationTitle }),
+        ...(pending !== undefined
+          ? { detail: pending.described }
+          : loop.state.kind === "failed"
+            ? { detail: loop.state.reason }
+            : {}),
+      });
+    }
+    return work;
+  }).pipe(
+    Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
+    Effect.provide(makeFileRunStoreLayer()),
+    Effect.catchAll(() => Effect.succeed([] as WaitingSource[])),
+  );
 }
 
 /**
  * Show home and return what was picked.
  *
- * The screen goes up as soon as the agent list is known, then fills in the conversations once
- * the history has loaded. Every action is addressed by key, and each key the first frame shows
- * is still there in the second, so a key pressed while the history loads does what the screen
- * said it would.
+ * The screen goes up as soon as the agent list is known and fills in when the history has
+ * loaded: when each agent was last used, and what is waiting. The target agent is fixed before
+ * the first frame (the one picked in the full picker, else the last used), so the button never
+ * changes under a key already pressed.
  */
 function showHome(context: HomeContext) {
   return Effect.gen(function* () {
-    const now = new Date();
+    const nowMs = Date.now();
     const firstRun = context.agents.length === 0;
-    const status = homeStatus({
-      agentCount: context.agents.length,
+    const target =
+      context.targetAgentId ??
+      (context.lastUsedAgentId !== null &&
+      context.agents.some((agent) => agent.id === context.lastUsedAgentId)
+        ? context.lastUsedAgentId
+        : undefined);
+    const base = {
+      shownAt: nowMs,
+      lastUsedAgentId: context.lastUsedAgentId,
+      targetAgentId: target,
+      draft: context.draft,
       providerCount: context.providerCount,
-    });
-    const actionsFor = (hasHistory: boolean, ollamaModels?: number) =>
-      homeActions({
-        agentCount: context.agents.length,
-        defaultAgentName: context.defaultAgent?.name,
-        hasHistory,
-        ...(ollamaModels === undefined ? {} : { ollamaModels }),
-      });
+    };
 
-    let answer: ((value: string) => void) | undefined;
-    const answered = new Promise<string>((resolve) => {
+    let answer: ((value: HomeAnswer) => void) | undefined;
+    const answered = new Promise<HomeAnswer>((resolve) => {
       answer = resolve;
     });
-    // Before the history loads, resume is offered whenever there are agents, so the key stays
-    // put when the conversations arrive; resuming with nothing saved says so plainly.
     store.setActiveMenu(
-      buildHome({ now, conversations: [], actions: actionsFor(!firstRun), status, firstRun }),
-      (result) => answer?.(result.kind === "exit" ? "exit" : result.value),
+      buildHome({
+        ...base,
+        agents: agentUsage(context.agents, new Map()),
+        lastUsedWords: new Map(),
+        waiting: [],
+      }),
+      (result) =>
+        answer?.(
+          result.kind === "exit"
+            ? { value: "exit" }
+            : {
+                value: result.value,
+                ...(result.text === undefined ? {} : { text: result.text }),
+                ...(target === undefined ? {} : { targetAgentId: target }),
+              },
+        ),
     );
 
     if (firstRun) {
-      const detections = yield* context.firstRunDetections;
+      const detections = yield* firstRunDetections(context.appConfig);
       store.refreshActiveMenu(
         buildHome({
-          now,
-          conversations: [],
-          actions: actionsFor(false, detections?.ollamaModels),
-          status,
-          ...(detections === undefined ? {} : { detected: detections.detected }),
-          firstRun,
+          ...base,
+          agents: [],
+          lastUsedWords: new Map(),
+          waiting: [],
+          ollamaModels: detections.ollamaModels,
+          detected: detections.detected,
         }),
       );
     } else {
-      const sources = yield* conversationSources(context.agents);
-      const waiting =
-        sources.length === 0 ? new Map<string, string>() : yield* waitingConversations();
+      const activity = yield* conversationActivity(context.agents);
+      const waiting = yield* waitingWork(context.agents, activity.titles, nowMs);
+      const lastUsedWords = new Map(
+        [...activity.lastUsedMs].map(([id, at]) => [id, formatRelativeWhen(at, nowMs)]),
+      );
       store.refreshActiveMenu(
         buildHome({
-          now,
-          conversations: homeConversations(sources, waiting, now.getTime()),
-          actions: actionsFor(true),
-          status,
-          firstRun,
+          ...base,
+          agents: agentUsage(context.agents, activity.lastUsedMs),
+          lastUsedWords,
+          waiting,
         }),
       );
     }
@@ -591,6 +704,7 @@ function selectAgent(
 function startChatWithAgent(
   agent: Agent,
   options?: {
+    initialMessage?: string;
     initialHistory?: ChatMessage[];
     initialUiTranscript?: readonly import("@jazz/adapters/history/conversation-history-service").ConversationUiEntry[];
   },
@@ -627,63 +741,31 @@ function startChatWithAgent(
 const MAX_RESUME_CHOICES = 50;
 
 /**
- * Load all saved conversations across agents, show a selector, and resume the chosen one
+ * Every saved conversation across agents, titled by what it is about, with the ones waiting on
+ * you first and what each needs; the chosen one is resumed.
  */
-/**
- * Conversations with a goal or loop that can go no further until the user acts, each with what
- * it waits on in words, so the resume list can say which conversation needs them and why.
- */
-function waitingConversations() {
-  return Effect.gen(function* () {
-    const waiting = new Map<string, string>();
-    const goals = yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES });
-    for (const goal of goals) {
-      if (goal.sourceConversationId !== undefined) {
-        const pending = yield* pendingGoalInput(goal);
-        waiting.set(
-          goal.sourceConversationId,
-          `goal ${goalHandle(goal)} ${goalStatus(goal, pending)}`,
-        );
-      }
-    }
-    for (const loop of yield* loopsWaitingOnUser()) {
-      if (loop.sourceConversationId !== undefined && !waiting.has(loop.sourceConversationId)) {
-        const pending = yield* pendingLoopInput(loop);
-        waiting.set(loop.sourceConversationId, `loop ${loop.name} ${loopStatus(loop, pending)}`);
-      }
-    }
-    return waiting;
-  }).pipe(
-    Effect.provide(makeFileGoalStoreLayer()),
-    Effect.provide(makeFileLoopStoreLayer()),
-    Effect.provide(makeFileRunStoreLayer()),
-    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
-  );
-}
-
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
-    const waiting = yield* waitingConversations();
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
       title: string;
       startedAt: string;
-      messageCount: number;
     };
     const entries: ConversationEntry[] = [];
+    const titles = new Map<string, string>();
 
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
-      for (const conv of history.conversations) {
+      for (const conversation of history.conversations) {
+        titles.set(conversation.conversationId, conversation.title);
         entries.push({
           agent,
-          conversationId: conv.conversationId,
-          title: conv.title,
-          startedAt: conv.startedAt,
-          messageCount: conv.messageCount,
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          startedAt: conversation.startedAt,
         });
       }
     }
@@ -693,7 +775,12 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       return;
     }
 
-    // Waiting conversations first, so the one the menu counted is the one on top.
+    const nowMs = Date.now();
+    const waiting = new Map(
+      (yield* waitingWork(agents, titles, nowMs)).map((source) => [source.conversationId, source]),
+    );
+
+    // Waiting conversations first, so the ones home counted are the ones on top.
     entries.sort(
       (a, b) =>
         Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
@@ -701,22 +788,26 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const nowMs = Date.now();
-    const choices = entries.map((entry, idx) => {
-      const waitingOn = waiting.get(entry.conversationId);
+    const choices = entries.map((entry, index) => {
+      const work = waiting.get(entry.conversationId);
       const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
       return {
-        name: entry.title,
+        name:
+          work === undefined
+            ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
+            : readableTitle(work),
         description:
-          waitingOn === undefined ? entry.agent.name : `${entry.agent.name} · ${waitingOn}`,
-        value: String(idx),
-        ...(waitingOn === undefined
+          work?.detail === undefined
+            ? entry.agent.name
+            : `${entry.agent.name} · ${briefDetail(work.detail)}`,
+        value: String(index),
+        ...(work === undefined
           ? { tag: age, tagTone: "muted" as const }
-          : { tag: `waiting · ${age}`, tagTone: "accent" as const }),
+          : { tag: waitingTag(work.reason, work.age), tagTone: "accent" as const }),
       };
     });
 
-    const selectedIdx = yield* terminal.search<string>(
+    const selectedIndex = yield* terminal.search<string>(
       waiting.size === 0
         ? "Which conversation?"
         : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
@@ -725,10 +816,14 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
         placeholder: "Type to filter by title",
       },
     );
-    if (selectedIdx === null || selectedIdx === undefined) return;
+    if (selectedIndex === null || selectedIndex === undefined) {
+      return;
+    }
 
-    const selected = entries[Number(selectedIdx)];
-    if (!selected) return;
+    const selected = entries[Number(selectedIndex)];
+    if (!selected) {
+      return;
+    }
 
     yield* openConversation(selected.agent, selected.conversationId);
   });

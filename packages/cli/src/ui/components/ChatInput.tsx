@@ -58,12 +58,12 @@ export const ChatInput = React.memo(function ChatInput({
         return (
           <Box>
             <Text {...textProps}>
-              <Text inverse>{placeholder[0]}</Text>
+              <Text inverse> </Text>
               <Text
                 {...textProps}
                 dimColor={!textColor}
               >
-                {placeholder.slice(1)}
+                {placeholder}
               </Text>
             </Text>
           </Box>
