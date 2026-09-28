@@ -44,6 +44,12 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /** Alternative names the LLM may use to call this tool. */
   readonly aliases?: readonly string[];
   /**
+   * Tools granted together with this one, because it cannot be used without them:
+   * `spawn_subagent` starts children that only `wait_subagents` collects. An agent granted this
+   * tool gets these too, unless it denies them.
+   */
+  readonly companionTools?: readonly string[];
+  /**
    * Zod schema defining the structure and validation rules for tool arguments.
    */
   readonly parameters: z.ZodTypeAny;
@@ -128,6 +134,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     ...(config.summary !== undefined ? { summary: config.summary } : {}),
     tags: config.tags ?? [],
     ...(config.aliases ? { aliases: config.aliases } : {}),
+    ...(config.companionTools ? { companionTools: config.companionTools } : {}),
     parameters: config.parameters,
     ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
     hidden: config.hidden === true,

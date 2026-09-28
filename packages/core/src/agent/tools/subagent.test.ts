@@ -13,9 +13,11 @@ import type {
   PresentationService,
 } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
+import type { ToolExecutionResult } from "@/core/types/tools";
 import { AgentRunner } from "../agent-runner";
-import type { AgentRunnerOptions } from "../types";
 import { createSubagentTools } from "./subagent";
+import { createSubagentSupervisor } from "../subagents/supervisor";
+import type { AgentRunnerOptions } from "../types";
 
 interface PanelCalls {
   readonly opens: Array<{ kind: EphemeralRegionKind; label: string }>;
@@ -76,6 +78,10 @@ function runSpawn(
   return runSpawnArgs(presentation, { task: "do a thing", persona: "default" }, context);
 }
 
+/**
+ * Spawn a child, wait for it, and return what it finished with, in the tool-result shape the
+ * parent reads back through wait_subagents. A refusal before any child starts comes back as is.
+ */
 function runSpawnArgs(
   presentation: PresentationService,
   args: Record<string, unknown>,
@@ -87,13 +93,26 @@ function runSpawnArgs(
     Layer.succeed(PresentationServiceTag, presentation),
   );
   return Effect.runPromise(
-    (
-      tool.execute(args, { agentId: parentAgent.id, parentAgent, ...context }) as Effect.Effect<
-        unknown,
-        unknown,
-        LoggerService | PresentationService
-      >
-    ).pipe(Effect.provide(testLayer)),
+    Effect.gen(function* () {
+      const supervisor = yield* createSubagentSupervisor();
+      const spawned = yield* tool.execute(args, {
+        agentId: parentAgent.id,
+        parentAgent,
+        subagents: supervisor,
+        ...context,
+      }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>;
+      const agentId = (spawned.result as { agentId?: string } | null)?.agentId;
+      if (!spawned.success || agentId === undefined) {
+        return spawned;
+      }
+      const waited = yield* supervisor.wait([agentId], "all", 60_000);
+      const child = waited.subagents[0];
+      return {
+        success: child?.status === "completed",
+        result: child?.result ?? null,
+        ...(child?.error !== undefined ? { error: child.error } : {}),
+      };
+    }).pipe(Effect.provide(testLayer)) as Effect.Effect<unknown, unknown, never>,
   );
 }
 
@@ -580,18 +599,10 @@ describe("spawn_subagent persona handling", () => {
 
     try {
       const { presentation } = createPresentationHarness();
-      const tool = getSpawnTool();
-      const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, silentLogger),
-        Layer.succeed(PresentationServiceTag, presentation),
-      );
-      await Effect.runPromise(
-        (
-          tool.execute(
-            { task: "trace the call sites", persona: "coder" },
-            { agentId: parentAgent.id, parentAgent },
-          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
-        ).pipe(Effect.provide(testLayer)),
+      await runSpawnArgs(
+        presentation,
+        { task: "trace the call sites", persona: "coder" },
+        { parentAgent: parentAgent },
       );
 
       // The persona reaches the child as config, so AgentPromptBuilder resolves
@@ -627,20 +638,7 @@ describe("spawn_subagent reasoning effort", () => {
     presentation: PresentationService,
     args: Record<string, unknown>,
   ): Promise<unknown> {
-    const tool = getSpawnTool();
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, silentLogger),
-      Layer.succeed(PresentationServiceTag, presentation),
-    );
-    return Effect.runPromise(
-      (
-        tool.execute(args, { agentId: parentAgent.id, parentAgent }) as Effect.Effect<
-          unknown,
-          unknown,
-          LoggerService | PresentationService
-        >
-      ).pipe(Effect.provide(testLayer)),
-    );
+    return runSpawnArgs(presentation, args);
   }
 
   it("overrides the parent's effort when provided", async () => {
@@ -655,18 +653,10 @@ describe("spawn_subagent reasoning effort", () => {
           reasoning: "medium",
         } as Agent["config"],
       };
-      const tool = getSpawnTool();
-      const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, silentLogger),
-        Layer.succeed(PresentationServiceTag, presentation),
-      );
-      await Effect.runPromise(
-        (
-          tool.execute(
-            { task: "deep review", persona: "coder", reasoning: "high" },
-            { agentId: effortParent.id, parentAgent: effortParent },
-          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
-        ).pipe(Effect.provide(testLayer)),
+      await runSpawnArgs(
+        presentation,
+        { task: "deep review", persona: "coder", reasoning: "high" },
+        { parentAgent: effortParent },
       );
 
       expect(captured()?.agent.config.reasoning).toBe("high");
@@ -687,18 +677,10 @@ describe("spawn_subagent reasoning effort", () => {
           reasoning: "medium",
         } as Agent["config"],
       };
-      const tool = getSpawnTool();
-      const testLayer = Layer.mergeAll(
-        Layer.succeed(LoggerServiceTag, silentLogger),
-        Layer.succeed(PresentationServiceTag, presentation),
-      );
-      await Effect.runPromise(
-        (
-          tool.execute(
-            { task: "do a thing", persona: "default" },
-            { agentId: effortParent.id, parentAgent: effortParent },
-          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
-        ).pipe(Effect.provide(testLayer)),
+      await runSpawnArgs(
+        presentation,
+        { task: "do a thing", persona: "default" },
+        { parentAgent: effortParent },
       );
 
       expect(captured()?.agent.config.reasoning).toBe("medium");
@@ -965,7 +947,8 @@ describe("spawn_subagent presentation", () => {
 
     try {
       const { presentation, calls } = createPresentationHarness();
-      await expect(runSpawn(presentation)).rejects.toThrow("subagent exploded");
+      const result = (await runSpawn(presentation)) as { success: boolean; error?: string };
+      expect(result).toMatchObject({ success: false, error: "subagent exploded" });
       expect(calls.collapses).toHaveLength(1);
       expect(calls.collapses[0]?.outcome.status).toBe("failed");
     } finally {
@@ -1017,12 +1000,13 @@ describe("spawn_subagent steering", () => {
     }
   });
 
-  it("gives the child no queue on a surface that cannot address it", async () => {
+  it("gives the child a queue the parent can reach even on a surface that cannot address it", async () => {
     const { presentation } = createPresentationHarness();
     const { captured, restore } = captureChildOptions();
     try {
       await runSpawn(presentation);
-      expect(captured.options?.checkQueuedMessage).toBeUndefined();
+      expect(captured.options?.checkQueuedMessage).toBeDefined();
+      expect(captured.options?.checkQueuedMessage?.()).toBeUndefined();
     } finally {
       restore();
     }

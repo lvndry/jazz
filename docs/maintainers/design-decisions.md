@@ -186,20 +186,24 @@ the telemetry records.
 
 📄 [`agent-loop.ts:221`](../../packages/core/src/agent/execution/agent-loop.ts#L221)
 
-### Background sub-agents live inside their parent's run
+### Sub-agents run beside their parent, inside its run
 
-**Decision.** A sub-agent started with `background: true` is a fiber in a scope the parent's run
-owns. Closing the run, however it ends, cancels every child still going. An answer the parent
-gives while children run, or before it read their results, waits for them and goes back to the
-model once.
+**Decision.** `spawn_subagent` returns an `agentId` at once and the child is a fiber in a scope the
+parent's run owns; `wait_subagents` collects it. There is one mode, not a waiting one and a
+non-waiting one. Closing the run, however it ends, cancels every child still going. An answer the
+parent gives while children run, or before it read their results, waits for them and goes back to
+the model once.
 
-**Alternatives rejected.** Running background children as daemon jobs that wake the parent
-later, the way `enqueue_batch` does. That needs the parent's budget, approvals, egress state and
-cancellation carried across processes, and a way to resume a parent that already answered.
-Goals and loops already cover work that outlives a turn.
+**Alternatives rejected.** Keeping a mode where the spawn call blocks until the child answers: it
+saves one model call when a single child is started and awaited at once, but it is a second
+concept for agents and people, and a blocked parent cannot steer. Running children as daemon jobs
+that wake the parent later, the way `enqueue_batch` does: that needs the parent's budget,
+approvals, egress state and cancellation carried across processes. Goals and loops already cover
+work that outlives a turn.
 
-**Cost accepted.** A background child cannot survive a park, a detach, or the end of the turn.
-Steering reaches a child only between its steps; only cancel is immediate.
+**Cost accepted.** One extra model call for a single delegation (spawn, wait, answer). A child
+cannot survive a park, a detach, or the end of the turn. Steering reaches a child only between its
+steps; only cancel is immediate.
 
 📄 [`supervisor.ts`](../../packages/core/src/agent/subagents/supervisor.ts)
 

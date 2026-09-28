@@ -32,11 +32,6 @@ Releases before this file existed are described in their
 
 ### Added
 
-- **Steerable background sub-agents.** `spawn_subagent` takes `background: true` to return an
-  `agentId` at once while the child works. The parent can then `list_subagents`, `wait_subagents`
-  for any or all of them, and `steer_subagent` to message, pause, resume or cancel one. Children
-  never outlive the turn; an answer given before their results were read waits for them and
-  goes back to the model once. Sub-agents running together now share the parent's `maxCostUSD`.
 - `bun run test:e2e`: `jazz run --json` against a scripted model server, covering a tool
   call, an approval park (exit 2) and `jazz runs approve`.
 - Release binaries and `SHA256SUMS` carry signed build provenance
@@ -46,6 +41,12 @@ Releases before this file existed are described in their
 
 ### Changed
 
+- **Sub-agents run beside the agent and can be steered.** `spawn_subagent` returns an `agentId`
+  at once instead of the child's answer; the agent collects answers with `wait_subagents`, checks
+  on children with `list_subagents`, and messages, pauses, resumes or cancels one with
+  `steer_subagent`. An agent granted `spawn_subagent` gets the three new tools with it. At most
+  four run at once, they never outlive the turn, and children running together now share the
+  parent's `maxCostUSD`.
 - A release is created as a draft and published only after every binary is attached and
   has run on its own platform, so `releases/latest/download/install.sh` never serves a
   release without its assets.

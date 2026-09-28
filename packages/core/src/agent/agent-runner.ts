@@ -655,11 +655,11 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
-    // Expand tool names to include approval execute tools and advertised aliases. These are
-    // other names for a tool that already survived every filter above, so they are granted
+    // Expand tool names to include approval execute tools, advertised aliases and companion
+    // tools. Each belongs to a tool that already survived every filter above, so it is granted
     // with it: a run that may call `execute_command` has to be able to reach
-    // `execute_execute_command` once the approval is answered, and the registry resolves
-    // `glob` to `find`.
+    // `execute_execute_command` once the approval is answered, the registry resolves `glob` to
+    // `find`, and children started with `spawn_subagent` are only collected by `wait_subagents`.
     const expandedToolNameSet = new Set(combinedToolNames);
     for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
@@ -671,6 +671,11 @@ function initializeAgentRun(
       }
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);
+      }
+      for (const companion of tool.companionTools ?? []) {
+        if (allToolNames.includes(companion)) {
+          expandedToolNameSet.add(companion);
+        }
       }
     }
 

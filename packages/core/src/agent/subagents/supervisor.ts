@@ -2,10 +2,9 @@
  * The sub-agents of one run: what `spawn_subagent`, `list_subagents`, `wait_subagents` and
  * `steer_subagent` act on.
  *
- * Every child of a run is registered here, the ones the parent waits on and the ones it starts in
- * the background. Background children run as fibers in a scope owned by the parent's run, so they
- * never outlive it: closing the supervisor when the run ends, however it ends, cancels whatever is
- * still going, along with the tools and processes those children started.
+ * Every child runs as a fiber in a scope owned by the parent's run while the parent keeps working,
+ * so children never outlive it: closing the supervisor when the run ends, however it ends, cancels
+ * whatever is still going, along with the tools and processes those children started.
  *
  * Steering takes effect at a child's step boundary, before its next model call: a message is
  * delivered there, and a pause holds the child there without any model call until it is resumed.
@@ -18,7 +17,7 @@
 import { Deferred, Duration, Effect, Exit, Fiber, Scope } from "effect";
 import type { ToolExecutionResult, ToolProgressEvent } from "@/core/types/tools";
 
-/** Background children one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
+/** Sub-agents one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
 export const MAX_LIVE_SUBAGENTS = 4;
 
 export type SubagentStatus =
@@ -29,13 +28,12 @@ export interface SubagentSnapshot {
   readonly id: string;
   readonly name: string;
   readonly status: SubagentStatus;
-  readonly background: boolean;
   readonly elapsedMs: number;
   /** The tool the child last started, while it is still working. */
   readonly lastActivity?: string;
   /** What it has spent so far, while it runs. Its final cost is charged to the parent on exit. */
   readonly liveCostUSD?: number;
-  /** Its answer, once it finished. */
+  /** Its answer once it finished, or what a failed one returned alongside its error. */
   readonly result?: unknown;
   readonly error?: string;
   /** Messages from the parent it finished before reading: that guidance never reached it. */
@@ -67,7 +65,6 @@ export interface SubagentHooks {
 interface Entry {
   readonly id: string;
   readonly name: string;
-  readonly background: boolean;
   readonly startedAt: number;
   status: SubagentStatus;
   lastActivity: string | undefined;
@@ -91,25 +88,19 @@ interface Entry {
 const FINISHED: ReadonlySet<SubagentStatus> = new Set(["completed", "failed", "cancelled"]);
 
 export interface SubagentSupervisor {
-  /** Background children still running, paused or waiting on approval. */
+  /** Children still running, paused or waiting on approval. */
   readonly liveCount: () => number;
   /** Register a child about to start; its hooks go into the child's run. */
-  readonly register: (input: {
-    readonly name: string;
-    readonly background: boolean;
-  }) => SubagentHooks;
-  /** Record how a child the parent waited on ended. */
-  readonly finish: (id: string, result: ToolExecutionResult, cancelled?: boolean) => void;
-  /** Run a background child in the supervisor's scope. */
-  readonly startInBackground: <R>(
+  readonly register: (input: { readonly name: string }) => SubagentHooks;
+  /** Run a registered child in the supervisor's scope while the parent keeps working. */
+  readonly start: <R>(
     id: string,
     work: Effect.Effect<ToolExecutionResult, never, R>,
   ) => Effect.Effect<void, never, R>;
   readonly list: () => readonly SubagentSnapshot[];
   /**
-   * Wait until the children named (every background child when `ids` is empty) have finished or
-   * need attention: `any` returns once one of them has, `all` once none is still running. Their
-   * results are marked read.
+   * Wait until the children named (every child when `ids` is empty) have finished or were
+   * paused: `any` returns once one of them has, `all` once all have. Their results are marked read.
    */
   readonly wait: (
     ids: readonly string[],
@@ -166,7 +157,6 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       id: entry.id,
       name: entry.name,
       status: entry.status,
-      background: entry.background,
       elapsedMs: (entry.finishedAt ?? Date.now()) - entry.startedAt,
       ...(entry.lastActivity !== undefined && !FINISHED.has(entry.status)
         ? { lastActivity: entry.lastActivity }
@@ -174,7 +164,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       ...(!FINISHED.has(entry.status) && entry.liveCostUSD > 0
         ? { liveCostUSD: entry.liveCostUSD }
         : {}),
-      ...(entry.result !== undefined && entry.result.success
+      ...(entry.result?.result !== undefined && entry.result.result !== null
         ? { result: entry.result.result }
         : {}),
       ...(entry.result !== undefined && !entry.result.success
@@ -185,7 +175,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
         : {}),
     });
 
-    const isLive = (entry: Entry) => entry.background && !FINISHED.has(entry.status);
+    const isLive = (entry: Entry) => !FINISHED.has(entry.status);
 
     const finish = (id: string, result: ToolExecutionResult, cancelled = false) => {
       const entry = entries.get(id);
@@ -204,6 +194,18 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       signalChangeSync();
     };
 
+    /**
+     * A child that reports progress is past any approval it was waiting on: the prompt was
+     * answered, or declined because nobody could answer it.
+     */
+    const markMovedOn = (entry: Entry) => {
+      if (entry.status === "waiting-approval") {
+        entry.status = "running";
+        entry.lastActivity = undefined;
+        signalChangeSync();
+      }
+    };
+
     const liveCostUSD = () => {
       let total = 0;
       for (const entry of entries.values()) {
@@ -216,7 +218,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
 
     const resolveTargets = (ids: readonly string[]) =>
       ids.length === 0
-        ? [...entries.values()].filter((entry) => entry.background)
+        ? [...entries.values()]
         : ids.flatMap((id) => {
             const entry = entries.get(id);
             return entry === undefined ? [] : [entry];
@@ -235,12 +237,11 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
     const supervisor: SubagentSupervisor = {
       liveCount: () => [...entries.values()].filter(isLive).length,
 
-      register: ({ name, background }) => {
+      register: ({ name }) => {
         const id = `sa-${String(++subagentSequence)}`;
         const entry: Entry = {
           id,
           name,
-          background,
           startedAt: Date.now(),
           status: "running",
           lastActivity: undefined,
@@ -251,9 +252,9 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
           fiber: undefined,
           result: undefined,
           finishedAt: undefined,
-          collected: !background,
-          announced: !background,
-          offeredAtAnswer: !background,
+          collected: false,
+          announced: false,
+          offeredAtAnswer: false,
           cancelReason: undefined,
         };
         entries.set(id, entry);
@@ -263,6 +264,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
           pauseRequested: () => entry.pauseRequested,
           beforeStep: () =>
             Effect.gen(function* () {
+              markMovedOn(entry);
               if (!entry.pauseRequested) {
                 return;
               }
@@ -276,6 +278,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
             if (costUSD !== undefined) {
               entry.liveCostUSD = costUSD;
             }
+            markMovedOn(entry);
           },
           onToolEvent: (event) => {
             if (FINISHED.has(entry.status)) {
@@ -296,9 +299,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
         };
       },
 
-      finish,
-
-      startInBackground: (id, work) =>
+      start: (id, work) =>
         Effect.gen(function* () {
           const entry = entries.get(id);
           if (entry === undefined) {
@@ -332,7 +333,10 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
         Effect.gen(function* () {
           const targets = resolveTargets(ids);
           const deadline = Date.now() + timeoutMs;
-          const needsParent = (entry: Entry) => entry.status !== "running";
+          // A child waiting on an approval is waiting on a person, not on the parent, so the
+          // wait goes on until the person answers; a paused one only the parent can release.
+          const needsParent = (entry: Entry) =>
+            FINISHED.has(entry.status) || entry.status === "paused";
           const satisfied = () =>
             targets.length === 0 ||
             (until === "any" ? targets.some(needsParent) : targets.every(needsParent));
@@ -366,12 +370,6 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
           if (FINISHED.has(entry.status)) {
             return { ok: false, error: `${entry.name} (${id}) already ${entry.status}.` } as const;
           }
-          if (!entry.background) {
-            return {
-              ok: false,
-              error: `${entry.name} (${id}) was started without background: true, so this run is waiting on it.`,
-            } as const;
-          }
           switch (action) {
             case "message": {
               const text = message?.trim() ?? "";
@@ -397,6 +395,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
               } as const;
             }
             case "resume": {
+              const wasPaused = entry.pauseRequested || entry.resumeGate !== undefined;
               entry.pauseRequested = false;
               const gate = entry.resumeGate;
               entry.resumeGate = undefined;
@@ -405,7 +404,11 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
                 yield* Deferred.succeed(gate, undefined);
                 yield* signalChange;
               }
-              return { ok: true, status: entry.status, note: "Resumed." } as const;
+              return {
+                ok: true,
+                status: entry.status,
+                note: wasPaused ? "Resumed." : "It was not paused; nothing changed.",
+              } as const;
             }
             case "cancel": {
               yield* cancelEntry(entry, "Cancelled by the parent agent.");
@@ -417,7 +420,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       takeNotices: () => {
         const notices: string[] = [];
         for (const entry of entries.values()) {
-          if (entry.background && FINISHED.has(entry.status) && !entry.announced) {
+          if (FINISHED.has(entry.status) && !entry.announced) {
             entry.announced = true;
             notices.push(
               `Sub-agent ${entry.name} (${entry.id}) ${entry.status}; call wait_subagents to read its result.`,
@@ -429,8 +432,8 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
 
       settleBeforeAnswer: () =>
         Effect.gen(function* () {
-          const background = [...entries.values()].filter((entry) => entry.background);
-          const paused = background.filter((entry) => entry.status === "paused");
+          const children = [...entries.values()];
+          const paused = children.filter((entry) => entry.status === "paused");
           for (const entry of paused) {
             yield* cancelEntry(
               entry,
@@ -438,14 +441,14 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
             );
           }
           yield* Effect.forEach(
-            background.filter(isLive),
+            children.filter(isLive),
             (entry) =>
               entry.fiber === undefined
                 ? Effect.void
                 : Fiber.await(entry.fiber).pipe(Effect.asVoid),
             { concurrency: "unbounded", discard: true },
           );
-          const unread = background.filter(
+          const unread = children.filter(
             (entry) => FINISHED.has(entry.status) && !entry.collected && !entry.offeredAtAnswer,
           );
           if (unread.length === 0) {

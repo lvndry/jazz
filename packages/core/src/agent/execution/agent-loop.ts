@@ -292,7 +292,7 @@ interface LoopState {
    */
   awaitingGoalDecision: boolean;
   /**
-   * Set when the model answered before reading results its background sub-agents produced: the
+   * Set when the model answered before reading results its sub-agents produced: the
    * next step is told to read them first, instead of the answer standing.
    */
   unreadSubagentNotice: string | undefined;
@@ -1759,7 +1759,7 @@ function runIteration(
       return { kind: "continue" } as const;
     }
 
-    // An answer given while background sub-agents were still working, or before their results
+    // An answer given while sub-agents were still working, or before their results
     // were read, waits for them and goes back to the model once, so the answer can use them.
     const unreadSubagents = yield* deps.subagents.settleBeforeAnswer();
     if (unreadSubagents !== undefined) {
@@ -2173,7 +2173,7 @@ export function executeAgentLoop(
     // Release: cleanup
     ({ logger, finalizeFiberRef, subagents }) =>
       Effect.gen(function* () {
-        // Background sub-agents never outlive the run that started them.
+        // Sub-agents never outlive the run that started them.
         yield* subagents.close();
         const fiberOption = yield* Ref.get(finalizeFiberRef);
         if (Option.isSome(fiberOption)) {

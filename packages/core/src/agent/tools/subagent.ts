@@ -4,7 +4,7 @@
  * compress the current conversation's context, respectively.
  */
 
-import { Cause, Duration, Effect, Exit } from "effect";
+import { Cause, Duration, Effect } from "effect";
 import { z } from "zod";
 import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
@@ -117,12 +117,6 @@ const spawnSubagentSchema = z.object({
     .max(120)
     .optional()
     .describe("Label for the structured result in prompts and errors."),
-  background: z
-    .boolean()
-    .optional()
-    .describe(
-      "true returns an agentId at once and runs the child while you keep working; collect it with wait_subagents.",
-    ),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
@@ -250,17 +244,15 @@ interface SubagentRun {
   readonly currentDepth: number;
   readonly remainingBudget: RemainingRunBudget;
   readonly subagentLabel: string;
-  readonly background: boolean;
   /** The parent run's handle on this child, for steering and live spend. */
   readonly hooks?: SubagentHooks;
 }
 
 /**
- * Run one child to its end and turn its answer into the tool result: the same work whether the
- * parent waits for it or started it in the background.
+ * Run one child to its end and turn its answer into the result `wait_subagents` returns.
  */
 function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run: SubagentRun) {
-  const { parentAgent, currentDepth, remainingBudget, subagentLabel, background, hooks } = run;
+  const { parentAgent, currentDepth, remainingBudget, subagentLabel, hooks } = run;
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const presentation = yield* PresentationServiceTag;
@@ -355,8 +347,8 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       },
       ephemeralRegionId: regionId,
       // Only where something can address the child: the user through its panel, or the
-      // parent through steer_subagent once it runs in the background.
-      ...(presentation.takeEphemeralRegionMessage !== undefined || background
+      // parent through steer_subagent.
+      ...(presentation.takeEphemeralRegionMessage !== undefined || hooks !== undefined
         ? {
             checkQueuedMessage: () => {
               const fromParent = hooks?.takeParentMessage();
@@ -528,17 +520,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         subagentId: subAgent.id,
         durationMs,
       });
-      if (!background) {
-        yield* presentation.writeOutput(`     ${structured.value.summary}`, subagentLabel);
-      }
       return { success: true, result: structured.value };
-    }
-
-    const maxLines = 10;
-    const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
-    const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);
-    if (!background) {
-      yield* presentation.writeOutput(indentedLines.join("\n"), subagentLabel);
     }
 
     yield* logger.info("Sub-agent completed", {
@@ -566,7 +548,7 @@ const waitSubagentsSchema = z.object({
   ids: z
     .array(z.string())
     .optional()
-    .describe("agentIds to wait for; omit for every background sub-agent."),
+    .describe("agentIds to wait for; omit for every sub-agent of this run."),
   until: z
     .enum(["any", "all"])
     .optional()
@@ -595,7 +577,7 @@ const steerSubagentSchema = z.object({
 type WaitSubagentsArgs = z.infer<typeof waitSubagentsSchema>;
 type SteerSubagentArgs = z.infer<typeof steerSubagentSchema>;
 
-const NO_SUPERVISOR_ERROR = "Background sub-agents are not available in this run.";
+const NO_SUPERVISOR_ERROR = "Sub-agents are not available in this run.";
 
 // ─── Summarize Tool ──────────────────────────────────────────────────
 
@@ -616,10 +598,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
   return [
     defineTool({
       name: "spawn_subagent",
+      companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      longRunning: true,
-      timeoutMs: SUBAGENT_TIMEOUT_MS,
-      description: `Delegate a self-contained task to a child agent with a fresh context; only its final answer comes back. Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting stops at depth 3. With background: true it runs while you keep working (at most ${String(MAX_LIVE_SUBAGENTS)} at once); steer it with steer_subagent and collect it with wait_subagents.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
@@ -682,86 +663,56 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           }
 
           const supervisor = context.subagents;
-          const background = args.background === true;
-          if (background && supervisor === undefined) {
+          if (supervisor === undefined) {
             return {
               success: false,
               result: null,
-              error:
-                "Background sub-agents are not available here. Omit background to wait for this one.",
+              error: "Sub-agents are not available in this run. Do this task yourself.",
             };
           }
-          if (
-            background &&
-            supervisor !== undefined &&
-            supervisor.liveCount() >= MAX_LIVE_SUBAGENTS
-          ) {
+          if (supervisor.liveCount() >= MAX_LIVE_SUBAGENTS) {
             return {
               success: false,
               result: null,
-              error: `${String(MAX_LIVE_SUBAGENTS)} background sub-agents are already running. Call wait_subagents or cancel one with steer_subagent before starting another.`,
+              error: `${String(MAX_LIVE_SUBAGENTS)} sub-agents are already running. Call wait_subagents or cancel one with steer_subagent before starting another.`,
             };
           }
 
           const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
-          const hooks = supervisor?.register({ name: subagentLabel, background });
-          const work = runSubagent(args, context, {
-            parentAgent,
-            currentDepth,
-            remainingBudget,
-            subagentLabel,
-            background,
-            ...(hooks !== undefined ? { hooks } : {}),
-          });
-
-          if (background && supervisor !== undefined && hooks !== undefined) {
-            yield* supervisor.startInBackground(
-              hooks.id,
-              work.pipe(
-                Effect.timeoutFail({
-                  duration: Duration.millis(SUBAGENT_TIMEOUT_MS),
-                  onTimeout: () => new Error("The sub-agent reached its 30-minute timeout."),
-                }),
-                Effect.catchAllCause((cause) =>
-                  Effect.succeed<ToolExecutionResult>({
-                    success: false,
-                    result: null,
-                    error: Cause.isInterruptedOnly(cause)
-                      ? "The sub-agent was stopped."
-                      : toError(Cause.squash(cause)).message,
-                  }),
-                ),
-              ),
-            );
-            return {
-              success: true,
-              result: {
-                agentId: hooks.id,
-                name: subagentLabel,
-                status: "running",
-                note: "Running in the background. Keep working; call wait_subagents to collect its result, and steer_subagent to message, pause, resume or cancel it.",
-              },
-            };
-          }
-
-          return yield* work.pipe(
-            Effect.onExit((exit) =>
-              Effect.sync(() => {
-                if (hooks === undefined || supervisor === undefined) {
-                  return;
-                }
-                if (Exit.isSuccess(exit)) {
-                  supervisor.finish(hooks.id, exit.value);
-                } else {
-                  supervisor.finish(
-                    hooks.id,
-                    { success: false, result: null, error: "The sub-agent did not finish." },
-                    Exit.isInterrupted(exit),
-                  );
-                }
+          const hooks = supervisor.register({ name: subagentLabel });
+          yield* supervisor.start(
+            hooks.id,
+            runSubagent(args, context, {
+              parentAgent,
+              currentDepth,
+              remainingBudget,
+              subagentLabel,
+              hooks,
+            }).pipe(
+              Effect.timeoutFail({
+                duration: Duration.millis(SUBAGENT_TIMEOUT_MS),
+                onTimeout: () => new Error("The sub-agent reached its 30-minute timeout."),
               }),
+              Effect.catchAllCause((cause) =>
+                Effect.succeed<ToolExecutionResult>({
+                  success: false,
+                  result: null,
+                  error: Cause.isInterruptedOnly(cause)
+                    ? "The sub-agent was stopped."
+                    : toError(Cause.squash(cause)).message,
+                }),
+              ),
             ),
           );
+          return {
+            success: true,
+            result: {
+              agentId: hooks.id,
+              name: subagentLabel,
+              status: "running",
+              note: "Started. Keep working; call wait_subagents to collect its result, and steer_subagent to message, pause, resume or cancel it.",
+            },
+          };
         }),
       createSummary: (result) => {
         if (!result.success) return `Sub-agent failed: ${result.error}`;
@@ -797,7 +748,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Wait for background sub-agents and get their results in one call: until all (default) returns once none is still running, until any once one finishes, pauses or waits on an approval. Use it instead of checking list_subagents repeatedly.",
+        "Wait for sub-agents and get their results in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Use it instead of checking list_subagents repeatedly.",
       parameters: waitSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -833,7 +784,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "steer_subagent",
       disclosure: "private",
       description:
-        "Steer a background sub-agent by its agentId: message it new guidance, pause it, resume it or cancel it. Messages and pauses take effect before its next model call; cancel stops it and its tools now.",
+        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it or cancel it. Messages and pauses take effect before its next model call; cancel stops it and its tools now.",
       parameters: steerSubagentSchema,
       hidden: false,
       peerGrantRequired: true,

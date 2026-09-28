@@ -2967,7 +2967,7 @@ describe("a tool batch stopped part-way", () => {
   });
 });
 
-describe("background sub-agents in the loop", () => {
+describe("sub-agents in the loop", () => {
   const toolCallTurn = (id: string) =>
     Effect.succeed({
       completion: {
@@ -2987,7 +2987,7 @@ describe("background sub-agents in the loop", () => {
   const answerTurn = (id: string, content: string) =>
     Effect.succeed({ completion: { id, model: "gpt-4", content }, interrupted: false });
 
-  it("holds an answer given before a background child's result was read, then lets the next one stand", async () => {
+  it("holds an answer given before a child's result was read, then lets the next one stand", async () => {
     const originalExecute = ToolExecutor.executeToolCalls;
     const presented: string[] = [];
     const seenByModel: string[][] = [];
@@ -2996,9 +2996,9 @@ describe("background sub-agents in the loop", () => {
       if (supervisor === undefined) {
         throw new Error("the loop gave the tool no supervisor");
       }
-      const hooks = supervisor.register({ name: "digest", background: true });
+      const hooks = supervisor.register({ name: "digest" });
       return supervisor
-        .startInBackground(
+        .start(
           hooks.id,
           Effect.sleep("20 millis").pipe(Effect.as({ success: true, result: "three headlines" })),
         )

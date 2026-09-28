@@ -5,6 +5,16 @@ import { createSubagentSupervisor, type SubagentSupervisor } from "./supervisor"
 
 const done = (text: string): ToolExecutionResult => ({ success: true, result: text });
 
+/** Register a child and let it finish at once with `result`. */
+function finishedChild(supervisor: SubagentSupervisor, name: string, result: ToolExecutionResult) {
+  return Effect.gen(function* () {
+    const hooks = supervisor.register({ name });
+    yield* supervisor.start(hooks.id, Effect.succeed(result));
+    yield* Effect.yieldNow();
+    return hooks;
+  });
+}
+
 /** A child that finishes when `release` is completed, reporting through its hooks as it goes. */
 function startChild(
   supervisor: SubagentSupervisor,
@@ -12,8 +22,8 @@ function startChild(
   release: Deferred.Deferred<string>,
 ) {
   return Effect.gen(function* () {
-    const hooks = supervisor.register({ name, background: true });
-    yield* supervisor.startInBackground(
+    const hooks = supervisor.register({ name });
+    yield* supervisor.start(
       hooks.id,
       Effect.gen(function* () {
         yield* hooks.beforeStep();
@@ -26,7 +36,7 @@ function startChild(
 }
 
 describe("SubagentSupervisor", () => {
-  it("returns every background child's result once none is running, and marks them read", async () => {
+  it("returns every child's result once none is running, and marks them read", async () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
@@ -76,8 +86,7 @@ describe("SubagentSupervisor", () => {
     const notices = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        const hooks = supervisor.register({ name: "digest", background: true });
-        supervisor.finish(hooks.id, done("ok"));
+        yield* finishedChild(supervisor, "digest", done("ok"));
         return [supervisor.takeNotices(), supervisor.takeNotices()];
       }),
     );
@@ -106,9 +115,10 @@ describe("SubagentSupervisor", () => {
     const child = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        const hooks = supervisor.register({ name: "worker", background: true });
+        const hooks = supervisor.register({ name: "worker" });
         yield* supervisor.steer(hooks.id, "message", "also add Portugal");
-        supervisor.finish(hooks.id, done("Paris, Madrid, Rome"));
+        yield* supervisor.start(hooks.id, Effect.succeed(done("Paris, Madrid, Rome")));
+        yield* supervisor.wait([hooks.id], "all", 5_000);
         return supervisor.list()[0];
       }),
     );
@@ -122,7 +132,7 @@ describe("SubagentSupervisor", () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        const hooks = supervisor.register({ name: "worker", background: true });
+        const hooks = supervisor.register({ name: "worker" });
         const steps: string[] = [];
         yield* supervisor.steer(hooks.id, "pause");
         const child = yield* Effect.fork(
@@ -161,19 +171,15 @@ describe("SubagentSupervisor", () => {
     expect(outcome.again.ok).toBe(false);
   });
 
-  it("refuses to steer a child the parent is waiting on, or one that does not exist", async () => {
+  it("names an agentId that does not exist in this run", async () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        const hooks = supervisor.register({ name: "inline", background: false });
-        return {
-          inline: yield* supervisor.steer(hooks.id, "pause"),
-          missing: yield* supervisor.steer("sa-nope", "pause"),
-        };
+        return yield* supervisor.steer("sa-nope", "pause");
       }),
     );
-    expect(outcome.inline.ok).toBe(false);
-    expect(outcome.missing).toMatchObject({ ok: false });
+    expect(outcome).toMatchObject({ ok: false });
+    expect(outcome.ok ? "" : outcome.error).toContain("sa-nope");
   });
 
   it("before an answer, cancels paused children, waits for running ones and asks for their results once", async () => {
@@ -182,9 +188,9 @@ describe("SubagentSupervisor", () => {
         const supervisor = yield* createSubagentSupervisor();
         const release = yield* Deferred.make<string>();
         yield* startChild(supervisor, "running", release);
-        const paused = supervisor.register({ name: "paused", background: true });
+        const paused = supervisor.register({ name: "paused" });
         yield* supervisor.steer(paused.id, "pause");
-        yield* supervisor.startInBackground(
+        yield* supervisor.start(
           paused.id,
           Effect.gen(function* () {
             yield* paused.beforeStep();
@@ -206,11 +212,12 @@ describe("SubagentSupervisor", () => {
     expect(outcome.children.map((child) => child.status)).toEqual(["completed", "cancelled"]);
   });
 
-  it("lets the answer stand when there are no unread results", async () => {
+  it("lets the answer stand once every result was read", async () => {
     const notice = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        supervisor.finish(supervisor.register({ name: "inline", background: false }).id, done("x"));
+        yield* finishedChild(supervisor, "read", done("x"));
+        yield* supervisor.wait([], "all", 5_000);
         return yield* supervisor.settleBeforeAnswer();
       }),
     );
@@ -222,8 +229,8 @@ describe("SubagentSupervisor", () => {
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
         supervisor.bindCostCap(1, () => 0.4);
-        const first = supervisor.register({ name: "one", background: true });
-        const second = supervisor.register({ name: "two", background: true });
+        const first = supervisor.register({ name: "one" });
+        const second = supervisor.register({ name: "two" });
         first.reportSpend(0.3);
         const underCap = supervisor.costExhausted();
         second.reportSpend(0.35);
@@ -250,11 +257,48 @@ describe("SubagentSupervisor", () => {
     });
   });
 
+  it("marks a child running again once it reports progress past a declined approval", async () => {
+    const status = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const hooks = supervisor.register({ name: "worker" });
+        hooks.onToolEvent({ kind: "approval-required", toolName: "web_fetch" });
+        hooks.reportSpend(0.01);
+        return supervisor.list()[0]?.status;
+      }),
+    );
+    expect(status).toBe("running");
+  });
+
+  it("keeps waiting while a child waits on a person's approval", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const hooks = supervisor.register({ name: "worker" });
+        hooks.onToolEvent({ kind: "approval-required", toolName: "execute_command" });
+        return yield* supervisor.wait([], "any", 30);
+      }),
+    );
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.subagents[0]?.status).toBe("waiting-approval");
+  });
+
+  it("says so when asked to resume a child that is not paused", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const hooks = supervisor.register({ name: "worker" });
+        return yield* supervisor.steer(hooks.id, "resume");
+      }),
+    );
+    expect(outcome).toMatchObject({ ok: true, note: "It was not paused; nothing changed." });
+  });
+
   it("marks a child waiting on approval, and running again once it moves on", async () => {
     const statuses = await Effect.runPromise(
       Effect.gen(function* () {
         const supervisor = yield* createSubagentSupervisor();
-        const hooks = supervisor.register({ name: "worker", background: true });
+        const hooks = supervisor.register({ name: "worker" });
         hooks.onToolEvent({ kind: "approval-required", toolName: "execute_command" });
         const waiting = supervisor.list()[0];
         hooks.onToolEvent({ kind: "tool-started", toolName: "execute_command" });

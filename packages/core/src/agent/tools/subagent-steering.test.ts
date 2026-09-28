@@ -1,6 +1,6 @@
 /**
- * Background sub-agents through the tools the model calls: spawn_subagent with background: true,
- * then list_subagents, wait_subagents and steer_subagent against the run's supervisor. The child
+ * Sub-agents through the tools the model calls: spawn_subagent, then list_subagents,
+ * wait_subagents and steer_subagent against the run's supervisor. The child
  * run itself is replaced, so these tests control when it finishes and see what it was given.
  */
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
@@ -88,7 +88,7 @@ afterEach(() => {
   restore = undefined;
 });
 
-describe("background sub-agents", () => {
+describe("sub-agents the parent steers", () => {
   it("returns an agentId at once, and wait_subagents returns the child's answer", async () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
@@ -96,7 +96,7 @@ describe("background sub-agents", () => {
 
     const spawned = await call(
       "spawn_subagent",
-      { task: "price the flights", name: "flights", background: true },
+      { task: "price the flights", name: "flights" },
       supervisor,
     );
     expect(spawned.success).toBe(true);
@@ -117,7 +117,7 @@ describe("background sub-agents", () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
     const supervisor = await Effect.runPromise(createSubagentSupervisor());
-    await call("spawn_subagent", { task: "t", background: true }, supervisor);
+    await call("spawn_subagent", { task: "t" }, supervisor);
     const options = children.started[0]!;
     expect(options.beforeStep).toBeDefined();
     expect(options.onIterationSpend).toBeDefined();
@@ -130,7 +130,7 @@ describe("background sub-agents", () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
     const supervisor = await Effect.runPromise(createSubagentSupervisor());
-    const spawned = await call("spawn_subagent", { task: "t", background: true }, supervisor);
+    const spawned = await call("spawn_subagent", { task: "t" }, supervisor);
     const agentId = (spawned.result as { agentId: string }).agentId;
 
     const steered = await call(
@@ -149,7 +149,7 @@ describe("background sub-agents", () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
     const supervisor = await Effect.runPromise(createSubagentSupervisor());
-    const spawned = await call("spawn_subagent", { task: "t", background: true }, supervisor);
+    const spawned = await call("spawn_subagent", { task: "t" }, supervisor);
     const agentId = (spawned.result as { agentId: string }).agentId;
 
     const cancelled = await call("steer_subagent", { id: agentId, action: "cancel" }, supervisor);
@@ -160,44 +160,23 @@ describe("background sub-agents", () => {
     });
   });
 
-  it(`refuses a background spawn past ${String(MAX_LIVE_SUBAGENTS)} live children`, async () => {
+  it(`refuses a spawn past ${String(MAX_LIVE_SUBAGENTS)} live children`, async () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
     const supervisor = await Effect.runPromise(createSubagentSupervisor());
     for (let index = 0; index < MAX_LIVE_SUBAGENTS; index++) {
-      expect(
-        (await call("spawn_subagent", { task: "t", background: true }, supervisor)).success,
-      ).toBe(true);
+      expect((await call("spawn_subagent", { task: "t" }, supervisor)).success).toBe(true);
     }
-    const refused = await call("spawn_subagent", { task: "t", background: true }, supervisor);
+    const refused = await call("spawn_subagent", { task: "t" }, supervisor);
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("wait_subagents");
     expect(children.started).toHaveLength(MAX_LIVE_SUBAGENTS);
   });
 
-  it("records a child the parent waited on, which steer_subagent then refuses", async () => {
-    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(
-      () =>
-        Effect.succeed({
-          content: "inline answer",
-          conversationId: "child",
-          messages: [],
-        }) as ReturnType<typeof AgentRunner.runRecursive>,
-    );
-    restore = () => spy.mockRestore();
-    const supervisor = await Effect.runPromise(createSubagentSupervisor());
-    const result = await call("spawn_subagent", { task: "t" }, supervisor);
-    expect(result).toMatchObject({ success: true, result: "inline answer" });
-    const [child] = supervisor.list();
-    expect(child).toMatchObject({ background: false, status: "completed" });
-    const steered = await call("steer_subagent", { id: child!.id, action: "pause" }, supervisor);
-    expect(steered.success).toBe(false);
-  });
-
-  it("explains that background runs need a run to hold them", async () => {
-    const result = await call("spawn_subagent", { task: "t", background: true }, undefined);
+  it("refuses to delegate in a run that cannot hold sub-agents", async () => {
+    const result = await call("spawn_subagent", { task: "t" }, undefined);
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Omit background");
+    expect(result.error).toContain("Do this task yourself");
   });
 
   it("names an unknown agentId in wait_subagents", async () => {
