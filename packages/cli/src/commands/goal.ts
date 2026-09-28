@@ -8,8 +8,6 @@
  * 2 the request needs answers before a plan can be drafted.
  */
 
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
-import { isDaemonSupervised } from "@jazz/adapters/daemon/service-install";
 import {
   activateGoal,
   answerGoal,
@@ -19,6 +17,7 @@ import {
   proposeGoal,
   type GoalProposal,
 } from "@jazz/adapters/goals/goal-actions";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
@@ -26,6 +25,7 @@ import type { GoalControl } from "@jazz/core/agent/goal/goal-controls";
 import type { GoalBudget } from "@jazz/core/agent/goal/goal-record";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
+import { isDaemonSupervised } from "@jazz/daemon/service-install";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";

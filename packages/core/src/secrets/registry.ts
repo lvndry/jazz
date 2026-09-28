@@ -75,7 +75,7 @@ export const DAEMON_TOKEN_ENV_VAR = "JAZZ_DAEMON_TOKEN";
 /**
  * The keyring entry holding the daemon's operator token, which HTTP policy grants need on top of
  * the daemon token. It has no environment variable and no file fallback, and it is left out of
- * {@link SECRET_PATHS} so it is never loaded into the app config; see `daemon/operator-token`.
+ * {@link SECRET_PATHS} so it is never loaded into the app config; see `packages/daemon/src/operator-token.ts`.
  */
 export const DAEMON_OPERATOR_TOKEN_PATH = "daemon.operatorToken";
 

@@ -12,8 +12,8 @@ import {
   bumpPromotionThreshold,
   type CommandApprovals,
 } from "@jazz/adapters/command-approval-tracker";
-import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/daemon/goal-worker";
 import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
+import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/goals/goal-worker";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";

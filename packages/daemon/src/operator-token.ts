@@ -28,15 +28,15 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { DAEMON_OPERATOR_TOKEN_PATH } from "@jazz/core/secrets/registry";
-import { Effect } from "effect";
 import {
   detectKeyringBackend,
   keyringDelete,
   keyringGet,
   keyringSet,
   type KeyringBackend,
-} from "@/adapters/secrets/keyring";
+} from "@jazz/adapters/secrets/keyring";
+import { DAEMON_OPERATOR_TOKEN_PATH } from "@jazz/core/secrets/registry";
+import { Effect } from "effect";
 
 /** Request header carrying the operator token. */
 export const OPERATOR_TOKEN_HEADER = "x-jazz-operator-token";

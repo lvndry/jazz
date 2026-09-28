@@ -4,7 +4,7 @@
  *
  * `status` joins four sources, each answering part of the question: the `/health` probe (is
  * something serving this port, and is it this Jazz home's daemon), the pidfile, the status
- * record the daemon writes every tick (`@jazz/adapters/daemon/daemon-status`: last tick, runs
+ * record the daemon writes every tick (`@jazz/daemon/daemon-status`: last tick, runs
  * in flight, recent tick failures), and whether systemd or launchd supervises it. It also
  * counts the reminders, wake triggers and job batches waiting on it. Exit code 0 when this
  * home's daemon answers, 1 otherwise, so a script can check it.
@@ -16,14 +16,14 @@
 
 import { existsSync } from "node:fs";
 import * as nodeFs from "node:fs/promises";
-import { readDaemonStatus, type DaemonStatusRecord } from "@jazz/adapters/daemon/daemon-status";
+import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
+import { isProcessAlive } from "@jazz/core/utils/process";
+import { readDaemonStatus, type DaemonStatusRecord } from "@jazz/daemon/daemon-status";
 import {
   detectInitSystem,
   isDaemonSupervised,
   SYSTEMD_SERVICE_NAME,
-} from "@jazz/adapters/daemon/service-install";
-import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
-import { isProcessAlive } from "@jazz/core/utils/process";
+} from "@jazz/daemon/service-install";
 import { Effect } from "effect";
 import { backgroundDaemonLogPath } from "@/cli/commands/daemon";
 import { readDaemonAttention, formatDaemonAttention } from "@/cli/commands/daemon-attention";

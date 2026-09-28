@@ -10,7 +10,6 @@
  * conversation.
  */
 
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   activateGoal,
   answerGoal,
@@ -19,6 +18,7 @@ import {
   listOwnedGoals,
   proposedGoals,
 } from "@jazz/adapters/goals/goal-actions";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { directGoalPlan, type GoalRecord } from "@jazz/core/agent/goal/goal-record";

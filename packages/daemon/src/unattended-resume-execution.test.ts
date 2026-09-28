@@ -8,6 +8,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
+import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
+import {
+  claimDueWakeTriggers,
+  settleWakeTrigger,
+  WAKE_TRIGGER_STORE,
+} from "@jazz/adapters/wake-trigger-service";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse } from "@jazz/core/agent/types";
@@ -19,12 +25,6 @@ import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
-import { loadConversationOrNull } from "../history/conversation-history-service";
-import {
-  claimDueWakeTriggers,
-  settleWakeTrigger,
-  WAKE_TRIGGER_STORE,
-} from "../wake-trigger-service";
 import { runUnattendedTurn } from "./unattended-resume";
 
 const agent: Agent = {

@@ -10,6 +10,22 @@
  */
 
 import * as os from "node:os";
+import {
+  archiveBatch,
+  archiveCompletedBatches,
+  claimBatchFanIn,
+  claimDueJobs,
+  completeJob,
+  jobClaimKey,
+  listAgentIdsWithActiveBatches,
+  listUndeliveredBatches,
+  nextClaimableAt,
+  reclaimExpiredLeases,
+  renewJobLease,
+  settleBatchFanIn,
+  type ClaimedJob,
+} from "@jazz/adapters/job-queue-service";
+import { inFlight } from "@jazz/adapters/runs/runs-in-flight";
 import { tailForModel } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
@@ -26,23 +42,7 @@ import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Cause, Duration, Effect, Exit, Schedule } from "effect";
-import { inFlight } from "@/adapters/daemon/runs-in-flight";
-import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
-import {
-  archiveBatch,
-  archiveCompletedBatches,
-  claimBatchFanIn,
-  claimDueJobs,
-  completeJob,
-  jobClaimKey,
-  listAgentIdsWithActiveBatches,
-  listUndeliveredBatches,
-  nextClaimableAt,
-  reclaimExpiredLeases,
-  renewJobLease,
-  settleBatchFanIn,
-  type ClaimedJob,
-} from "@/adapters/job-queue-service";
+import { runUnattendedTurn } from "@/daemon/unattended-resume";
 
 function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;

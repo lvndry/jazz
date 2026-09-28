@@ -6,7 +6,7 @@
  * it has exited. These commands are how a person finds it and answers it.
  */
 
-import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
+import { resumeOwnedRun } from "@jazz/adapters/runs/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";

@@ -6,7 +6,6 @@
  * asking, since nobody watches its runs.
  */
 
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
 import {
   answerLoop,
   controlLoop,
@@ -15,6 +14,7 @@ import {
   loopsWaitingOnUser,
   startLoop,
 } from "@jazz/adapters/loops/loop-actions";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
