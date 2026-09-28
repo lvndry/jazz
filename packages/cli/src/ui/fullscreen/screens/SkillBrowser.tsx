@@ -8,9 +8,15 @@
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import type { ReactNode } from "react";
-import { windowStart } from "./AgentPicker";
 import { getGlyphs } from "../../glyphs";
-import { filterSkills, skillDetailRows, skillLine } from "../../skill-browser";
+import {
+  filterSkills,
+  skillDetailBodyRows,
+  skillDetailRows,
+  skillLine,
+  skillListRows,
+} from "../../skill-browser";
+import { centredWindowStart } from "../../text/picker-window";
 import { clipTerminalCells } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
 import { CaretValue } from "../overlays/TextPrompt";
@@ -18,16 +24,6 @@ import type { Viewport } from "../types";
 
 const GUTTER = 2;
 const RIGHT = 2;
-const LIST_FRAME_ROWS = 5;
-const DETAIL_FRAME_ROWS = 4;
-
-export function skillListRows(viewport: Viewport): number {
-  return Math.max(1, viewport.height - LIST_FRAME_ROWS - (viewport.width < 60 ? 1 : 0));
-}
-
-export function skillDetailBodyRows(viewport: Viewport): number {
-  return Math.max(1, viewport.height - DETAIL_FRAME_ROWS);
-}
 
 export interface SkillBrowserProps {
   readonly skills: readonly SkillMetadata[];
@@ -108,7 +104,7 @@ export function SkillBrowser({
   }
 
   const listHeight = skillListRows(viewport);
-  const start = windowStart(filtered.length, active, listHeight);
+  const start = centredWindowStart(filtered.length, active, listHeight);
   const sourceWidth = Math.min(9, Math.max(6, Math.floor(content / 4)));
   const nameWidth = Math.max(1, content - sourceWidth - 2);
   const position = filtered.length === 0 ? "no matches" : `${active + 1} of ${filtered.length}`;

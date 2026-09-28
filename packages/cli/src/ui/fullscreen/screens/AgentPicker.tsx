@@ -34,6 +34,7 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
+import { centredWindowStart } from "../../text/picker-window";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
 import { CaretValue } from "../overlays/TextPrompt";
@@ -218,10 +219,6 @@ export function listRowsFor(viewport: Viewport): number {
  * the names move past it, except at the top and the bottom where the list has
  * somewhere to stand.
  */
-export function windowStart(count: number, selected: number, rows: number): number {
-  if (count <= rows) return 0;
-  return clamp(selected - Math.floor(rows / 2), 0, count - rows);
-}
 
 function positionLabel(
   total: number,
@@ -336,7 +333,7 @@ export function AgentPicker({
   const filtering = oneLine(query).length > 0;
   const matches = filterAgents(agents, query);
   const selected = clamp(selectedIndex, 0, Math.max(0, matches.length - 1));
-  const start = windowStart(matches.length, selected, rows);
+  const start = centredWindowStart(matches.length, selected, rows);
   const visible = matches.slice(start, start + rows);
 
   return (

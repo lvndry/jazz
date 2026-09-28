@@ -98,7 +98,6 @@ import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../p
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
 import { readPromptStep } from "../prompt-core/stepper";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
-import { filterSkills, skillDetailRows } from "../skill-browser";
 import {
   store,
   useEphemeralSlice,
@@ -117,14 +116,17 @@ import { previewTheme } from "../theme";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import type { FilePickerModel } from "./overlays/FilePicker";
+import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
+import { filterSkills, skillDetailRows } from "../skill-browser";
+import { skillDetailBodyRows, skillListRows } from "../skill-browser";
 import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
 import type { QuestionStep } from "./overlays/stepper";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
+import { AgentDetails } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { MenuScreen } from "./screens/Menu";
-import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
+import { SkillBrowser } from "./screens/SkillBrowser";
 import { foldTurn } from "./turn-fold";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */

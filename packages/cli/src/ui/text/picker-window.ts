@@ -41,6 +41,17 @@ export function pickerWindowStart(selected: number, length: number, size: number
   return Math.max(0, Math.min(selected - size + 1, length - size));
 }
 
+/**
+ * First visible row of a centred window: the selection sits mid-window where it can,
+ * and the window clamps at both ends rather than wrapping.
+ */
+export function centredWindowStart(count: number, selected: number, rows: number): number {
+  if (count <= rows) {
+    return 0;
+  }
+  return Math.min(Math.max(selected - Math.floor(rows / 2), 0), count - rows);
+}
+
 export function pickerWindow<Item>(
   items: readonly Item[],
   selected: number,

@@ -51,3 +51,25 @@ export function skillDetailRows(skill: SkillMetadata, width: number): readonly S
   }
   return rows;
 }
+
+const LIST_FRAME_ROWS = 5;
+const DETAIL_FRAME_ROWS = 4;
+/** Below this width the key legend wraps to a second row, which the list gives up. */
+const NARROW_LEGEND_WIDTH = 60;
+
+/** How many skills the list shows under its frame, on either renderer. */
+export function skillListRows(viewport: {
+  readonly width: number;
+  readonly height: number;
+}): number {
+  const legendRows = viewport.width < NARROW_LEGEND_WIDTH ? 1 : 0;
+  return Math.max(1, viewport.height - LIST_FRAME_ROWS - legendRows);
+}
+
+/** How many rows a skill's detail body shows under its frame, on either renderer. */
+export function skillDetailBodyRows(viewport: {
+  readonly width: number;
+  readonly height: number;
+}): number {
+  return Math.max(1, viewport.height - DETAIL_FRAME_ROWS);
+}

@@ -17,8 +17,7 @@
 import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
-import { renderForTest } from "../test-helpers";
-import { AgentDetails, agentDetailsRows } from "./AgentDetails";
+import { AgentDetails } from "./AgentDetails";
 import {
   AgentPicker,
   agentColumns,
@@ -28,7 +27,9 @@ import {
 } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
+import { agentDetailsRows } from "../../models/agent-details";
 import { THEME } from "../../theme";
+import { renderForTest } from "../test-helpers";
 import type { Viewport } from "../types";
 
 const WIDE: Viewport = { width: 100, height: 28 };
