@@ -799,27 +799,3 @@ export function formatToolResult(toolName: string, result: string): string {
     return truncateDisplayText(result);
   }
 }
-
-const SNIPPET_MAX_CHARS = 240;
-const SNIPPET_MAX_LINES = 3;
-
-function isStructuralJsonLine(line: string): boolean {
-  return line === "{" || line === "}" || line === "[" || line === "]" || line === "{},";
-}
-
-/**
- * Up to three content lines from a formatted tool result for a settled receipt.
- * Skips brace-only JSON so a pretty-printed object cannot collapse to `{`.
- */
-export function toolResultSnippet(text: string): string {
-  const lines: string[] = [];
-  for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0 || isStructuralJsonLine(trimmed)) continue;
-    lines.push(trimmed.replace(/\s+/g, " "));
-    if (lines.length >= SNIPPET_MAX_LINES) break;
-  }
-  const joined = lines.join(" · ");
-  if (joined.length <= SNIPPET_MAX_CHARS) return joined;
-  return `${joined.slice(0, SNIPPET_MAX_CHARS - 1)}…`;
-}

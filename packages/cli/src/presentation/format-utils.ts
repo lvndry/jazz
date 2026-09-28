@@ -26,11 +26,7 @@ import {
 import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
-export {
-  compactToolArguments,
-  formatToolDisplayName,
-  toolResultSnippet,
-} from "@jazz/core/utils/tool-formatter";
+export { compactToolArguments, formatToolDisplayName } from "@jazz/core/utils/tool-formatter";
 
 // ---------------------------------------------------------------------------
 // Tool formatting (delegates to core)

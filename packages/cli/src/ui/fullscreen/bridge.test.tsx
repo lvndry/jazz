@@ -2890,7 +2890,7 @@ describe("fullscreen bridge", () => {
       expect(text).toContain("4 flagged of 26");
     });
 
-    it("shows the args used and a snippet of the tool output", async () => {
+    it("shows the args used and the outcome, never the output itself", async () => {
       const text = await frame(() => {
         const accumulator = createAccumulator("cassandra");
         const result = JSON.stringify({
@@ -2919,8 +2919,8 @@ describe("fullscreen bridge", () => {
       });
       expect(text).toContain("view_memory");
       expect(text).toContain("path: /");
-      expect(text).toContain("Here're the files");
-      expect(text).not.toMatch(/view_memory\s+\{/);
+      expect(text).toContain("1 entry");
+      expect(text).not.toContain("Here're the files");
     });
 
     it("leaves no escape sequence in a frame built from formatted markdown", async () => {

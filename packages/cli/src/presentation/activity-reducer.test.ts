@@ -308,7 +308,7 @@ describe("activity-reducer", () => {
         summary?: string;
       };
       expect(receipt?.classifiedRisk).toBe("read-only");
-      expect(receipt?.summary).toContain("Python 3.14.5");
+      expect(receipt?.summary).toBe("1 line");
     });
 
     test("tool_execution_start for view_memory shows root when path is empty", () => {
@@ -375,7 +375,7 @@ describe("activity-reducer", () => {
       expect(result.outputs[0]!.type).toBe("log");
     });
 
-    test("tool_execution_complete receipt carries args and an output snippet", () => {
+    test("tool_execution_complete receipt carries args and an outcome, never the output itself", () => {
       const a = acc();
       a.activeTools.set("mem-1", {
         toolName: "view_memory",
@@ -390,7 +390,11 @@ describe("activity-reducer", () => {
           toolCallId: "mem-1",
           result: JSON.stringify({
             formatted: "Here're the files and directories up to 2 levels deep in /:\n/notes.txt",
-            outcome: { kind: "directory" },
+            outcome: {
+              kind: "directory",
+              path: "/",
+              entries: [{ kind: "file", name: "notes.txt" }],
+            },
           }),
           durationMs: 12,
           success: true,
@@ -402,8 +406,7 @@ describe("activity-reducer", () => {
         { app?: string; args?: string; summary?: string } | undefined;
       expect(receipt?.app).toBe("view_memory");
       expect(receipt?.args).toBe("path: /");
-      expect(receipt?.summary).toContain("Here're the files");
-      expect(receipt?.summary).not.toBe("{");
+      expect(receipt?.summary).toBe("1 entry");
     });
 
     test("tool_execution_complete keeps tool-execution phase when other tools remain", () => {

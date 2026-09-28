@@ -24,8 +24,8 @@ import {
   formatToolArguments,
   formatToolDisplayName,
   formatToolResult,
-  toolResultSnippet,
 } from "./format-utils";
+import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
@@ -405,6 +405,7 @@ export function reduceEvent(
       acc.activeTools.delete(event.toolCallId);
 
       const failed = event.success === false;
+      const denied = failed && isRejectedResult(event.result);
 
       let summary = event.summary?.trim();
       const failureReason = failed ? event.error?.trim() || "Tool execution failed" : undefined;
@@ -434,17 +435,23 @@ export function reduceEvent(
       // to parse ANSI back into meaning. `meta` keeps it in the output stream,
       // which is what preserves ordering relative to the surrounding turns.
       const plainBody = stripAnsiCodes(summary ?? "");
-      const snippet = toolResultSnippet(plainBody);
+      const explicitSummary = event.summary?.trim();
+      const outcome =
+        explicitSummary !== undefined &&
+        explicitSummary.length > 0 &&
+        !explicitSummary.includes("\n")
+          ? explicitSummary
+          : receiptOutcome(event.result);
       const argsPreview = toolEntry?.argsPreview?.trim();
       const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
       const receipt = {
         app: toolName ?? "tool",
-        summary: failed ? "" : snippet.length > 0 ? snippet : (toolName ?? "tool"),
-        status: failed ? "failed" : "ok",
+        summary: failed ? "" : (outcome ?? ""),
+        status: denied ? "denied" : failed ? "failed" : "ok",
         durationMs: event.durationMs,
         ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
-        ...(failureReason !== undefined ? { reason: failureReason } : {}),
-        ...(!failed && plainBody.length > 0 && plainBody !== snippet ? { detail: summary } : {}),
+        ...(failureReason !== undefined && !denied ? { reason: failureReason } : {}),
+        ...(!failed && plainBody.length > 0 && plainBody !== outcome ? { detail: summary } : {}),
         ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
       };
 
