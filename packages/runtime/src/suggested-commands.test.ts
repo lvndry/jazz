@@ -30,8 +30,8 @@ const SOURCE_ROOTS = ["packages", "plugins"].flatMap((parent) =>
     .filter((root) => existsSync(path.join(REPO_ROOT, root)) && !NOT_CLI_SOURCE.has(root)),
 );
 const DOCS_ROOT = "docs";
-/** Planning notes under docs/ that are not published and may name future commands. */
-const UNPUBLISHED_DOCS = ["docs/superpowers"];
+/** Planning notes under docs/ that the website does not publish (see its content.config.ts) and that may name future commands. */
+const UNPUBLISHED_DOCS = ["docs/superpowers", "docs/plans"];
 
 function filesUnder(root: string, extensions: readonly string[]): string[] {
   const absoluteRoot = path.join(REPO_ROOT, root);
