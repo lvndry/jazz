@@ -18,7 +18,9 @@ import {
   carryEgressTaint,
   createEgressTaint,
   detachedResultMessage,
+  egressRequestMethod,
   recordEgressTaint,
+  taintedEgressApprovalMessage,
   taintedEgressNeedsApproval,
 } from "./egress-taint";
 import { ToolBatchLedger } from "./tool-batch-ledger";
@@ -148,6 +150,36 @@ describe("recordEgressTaint", () => {
   it("changes nothing for a clean run", () => {
     const messages: ChatMessage[] = [{ role: "user", content: "task" }];
     expect(recordEgressTaint(messages, createEgressTaint())).toBe(messages);
+  });
+});
+
+describe("egressRequestMethod", () => {
+  it("names GET for the URL tools that only fetch", () => {
+    expect(egressRequestMethod("web_fetch", { url: "https://example.com" })).toBe("GET");
+    expect(egressRequestMethod("read_pdf", { url: "https://example.com/a.pdf" })).toBe("GET");
+  });
+
+  it("uppercases the method an http_request call chose", () => {
+    expect(
+      egressRequestMethod("http_request", { url: "https://example.com", method: "post" }),
+    ).toBe("POST");
+  });
+
+  it("names nothing for a call without a URL or a tool that does not say", () => {
+    expect(egressRequestMethod("read_pdf", { path: "/tmp/a.pdf" })).toBeUndefined();
+    expect(egressRequestMethod("mcp_search", { url: "https://example.com" })).toBeUndefined();
+  });
+});
+
+describe("taintedEgressApprovalMessage", () => {
+  it("states the method beside the destination", () => {
+    const url = "https://www.bing.com/search?q=PR4G";
+    expect(taintedEgressApprovalMessage("web_fetch", { url }, taintedRun())).toContain(
+      `Request: GET ${url}`,
+    );
+    expect(
+      taintedEgressApprovalMessage("http_request", { url, method: "POST" }, taintedRun()),
+    ).toContain(`Request: POST ${url}`);
   });
 });
 

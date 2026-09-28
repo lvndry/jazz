@@ -21,7 +21,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { MAX_PRIVATE_HOST_ENTRIES } from "@/core/utils/private-network";
-import { policyApprovesTaintedEgress } from "./egress-taint";
+import { egressRequestMethod, policyApprovesTaintedEgress } from "./egress-taint";
 
 /** The private addresses an egress call's `url` reaches that nothing has allowed yet. */
 export function unlistedPrivateAddressesFor(
@@ -60,9 +60,10 @@ export function privateDestinationApprovalMessage(
   addresses: readonly string[],
 ): string {
   const url = typeof args["url"] === "string" ? args["url"] : "a URL";
+  const method = egressRequestMethod(toolName, args);
   const listed = addresses.join(", ");
   return (
-    `${toolName} wants to reach ${url}, which is on this machine or your local network ` +
+    `${toolName} wants to ${method === undefined ? "reach" : `send ${method} to`} ${url}, which is on this machine or your local network ` +
     `(${listed}).\nApproving adds ${listed} to network.allowPrivateHosts in your Jazz config, ` +
     "so later requests there go through without asking."
   );
