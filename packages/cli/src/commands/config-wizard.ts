@@ -249,9 +249,11 @@ function configureLLMProviders() {
           ) {
             continue;
           }
-          const serverKey = yield* terminal.password(
+          const serverKey = yield* terminal.ask(
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
+            { simple: true, secret: true, cancellable: true },
           );
+          if (serverKey === undefined) continue;
           if (serverKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, serverKey);
             yield* terminal.success(`${providerDisplay} API key updated.`);
@@ -265,9 +267,11 @@ function configureLLMProviders() {
           ) {
             continue;
           }
-          const cloudKey = yield* terminal.password(
+          const cloudKey = yield* terminal.ask(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
+            { simple: true, secret: true, cancellable: true },
           );
+          if (cloudKey === undefined) continue;
           if (cloudKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, cloudKey);
             yield* terminal.success("Ollama Cloud API key updated.");
@@ -332,9 +336,11 @@ function configureLLMProviders() {
         continue;
       }
 
-      const apiKey = yield* terminal.password(
+      const apiKey = yield* terminal.ask(
         `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
+        { simple: true, secret: true, cancellable: true },
       );
+      if (apiKey === undefined) continue;
 
       if (apiKey?.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -426,9 +432,11 @@ function configureWebSearchProviders() {
         ) {
           continue;
         }
-        const apiKey = yield* terminal.password(
+        const apiKey = yield* terminal.ask(
           `Enter API Key for ${provider} (leave empty to keep current):`,
+          { simple: true, secret: true, cancellable: true },
         );
+        if (apiKey === undefined) continue;
 
         if (apiKey?.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
