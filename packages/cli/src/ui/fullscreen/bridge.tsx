@@ -85,6 +85,7 @@ import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import { foldTurnReasoning } from "./reasoning-fold";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
@@ -829,6 +830,7 @@ export function blocksFrom(
         kind: "reasoning",
         text: region.tail.join("\n"),
         collapsed: false,
+        live: true,
       });
       continue;
     }
@@ -846,7 +848,7 @@ export function blocksFrom(
       state: "running",
     });
   }
-  return blocks;
+  return foldTurnReasoning(blocks);
 }
 
 // `previous` is undefined on the first block or a missing cache slot; still
@@ -872,7 +874,8 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.collapsed === current.collapsed &&
         previous.steps === current.steps &&
         previous.durationMs === current.durationMs &&
-        previous.tokens === current.tokens
+        previous.tokens === current.tokens &&
+        previous.live === current.live
       );
     case "tool":
       return (

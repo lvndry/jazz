@@ -87,9 +87,13 @@ export interface ReasoningBlock extends BlockBase {
   readonly kind: "reasoning";
   readonly text: string;
   readonly collapsed: boolean;
+  /** How many reasoning steps a folded line stands for. */
   readonly steps?: number;
+  /** Total once settled. A live block has none: the live zone ticks the elapsed time. */
   readonly durationMs?: number;
   readonly tokens?: number;
+  /** The model is still thinking: only the newest lines show, under a live label. */
+  readonly live?: boolean;
 }
 
 /**

@@ -108,6 +108,8 @@ export interface GlyphSet {
   /** Speaker rail drawn down the left of transcript lines */ readonly rail: string;
   /** Subordinate rail, one level deeper (reasoning, delegated lanes) */ readonly railDeep: string;
   /** Heavy bar down the left edge of a band: a user message, the composer, cards and menus */ readonly bandBar: string;
+  /** A folded section that opens on a key */ readonly folded: string;
+  /** A section that is open and can fold again */ readonly unfolded: string;
 
   // ─── Activity indicator (multi-cell, expresses parallel work) ────────
   /**
@@ -189,6 +191,8 @@ const ASCII: GlyphSet = {
   note: "*",
   rail: "|",
   railDeep: ":",
+  folded: ">",
+  unfolded: "v",
   bandBar: "|",
 
   lanePeriods: [3, 4, 5, 7, 11],
@@ -272,6 +276,8 @@ const UNICODE: GlyphSet = {
   note: "▞",
   rail: "▎",
   railDeep: "▏",
+  folded: "›",
+  unfolded: "╷",
   bandBar: "┃",
 
   lanePeriods: [3, 4, 5, 7, 11],

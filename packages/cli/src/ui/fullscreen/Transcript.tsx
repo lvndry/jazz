@@ -1561,53 +1561,93 @@ function streamingFenceRows(
   return rows;
 }
 
+/** While the model thinks, only its newest lines show, so reasoning cannot push the conversation away. */
+export const LIVE_REASONING_LINES = 3;
+
+function thoughtLabel(block: Extract<Block, { kind: "reasoning" }>): string {
+  const duration = block.durationMs === undefined ? "" : ` for ${formatDuration(block.durationMs)}`;
+  const steps = block.steps ?? 1;
+  return `thought${duration}${steps > 1 ? ` across ${String(steps)} steps` : ""}`;
+}
+
+/**
+ * Reasoning is the model's scratchpad, never its answer: italic, muted, behind
+ * a thin rule, and at a narrower measure. It has three states.
+ *
+ * - Live: an italic "thinking" label with the elapsed time, and the newest
+ *   lines only.
+ * - Folded (settled): one line per turn, `› thought for 4.1s · ctrl+r to read`.
+ * - Opened with ctrl+r: the full text under `╷ thought for 4.1s`, with the key
+ *   that folds it again.
+ */
 function reasoningRows(
   block: Extract<Block, { kind: "reasoning" }>,
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
   const rail = railCell(THEME.border);
-  const meta: readonly Segment[] =
-    block.durationMs !== undefined && geometry.metadata > 0
-      ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
-      : [];
+  const gutter: readonly Segment[] = [rail, BLANK_CELL];
+  const indent: Segment = { text: " ".repeat(REASONING_INDENT), fg: THEME.border };
+  const row = (
+    key: string,
+    content: readonly Segment[],
+    meta: readonly Segment[] = [],
+  ): RenderRow => ({
+    key,
+    gutter,
+    content,
+    contentWidth: geometry.prose,
+    meta,
+  });
+  const separator = ` ${glyphs.bullet} `;
 
   if (block.collapsed) {
-    const steps = block.steps ?? 0;
-    const parts = [steps > 0 ? `thought ${String(steps)} steps` : "thought", "ctrl+r expands"];
     return [
-      {
-        key: `${block.id}:0`,
-        gutter: [rail, BLANK_CELL],
-        content: [
-          {
-            text: `${" ".repeat(REASONING_INDENT)}${parts.join(` ${glyphs.bullet} `)}`,
-            fg: THEME.muted,
-          },
-        ],
-        contentWidth: geometry.prose,
-        meta,
-      },
+      row(`${block.id}:0`, [
+        indent,
+        { text: `${glyphs.folded} ${thoughtLabel(block)}`, fg: THEME.muted },
+        { text: `${separator}ctrl+r to read`, fg: THEME.muted },
+      ]),
     ];
   }
 
   // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
   const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
+  const ruled: Segment = { text: `${glyphs.railDeep} `, fg: THEME.border };
   const text = spaceReasoningSections(block.text);
-  const lines = wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT);
-  const rows: RenderRow[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line === undefined) continue;
-    rows.push({
-      key: `${block.id}:${String(index)}`,
-      gutter: [rail, BLANK_CELL],
-      content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
-      contentWidth: geometry.prose,
-      meta: index === 0 ? meta : [],
-    });
+  const wrapped = wrap([{ text, fg: THEME.muted, italic: true }], measure - REASONING_INDENT - 2);
+  const bodyRows = (lines: readonly (readonly Segment[])[], keyOffset: number): RenderRow[] =>
+    lines.map((line, index) =>
+      row(`${block.id}:${String(keyOffset + index)}`, [indent, ruled, ...line]),
+    );
+
+  if (block.live === true) {
+    const elapsed: readonly Segment[] =
+      block.durationMs !== undefined && geometry.metadata > 0
+        ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
+        : [];
+    const newest = text.trim().length === 0 ? [] : wrapped.slice(-LIVE_REASONING_LINES);
+    return [
+      row(
+        `${block.id}:label`,
+        [indent, { text: "thinking", fg: THEME.secondary, italic: true }],
+        elapsed,
+      ),
+      ...bodyRows(newest, Math.max(0, wrapped.length - newest.length)),
+    ];
   }
-  return rows;
+
+  return [
+    row(`${block.id}:label`, [
+      indent,
+      { text: `${glyphs.unfolded} ${thoughtLabel(block)}`, fg: THEME.secondary },
+    ]),
+    ...bodyRows(wrapped, 0),
+    row(`${block.id}:fold`, [
+      indent,
+      { text: `ctrl+r to fold${separator}again for the previous block`, fg: THEME.muted },
+    ]),
+  ];
 }
 
 /**
