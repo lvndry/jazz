@@ -433,6 +433,45 @@ describe("turn runner", () => {
     await turn;
   });
 
+  test("tryAnswerPending approves with a matching choice", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
+    await Bun.sleep(5);
+
+    expect(await runner.tryAnswerPending(message("1"))).toBe(true);
+    expect(current?.decisions).toEqual([{ toolCallId: "tc1", approved: true }]);
+
+    current?.finish();
+    await turn;
+  });
+
+  test("tryAnswerPending refuses unrelated text during an approval and never queues it", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
+    await Bun.sleep(5);
+
+    expect(await runner.tryAnswerPending(message("lunch anyone?"))).toBe(false);
+    expect(await runner.tryAnswerPending(message("1", OTHER_MEMBER))).toBe(false);
+    expect(current?.decisions).toEqual([]);
+
+    current?.finish();
+    await turn;
+    expect(runsStarted).toEqual(["hello"]);
+  });
+
+  test("tryAnswerPending takes any text as the answer to a free-text question", async () => {
+    const { turn } = await startTurn();
+    current?.emit({ type: "user_input_required", requestId: "q1", question: "name the file?" });
+    await Bun.sleep(5);
+
+    expect(await runner.tryAnswerPending(message("notes.md", OTHER_MEMBER))).toBe(false);
+    expect(await runner.tryAnswerPending(message("notes.md"))).toBe(true);
+    expect(current?.answers).toEqual([{ requestId: "q1", response: "notes.md" }]);
+
+    current?.finish();
+    await turn;
+  });
+
   test("another member cannot cancel someone else's run, an operator can", async () => {
     const { turn } = await startTurn();
     expect(runner.cancel("c1", OTHER_MEMBER)).toBe("not-requester");

@@ -2,10 +2,15 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, spyOn } from "bun:test";
-import { seedBlindSuccessorState, tasks as blindSuccessorTasks } from "./blind-successor";
+import { describe, expect, it } from "bun:test";
+import {
+  createBlindSuccessorTask,
+  seedBlindSuccessorState,
+  tasks as blindSuccessorTasks,
+} from "./blind-successor";
 import { tasks as killTestTasks } from "./kill-test";
 import { continuityCheck, sawCompaction } from "../../checks";
+import type { RunJazzOptions } from "../../run-jazz";
 import { emptyResult, type OneShotResult } from "../../types";
 
 function answer(text: string): OneShotResult {
@@ -79,16 +84,10 @@ describe("blind-successor task", () => {
 
   it("seeds working state and nothing else, so state alone is under test", () => {
     const jazzHome = mkdtempSync(join(tmpdir(), "eval-blind-"));
-    const workspaceDir = mkdtempSync(join(tmpdir(), "eval-blind-ws-"));
-    const spawn = spyOn(Bun, "spawn").mockImplementation(() => {
-      throw new Error("Fixture seeding must not start the Jazz runtime");
-    });
     try {
       seedBlindSuccessorState(jazzHome, "eval-sut");
 
-      expect(spawn).not.toHaveBeenCalled();
       expect(readdirSync(jazzHome)).toEqual(["work"]);
-      expect(readdirSync(workspaceDir)).toEqual([]);
 
       const workDir = join(jazzHome, "work", "eval-sut", "continuity-blind-successor");
       const state = JSON.parse(readFileSync(join(workDir, "state.json"), "utf-8")) as {
@@ -102,7 +101,50 @@ describe("blind-successor task", () => {
       expect(journal.split("\n").length).toBe(1);
       expect(JSON.parse(journal)).toHaveProperty("summary");
     } finally {
-      spawn.mockRestore();
+      rmSync(jazzHome, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the successor on seeded state with no prior conversation", async () => {
+    const jazzHome = mkdtempSync(join(tmpdir(), "eval-blind-run-"));
+    const workspaceDir = mkdtempSync(join(tmpdir(), "eval-blind-run-ws-"));
+    const turns: { options: RunJazzOptions; homeEntries: string[]; stateSeeded: boolean }[] = [];
+    const successor = createBlindSuccessorTask(async (options) => {
+      const workDir = join(jazzHome, "work", options.agentId, "continuity-blind-successor");
+      turns.push({
+        options,
+        homeEntries: readdirSync(jazzHome),
+        stateSeeded: readdirSync(workDir).includes("state.json"),
+      });
+      return answer("fake successor answer");
+    });
+    try {
+      if (successor.run === undefined) {
+        throw new Error("the blind-successor task must override its rollout");
+      }
+      const result = await successor.run({
+        agentId: "eval-sut",
+        workspaceDir,
+        cassettePath: join(workspaceDir, "cassette.json"),
+        timeoutMs: 1_000,
+        runId: "run-1",
+        jazzHome,
+        environment: {},
+        stubRoot: workspaceDir,
+      });
+
+      expect(result.answer).toBe("fake successor answer");
+      expect(turns).toHaveLength(1);
+      expect(turns[0]?.stateSeeded).toBe(true);
+      expect(turns[0]?.homeEntries).toEqual(["work"]);
+      expect(turns[0]?.options).toMatchObject({
+        agentId: "eval-sut",
+        conversationId: "continuity-blind-successor",
+        jazzHome,
+        prompt: successor.prompt,
+      });
+      expect(readdirSync(workspaceDir)).toEqual([]);
+    } finally {
       rmSync(jazzHome, { recursive: true, force: true });
       rmSync(workspaceDir, { recursive: true, force: true });
     }

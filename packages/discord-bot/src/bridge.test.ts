@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { JazzEnvelope, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import { renderPlain, type OutgoingMessage } from "@jazz/bot-shared/surface";
 import { todayUsage } from "@jazz/bot-shared/usage-store";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   type Bridge,
   type BridgeConfig,
@@ -27,6 +27,7 @@ let sent: OutgoingMessage[];
 let bridge: Bridge;
 let runHandlers: JazzRunHandlers;
 let questionAnswers: { requestId: string; response: string }[];
+let approvals: { toolCallId: string; approved: boolean }[];
 
 function fakeSurface(): DiscordSurface {
   return {
@@ -89,7 +90,10 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
     result,
     cancelled: () => false,
     lastSpend: () => undefined,
-    approve: () => Promise.resolve(),
+    approve: (decisions) => {
+      approvals.push(...decisions);
+      return Promise.resolve();
+    },
     answerQuestion: (requestId, response) => {
       questionAnswers.push({ requestId, response });
       return Promise.resolve();
@@ -131,6 +135,7 @@ beforeEach(() => {
   );
   runHandlers = {};
   questionAnswers = [];
+  approvals = [];
   prompts = [];
   finishers = [];
   sent = [];
@@ -151,7 +156,12 @@ const runtime = { botUserId: BOT, applicationId: BOT };
 
 describe("guild questions", () => {
   const OTHER = "300000000000000001";
+  const GUILD_CHANNEL = "200000000000000002";
   let allowedUsers: Set<string>;
+
+  function guildMessage(content: string, extras: Partial<DiscordMessage> = {}): DiscordMessage {
+    return { ...dm(content, extras), channel_id: extras.channel_id ?? GUILD_CHANNEL };
+  }
 
   beforeEach(() => {
     allowedUsers = new Set([OWNER, OTHER]);
@@ -160,7 +170,7 @@ describe("guild questions", () => {
         ...config(),
         createThreads: false,
         allowedUserIds: allowedUsers,
-        allowedChannelIds: new Set([DM_CHANNEL]),
+        allowedChannelIds: new Set([GUILD_CHANNEL]),
       },
       fakeSurface(),
       {
@@ -172,45 +182,95 @@ describe("guild questions", () => {
   });
 
   async function askQuestion(): Promise<{ turn: Promise<void> }> {
-    const turn = dispatchMessage(bridge, runtime, dm(`<@${BOT}> create a note`));
+    const turn = dispatchMessage(bridge, runtime, guildMessage(`<@${BOT}> create a note`));
     await until(() => prompts.length === 1);
     runHandlers.onUserInputRequired?.({
       type: "user_input_required",
       requestId: "q1",
       question: "What should the file be called?",
     });
-    await until(() => bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER));
+    await until(() => bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER));
     return { turn };
   }
 
-  test("the requester can answer without another mention, then chatter is gated again", async () => {
-    const { turn } = await askQuestion();
-    await dispatchMessage(bridge, runtime, dm("notes.md"));
-    expect(questionAnswers).toEqual([{ requestId: "q1", response: "notes.md" }]);
-    expect(bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER)).toBe(false);
+  async function requestApproval(): Promise<{ turn: Promise<void> }> {
+    const turn = dispatchMessage(bridge, runtime, guildMessage(`<@${BOT}> clean the build`));
+    await until(() => prompts.length === 1);
+    runHandlers.onApprovalRequired?.({
+      type: "approval_required",
+      toolCallId: "tc1",
+      toolName: "execute_command",
+    });
+    await until(() => bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER));
+    return { turn };
+  }
+
+  test("the requester approves with a bare choice number, without another mention", async () => {
+    const { turn } = await requestApproval();
+    await dispatchMessage(bridge, runtime, guildMessage("1"));
+    expect(approvals).toEqual([{ toolCallId: "tc1", approved: true }]);
     finishers[0]?.();
     await turn;
-    await dispatchMessage(bridge, runtime, dm("unaddressed chatter"));
+    expect(prompts).toEqual(["clean the build"]);
+  });
+
+  test("unaddressed chatter during an approval is dropped, not queued, and fetches nothing", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const { turn } = await requestApproval();
+      await dispatchMessage(
+        bridge,
+        runtime,
+        guildMessage("lunch anyone?", {
+          attachments: [
+            { id: "a1", filename: "menu.png", url: "https://cdn.example/menu.png", size: 10 },
+          ],
+        }),
+      );
+      expect(approvals).toEqual([]);
+      expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(true);
+      finishers[0]?.();
+      await turn;
+      await until(() => !bridge.runner.busy(GUILD_CHANNEL));
+      expect(prompts).toEqual(["clean the build"]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("the requester can answer without another mention, then chatter is gated again", async () => {
+    const { turn } = await askQuestion();
+    await dispatchMessage(bridge, runtime, guildMessage("notes.md"));
+    expect(questionAnswers).toEqual([{ requestId: "q1", response: "notes.md" }]);
+    expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(false);
+    finishers[0]?.();
+    await turn;
+    await dispatchMessage(bridge, runtime, guildMessage("unaddressed chatter"));
     expect(prompts).toEqual(["create a note"]);
   });
 
   test("a pending question does not bypass sender or channel authorization", async () => {
     const { turn } = await askQuestion();
-    await dispatchMessage(bridge, runtime, dm("someone else's answer", { author: { id: OTHER } }));
     await dispatchMessage(
       bridge,
       runtime,
-      dm(`<@${BOT}> outsider answer`, { author: { id: "500000000000000001" } }),
+      guildMessage("someone else's answer", { author: { id: OTHER } }),
     );
     await dispatchMessage(
       bridge,
       runtime,
-      dm(`<@${BOT}> wrong channel`, { channel_id: "600000000000000001" }),
+      guildMessage(`<@${BOT}> outsider answer`, { author: { id: "500000000000000001" } }),
+    );
+    await dispatchMessage(
+      bridge,
+      runtime,
+      guildMessage(`<@${BOT}> wrong channel`, { channel_id: "600000000000000001" }),
     );
     allowedUsers.delete(OWNER);
-    await dispatchMessage(bridge, runtime, dm("revoked requester's answer"));
+    await dispatchMessage(bridge, runtime, guildMessage("revoked requester's answer"));
     expect(questionAnswers).toEqual([]);
-    expect(bridge.runner.awaitsReplyFrom(DM_CHANNEL, OWNER)).toBe(true);
+    expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(true);
     finishers[0]?.();
     await turn;
     expect(prompts).toEqual(["create a note"]);

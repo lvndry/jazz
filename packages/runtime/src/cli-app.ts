@@ -7,6 +7,7 @@ import {
   VALID_REASONING_EFFORTS,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
+import { failEnvelope } from "@jazz/cli/helpers/json-output";
 import {
   parseDurationMs,
   parsePositiveFloat,
@@ -79,6 +80,17 @@ function cliRuntimeOptions(program: Command): CliRuntimeOptions {
   };
 }
 
+/**
+ * Whether the command being run was given `--json`, set before its action runs. Such a command
+ * promises one JSON envelope on stdout, so a startup failure has to print one too.
+ */
+let invokedCommandWantsJson = false;
+
+/** The `{ ok: false, error }` envelope a `--json` command prints when it cannot start. */
+function printGenericStartupFailureEnvelope(message: string): void {
+  failEnvelope(true, message);
+}
+
 // Actions load the agent stack only when a command actually runs, so
 // `jazz --help` / `jazz --version` stay on the Commander tree.
 async function runCliAction(
@@ -86,9 +98,15 @@ async function runCliAction(
   config: CliRuntimeOptions,
   options?: CliRunOptions,
 ): Promise<void> {
+  const onStartupFailure =
+    options?.onStartupFailure ??
+    (invokedCommandWantsJson ? printGenericStartupFailureEnvelope : undefined);
   try {
     const [{ runCliEffect }, effect] = await Promise.all([import("./app-layer"), loadEffect()]);
-    runCliEffect(effect, config, options);
+    runCliEffect(effect, config, {
+      ...options,
+      ...(onStartupFailure !== undefined ? { onStartupFailure } : {}),
+    });
   } catch (error) {
     console.error("Fatal error:", error);
     throw error;
@@ -3253,6 +3271,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     }
     secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
+    invokedCommandWantsJson = actionCommand.opts()["json"] === true;
   });
 
   registerRunCommand(program);

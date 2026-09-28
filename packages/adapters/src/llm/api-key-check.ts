@@ -75,8 +75,12 @@ export async function checkApiKey(
     if (response.ok) {
       return "accepted";
     }
-    if (response.status === 401) return "rejected";
-    if (response.status === 403) return "permission-denied";
+    if (response.status === 401) {
+      return "rejected";
+    }
+    if (response.status === 403) {
+      return "permission-denied";
+    }
     return "unchecked";
   } catch {
     return "unchecked";

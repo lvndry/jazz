@@ -10,8 +10,14 @@
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
-import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
+import {
+  isRetryableAnswerFailure,
+  judgeAnswer,
+  ranTools,
+  type AnswerFailureCode,
+} from "@jazz/core/agent/run/answer-outcome";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
+import type { AgentResponse } from "@jazz/core/agent/types";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -90,7 +96,49 @@ export type TurnOutcome =
     }
   /** Parked, but never persisted, so there is no run to point anybody at. */
   | { readonly kind: "unresumable" }
+  /**
+   * The run ended without a usable answer (see `judgeAnswer`). `ranTools` says whether it
+   * called tools before that, which makes running the prompt again repeat their effects.
+   */
+  | {
+      readonly kind: "unanswered";
+      readonly code: AnswerFailureCode;
+      readonly error: string;
+      readonly ranTools: boolean;
+      readonly messages: readonly ChatMessage[];
+    }
   | { readonly kind: "failed"; readonly error: string };
+
+/** A run that returned normally, judged: finished with an answer, or unanswered. */
+export function classifyTurnResponse(
+  response: Pick<
+    AgentResponse,
+    | "content"
+    | "artifacts"
+    | "finishReason"
+    | "emptyCompletion"
+    | "interrupted"
+    | "iterationLimited"
+    | "costCapped"
+    | "tokenCapped"
+    | "durationCapped"
+    | "toolCalls"
+    | "messages"
+  >,
+): TurnOutcome {
+  const messages = response.messages ?? [];
+  const verdict = judgeAnswer(response);
+  if (verdict.kind === "failed") {
+    return {
+      kind: "unanswered",
+      code: verdict.code,
+      error: verdict.message,
+      ranTools: ranTools(response),
+      messages,
+    };
+  }
+  return classifyTurnOutcome({ ok: true, messages });
+}
 
 export function classifyTurnOutcome(
   result:
@@ -117,7 +165,10 @@ export function classifyTurnOutcome(
 /**
  * What a turn's outcome means for the item that caused it (a wake trigger, a batch's fan-in):
  * finishing and parking both delivered it (a park is persisted and the daemon announces it), while
- * a failure keeps the item for a retry, with the error text.
+ * a failure keeps the item for a retry, with the error text. A run that called tools and then
+ * gave no answer counts as delivered, because a retry would repeat what those tools did; its
+ * transcript is saved so the conversation shows what ran. A content-filtered answer is kept
+ * without a retry, since the filter withholds it every time.
  */
 export function turnDeliveryOutcome(outcome: TurnOutcome): DeliveryOutcome {
   switch (outcome.kind) {
@@ -129,6 +180,15 @@ export function turnDeliveryOutcome(outcome: TurnOutcome): DeliveryOutcome {
         delivered: false,
         error: "The run stopped for an approval, but its state could not be saved to resume it.",
         retryable: true,
+      };
+    case "unanswered":
+      if (outcome.ranTools) {
+        return { delivered: true };
+      }
+      return {
+        delivered: false,
+        error: outcome.error,
+        retryable: isRetryableAnswerFailure(outcome.code),
       };
     case "failed":
       return { delivered: false, error: outcome.error, retryable: true };
@@ -167,18 +227,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
       origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     }).pipe(
-      Effect.flatMap((response) => {
-        const verdict = judgeAnswer(response);
-        return verdict.kind === "failed"
-          ? Effect.fail(new NoUsableAnswerError(verdict))
-          : Effect.succeed(response);
-      }),
-      Effect.map((response) =>
-        classifyTurnOutcome({
-          ok: true,
-          ...(response.messages ? { messages: response.messages } : {}),
-        }),
-      ),
+      Effect.map(classifyTurnResponse),
       Effect.catchAll((error) => Effect.succeed(classifyTurnOutcome({ ok: false, error }))),
     );
 
@@ -189,6 +238,22 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
           errorType: "run_failed",
           error: outcome.error,
         });
+        break;
+
+      case "unanswered":
+        yield* logger.warn(
+          outcome.ranTools
+            ? "Unattended run called tools but gave no answer; not retrying"
+            : "Unattended run gave no answer",
+          {
+            source: logSource(turn.source),
+            errorType: outcome.code,
+            error: outcome.error,
+          },
+        );
+        if (outcome.ranTools && outcome.messages.length > 0) {
+          yield* persist(turn, priorRecord, outcome.messages);
+        }
         break;
 
       case "unresumable":

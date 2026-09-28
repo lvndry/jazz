@@ -1,8 +1,8 @@
 /**
  * Exercises unattended wake delivery through the real claim, turn and settlement paths.
  * Each test owns a private Jazz home and restores its runner spy; only the model run is
- * substituted, so failed answers must survive on disk for retry while parks and partial
- * budget results retain their existing delivery semantics.
+ * substituted, so failed answers that ran no tools must survive on disk for retry while parks
+ * and partial budget results retain their existing delivery semantics.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,10 +14,12 @@ import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import type { Agent } from "@jazz/core/types/agent";
+import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { loadConversationOrNull } from "../history/conversation-history-service";
 import {
   claimDueWakeTriggers,
   settleWakeTrigger,
@@ -59,10 +61,20 @@ describe("unattended answer delivery", () => {
   });
   afterEach(() => {
     runner.mockRestore();
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     rmSync(home, { recursive: true, force: true });
   });
+
+  async function loadSavedMessages() {
+    const conversation = await Effect.runPromise(
+      loadConversationOrNull(agent.id, "conversation").pipe(Effect.provide(NodeFileSystem.layer)),
+    );
+    return conversation?.messages;
+  }
 
   async function deliver() {
     const directory = join(home, "wake-triggers");
@@ -105,25 +117,62 @@ describe("unattended answer delivery", () => {
     };
   }
 
-  it.each(["stop", "content-filter"] as const)(
-    "retains %s unusable answers for retry",
-    async (finishReason) => {
-      response = {
-        ...response,
-        finishReason,
-        ...(finishReason === "content-filter"
-          ? { content: "withheld", emptyCompletion: false }
-          : {}),
-      };
-      const { outcome, remaining } = await deliver();
-      expect(outcome.delivered).toBe(false);
-      expect(remaining).toHaveLength(1);
-      expect(remaining?.[0]?.delivery).toMatchObject({ status: "failed", attempts: 1 });
-      expect(
-        remaining?.[0]?.delivery?.status === "failed" && remaining[0].delivery.nextAttemptAt,
-      ).toBeGreaterThan(Date.now());
-    },
-  );
+  it("retains an empty answer that ran no tools for retry", async () => {
+    const { outcome, remaining } = await deliver();
+    expect(outcome.delivered).toBe(false);
+    expect(remaining).toHaveLength(1);
+    expect(remaining?.[0]?.delivery).toMatchObject({ status: "failed", attempts: 1 });
+    expect(
+      remaining?.[0]?.delivery?.status === "failed" && remaining[0].delivery.nextAttemptAt,
+    ).toBeGreaterThan(Date.now());
+    expect(await loadSavedMessages()).toBeUndefined();
+  });
+
+  it("keeps a content-filtered answer failed without scheduling a retry", async () => {
+    response = {
+      ...response,
+      finishReason: "content-filter",
+      content: "withheld",
+      emptyCompletion: false,
+    };
+    const { outcome, remaining } = await deliver();
+    expect(outcome).toMatchObject({ delivered: false, retryable: false });
+    expect(remaining).toHaveLength(1);
+    expect(remaining?.[0]?.delivery).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      nextAttemptAt: null,
+    });
+  });
+
+  it("saves and delivers an empty answer after tools ran, so the tools are not run again", async () => {
+    const transcript: ChatMessage[] = [
+      { role: "user", content: "Check and report the build result" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: { name: "send_email", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool", content: "sent", tool_call_id: "call-1", name: "send_email" },
+    ];
+    response = {
+      ...response,
+      toolCalls: [
+        { id: "call-1", type: "function", function: { name: "send_email", arguments: "{}" } },
+      ],
+      messages: transcript,
+    };
+    const { outcome, remaining } = await deliver();
+    expect(outcome).toEqual({ delivered: true });
+    expect(remaining).toEqual([]);
+    expect(await loadSavedMessages()).toEqual(transcript);
+  });
 
   it("still delivers an intentionally partial budget result", async () => {
     response = { ...response, costCapped: true };

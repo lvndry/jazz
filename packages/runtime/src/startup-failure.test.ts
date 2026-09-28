@@ -12,7 +12,9 @@ const ENTRY = join(import.meta.dir, "entry.ts");
 async function runWithBrokenConfig(args: readonly string[], missing = false) {
   const home = mkdtempSync(join(tmpdir(), "jazz-startup-failure-"));
   const config = join(home, "config.json");
-  if (!missing) writeFileSync(config, JSON.stringify({ autoApprove: "not-a-setting" }));
+  if (!missing) {
+    writeFileSync(config, JSON.stringify({ autoApprove: "not-a-setting" }));
+  }
   try {
     const child = Bun.spawn([process.execPath, ENTRY, "--config", config, ...args], {
       cwd: home,
@@ -62,6 +64,26 @@ describe("startup failure output", () => {
       }, 30_000);
     }
   }
+
+  for (const args of [["runs", "list"], ["spend"]]) {
+    it(`${args.join(" ")} --json reports invalid config in one { ok, error } envelope`, async () => {
+      const result = await runWithBrokenConfig([...args, "--json"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout.trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse(result.stdout)).toEqual({
+        ok: false,
+        error: expect.stringContaining("config"),
+      });
+      expect(result.stderr).toContain("config");
+    }, 30_000);
+  }
+
+  it("keeps plain list failures on stderr with empty stdout", async () => {
+    const result = await runWithBrokenConfig(["runs", "list"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("config");
+  }, 30_000);
 
   it("keeps plain run failures on stderr with empty stdout", async () => {
     const result = await runWithBrokenConfig(["run", "hello", "--agent", "test"]);

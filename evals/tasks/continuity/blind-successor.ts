@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { continuityCheck } from "../../checks";
-import { runJazzOnce } from "../../run-jazz";
+import { runJazzOnce, type RunJazzOptions } from "../../run-jazz";
 import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
 
 /**
@@ -83,8 +83,12 @@ const PROMPT =
   "What is the current state of this task, and what is left to do? " +
   "List which pieces are finished and verified, which are not, and what you would do next.";
 
-export const tasks: EvalTask[] = [
-  {
+/** Runs one Jazz turn for the task; the live eval spawns Jazz, a test passes a fake. */
+export type RunJazzTurn = (options: RunJazzOptions) => Promise<OneShotResult>;
+
+/** The blind-successor task, running its turn through `runTurn`. */
+export function createBlindSuccessorTask(runTurn: RunJazzTurn = runJazzOnce): EvalTask {
+  return {
     id: "continuity-blind-successor",
     domain: "continuity",
     prompt: PROMPT,
@@ -93,7 +97,7 @@ export const tasks: EvalTask[] = [
     async run(context: TaskRunContext): Promise<OneShotResult> {
       // No prior conversation is written: working state is the only thing to go on.
       seedBlindSuccessorState(context.jazzHome, context.agentId);
-      return runJazzOnce({
+      return runTurn({
         prompt: PROMPT,
         agentId: context.agentId,
         workspaceDir: context.workspaceDir,
@@ -130,5 +134,7 @@ export const tasks: EvalTask[] = [
         "Does the answer distinguish verified work from unverified work, and identify a " +
         "concrete next step consistent with the recorded state? 0-1.",
     },
-  },
-];
+  };
+}
+
+export const tasks: EvalTask[] = [createBlindSuccessorTask()];
