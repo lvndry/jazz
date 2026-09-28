@@ -437,7 +437,7 @@ export function makeHandler(
       ),
     ),
   );
-  // Resuming restarts background work and, after a pause at the daily cap, lifts the cap for the
+  // Resuming restarts background work and, when a machine daily cap is reached, lifts it for the
   // rest of the day, so it is a grant. Pausing only stops work starting, like a rejection, so the
   // daemon token is enough for that safety brake.
   app.post("/daemon/resume", (context) => {

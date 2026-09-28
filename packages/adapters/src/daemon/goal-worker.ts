@@ -586,9 +586,9 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
 }
 
 /**
- * Whether a spend ceiling holds the goal's next cycle back. The goal stays active and its next
- * cycle starts on the first tick after the ceiling clears (a new day or month, or a raised
- * ceiling); the notify channel hears about it once per ceiling and window.
+ * Whether a spend cap holds the goal's next cycle back. The goal stays active and its next
+ * cycle starts on the first tick after the cap clears (a new day or month, or a raised
+ * cap); the notify targets hear about it once per cap and window.
  */
 function spendBlocksNextCycle(goal: GoalRecord) {
   return Effect.gen(function* () {

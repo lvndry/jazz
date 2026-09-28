@@ -4,6 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
+import { randomUUID } from "node:crypto";
 import { FileSystem } from "@effect/platform";
 import { Cause, Effect, Option, Scope } from "effect";
 import {
@@ -44,6 +45,8 @@ import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import {
   guardRunStart,
+  isUnattendedRun,
+  releaseRunReservation,
   type RunAccountingInput,
   settleRunAccounting,
 } from "@/core/spend/run-accounting";
@@ -1023,18 +1026,24 @@ export class AgentRunner {
         const appConfig = yield* configService.appConfig;
 
         const presentation = yield* Effect.serviceOption(PresentationServiceTag);
+        const origin = options.origin ?? DEFAULT_RUN_ORIGIN;
         const accounting: RunAccountingInput = {
           agentId: options.agent.id,
-          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          agentName: options.agent.name,
+          origin,
           internal: options.internal === true,
-          unattended:
-            Option.isNone(presentation) || presentation.value.canPromptForApproval?.() !== true,
+          unattended: isUnattendedRun(
+            origin.source,
+            Option.isSome(presentation) && presentation.value.canPromptForApproval?.() === true,
+          ),
           appConfig,
           freeLocalModel: isZeroCostLocalModel(
             options.agent.config.llmProvider,
             options.agent.config.llmModel,
           ),
+          reservationId: randomUUID(),
         };
+        yield* Effect.addFinalizer(() => releaseRunReservation(accounting));
         yield* guardRunStart(accounting);
 
         // Initialize run context

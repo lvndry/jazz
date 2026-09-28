@@ -17,7 +17,7 @@ export interface SpendLimitSetting {
   readonly read: (caps: DaemonConfig | undefined) => number | undefined;
 }
 
-/** Goal ceilings come first: they are the ones the owner asked the wizard to offer. */
+/** Goal caps come first. */
 export const SPEND_LIMIT_SETTINGS: readonly SpendLimitSetting[] = [
   {
     key: "daemon.goals.dailyCostUSD",

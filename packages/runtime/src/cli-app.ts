@@ -1742,7 +1742,7 @@ function registerDaemonCommand(program: Command): void {
   daemonCommand
     .command("resume")
     .description(
-      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+      "Start background work again; when a machine daily cap is reached, lifts it for the rest of the day",
     )
     .option("--json", "Emit a single JSON envelope")
     .action((options: { json?: boolean }) =>

@@ -1,9 +1,15 @@
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { getConfigCommand, listConfigCommand, setConfigCommand } from "./config";
+import {
+  getConfigCommand,
+  listConfigCommand,
+  setConfigCommand,
+  unknownAgentCapWarning,
+} from "./config";
 
 /**
  * `jazz config set` receives every value as a shell string, but most of
@@ -191,6 +197,38 @@ describe("jazz config set", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     expect(ask).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
+  });
+});
+
+describe("jazz config set on an agent's spend cap", () => {
+  const agents = [{ id: "k3x9", name: "inbox" }];
+
+  it("warns when the key names no agent, by name or id", () => {
+    expect(unknownAgentCapWarning("daemon.agents.typo.dailyCostUSD", agents)).toContain(
+      'No agent is named "typo" or has that id',
+    );
+    expect(unknownAgentCapWarning("daemon.agents.inbox.dailyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.agents.k3x9.monthlyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.dailyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.agents.typo.dailyCostUSD", [])).toBeUndefined();
+  });
+
+  it("writes the cap and warns through the terminal when the agent is unknown", async () => {
+    const warn = mockTerminal.warn as ReturnType<typeof mock>;
+    warn.mockClear();
+    const agentService = {
+      listAgents: () => Effect.succeed([{ id: "k3x9", name: "inbox" }]),
+    } as unknown as AgentService;
+
+    const exit = await Effect.runPromiseExit(
+      setConfigCommand("daemon.agents.typo.dailyCostUSD", "1").pipe(
+        Effect.provide(Layer.merge(testLayer, Layer.succeed(AgentServiceTag, agentService))),
+      ) as Effect.Effect<void, ConfigurationValidationError, never>,
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "daemon.agents.typo.dailyCostUSD", value: 1 }]);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 

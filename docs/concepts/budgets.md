@@ -152,26 +152,33 @@ while they ran) spent per local day and month. Your chat turns never count.
 ```
 
 Every cap is unset, meaning unlimited, until you set one. `goals` covers goal cycles and loop
-runs together; `agents.<id>` covers one agent's unattended runs. Set the goal caps and the
-machine-wide ones from `jazz` > Update configuration > Spend Limits, or with
-`jazz config set daemon.goals.dailyCostUSD 2`.
+runs together; `agents.<agent>` covers one agent's unattended runs, keyed by its name (`inbox`
+above) or its id, as `jazz agent list` shows them. `jazz config set` and `jazz spend` warn about
+a key that names no agent. Set the goal caps and the machine-wide ones from `jazz` > Update
+configuration > Spend Limits, or with `jazz config set daemon.goals.dailyCostUSD 2`.
 
 When a cap is reached:
 
 - **The daemon pauses** at a machine-wide daily cap (`dailyCostUSD`, `dailyTokens`) until local
   midnight, and tells your [notify targets](../configure/notifications.md) once.
-  `jazz daemon resume` lifts it for the rest of the day.
-- **Unattended runs it covers refuse to start**: `jazz run`, workflows, goal cycles, loop runs,
-  wake triggers, job batches, webhooks, peers and daemon API runs. The refusal names the cap and
-  the key to change, and your notify targets hear about it once per cap and window.
+  `jazz daemon resume` lifts the machine-wide daily caps for the rest of the day, whether or not
+  a daemon was running; monthly, goal and agent caps stay in force.
+- **Unattended runs it covers refuse to start**: `jazz run` (with or without `--events`),
+  workflows, goal cycles, loop runs, wake triggers, job batches, webhooks, peers and daemon API
+  runs. The refusal names the cap and the key to change, and your notify targets hear about it
+  once per cap and window. Runs still going count at the average cost of this month's
+  unattended runs until they finish, so several starting at once cannot all spend the same
+  headroom.
 - **Goals and loops wait** instead of failing: the check runs before each cycle, and the next
   one starts on its own when the day or month turns over or you raise the cap.
 - **Chat is never stopped.** It warns once when a cap covering its agent is reached. A run
   answering a parked one (`jazz runs approve`) also proceeds.
 
-A dollar cap binds only while every run it counts is priced: an unpriced run makes its cost
-unknown, and `jazz spend` shows the cap as not enforced. Use `dailyTokens` for a model nobody
-has priced.
+An unpriced run adds nothing to a dollar cap's spend, so the priced spend a cap counts is a
+floor, and a cap it reaches is reached. A daily dollar cap with an unpriced run in its scope
+today cannot be verified, so it blocks as if reached until midnight (`jazz spend` marks it
+BLOCKED); a monthly one counts priced spend and shows the unpriced runs beside it. Use a priced
+model, or `dailyTokens` for a model nobody has priced.
 
 `jazz spend` shows today, this month, unattended spend, the breakdown by agent and source, and
 each cap. The chat bridges record their runs in the same ledger, and `JAZZ_DAILY_COST_CAP_USD`
@@ -183,7 +190,7 @@ caps one bridge's own runs.
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
-- [Notifications](../configure/notifications.md): hearing about a reached ceiling
+- [Notifications](../configure/notifications.md): hearing about a reached cap
 
 Chat bridges record failed and cancelled run spend in the shared machine ledger under their
 own origin (for example, `telegram`), so their daily cap and `jazz spend` read the same totals.

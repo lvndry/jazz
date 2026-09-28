@@ -3,6 +3,7 @@ import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/mod
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { envVarForSecretPath, isSecretPath, redactSecretValues } from "@jazz/core/secrets/registry";
+import { type CapAgent, listCapAgents, resolveCapAgentKey } from "@jazz/core/spend/caps";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { splitConfigPath } from "@jazz/core/utils/config-path";
@@ -186,6 +187,25 @@ function typedConfigValue(
 }
 
 /**
+ * The warning for a `daemon.agents.<agent>.*` path whose key names no agent in `agents`, or
+ * undefined. With no agents to check against there is nothing to warn about.
+ */
+export function unknownAgentCapWarning(
+  path: string,
+  agents: readonly CapAgent[],
+): string | undefined {
+  const segments = splitConfigPath(path) ?? [];
+  const key = segments[2];
+  if (segments[0] !== "daemon" || segments[1] !== "agents" || key === undefined) {
+    return undefined;
+  }
+  if (agents.length === 0 || resolveCapAgentKey(key, agents) !== undefined) {
+    return undefined;
+  }
+  return `No agent is named "${key}" or has that id, so this cap binds nothing. \`jazz agent list\` shows agent names and ids.`;
+}
+
+/**
  * Set a configuration value
  */
 export function setConfigCommand(
@@ -333,6 +353,10 @@ export function setConfigCommand(
       }
       const typedAnswer = yield* typedConfigValue(targetKey, answer);
       yield* configService.set(targetKey, typedAnswer);
+      const answerAgentWarning = unknownAgentCapWarning(targetKey, yield* listCapAgents());
+      if (answerAgentWarning !== undefined) {
+        yield* terminal.warn(answerAgentWarning);
+      }
       yield* terminal.success(
         secret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${String(typedAnswer)}`,
       );
@@ -342,6 +366,10 @@ export function setConfigCommand(
     const settingSecret = isSecretPath(targetKey);
     const typedValue = yield* typedConfigValue(targetKey, value);
     yield* configService.set(targetKey, typedValue);
+    const agentWarning = unknownAgentCapWarning(targetKey, yield* listCapAgents());
+    if (agentWarning !== undefined) {
+      yield* terminal.warn(agentWarning);
+    }
     if (settingSecret && configService.secretStorageUnavailable(targetKey)) {
       yield* terminal.error(
         `Nowhere to store ${targetKey}: there is no usable keyring, and a per-entry token ` +

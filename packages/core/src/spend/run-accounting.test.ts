@@ -3,15 +3,22 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { daemonStatePath } from "@/core/daemon/daemon-state";
+import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { OUTBOX_FILE_KIND, outboxDirectory, outboxFilePath } from "@/core/notify/outbox";
 import type { AppConfig } from "@/core/types/config";
 import { readStateFile } from "@/core/utils/state-file";
 import { SPEND_LEDGER_ENV, SpendCapReachedError } from "./caps";
 import { readSpend, recordSpend } from "./ledger";
-import { guardRunStart, type RunAccountingInput, settleRunAccounting } from "./run-accounting";
+import {
+  guardRunStart,
+  isUnattendedRun,
+  releaseRunReservation,
+  type RunAccountingInput,
+  settleRunAccounting,
+} from "./run-accounting";
 
 const homes: string[] = [];
 
@@ -70,6 +77,19 @@ function spendOne(home: string, costUSD: number) {
   );
 }
 
+describe("isUnattendedRun", () => {
+  it("marks a run nobody could be asked in as unattended, and a chat's run as attended", () => {
+    expect(isUnattendedRun("workflow", false)).toBe(true);
+    expect(isUnattendedRun("chat", true)).toBe(false);
+    expect(isUnattendedRun("bot", true)).toBe(false);
+  });
+
+  it("counts `jazz run` as unattended even when its events consumer can answer prompts", () => {
+    expect(isUnattendedRun("run", true)).toBe(true);
+    expect(isUnattendedRun("run", false)).toBe(true);
+  });
+});
+
 describe("guardRunStart", () => {
   it("refuses an unattended run once a cap is reached, and notifies once per window", async () => {
     const home = temporaryHome();
@@ -119,6 +139,42 @@ describe("guardRunStart", () => {
     );
 
     expect(check.kind).toBe("clear");
+  });
+
+  it("holds a reservation for a run that passes, so a second run started at once is refused", async () => {
+    const home = temporaryHome();
+    await spendOne(home, 0.6);
+    const first = input(home, { reservationId: "run-a" });
+
+    const firstCheck = await Effect.runPromise(guardRunStart(first));
+    const second = await Effect.runPromise(
+      Effect.either(guardRunStart(input(home, { reservationId: "run-b" }))),
+    );
+    await Effect.runPromise(releaseRunReservation(first));
+    const third = await Effect.runPromise(guardRunStart(input(home, { reservationId: "run-c" })));
+
+    expect(firstCheck.kind).toBe("clear");
+    expect(second._tag === "Left" && second.left instanceof SpendCapReachedError).toBe(true);
+    expect(third.kind).toBe("clear");
+  });
+
+  it("applies an agent cap keyed by the agent's name, looking the name up by id", async () => {
+    const home = temporaryHome();
+    await spendOne(home, 1);
+    const agents = {
+      listAgents: () => Effect.succeed([{ id: "agent", name: "inbox" }]),
+    } as unknown as AgentService;
+    const capped = input(home, {
+      appConfig: { daemon: { agents: { inbox: { dailyCostUSD: 1 } } } } as unknown as AppConfig,
+    });
+
+    const result = await Effect.runPromise(
+      Effect.either(guardRunStart(capped)).pipe(
+        Effect.provide(Layer.succeed(AgentServiceTag, agents)),
+      ),
+    );
+
+    expect(result._tag === "Left" && result.left.message).toContain('agent "inbox"');
   });
 
   it("skips the check for a run whose parent records it", async () => {

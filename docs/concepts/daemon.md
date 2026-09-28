@@ -136,10 +136,11 @@ you can still be answered. `jazz daemon resume` starts it again. The HTTP equiva
 Each run the daemon starts is held to the agent loop's own limits, but nothing else bounds the
 sum. `daemon.dailyCostUSD` and `daemon.dailyTokens` do: once unattended runs have spent that
 much since local midnight (read from the machine-wide spend ledger), the daemon pauses itself
-until midnight and tells you. Your chat turns never count. `jazz daemon resume` lifts the cap for
-the rest of that day. The dollar cap binds only while every counted run is priced; on a model
-nobody has priced use `dailyTokens`. Monthly, per-agent and goal caps sit beside these keys; see
-[daily and monthly caps](budgets.md#daily-and-monthly-caps).
+until midnight and tells you. An unattended run today with no pricing does the same to the dollar
+cap, since what it spent is unknown; on a model nobody has priced use `dailyTokens`. Your chat
+turns never count. `jazz daemon resume` lifts both daily caps for the rest of that day, whether
+or not a daemon was running to pause; it never lifts a monthly cap. Monthly, per-agent and goal
+caps sit beside these keys; see [daily and monthly caps](budgets.md#daily-and-monthly-caps).
 
 ---
 

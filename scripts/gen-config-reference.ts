@@ -49,6 +49,7 @@ const RECORD_PLACEHOLDERS: Readonly<Record<string, string>> = {
   "llm.capabilityOverrides.<provider>": "<model>",
   "telemetry.otlp.headers": "<header>",
   "telemetry.otlp.resourceAttributes": "<attribute>",
+  "daemon.agents": "<agent>",
 };
 
 /**
@@ -219,7 +220,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "webhooks[].maxConcurrentRuns":
     "Runs this webhook may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "daemon.dailyCostUSD":
-    "Most dollars unattended runs may spend per day, across all of them. Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. Unset is unlimited. See [Spend caps](./jazz.md#spend-caps-and-notifications).",
+    "Most dollars unattended runs may spend per day, across all of them. Reaching it, or an unpriced unattended run today, pauses the daemon's own work until midnight or `jazz daemon resume`. Unset is unlimited. See [Spend caps](./jazz.md#spend-caps-and-notifications).",
   "daemon.monthlyCostUSD":
     "Most dollars unattended runs may spend per local month, across all of them. Unset is unlimited.",
   "daemon.dailyTokens":
@@ -228,10 +229,10 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Combined goal-cycle and loop-run spend cap per local day, in dollars. Unset is unlimited.",
   "daemon.goals.monthlyCostUSD":
     "Combined goal-cycle and loop-run spend cap per local month, in dollars. Unset is unlimited.",
-  "daemon.agents.<name>.dailyCostUSD":
-    "Unattended spend cap for this agent id per local day, in dollars. Unset is unlimited.",
-  "daemon.agents.<name>.monthlyCostUSD":
-    "Unattended spend cap for this agent id per local month, in dollars. Unset is unlimited.",
+  "daemon.agents.<agent>.dailyCostUSD":
+    "Unattended spend cap per local day, in dollars, for the agent this key names (agent name or id). Unset is unlimited.",
+  "daemon.agents.<agent>.monthlyCostUSD":
+    "Unattended spend cap per local month, in dollars, for the agent this key names (agent name or id). Unset is unlimited.",
   "daemon.token":
     "The daemon's bearer token, written here only on a host without a keyring. Written by Jazz.",
 };

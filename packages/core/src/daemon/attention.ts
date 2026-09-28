@@ -3,7 +3,7 @@
  * them, and stopping its own work when they say so or when it has spent its daily allowance.
  *
  * Pure rules over plain data; the stores, the notifier, and the routes live in adapters. Spend
- * is read from the spend ledger (`spend/ledger.ts`) and capped by `spend/ceilings.ts`.
+ * is read from the spend ledger (`spend/ledger.ts`) and capped by `spend/caps.ts`.
  */
 
 import { z } from "zod";

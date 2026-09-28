@@ -62,7 +62,7 @@ or `JAZZ_NOTIFY_OPS_SECRET`. Channel names and field names become uppercase with
 See [Notifications](./notifications.md).
 
 `JAZZ_SPEND_LEDGER=parent` tells a child process that its caller records its spend. The child
-skips its own ledger recording and ceiling checks; chat bridges set this to avoid counting
+skips its own ledger recording and cap checks; chat bridges set this to avoid counting
 a run twice. Leave it unset for standalone runs.
 
 ## Model provider keys and servers

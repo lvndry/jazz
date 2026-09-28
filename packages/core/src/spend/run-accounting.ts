@@ -4,9 +4,12 @@
  * ends, and tell the `notify` targets when it parks on a person or fails with nobody watching.
  *
  * A run is unattended when nobody could be asked while it runs (no presentation that can
- * prompt): only those count toward the caps, only those are refused at one, and only their
- * failures are notified. A run answering a parked one (`resume`) is never refused: that is the
- * person acting on what already waits.
+ * prompt), and a `jazz run` always is (see {@link isUnattendedRun}): only those count toward the
+ * caps, only those are refused at one, and only their failures are notified. A run answering a
+ * parked one (`resume`) is never refused: that is the person acting on what already waits.
+ *
+ * An unattended run that passes the check holds an in-flight reservation in the ledger until it
+ * ends ({@link releaseRunReservation}), so runs starting at once see each other's spend.
  *
  * Sub-agent and other internal runs are skipped: their cost is folded into the parent run's
  * total, which is recorded once. So is a run whose parent process records it from the run's
@@ -24,15 +27,27 @@ import { GenerationInterruptedError } from "@/core/types/errors";
 import { toError } from "@/core/utils/errors";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
+  type BlockingCap,
   type CapCheck,
   capWindowKey,
+  checkAndReserveSpendCaps,
   checkSpendCaps,
   describeCapCheck,
   isSpendRecordedByParent,
+  listCapAgents,
   SpendCapReachedError,
 } from "./caps";
-import { localDayKey, localMonthKey, recordSpend } from "./ledger";
-import type { RunOrigin } from "./sources";
+import { localDayKey, localMonthKey, recordSpend, releaseInFlightSpend } from "./ledger";
+import type { RunOrigin, SpendSource } from "./sources";
+
+/**
+ * Whether nobody can be asked while a run works. A `jazz run` counts as unattended even with
+ * `--events`, where a program answers its prompts: a parent that answers for a person takes over
+ * its accounting with `JAZZ_SPEND_LEDGER=parent`, and the run is then not accounted here at all.
+ */
+export function isUnattendedRun(source: SpendSource, canPromptForApproval: boolean): boolean {
+  return source === "run" || !canPromptForApproval;
+}
 
 /**
  * A run's spend on exit: the dollars (undefined until something was priced), whether any of
@@ -46,6 +61,8 @@ export interface RunExitSpend {
 
 export interface RunAccountingInput {
   readonly agentId: string;
+  /** Matched against `daemon.agents` keys alongside the id. */
+  readonly agentName?: string;
   readonly origin: RunOrigin;
   readonly internal: boolean;
   /** Nobody can be asked while this run works. */
@@ -55,6 +72,11 @@ export interface RunAccountingInput {
   readonly freeLocalModel: boolean;
   /** The Jazz home whose ledger, outbox and daemon state are used; defaults to this process's. */
   readonly home?: string;
+  /**
+   * The in-flight reservation an unattended run that passes the check holds until
+   * {@link releaseRunReservation}. Without one the check only reads.
+   */
+  readonly reservationId?: string;
 }
 
 function enqueueOptions(input: RunAccountingInput) {
@@ -75,10 +97,7 @@ function reportAccountingError(what: string, error: unknown): Effect.Effect<void
 }
 
 /** Tell the notify targets once per cap and window that a run was refused. */
-function notifyCap(
-  input: RunAccountingInput,
-  check: Exclude<CapCheck, { kind: "clear" }>,
-): Effect.Effect<void> {
+function notifyCap(input: RunAccountingInput, check: BlockingCap): Effect.Effect<void> {
   const now = Date.now();
   const event: NotifyEvent = {
     kind: "spend-cap",
@@ -105,6 +124,23 @@ function machineCapLifted(home: string | undefined): Effect.Effect<boolean> {
 }
 
 /**
+ * The run's agent name, for matching `daemon.agents` keys: as given, or looked up by id when an
+ * agent cap is configured and the caller did not pass it.
+ */
+function resolveAgentName(input: RunAccountingInput): Effect.Effect<string | undefined> {
+  if (input.agentName !== undefined) {
+    return Effect.succeed(input.agentName);
+  }
+  if (Object.keys(input.appConfig.daemon?.agents ?? {}).length === 0) {
+    return Effect.succeed(undefined);
+  }
+  return Effect.map(
+    listCapAgents(),
+    (agents) => agents.find((agent) => agent.id === input.agentId)?.name,
+  );
+}
+
+/**
  * Check the spend caps before a run starts. An unattended run a cap covers fails with
  * {@link SpendCapReachedError} and the notify targets are told; an attended one is returned the
  * check so its surface can warn, and proceeds.
@@ -114,13 +150,20 @@ export function guardRunStart(input: RunAccountingInput): Effect.Effect<CapCheck
     if (!shouldAccount(input) || input.origin.source === "resume") {
       return { kind: "clear" } as const;
     }
-    const check = yield* checkSpendCaps(
-      input.appConfig.daemon,
-      { agentId: input.agentId, source: input.origin.source },
-      {
-        machineCapLifted: yield* machineCapLifted(input.home),
-        ...(input.home !== undefined ? { home: input.home } : {}),
-      },
+    const agentName = yield* resolveAgentName(input);
+    const subject = {
+      agentId: input.agentId,
+      ...(agentName !== undefined ? { agentName } : {}),
+      source: input.origin.source,
+    };
+    const options = {
+      machineCapLifted: yield* machineCapLifted(input.home),
+      ...(input.home !== undefined ? { home: input.home } : {}),
+    };
+    const check = yield* (
+      input.unattended && input.reservationId !== undefined
+        ? checkAndReserveSpendCaps(input.appConfig.daemon, subject, input.reservationId, options)
+        : checkSpendCaps(input.appConfig.daemon, subject, options)
     ).pipe(
       Effect.catchAll((error) =>
         reportAccountingError("read the spend ledger", error).pipe(
@@ -134,6 +177,16 @@ export function guardRunStart(input: RunAccountingInput): Effect.Effect<CapCheck
     yield* notifyCap(input, check);
     return yield* Effect.fail(new SpendCapReachedError(check));
   });
+}
+
+/** Drop the in-flight reservation {@link guardRunStart} took for this run, if any. */
+export function releaseRunReservation(input: RunAccountingInput): Effect.Effect<void> {
+  if (input.reservationId === undefined) {
+    return Effect.void;
+  }
+  return releaseInFlightSpend(input.reservationId, input.home).pipe(
+    Effect.catchAll((error) => reportAccountingError("release a spend reservation", error)),
+  );
 }
 
 /** How a waiting item names what parked: "Goal ship-docs", "Loop deploy-watch", "A run". */
@@ -239,7 +292,7 @@ export function settleRunAccounting(
  * raised.
  */
 export function nextCycleBlockedBySpend(
-  input: Omit<RunAccountingInput, "internal" | "freeLocalModel" | "unattended">,
+  input: Omit<RunAccountingInput, "internal" | "freeLocalModel" | "unattended" | "reservationId">,
 ): Effect.Effect<SpendCapReachedError | undefined> {
   return guardRunStart({ ...input, internal: false, freeLocalModel: false, unattended: true }).pipe(
     Effect.as(undefined),

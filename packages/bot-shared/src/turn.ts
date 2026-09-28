@@ -100,7 +100,7 @@ export interface TurnConfig {
   readonly approvalPolicy: string;
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
-  /** Spend ceiling in USD per day across all conversations; 0 disables it. */
+  /** Spend cap in USD per day across all conversations; 0 disables it. */
   readonly dailyCostCapUsd: number;
   readonly showReasoning: boolean;
   /**

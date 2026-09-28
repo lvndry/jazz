@@ -10,7 +10,13 @@
  *
  * Every file is private to the owner (see `private-mode.ts`). Nothing here fails a run: the
  * caller decides what to do with a write error, and a torn or foreign line in a day file is
- * skipped on read rather than making the whole ledger unreadable.
+ * skipped on read rather than making the whole ledger unreadable. A day file none of whose lines
+ * can be read is left in place rather than compacted, so nothing is thrown away unread.
+ *
+ * A run that passed the cap check and has not finished holds an in-flight reservation, one file
+ * per run under `$JAZZ_HOME/spend/in-flight/`, which {@link checkAndReserveSpend} counts at its
+ * estimated cost. It is removed when the run ends, and ignored once its process is gone or it is
+ * older than {@link IN_FLIGHT_MAX_AGE_MS}, so a crash never holds spend back for long.
  *
  * Usage:
  * ```ts
@@ -27,14 +33,22 @@ import { z } from "zod";
 import { toError } from "@/core/utils/errors";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
+import { isProcessAlive } from "@/core/utils/process";
 import { readStateFile, type StateFileKind, writeStateFile } from "@/core/utils/state-file";
-import { withLock } from "@/core/utils/storage";
+import { isValidStorageKey, withLock, writeFileStringAtomic } from "@/core/utils/storage";
 import { SPEND_SOURCES, type SpendSource } from "./sources";
 
 /** Days of compacted totals kept: a full year plus the month in progress. */
 export const RETAINED_SUMMARY_DAYS = 400;
 
-const SUMMARY_SCHEMA_VERSION = 1;
+/** Version 2 adds `unattended` and `unattendedByAgent` to every day. */
+const SUMMARY_SCHEMA_VERSION = 2;
+
+/**
+ * An in-flight reservation older than this is ignored even when its pid is alive: pids are
+ * reused, and no single run is expected to last a day.
+ */
+export const IN_FLIGHT_MAX_AGE_MS = 86_400_000;
 
 const DAY_MS = 86_400_000;
 
@@ -58,6 +72,17 @@ export interface SpendEntry {
   readonly origin?: string;
 }
 
+/**
+ * Sources whose runs have a person present to decide: a chat, a chat bot, and a run answering a
+ * parked one. An entry stored without `unattended` is classified by this set.
+ */
+const ATTENDED_SOURCES: ReadonlySet<SpendSource> = new Set(["chat", "bot", "resume"]);
+
+/** Whether a run from `source` counts as unattended when its entry does not say. */
+export function isUnattendedBySource(source: SpendSource): boolean {
+  return !ATTENDED_SOURCES.has(source);
+}
+
 /** What {@link recordSpend} takes; `at` defaults to now. */
 export type SpendEntryInput = Omit<SpendEntry, "at"> & { readonly at?: string };
 
@@ -68,7 +93,7 @@ const SpendEntrySchema = z.object({
   costUSD: z.number().finite().nonnegative(),
   costKnown: z.boolean(),
   tokens: z.number().finite().nonnegative(),
-  unattended: z.boolean(),
+  unattended: z.boolean().optional(),
   runId: z.string().optional(),
   origin: z.string().optional(),
 });
@@ -133,16 +158,43 @@ const DaySpendSchema = z.object({
   byOrigin: z.record(z.string(), TotalsSchema),
 });
 
+/** A day as version 1 stored it, before the unattended totals. */
+const DaySpendV1Schema = DaySpendSchema.omit({ unattended: true, unattendedByAgent: true });
+
 type SpendSummary = Readonly<Record<string, DaySpend>>;
+
+/**
+ * A version 1 day with its unattended totals derived: the unattended sources' totals summed from
+ * `bySource`. The per-agent split by source was not stored, so each agent's unattended spend is
+ * taken as its whole spend that day, which can only make an agent cap stricter.
+ */
+function migrateDayFromV1(day: z.infer<typeof DaySpendV1Schema>): DaySpend {
+  const unattended = (Object.entries(day.bySource) as [SpendSource, SpendTotals][])
+    .filter(([source]) => isUnattendedBySource(source))
+    .reduce((sum, [, totals]) => addTotals(sum, totals), EMPTY_TOTALS);
+  return { ...day, unattended, unattendedByAgent: day.byAgent };
+}
 
 const SUMMARY_KIND: StateFileKind<SpendSummary> = {
   noun: "spend summary",
   schemaVersion: SUMMARY_SCHEMA_VERSION,
-  parse: (document) => {
-    const parsed = z.object({ days: z.record(z.string(), DaySpendSchema) }).safeParse(document);
-    return parsed.success
-      ? { ok: true, content: parsed.data.days }
-      : { ok: false, error: parsed.error.message };
+  parse: (document, schemaVersion) => {
+    const current = z.object({ days: z.record(z.string(), DaySpendSchema) }).safeParse(document);
+    if (current.success) {
+      return { ok: true, content: current.data.days };
+    }
+    if (schemaVersion !== undefined && schemaVersion >= SUMMARY_SCHEMA_VERSION) {
+      return { ok: false, error: current.error.message };
+    }
+    const legacy = z.object({ days: z.record(z.string(), DaySpendV1Schema) }).safeParse(document);
+    return legacy.success
+      ? {
+          ok: true,
+          content: Object.fromEntries(
+            Object.entries(legacy.data.days).map(([key, day]) => [key, migrateDayFromV1(day)]),
+          ),
+        }
+      : { ok: false, error: legacy.error.message };
   },
   serialize: (days) => ({ days }),
 };
@@ -162,6 +214,10 @@ function summaryPath(home: string): string {
 
 function ledgerLockPath(home: string): string {
   return path.join(spendDirectory(home), "ledger.lock");
+}
+
+function inFlightDirectory(home: string): string {
+  return path.join(spendDirectory(home), "in-flight");
 }
 
 function pad(value: number): string {
@@ -263,7 +319,10 @@ export function parseDayFile(content: string): {
     try {
       const parsed = SpendEntrySchema.safeParse(JSON.parse(line));
       if (parsed.success) {
-        entries.push(parsed.data as SpendEntry);
+        entries.push({
+          ...parsed.data,
+          unattended: parsed.data.unattended ?? isUnattendedBySource(parsed.data.source),
+        } as SpendEntry);
       } else {
         unreadable += 1;
       }
@@ -346,18 +405,25 @@ function compactLocked(home: string, today: string): Effect.Effect<void, Error> 
     for (const day of expired) {
       delete next[day];
     }
+    const compacted: string[] = [];
     for (const day of stale) {
       if (next[day] !== undefined) {
+        compacted.push(day);
         continue;
       }
       const content = yield* Effect.tryPromise({
         try: () => readFileOrUndefined(path.join(daysDirectory(home), `${day}.jsonl`)),
         catch: toError,
       });
-      next[day] = parseDayFile(content ?? "").entries.reduce(addEntryToDay, EMPTY_DAY);
+      const parsed = parseDayFile(content ?? "");
+      if (parsed.entries.length === 0 && parsed.unreadable > 0) {
+        continue;
+      }
+      next[day] = parsed.entries.reduce(addEntryToDay, EMPTY_DAY);
+      compacted.push(day);
     }
     yield* writeStateFile(summaryPath(home), SUMMARY_KIND, next);
-    for (const day of stale) {
+    for (const day of compacted) {
       yield* Effect.tryPromise({
         try: () => nodeFs.rm(path.join(daysDirectory(home), `${day}.jsonl`), { force: true }),
         catch: toError,
@@ -403,43 +469,191 @@ export function compactSpendLedger(
   return withLock(ledgerLockPath(home), compactLocked(home, localDayKey(now)));
 }
 
+function readSpendLocked(now: number, home: string): Effect.Effect<SpendReport, Error> {
+  return Effect.gen(function* () {
+    const summary = yield* readSummaryLocked(home);
+    const days: Record<string, DaySpend> = { ...summary };
+    let unreadableLines = 0;
+    const dayFiles = yield* Effect.tryPromise({ try: () => listDayFiles(home), catch: toError });
+    for (const day of dayFiles) {
+      if (summary[day] !== undefined) {
+        continue;
+      }
+      const content = yield* Effect.tryPromise({
+        try: () => readFileOrUndefined(path.join(daysDirectory(home), `${day}.jsonl`)),
+        catch: toError,
+      });
+      const parsed = parseDayFile(content ?? "");
+      unreadableLines += parsed.unreadable;
+      days[day] = parsed.entries.reduce(addEntryToDay, days[day] ?? EMPTY_DAY);
+    }
+    const day = localDayKey(now);
+    const monthKey = localMonthKey(now);
+    const month = Object.entries(days)
+      .filter(([key]) => key.startsWith(monthKey))
+      .reduce((sum, [, spend]) => mergeDays(sum, spend), EMPTY_DAY);
+    return {
+      today: days[day] ?? EMPTY_DAY,
+      month,
+      day,
+      monthKey,
+      days,
+      unreadableLines,
+    };
+  });
+}
+
 /** Today's and this month's spend, from the summary plus any day files not yet compacted. */
 export function readSpend(
   now: number = Date.now(),
   home: string = getJazzHomeDirectory(),
 ): Effect.Effect<SpendReport, Error> {
+  return withLock(ledgerLockPath(home), readSpendLocked(now, home));
+}
+
+/** A run that passed the cap check and has not finished, counted at its estimated cost. */
+export interface InFlightRun {
+  readonly id: string;
+  readonly pid: number;
+  /** ISO time the reservation was taken. */
+  readonly startedAt: string;
+  readonly agentId: string;
+  readonly source: SpendSource;
+  readonly costUSD: number;
+  readonly tokens: number;
+}
+
+/** What a caller reserves: the ledger stamps the pid and the time. */
+export type InFlightReservation = Omit<InFlightRun, "pid" | "startedAt">;
+
+const InFlightRunSchema = z.object({
+  id: z.string(),
+  pid: z.number().int().positive(),
+  startedAt: z.string(),
+  agentId: z.string(),
+  source: z.enum(SPEND_SOURCES),
+  costUSD: z.number().finite().nonnegative(),
+  tokens: z.number().finite().nonnegative(),
+});
+
+function inFlightPath(home: string, id: string): string {
+  return path.join(inFlightDirectory(home), `${id}.json`);
+}
+
+function isLive(run: InFlightRun, now: number): boolean {
+  const startedAt = Date.parse(run.startedAt);
+  return (
+    Number.isFinite(startedAt) && now - startedAt < IN_FLIGHT_MAX_AGE_MS && isProcessAlive(run.pid)
+  );
+}
+
+function parseInFlightRun(content: string): InFlightRun | undefined {
+  try {
+    const parsed = InFlightRunSchema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The live reservations; a stale or unreadable one is removed. Runs under the ledger's lock. */
+async function liveInFlightRuns(home: string, now: number): Promise<InFlightRun[]> {
+  let names: string[];
+  try {
+    names = await nodeFs.readdir(inFlightDirectory(home));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+  const live: InFlightRun[] = [];
+  for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    const filePath = path.join(inFlightDirectory(home), name);
+    const content = await readFileOrUndefined(filePath);
+    if (content === undefined) {
+      continue;
+    }
+    const run = parseInFlightRun(content);
+    if (run !== undefined && isLive(run, now)) {
+      live.push(run);
+    } else {
+      await nodeFs.rm(filePath, { force: true });
+    }
+  }
+  return live;
+}
+
+/** A report with the in-flight runs folded into today and this month, as unattended priced runs. */
+function withInFlight(report: SpendReport, runs: readonly InFlightRun[]): SpendReport {
+  const entries: SpendEntry[] = runs.map((run) => ({
+    at: run.startedAt,
+    agentId: run.agentId,
+    source: run.source,
+    costUSD: run.costUSD,
+    costKnown: true,
+    tokens: run.tokens,
+    unattended: true,
+  }));
+  return {
+    ...report,
+    today: entries.reduce(addEntryToDay, report.today),
+    month: entries.reduce(addEntryToDay, report.month),
+  };
+}
+
+/**
+ * Decide on a run against the ledger plus every live in-flight reservation, and hold a
+ * reservation for it when `decide` returns one, all under the ledger's lock: two runs checked at
+ * the same moment see each other.
+ */
+export function checkAndReserveSpend<Outcome>(
+  decide: (spend: SpendReport) => {
+    readonly outcome: Outcome;
+    readonly reservation?: InFlightReservation;
+  },
+  options: { readonly now?: number; readonly home?: string } = {},
+): Effect.Effect<Outcome, Error> {
+  const home = options.home ?? getJazzHomeDirectory();
+  const now = options.now ?? Date.now();
   return withLock(
     ledgerLockPath(home),
     Effect.gen(function* () {
-      const summary = yield* readSummaryLocked(home);
-      const days: Record<string, DaySpend> = { ...summary };
-      let unreadableLines = 0;
-      const dayFiles = yield* Effect.tryPromise({ try: () => listDayFiles(home), catch: toError });
-      for (const day of dayFiles) {
-        if (summary[day] !== undefined) {
-          continue;
+      const report = yield* readSpendLocked(now, home);
+      const inFlight = yield* Effect.tryPromise({
+        try: () => liveInFlightRuns(home, now),
+        catch: toError,
+      });
+      const decision = decide(withInFlight(report, inFlight));
+      const reservation = decision.reservation;
+      if (reservation !== undefined) {
+        if (!isValidStorageKey(reservation.id)) {
+          return yield* Effect.fail(
+            new Error(`Invalid in-flight reservation id: ${reservation.id}`),
+          );
         }
-        const content = yield* Effect.tryPromise({
-          try: () => readFileOrUndefined(path.join(daysDirectory(home), `${day}.jsonl`)),
-          catch: toError,
-        });
-        const parsed = parseDayFile(content ?? "");
-        unreadableLines += parsed.unreadable;
-        days[day] = parsed.entries.reduce(addEntryToDay, days[day] ?? EMPTY_DAY);
+        const stored: InFlightRun = {
+          ...reservation,
+          pid: process.pid,
+          startedAt: new Date(now).toISOString(),
+        };
+        yield* writeFileStringAtomic(inFlightPath(home, reservation.id), JSON.stringify(stored));
       }
-      const day = localDayKey(now);
-      const monthKey = localMonthKey(now);
-      const month = Object.entries(days)
-        .filter(([key]) => key.startsWith(monthKey))
-        .reduce((sum, [, spend]) => mergeDays(sum, spend), EMPTY_DAY);
-      return {
-        today: days[day] ?? EMPTY_DAY,
-        month,
-        day,
-        monthKey,
-        days,
-        unreadableLines,
-      };
+      return decision.outcome;
     }),
   );
+}
+
+/** Drop a run's in-flight reservation, once its spend is recorded or it never started. */
+export function releaseInFlightSpend(
+  id: string,
+  home: string = getJazzHomeDirectory(),
+): Effect.Effect<void, Error> {
+  if (!isValidStorageKey(id)) {
+    return Effect.void;
+  }
+  return Effect.tryPromise({
+    try: () => nodeFs.rm(inFlightPath(home, id), { force: true }),
+    catch: toError,
+  });
 }

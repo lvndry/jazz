@@ -29,7 +29,13 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { NotifyEvent } from "@jazz/core/notify/events";
 import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
-import { capStatuses, reachedMachineDailyCap, unattendedSpend } from "@jazz/core/spend/caps";
+import {
+  blockingMachineDailyCap,
+  capStatuses,
+  hasMachineDailyCap,
+  listCapAgents,
+  unattendedSpend,
+} from "@jazz/core/spend/caps";
 import { readSpend } from "@jazz/core/spend/ledger";
 import type { AppConfig } from "@jazz/core/types/config";
 import { Effect } from "effect";
@@ -202,8 +208,12 @@ export function daemonGate(now: Date = new Date()) {
       return gate;
     }
     const config = yield* liveConfig();
+    if (!hasMachineDailyCap(config.daemon)) {
+      const gate: DaemonGate = { kind: "open" };
+      return gate;
+    }
     const { spend } = yield* ledgerSpend(now);
-    const limit = reachedMachineDailyCap(config.daemon, spend);
+    const limit = blockingMachineDailyCap(config.daemon, spend);
     if (limit === undefined) {
       const gate: DaemonGate = { kind: "open" };
       return gate;
@@ -231,15 +241,27 @@ export function pauseDaemon(now: Date = new Date()) {
 }
 
 /**
- * Let the daemon start work again. Resuming a daily-cap pause lifts the cap for the rest of that
- * day; otherwise the next start would find today's spend still over it and pause again.
+ * Let the daemon start work again, and lift the machine daily caps until the next local midnight
+ * when one blocks today (read from the ledger), whether or not a running daemon paused on it:
+ * otherwise the next start would find today's spend still over it and stop again.
  */
 export function resumeDaemon(now: Date = new Date()) {
-  return updateDaemonState(({ paused, ...state }) =>
-    paused?.kind === "daily-cap" && pauseInForce({ ...state, paused }, now) !== undefined
-      ? { ...state, capLiftedUntil: paused.until }
-      : state,
-  );
+  return Effect.gen(function* () {
+    const config = yield* liveConfig();
+    const capBlocksToday = hasMachineDailyCap(config.daemon)
+      ? yield* readSpend(now.getTime()).pipe(
+          Effect.map((spend) => blockingMachineDailyCap(config.daemon, spend) !== undefined),
+          Effect.catchAll(() => Effect.succeed(false)),
+        )
+      : false;
+    return yield* updateDaemonState(({ paused, ...state }) => {
+      const pausedAtCap =
+        paused?.kind === "daily-cap" && pauseInForce({ ...state, paused }, now) !== undefined;
+      return pausedAtCap || capBlocksToday
+        ? { ...state, capLiftedUntil: startOfNextLocalDay(now).toISOString() }
+        : state;
+    });
+  });
 }
 
 /** Queue one event on the `notify` targets, once per key. A failure to queue is logged. */
@@ -306,10 +328,10 @@ export function daemonStatusSnapshot(now: Date = new Date()) {
     const state = yield* readDaemonState();
     const pause = pauseInForce(state, now);
     const ledger = yield* ledgerSpend(now);
-    const spend = ledger.today;
+    const lifted = capLifted(state, now);
     const capReached =
-      pause === undefined && !capLifted(state, now)
-        ? reachedMachineDailyCap(config.daemon, ledger.spend)
+      pause === undefined && !lifted
+        ? blockingMachineDailyCap(config.daemon, ledger.spend)
         : undefined;
     return {
       paused: pause ?? null,
@@ -320,15 +342,14 @@ export function daemonStatusSnapshot(now: Date = new Date()) {
               pauseReason: `At its daily ${capReached === "cost" ? "dollar" : "token"} cap: nothing new starts until midnight or \`jazz daemon resume\`.`,
             }
           : {}),
-      spendToday: spend,
-      dailyCaps: {
-        ...(config.daemon?.dailyCostUSD !== undefined
-          ? { costUSD: config.daemon.dailyCostUSD }
+      spendToday: ledger.today,
+      caps: capStatuses(config.daemon, ledger.spend, {
+        agents: yield* listCapAgents(),
+        ...(lifted && state.capLiftedUntil !== undefined
+          ? { machineCapLiftedUntil: state.capLiftedUntil }
           : {}),
-        ...(config.daemon?.dailyTokens !== undefined ? { tokens: config.daemon.dailyTokens } : {}),
-      },
-      caps: capStatuses(config.daemon, ledger.spend),
-      capLiftedToday: capLifted(state, now),
+      }),
+      capLiftedToday: lifted,
       waiting: yield* listWaiting(now),
     };
   });

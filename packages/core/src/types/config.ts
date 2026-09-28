@@ -124,14 +124,15 @@ export interface CostCaps {
  *
  * Reaching a machine-wide daily cap pauses the daemon's own work until midnight (or
  * `jazz daemon resume`); any reached cap refuses unattended runs it covers, before they start.
- * A dollar cap binds only while every counted run is priced.
+ * Unpriced runs add nothing to a dollar cap's spend, and a daily dollar cap with an unpriced
+ * run today blocks as if reached, since its spend cannot be verified.
  */
 export interface DaemonConfig extends CostCaps {
   /** Most prompt and completion tokens unattended runs may spend per day, across all of them. */
   readonly dailyTokens?: number;
   /** Caps on goal cycles and loop runs together. */
   readonly goals?: CostCaps;
-  /** Caps on one agent's unattended runs, keyed by agent id. */
+  /** Caps on one agent's unattended runs, keyed by agent name or id. */
   readonly agents?: Readonly<Record<string, CostCaps>>;
 }
 

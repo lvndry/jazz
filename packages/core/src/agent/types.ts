@@ -196,8 +196,8 @@ export interface AgentRunnerOptions {
    */
   readonly startedBy?: RunStarter;
   /**
-   * Which entry point started this run, for the spend ledger, the spend ceilings and the
-   * notify channel. Unset reads as `{ source: "run" }`: unattended, so a reached ceiling
+   * Which entry point started this run, for the spend ledger, the spend caps and the
+   * notify targets. Unset reads as `{ source: "run" }`: unattended, so a reached cap
    * refuses it. Ignored for internal runs, whose cost is part of their parent's.
    */
   readonly origin?: RunOrigin;

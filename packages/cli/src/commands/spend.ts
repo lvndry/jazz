@@ -4,8 +4,15 @@
  * `$JAZZ_HOME/spend` (see `@jazz/core/spend/ledger`).
  */
 
+import { capLifted } from "@jazz/core/daemon/attention";
+import { daemonStatePath, readDaemonStateFile } from "@jazz/core/daemon/daemon-state";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import { type CapStatus, capStatuses } from "@jazz/core/spend/caps";
+import {
+  type CapStatus,
+  capStatuses,
+  listCapAgents,
+  unknownAgentCapKeys,
+} from "@jazz/core/spend/caps";
 import { type DaySpend, readSpend, type SpendTotals } from "@jazz/core/spend/ledger";
 import { SPEND_SOURCE_LABELS, type SpendSource } from "@jazz/core/spend/sources";
 import { Effect } from "effect";
@@ -42,15 +49,27 @@ function sourceEntries(day: DaySpend): ReadonlyArray<readonly [string, SpendTota
   );
 }
 
-function describeCap(cap: CapStatus): string {
+function describeCapState(cap: CapStatus): string {
+  if (cap.liftedUntil !== undefined && (cap.reached || cap.unverifiable)) {
+    return `  lifted until ${new Date(cap.liftedUntil).toLocaleString()}`;
+  }
+  if (cap.reached) {
+    return "  REACHED";
+  }
+  if (cap.unverifiable) {
+    return `  BLOCKED: ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"} today`;
+  }
+  if (cap.unpricedRuns > 0) {
+    return `  plus ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"}`;
+  }
+  return "";
+}
+
+/** One cap's line in `jazz spend`, its key padded to `keyWidth`. */
+export function describeCap(cap: CapStatus, keyWidth: number): string {
   const amount = (value: number) =>
     cap.measure === "cost" ? dollars(value) : `${value.toLocaleString("en-US")} tokens`;
-  const state = cap.reached
-    ? "  REACHED"
-    : cap.unpricedRuns > 0
-      ? `  not enforced: ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"}`
-      : "";
-  return `  ${cap.key.padEnd(34)}  ${amount(cap.spent)} of ${amount(cap.limit)}${state}`;
+  return `  ${cap.key.padEnd(keyWidth)}  ${amount(cap.spent)} of ${amount(cap.limit)}${describeCapState(cap)}`;
 }
 
 export function spendCommand(options: { readonly json: boolean }) {
@@ -62,14 +81,30 @@ export function spendCommand(options: { readonly json: boolean }) {
       return;
     }
     const spend = report.right;
-    const caps = capStatuses(appConfig.daemon, spend);
+    const daemonState = yield* Effect.promise(() => readDaemonStateFile(daemonStatePath()));
+    const agents = yield* listCapAgents();
+    const caps = capStatuses(appConfig.daemon, spend, {
+      agents,
+      ...(capLifted(daemonState, new Date()) && daemonState.capLiftedUntil !== undefined
+        ? { machineCapLiftedUntil: daemonState.capLiftedUntil }
+        : {}),
+    });
+    const unknownAgents = agents.length > 0 ? unknownAgentCapKeys(appConfig.daemon, agents) : [];
+    const keyWidth = Math.max(0, ...caps.map((cap) => cap.key.length));
     const capLines =
       caps.length === 0
         ? [
             "",
             "Caps: none (unlimited). Set them with `jazz` > Update configuration > Spend Limits.",
           ]
-        : ["", "Caps (unattended runs only; chat never counts)", ...caps.map(describeCap)];
+        : [
+            "",
+            "Caps (unattended runs only; chat never counts)",
+            ...caps.map((cap) => describeCap(cap, keyWidth)),
+            ...unknownAgents.map(
+              (key) => `  daemon.agents.${key} names no agent, so its caps bind nothing.`,
+            ),
+          ];
     const text = [
       `Today (${spend.day}):       ${describeTotals(spend.today.total)}`,
       `This month (${spend.monthKey}): ${describeTotals(spend.month.total)}`,
@@ -90,6 +125,7 @@ export function spendCommand(options: { readonly json: boolean }) {
         today: spend.today,
         thisMonth: spend.month,
         caps,
+        ...(unknownAgents.length > 0 ? { unknownAgentCapKeys: unknownAgents } : {}),
         unreadableLines: spend.unreadableLines,
       },
       text,

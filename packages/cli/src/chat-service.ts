@@ -708,7 +708,7 @@ export class ChatServiceImpl implements ChatService {
         yield* warnWhenSpendCapReached(
           terminal,
           (yield* configService.appConfig).daemon,
-          agent.id,
+          { agentId: agent.id, agentName: agent.name },
           warnedSpendCaps,
         );
         sessionTurnCount += 1;
@@ -1031,12 +1031,12 @@ export function createChatServiceLayer(): Layer.Layer<
 function warnWhenSpendCapReached(
   terminal: TerminalService,
   caps: DaemonConfig | undefined,
-  agentId: string,
+  agent: { readonly agentId: string; readonly agentName: string },
   warned: Set<string>,
 ) {
   return Effect.gen(function* () {
     const now = Date.now();
-    const check = yield* checkSpendCaps(caps, { agentId, source: "chat" }, { now }).pipe(
+    const check = yield* checkSpendCaps(caps, { ...agent, source: "chat" }, { now }).pipe(
       Effect.catchAll(() => Effect.succeed<CapCheck>({ kind: "clear" })),
     );
     if (check.kind === "clear") {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testGoal } from "@jazz/core/agent/goal/test-fixtures";
@@ -11,7 +11,8 @@ import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
-import { recordSpend } from "@jazz/core/spend/ledger";
+import { recordSpend, spendDirectory } from "@jazz/core/spend/ledger";
+import { guardRunStart } from "@jazz/core/spend/run-accounting";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -19,6 +20,7 @@ import { Effect, Layer } from "effect";
 import {
   announceWaiting,
   daemonGate,
+  daemonStatusSnapshot,
   listWaiting,
   pauseDaemon,
   resumeDaemon,
@@ -235,12 +237,91 @@ describe("daemonGate", () => {
     expect((await run(daemonGate())).kind).toBe("paused");
   });
 
+  it("does not read the spend ledger when no machine daily cap is set", async () => {
+    const test = harness({ daemon: { monthlyCostUSD: 1 } } as AppConfig);
+
+    expect((await test.run(daemonGate())).kind).toBe("open");
+    expect(existsSync(spendDirectory(jazzHome))).toBe(false);
+  });
+
   it("stays paused after the user pauses it, until they resume", async () => {
     const test = harness();
     await test.run(pauseDaemon());
     expect(await test.run(daemonGate())).toMatchObject({ kind: "paused", pause: { kind: "user" } });
     await test.run(resumeDaemon());
     expect((await test.run(daemonGate())).kind).toBe("open");
+  });
+});
+
+describe("resumeDaemon", () => {
+  const config = { daemon: { dailyCostUSD: 1 } } as AppConfig;
+  const workflowRun = {
+    agentId: "agent-1",
+    origin: { source: "workflow" },
+    internal: false,
+    unattended: true,
+    appConfig: config,
+    freeLocalModel: false,
+  } as const;
+
+  it("lifts a reached machine daily cap for the day with no daemon ever having paused", async () => {
+    const test = harness(config);
+    await spent({ unattended: true, costUSD: 2 });
+    const refused = await Effect.runPromise(
+      Effect.either(guardRunStart({ ...workflowRun, home: jazzHome })),
+    );
+    expect(refused._tag).toBe("Left");
+
+    const state = await test.run(resumeDaemon());
+
+    expect(state.capLiftedUntil).toBeDefined();
+    expect((await Effect.runPromise(guardRunStart({ ...workflowRun, home: jazzHome }))).kind).toBe(
+      "clear",
+    );
+  });
+
+  it("lifts nothing when no machine daily cap is reached", async () => {
+    const test = harness(config);
+    await spent({ unattended: true, costUSD: 0.5 });
+
+    expect((await test.run(resumeDaemon())).capLiftedUntil).toBeUndefined();
+  });
+
+  it("never lifts the monthly cap", async () => {
+    const test = harness({ daemon: { dailyCostUSD: 1, monthlyCostUSD: 1 } } as AppConfig);
+    await spent({ unattended: true, costUSD: 2 });
+
+    await test.run(resumeDaemon());
+    const check = await Effect.runPromise(
+      Effect.either(
+        guardRunStart({
+          ...workflowRun,
+          appConfig: { daemon: { dailyCostUSD: 1, monthlyCostUSD: 1 } } as AppConfig,
+          home: jazzHome,
+        }),
+      ),
+    );
+
+    expect(check._tag === "Left" && check.left.message).toContain("monthly cap");
+  });
+});
+
+describe("daemonStatusSnapshot", () => {
+  it("lists every cap once, with a lifted daily cap marked until when", async () => {
+    const test = harness({ daemon: { dailyCostUSD: 1, dailyTokens: 1_000 } } as AppConfig);
+    await spent({ unattended: true, costUSD: 2 });
+    await test.run(resumeDaemon());
+
+    const status = await test.run(daemonStatusSnapshot());
+
+    expect("dailyCaps" in status).toBe(false);
+    expect(status.caps.map((cap) => cap.key)).toEqual([
+      "daemon.dailyCostUSD",
+      "daemon.dailyTokens",
+    ]);
+    expect(status.caps[0]).toMatchObject({ reached: true });
+    expect(status.caps[0]?.liftedUntil).toBeDefined();
+    expect(status.capLiftedToday).toBe(true);
   });
 });
 
