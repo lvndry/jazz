@@ -110,6 +110,7 @@ export interface GlyphSet {
   /** Heavy bar down the left edge of a band: a user message, the composer, cards and menus */ readonly bandBar: string;
   /** A folded section that opens on a key */ readonly folded: string;
   /** A section that is open and can fold again */ readonly unfolded: string;
+  /** Where a streaming answer is growing */ readonly streamCursor: string;
 
   // ─── Activity indicator (multi-cell, expresses parallel work) ────────
   /**
@@ -193,6 +194,7 @@ const ASCII: GlyphSet = {
   railDeep: ":",
   folded: ">",
   unfolded: "v",
+  streamCursor: "_",
   bandBar: "|",
 
   lanePeriods: [3, 4, 5, 7, 11],
@@ -278,6 +280,7 @@ const UNICODE: GlyphSet = {
   railDeep: "▏",
   folded: "›",
   unfolded: "╷",
+  streamCursor: "▍",
   bandBar: "┃",
 
   lanePeriods: [3, 4, 5, 7, 11],

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
-import { setThemeVariant } from "../theme";
+import { getGlyphs } from "../glyphs";
+import { setThemeVariant, THEME } from "../theme";
 import { forgetStreamingRows, transcriptRows, type RenderRow } from "./Transcript";
 import type { Block } from "./types";
 
@@ -40,10 +41,21 @@ function streamingBlock(markdown: string): Block[] {
   return [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: true }];
 }
 
-/** A streaming answer's rail is the accent and a settled one's is not; everything else must match. */
-function withoutRailColour(rows: readonly RenderRow[]): string {
+/**
+ * A streaming answer has an accent rail and a cursor after its last text, and a
+ * settled one has neither; everything else must match.
+ */
+function withoutStreamingMarks(rows: readonly RenderRow[]): string {
+  const cursor = getGlyphs().streamCursor;
   return JSON.stringify(
-    rows.map((row) => ({ ...row, gutter: row.gutter.map((cell) => cell.text) })),
+    rows.map((row, index) => ({
+      ...row,
+      gutter: row.gutter.map((cell) => cell.text),
+      content:
+        index === rows.length - 1 && row.content.at(-1)?.text === cursor
+          ? row.content.slice(0, -1)
+          : row.content,
+    })),
   );
 }
 
@@ -105,7 +117,8 @@ describe("a streaming answer renders incrementally", () => {
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
-      if (withoutRailColour(streamed) !== withoutRailColour(settled)) mismatches.push(length);
+      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled))
+        mismatches.push(length);
     }
     expect(mismatches).toEqual([]);
   });
@@ -130,7 +143,8 @@ describe("a streaming answer renders incrementally", () => {
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
-      if (withoutRailColour(streamed) !== withoutRailColour(settled)) mismatches.push(length);
+      if (withoutStreamingMarks(streamed) !== withoutStreamingMarks(settled))
+        mismatches.push(length);
     }
     expect(mismatches).toEqual([]);
   });
@@ -151,5 +165,44 @@ describe("a streaming answer renders incrementally", () => {
     const streamed = transcriptRows(streamingBlock(ANSWER), VIEWPORT);
     const reference = freshRows(ANSWER);
     expect(JSON.stringify(streamed)).toBe(JSON.stringify(reference));
+  });
+});
+
+describe("the stream cursor", () => {
+  beforeAll(() => {
+    setThemeVariant("dark");
+  });
+
+  it("sits in the accent after the last text while the answer streams", () => {
+    const rows = transcriptRows(streamingBlock("Three things need you"), VIEWPORT);
+    const last = rows.at(-1)?.content.at(-1);
+    expect(last).toEqual({ text: getGlyphs().streamCursor, fg: THEME.agent });
+  });
+
+  it("is gone once the answer settles", () => {
+    const rows = transcriptRows(
+      [
+        {
+          id: "answer",
+          seq: 0,
+          kind: "agent",
+          markdown: "Three things need you",
+          streaming: false,
+        },
+      ],
+      VIEWPORT,
+    );
+    expect(rows.flatMap((row) => row.content).map((segment) => segment.text)).not.toContain(
+      getGlyphs().streamCursor,
+    );
+  });
+
+  it("never pushes a full line past its width", () => {
+    const full = "word ".repeat(200).trim();
+    const rows = transcriptRows(streamingBlock(full), VIEWPORT);
+    for (const row of rows) {
+      const width = row.content.reduce((total, segment) => total + [...segment.text].length, 0);
+      expect(width).toBeLessThanOrEqual(row.contentWidth);
+    }
   });
 });

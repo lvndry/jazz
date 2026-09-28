@@ -1368,6 +1368,24 @@ function streamingAgentRows(
   return state.rows;
 }
 
+/**
+ * An accent block at the reveal point, so the eye finds where the answer is
+ * growing. It sits in the cell after the last text and is drawn only when that
+ * cell exists inside the row's width, so it never wraps a line or moves text.
+ * It holds still rather than blinking: the reveal only repaints while text is
+ * arriving, and a blink would need a timer of its own for a cell that already
+ * moves with every word.
+ */
+function withStreamCursor(rows: RenderRow[], glyphs: GlyphSet): RenderRow[] {
+  const last = rows[rows.length - 1];
+  if (last === undefined) return rows;
+  if (terminalSegmentsWidth(last.content) + 1 > last.contentWidth) return rows;
+  const cursor: Segment = { text: glyphs.streamCursor, fg: THEME.agent };
+  const withCursor = rows.slice();
+  withCursor[withCursor.length - 1] = { ...last, content: [...last.content, cursor] };
+  return withCursor;
+}
+
 function agentRows(
   block: Extract<Block, { kind: "agent" }>,
   geometry: Geometry,
@@ -1375,7 +1393,7 @@ function agentRows(
 ): RenderRow[] {
   const style = agentRowStyle(block, glyphs);
   if (block.streaming === true) {
-    return streamingAgentRows(block, geometry, glyphs, style);
+    return withStreamCursor(streamingAgentRows(block, geometry, glyphs, style), glyphs);
   }
   const state = initialProseRowsState();
   appendProseItems(state, parseProse(block.markdown, glyphs), 0, block.id, style, geometry, glyphs);
