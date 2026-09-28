@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/lvndry/jazz/main/packages/cli/src/ui/themes/theme.schema.json",
+  "title": "Jazz theme",
+  "description": "A named palette (defs) and the roles (theme) that point into it. One file carries both variants: a role is one value, or { \"dark\": …, \"light\": … }. Put the file in $JAZZ_HOME/themes/ and select it with /theme <name>.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "theme"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": {
+      "description": "The name typed after /theme.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "label": { "description": "The display name, e.g. \"Catppuccin\".", "type": "string" },
+    "description": { "type": "string" },
+    "defs": {
+      "description": "Named colours the roles refer to. A def may name another def.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/definition" }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "background",
+        "backgroundPanel",
+        "backgroundElement",
+        "borderSubtle",
+        "border",
+        "selected",
+        "secondary",
+        "muted",
+        "primary",
+        "accentDim",
+        "success",
+        "warning",
+        "error",
+        "syntaxStructure",
+        "syntaxValue",
+        "syntaxType"
+      ],
+      "properties": {
+        "background": {
+          "$ref": "#/$defs/role",
+          "description": "The window's ground. \"transparent\" shows the terminal's own background."
+        },
+        "backgroundPanel": {
+          "$ref": "#/$defs/role",
+          "description": "A raised tier: your messages, the approval card, overlays."
+        },
+        "backgroundElement": {
+          "$ref": "#/$defs/role",
+          "description": "The next tier up: code blocks, the input box, menus."
+        },
+        "borderSubtle": { "$ref": "#/$defs/role", "description": "The quietest rule." },
+        "border": { "$ref": "#/$defs/role", "description": "Rules and frames." },
+        "borderActive": {
+          "$ref": "#/$defs/role",
+          "description": "A focused frame. Defaults to border."
+        },
+        "selected": { "$ref": "#/$defs/role", "description": "Primary text." },
+        "secondary": { "$ref": "#/$defs/role", "description": "Secondary text." },
+        "muted": {
+          "$ref": "#/$defs/role",
+          "description": "Metadata, settled receipts, timestamps."
+        },
+        "primary": {
+          "$ref": "#/$defs/role",
+          "description": "The one accent: live work and your own affordances."
+        },
+        "accentDim": {
+          "$ref": "#/$defs/role",
+          "description": "Subordinate live content, links, citations."
+        },
+        "agent": {
+          "$ref": "#/$defs/role",
+          "description": "The agent's marker. Defaults to primary."
+        },
+        "prompt": {
+          "$ref": "#/$defs/role",
+          "description": "The input prompt marker. Defaults to primary."
+        },
+        "link": { "$ref": "#/$defs/role", "description": "Links. Defaults to accentDim." },
+        "reasoning": {
+          "$ref": "#/$defs/role",
+          "description": "Live reasoning. Defaults to accentDim."
+        },
+        "info": {
+          "$ref": "#/$defs/role",
+          "description": "Informational notices. Defaults to secondary."
+        },
+        "success": { "$ref": "#/$defs/role", "description": "It worked." },
+        "warning": { "$ref": "#/$defs/role", "description": "A scope worth noticing." },
+        "error": { "$ref": "#/$defs/role", "description": "It broke." },
+        "syntaxStructure": {
+          "$ref": "#/$defs/role",
+          "description": "Code: keywords and structure."
+        },
+        "syntaxValue": {
+          "$ref": "#/$defs/role",
+          "description": "Code: strings, numbers and inline code."
+        },
+        "syntaxType": { "$ref": "#/$defs/role", "description": "Code: types and constructors." }
+      }
+    }
+  },
+  "$defs": {
+    "value": {
+      "description": "A \"#RRGGBB\" colour, an xterm-256 index, \"transparent\" or \"none\" for the terminal's own background, or the name of a def or a role.",
+      "oneOf": [
+        { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        { "type": "integer", "minimum": 0, "maximum": 255 },
+        { "type": "string", "pattern": "^[^#].*$" }
+      ]
+    },
+    "definition": {
+      "oneOf": [
+        { "$ref": "#/$defs/value" },
+        {
+          "description": "A colour with the xterm-256 index to paint instead in a terminal limited to 256 colours.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["color"],
+          "properties": {
+            "color": { "$ref": "#/$defs/value" },
+            "xterm": { "type": "integer", "minimum": 0, "maximum": 255 }
+          }
+        }
+      ]
+    },
+    "role": {
+      "oneOf": [
+        { "$ref": "#/$defs/value" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dark", "light"],
+          "properties": {
+            "dark": { "$ref": "#/$defs/value" },
+            "light": { "$ref": "#/$defs/value" }
+          }
+        }
+      ]
+    }
+  }
+}
