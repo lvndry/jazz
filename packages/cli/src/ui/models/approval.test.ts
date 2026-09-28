@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { approvalIntent, parseApprovalDiff } from "./approval-intent";
+import { approvalIntent, parseApprovalDiff } from "./approval";
 
 describe("approvalIntent", () => {
   it("says an outbound message can't be unsent, and words the controls with the verb", () => {

@@ -37,8 +37,8 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
+import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
 import { MOTION, THEME } from "../theme";
-import { RETRY_BAND_ROWS, type RetryBand } from "./retry-band";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
 import {

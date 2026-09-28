@@ -31,6 +31,14 @@ import {
   scanFilePickerEntries,
 } from "../file-picker-files";
 import { hostForModel } from "../local-model-hosts";
+import {
+  interruptSummary,
+  type InterruptSnapshot,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "../models/interrupt";
+import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
+import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
 import { wrapIndex } from "../picker-window";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
@@ -50,7 +58,6 @@ import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
-import { approvalIntent, diffLanguage } from "./approval-intent";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
 import {
   commit,
@@ -73,11 +80,6 @@ import {
 } from "./composer-edit";
 import { wrapCommandIndex } from "./Input";
 import {
-  interruptSummary,
-  type InterruptSnapshot,
-  type InterruptSummary,
-} from "./interrupt-summary";
-import {
   isBackgroundChord,
   isComposerNewline,
   isCtrlLetter,
@@ -88,12 +90,11 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { approvalIntent, diffLanguage } from "../models/approval";
 import { approvalTitle } from "./overlays/Approval";
 import type { FilePickerModel } from "./overlays/FilePicker";
-import { MAX_QUICK_PICK } from "./overlays/Question";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-import { RETRY_BAND_ROWS, retryBand } from "./retry-band";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
@@ -297,25 +298,20 @@ function allowsCustomAnswer(prompt: PromptState): boolean {
   return prompt.type === "questionnaire";
 }
 
-const YES_LABEL = /^yes\b/i;
-const NO_LABEL = /^no\b/i;
-
 /**
- * The two answers of a yes/no question, by index, so it can be drawn as two buttons and
- * answered with y or n. A confirm prompt always is one; an agent's question is one when
- * it offers exactly a Yes and a No.
+ * The two answers of a yes/no question. A confirm prompt always is one; an agent's
+ * question is one when the shared model says its choices are a Yes and a No.
  */
 export function binaryAnswers(
   prompt: PromptState,
   choices: readonly { readonly label: string }[],
 ): { readonly yes: number; readonly no: number } | undefined {
   if (prompt.type === "confirm") return { yes: 0, no: 1 };
-  if (prompt.type !== "questionnaire" || allowsMultipleAnswers(prompt) || choices.length !== 2) {
-    return undefined;
-  }
-  const yes = choices.findIndex((choice) => YES_LABEL.test(choice.label.trim()));
-  const no = choices.findIndex((choice) => NO_LABEL.test(choice.label.trim()));
-  return yes >= 0 && no >= 0 && yes !== no ? { yes, no } : undefined;
+  if (prompt.type !== "questionnaire") return undefined;
+  return binaryAnswerIndices(
+    choices.map((choice) => choice.label),
+    allowsMultipleAnswers(prompt),
+  );
 }
 
 function questionPosition(
@@ -659,6 +655,24 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
       ? { classifiedRisk: record["classifiedRisk"] }
       : {}),
   };
+}
+
+/** The settled tool calls after the last user message: the turn a stop summarises. */
+function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
+  let start = blocks.length;
+  while (start > 0 && blocks[start - 1]?.kind !== "user") start -= 1;
+  return blocks.slice(start).flatMap((block) =>
+    block.kind === "tool"
+      ? [
+          {
+            app: block.app,
+            summary: block.summary,
+            status: block.status,
+            ...(block.args === undefined ? {} : { args: block.args }),
+          },
+        ]
+      : [],
+  );
 }
 
 function stoppedOf(entry: OutputEntry): InterruptSummary | null {
@@ -2726,7 +2740,7 @@ export function FullscreenBridge(): React.ReactNode {
   }, [outputs, revealedStreaming, regions, inspectedRun, elapsedMs]);
 
   stopContextRef.current = {
-    blocks,
+    receipts: currentTurnReceipts(blocks),
     runningTools: tools,
     ...(approval === null ? {} : { pendingApproval: approvalTitle(approval.executeToolName) }),
     todos: todoList,

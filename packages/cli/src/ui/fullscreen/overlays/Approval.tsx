@@ -27,15 +27,15 @@
 
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { getGlyphs } from "../../glyphs";
+import type { ApprovalDiff } from "../../models/approval";
 import { THEME } from "../../theme";
 import { blendHex } from "../../themes/registry";
-import type { ApprovalDiff } from "../approval-intent";
 import { highlightCodeLine, highlightFenceLines, type SyntaxSpan } from "../syntax-spans";
 import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 
 /** The legend under the band starts where the band's text does. */
 const LEGEND_INDENT = BAND_CHROME_COLUMNS - 1;

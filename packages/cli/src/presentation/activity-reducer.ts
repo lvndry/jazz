@@ -19,7 +19,6 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { Box, Text } from "ink";
 import React from "react";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
-import { failureOutcome } from "./failure-outcome";
 import {
   compactToolArguments,
   formatToolArguments,
@@ -29,6 +28,7 @@ import {
 import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
+import { failureOutcome } from "../ui/models/failure";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 

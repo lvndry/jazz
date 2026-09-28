@@ -11,7 +11,7 @@
  */
 
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
-import { sourceLanguageFromPath } from "./syntax-spans";
+import { sourceLanguageFromPath } from "../fullscreen/syntax-spans";
 
 export type ActionClass =
   "send" | "delete" | "run" | "edit" | "write" | "move" | "copy" | "create" | "act";

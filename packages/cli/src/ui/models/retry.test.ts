@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { liveRows } from "../fullscreen/LiveZone";
 import { getGlyphs } from "../glyphs";
 import type { RetryNotice } from "../store";
 import { THEME } from "../theme";
-import { liveRows } from "./LiveZone";
-import { retryBand } from "./retry-band";
+import { retryBand } from "./retry";
 
 const NOTICE: RetryNotice = {
   agentName: "sol",

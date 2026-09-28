@@ -18,13 +18,13 @@
  */
 
 import type { TodoSnapshotItem } from "../activity-state";
+import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
-import type { ApprovalCommand, ApprovalDiff } from "./approval-intent";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-import type { RetryBand } from "./retry-band";
+import type { RetryBand } from "../models/retry";
 
 /**
  * Once the content column is at least this wide, leftover columns become a

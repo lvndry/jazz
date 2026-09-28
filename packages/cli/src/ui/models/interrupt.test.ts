@@ -1,30 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { interruptSummary } from "./interrupt-summary";
-import { transcriptRows } from "./Transcript";
-import type { Block } from "./types";
+import { interruptSummary, interruptSummaryLines, type ReceiptFacts } from "./interrupt";
+import { transcriptRows } from "../fullscreen/Transcript";
 
-const TURN: readonly Block[] = [
-  { id: "u0", seq: 0, kind: "user", text: "Earlier question" },
-  { id: "t0", seq: 1, kind: "tool", app: "write_file", summary: "old", status: "ok" },
-  { id: "u1", seq: 2, kind: "user", text: "Get Saturday sorted" },
-  { id: "t1", seq: 3, kind: "tool", app: "read_file", summary: "venue.md 40 lines", status: "ok" },
-  {
-    id: "t2",
-    seq: 4,
-    kind: "tool",
-    app: "mcp_calendar_create_event",
-    args: "Sat 18:00",
-    summary: "hold placed",
-    status: "ok",
-  },
+const TURN: readonly ReceiptFacts[] = [
+  { app: "read_file", summary: "venue.md 40 lines", status: "ok" },
+  { app: "mcp_calendar_create_event", args: "Sat 18:00", summary: "hold placed", status: "ok" },
 ];
 
 describe("interruptSummary", () => {
   it("lists only this turn's calls that changed something, and what never finished", () => {
     const summary = interruptSummary({
       elapsedMs: 6_200,
-      blocks: TURN,
-      runningTools: [{ app: "web", operation: "search venues", elapsedMs: 3_000, phase: 0 }],
+      receipts: TURN,
+      runningTools: [{ app: "web", operation: "search venues" }],
       pendingApproval: "Send email",
       todos: [
         { content: "place a hold", status: "completed" },
@@ -42,7 +30,7 @@ describe("interruptSummary", () => {
   it("says nothing changed rather than leaving the list empty", () => {
     const summary = interruptSummary({
       elapsedMs: 1_000,
-      blocks: TURN.slice(0, 4),
+      receipts: TURN.slice(0, 1),
       runningTools: [],
       todos: [],
     });
@@ -53,7 +41,7 @@ describe("interruptSummary", () => {
   it("caps each list and counts what it hides", () => {
     const summary = interruptSummary({
       elapsedMs: 1_000,
-      blocks: [],
+      receipts: [],
       runningTools: [],
       todos: ["a", "b", "c", "d", "e"].map((content) => ({ content, status: "pending" as const })),
     });
@@ -80,5 +68,13 @@ describe("the stopped block", () => {
     expect(text[0]).toContain("stopped by you after 6.2s");
     expect(text[1]).toMatch(/^done\s+calendar hold placed/);
     expect(text[2]).toMatch(/^not done\s+reply to Dana/);
+  });
+});
+
+describe("interruptSummaryLines", () => {
+  it("prints the same words the fullscreen block draws", () => {
+    expect(
+      interruptSummaryLines({ elapsedMs: 0, done: ["hold placed"], notDone: ["reply"] }, "6.2s"),
+    ).toEqual(["stopped by you after 6.2s", "done      hold placed", "not done  reply"]);
   });
 });

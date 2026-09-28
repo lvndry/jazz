@@ -35,6 +35,7 @@ import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
+import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
@@ -66,14 +67,11 @@ const DESCRIPTION_GAP = 2;
 /** A long question is worth two rows; past that it is not a question. */
 const MESSAGE_MAX_ROWS = 3;
 
-/** Number keys pick the first nine rows; a tenth row would need two keystrokes. */
-export const MAX_QUICK_PICK = 9;
-
 /** Keep this much context past the selection before the list starts to follow it. */
 const LIST_MARGIN = 1;
 
 /** The custom row says what it is for, in the house voice, rather than "Other". */
-const CUSTOM_HINT = "Something else…";
+const CUSTOM_HINT = CUSTOM_ANSWER_LABEL;
 
 /** Cells either side of a button's label, inside its fill. */
 const BUTTON_PAD = 1;
@@ -414,43 +412,33 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     top,
   } = questionLayout(model, viewport);
 
-  const escape: Hint = {
-    key: "esc",
-    label: model.skippable === true ? "skip question" : "cancel",
-    expendable: 0,
-  };
-  const pickRange = `1-${String(Math.min(model.choices.length, MAX_QUICK_PICK))}`;
-  const hints: readonly Hint[] =
-    model.buttons === true
-      ? [
-          { key: "left/right", label: "choose", expendable: 3 },
-          { key: "enter", label: "confirm", expendable: 1 },
-          { key: "y/n", label: "answer", expendable: 2 },
-          escape,
-        ]
-      : checkbox
-        ? [
-            { key: "up/down", label: "move", expendable: 4 },
-            { key: "space", label: "toggle", expendable: 2 },
-            { key: pickRange, label: "toggle", expendable: 3 },
-            { key: "enter", label: "submit", expendable: 1 },
-            escape,
-          ]
-        : filterable
-          ? [
-              { key: "up/down", label: "choose", expendable: 3 },
-              { key: "type", label: "filter", expendable: 2 },
-              { key: "enter", label: "select", expendable: 1 },
-              escape,
-            ]
-          : [
-              { key: "up/down", label: "choose", expendable: 3 },
-              { key: "enter", label: "confirm", expendable: 1 },
-              { key: pickRange, label: "pick", expendable: 2 },
-              escape,
-            ];
+  // The key legend and its wording come from the shared question model, so the Ink
+  // questionnaire lists the same keys in the same words.
+  const expendable = new Map([
+    ["esc", 0],
+    ["enter", 1],
+    ["y/n", 2],
+    ["space", 2],
+    ["type", 2],
+  ]);
+  const keys = filterable
+    ? [
+        { key: "up/down", label: "choose" },
+        { key: "type", label: "filter" },
+        { key: "enter", label: "select" },
+        { key: "esc", label: model.skippable === true ? "skip question" : "cancel" },
+      ]
+    : questionKeys({
+        binary: model.buttons === true,
+        multiple: checkbox,
+        choiceCount: model.choices.length,
+        skippable: model.skippable === true,
+      });
+  const hints: readonly Hint[] = keys.map((entry) => ({
+    ...entry,
+    expendable: expendable.get(entry.key) ?? 3,
+  }));
 
-  // Where the selection sits, shown only when the list is longer than what is on screen.
   const tally = checkbox
     ? `${String(checked.size)} selected`
     : total === 0
@@ -460,10 +448,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
       : model.buttons !== true && total > visible.length
         ? `${String(selected + 1)} of ${String(total)}`
         : undefined;
-  const positionLabel =
-    model.position !== undefined && model.position.total > 1
-      ? `${String(model.position.index)} of ${String(model.position.total)}`
-      : undefined;
+  const positionLabel = questionPositionLabel(model.position);
   const messageBudget = Math.max(
     4,
     inner - GUTTER - (positionLabel === undefined ? 0 : displayWidth(positionLabel) + GUTTER),

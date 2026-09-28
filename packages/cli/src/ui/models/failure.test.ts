@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { failureOutcome } from "./failure-outcome";
+import { failureOutcome } from "./failure";
 
 describe("failureOutcome", () => {
   it("says a refused send sent nothing and names the reconnect for an expired sign-in", () => {

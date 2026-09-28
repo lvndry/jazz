@@ -8,7 +8,7 @@
  * fail part-way, so their receipts state the reason and nothing more.
  */
 
-import { actionClass, type ActionClass } from "@/cli/ui/fullscreen/approval-intent";
+import { actionClass, type ActionClass } from "./approval";
 
 const NOT_DONE: Partial<Record<ActionClass, string>> = {
   send: "nothing was sent",

@@ -6,11 +6,12 @@
  * needs to know whether the email went out before deciding what to say next. So "done"
  * lists only calls that changed something, and "not done" lists what was running, what
  * was waiting for approval, and the plan steps that never finished.
+ *
+ * Renderer-free: the fullscreen transcript and the Ink transcript both draw this.
  */
 
 import type { TodoSnapshotItem } from "../activity-state";
-import { actionClass } from "./approval-intent";
-import type { Block, LiveTool, ToolReceiptBlock } from "./types";
+import { actionClass } from "./approval";
 
 /** Rows each list shows before the rest collapse into `+N more`. */
 export const INTERRUPT_LIST_ROWS = 3;
@@ -21,23 +22,25 @@ export interface InterruptSummary {
   readonly notDone: readonly string[];
 }
 
+/** A settled tool call of the current turn, as both renderers record it. */
+export interface ReceiptFacts {
+  readonly app: string;
+  readonly args?: string;
+  readonly summary: string;
+  readonly status: "ok" | "failed" | "denied";
+}
+
 export interface InterruptSnapshot {
   readonly elapsedMs: number;
-  /** The transcript as it stands; the turn is everything after the last user message. */
-  readonly blocks: readonly Block[];
-  readonly runningTools: readonly LiveTool[];
+  /** This turn's settled calls, oldest first. */
+  readonly receipts: readonly ReceiptFacts[];
+  readonly runningTools: readonly { readonly app: string; readonly operation: string }[];
   /** The title of an approval card that was up when the turn stopped. */
   readonly pendingApproval?: string;
   readonly todos: readonly TodoSnapshotItem[];
 }
 
-function currentTurn(blocks: readonly Block[]): readonly Block[] {
-  let start = blocks.length;
-  while (start > 0 && blocks[start - 1]?.kind !== "user") start -= 1;
-  return blocks.slice(start);
-}
-
-function receiptLine(receipt: ToolReceiptBlock): string {
+function receiptLine(receipt: ReceiptFacts): string {
   return [receipt.app, receipt.args, receipt.summary]
     .filter((part): part is string => part !== undefined && part.trim().length > 0)
     .join("  ");
@@ -50,11 +53,9 @@ function capped(lines: readonly string[]): readonly string[] {
 }
 
 export function interruptSummary(snapshot: InterruptSnapshot): InterruptSummary {
-  const changed = currentTurn(snapshot.blocks).filter(
-    (block): block is ToolReceiptBlock =>
-      block.kind === "tool" && block.status === "ok" && actionClass(block.app) !== "act",
-  );
-  const done = changed.map(receiptLine);
+  const done = snapshot.receipts
+    .filter((receipt) => receipt.status === "ok" && actionClass(receipt.app) !== "act")
+    .map(receiptLine);
   const notDone = [
     ...snapshot.runningTools.map((tool) => `${tool.app}  ${tool.operation} was stopped`),
     ...(snapshot.pendingApproval === undefined
@@ -69,4 +70,15 @@ export function interruptSummary(snapshot: InterruptSnapshot): InterruptSummary 
     done: capped(done.length > 0 ? done : ["nothing was changed"]),
     notDone: capped(notDone),
   };
+}
+
+/** The summary as plain lines, for a renderer that prints text: the words both surfaces share. */
+export function interruptSummaryLines(summary: InterruptSummary, duration: string): string[] {
+  const label = (text: string, index: number): string =>
+    (index === 0 ? text : "").padEnd("not done  ".length);
+  return [
+    `stopped by you after ${duration}`,
+    ...summary.done.map((item, index) => `${label("done", index)}${item}`),
+    ...summary.notDone.map((item, index) => `${label("not done", index)}${item}`),
+  ];
 }
