@@ -6,7 +6,7 @@ import {
   logToolExecutionStart,
   logToolExecutionSuccess,
 } from "@/core/agent/tools/tool-logging";
-import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
   ToolRegistryTag,
@@ -15,7 +15,7 @@ import {
   type ToolRequirements,
   type ToolSummary,
 } from "@/core/interfaces/tool-registry";
-import { collectKnownSecrets, redactToolResult } from "@/core/secrets/redaction";
+import { redactToolResult } from "@/core/secrets/redaction";
 import { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -24,6 +24,7 @@ import type {
   ToolExecutionResult,
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
@@ -371,11 +372,7 @@ class DefaultToolRegistry implements ToolRegistry {
       } else {
         unredacted = eitherResult.right;
       }
-      const configService = yield* AgentConfigServiceTag;
-      const knownSecrets =
-        configService.knownSecrets === undefined
-          ? collectKnownSecrets(yield* configService.appConfig)
-          : yield* configService.knownSecrets;
+      const knownSecrets = yield* toolKnownSecrets();
       const result = redactToolResult(unredacted, knownSecrets);
 
       const durationMs = Date.now() - start;

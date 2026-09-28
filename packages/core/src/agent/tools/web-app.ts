@@ -5,6 +5,7 @@ import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
@@ -15,6 +16,7 @@ import { defineTool, makeZodValidator } from "./base-tool";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
 import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
 import { guardPageRequests } from "./guarded-page";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /**
  * Lets the agent compose a polished visual artifact — not just charts, any
@@ -166,6 +168,7 @@ async function renderStaticScreenshot(
   height: number,
   executablePath: string,
   policy: EgressPolicy,
+  known: readonly KnownSecret[],
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -178,7 +181,7 @@ async function renderStaticScreenshot(
   try {
     const page = await browser.newPage();
     await page.setViewport({ width, height });
-    await guardPageRequests(page, htmlPath, policy);
+    await guardPageRequests(page, htmlPath, policy, known);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.screenshot({ path: pngPath, fullPage: true });
   } finally {
@@ -257,9 +260,18 @@ export function createCompositionTool(
         }
 
         const egressPolicy = yield* egressPolicyForContext(context);
+        const known = yield* toolKnownSecrets();
         yield* Effect.tryPromise({
           try: () =>
-            renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath, egressPolicy),
+            renderStaticScreenshot(
+              htmlPath,
+              pngPath,
+              width,
+              height,
+              executablePath,
+              egressPolicy,
+              known,
+            ),
           catch: (error) => new Error(`Failed to render static web app: ${toError(error).message}`),
         });
 

@@ -244,6 +244,11 @@ export interface ApprovalRequiredResult {
    * merged into its args under `_selectedOptionId`.
    */
   readonly options?: readonly ApprovalOption[];
+  /**
+   * A person answers this request under every auto-approve policy and allowlist; with nobody
+   * to ask, the run parks for approval.
+   */
+  readonly alwaysAsk?: true;
 }
 
 /**

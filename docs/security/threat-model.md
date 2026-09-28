@@ -103,8 +103,13 @@ fallback when no keyring is usable. Files read normally; secret values in every 
 (file contents, command output, errors, approval previews) are replaced before the model, the
 transcript, logs or an approver see them: exactly for every secret Jazz holds and every
 credential-named environment variable, by shape for `.env`-style assignments, key formats and
-private keys. Writes carrying a redaction placeholder are refused. Recognition by shape is
-best-effort and a transformed secret is not caught. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
+private keys. Tools that slice, cap or search their output redact first, so a line range, a
+byte offset, an output cap or a `grep` pattern cannot split a secret or probe its value. Writes
+putting a placeholder where the target file or Jazz holds a secret are refused, and so is a
+`write_file` that would drop a line holding one. Recognition by shape is best-effort and a
+transformed secret is not caught; `execute_command` stays gated by approval for that reason.
+Edits to Jazz's own config and state under `$JAZZ_HOME` (`config.json`, approvals, agents, tokens)
+through the file tools always ask, under every approval policy. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
 telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
 events omit command text, tool arguments, results, and prompt/completion text. The local tool audit

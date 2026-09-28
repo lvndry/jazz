@@ -217,7 +217,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    *
    * Return types:
    * - `string` — simple approval message
-   * - `{ message, previewDiff? }` — approval message with optional diff preview
+   * - `{ message, previewDiff?, alwaysAsk? }` — approval message with optional diff preview;
+   *   `alwaysAsk` puts the call to a person under every auto-approve policy and allowlist
    * - `{ skipApproval: true, toolResult }` — bypass approval and return result directly to the LLM
    *   (use when pre-validation detects the edit will fail, e.g., pattern not found)
    */
@@ -226,7 +227,7 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
     context: ToolExecutionContext,
   ) => Effect.Effect<
     | string
-    | { message: string; previewDiff?: string }
+    | { message: string; previewDiff?: string; alwaysAsk?: true }
     | { skipApproval: true; toolResult: ToolExecutionResult },
     Error,
     R
@@ -310,6 +311,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
           typeof approvalResult === "string" ? approvalResult : approvalResult.message;
         const previewDiff =
           typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
+        const alwaysAsk = typeof approvalResult !== "string" && approvalResult.alwaysAsk === true;
         return {
           success: false,
           result: {
@@ -318,6 +320,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
             previewDiff,
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
+            ...(alwaysAsk ? { alwaysAsk: true } : {}),
           },
           error: errorMessage,
         };

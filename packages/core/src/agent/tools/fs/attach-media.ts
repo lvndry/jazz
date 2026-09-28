@@ -9,13 +9,16 @@
  * 2. Can the executor carry attachments at all? Some contexts have no message list to extend.
  * 3. Does the active model accept this modality? If not, say so loudly.
  * 4. Is the file within its size limit?
+ * 5. Does a PDF's text hold a secret? Attached files reach the model as they are, so a PDF whose
+ *    text redaction would change goes through `read_pdf`, whose output is redacted, instead.
  *
  * Steps 3 and 4 both end in an explicit failure rather than a quiet omission, which is the
  * whole point: a model that asked to see an image and is handed nothing will describe an image
  * it never saw. It has to be told the file exists and did not reach it.
  */
 
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { redactSecretText, type KnownSecret } from "@/core/secrets/redaction";
 import {
   classifyAttachmentPath,
   describeAttachment,
@@ -44,9 +47,29 @@ export type AttachMediaOutcome =
  * file part on the following user message. The description names the path deliberately so the
  * model can re-read it later, after the attachment has aged out of the inline window.
  */
+/** Whether the PDF's extractable text holds a secret; false for a PDF whose text cannot be read. */
+async function pdfTextHoldsSecret(
+  filePath: string,
+  known: readonly KnownSecret[],
+): Promise<boolean> {
+  try {
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: new Uint8Array(await readFile(filePath)) });
+    try {
+      const text = (await parser.getText()).text;
+      return redactSecretText(text, known) !== text;
+    } finally {
+      await parser.destroy();
+    }
+  } catch {
+    return false;
+  }
+}
+
 export async function attachMediaFile(
   filePath: string,
   context: ToolExecutionContext | undefined,
+  known: readonly KnownSecret[],
 ): Promise<AttachMediaOutcome> {
   const classified = classifyAttachmentPath(filePath);
   if (classified === null) return { kind: "not-media" };
@@ -106,6 +129,17 @@ export async function attachMediaFile(
     return {
       kind: "failed",
       result: { success: false, result: null, error: rejection },
+    };
+  }
+
+  if (classified.kind === "pdf" && (await pdfTextHoldsSecret(filePath, known))) {
+    return {
+      kind: "failed",
+      result: {
+        success: false,
+        result: null,
+        error: `${filePath} holds secret values, so it was not attached. Use read_pdf, which returns its text with secrets shown as [redacted:<name>].`,
+      },
     };
   }
 

@@ -46,15 +46,43 @@ export interface KnownSecret {
 const MIN_KNOWN_SECRET_LENGTH = 8;
 
 /**
- * Why writing `text` as `field` would lose a secret, or undefined when it holds no placeholder.
+ * Why writing `text` as `field` of `tool` would put a placeholder where a real secret belongs, or
+ * undefined when it would not.
+ *
  * Tool output shows secrets as placeholders, so text copied from it and written back would
- * replace the real value.
+ * replace the real value. Only a placeholder naming a secret the target file holds
+ * (`currentContent`, when the file exists) or a secret Jazz knows counts; other placeholder-shaped
+ * text, such as documentation of this feature, is written as it is.
  */
-export function redactedWriteProblem(field: string, text: string): string | undefined {
-  if (!containsRedactionPlaceholder(text)) {
+export function redactedWriteProblem(input: {
+  readonly tool: "write_file" | "edit_file";
+  readonly field: string;
+  readonly text: string;
+  readonly currentContent: string | undefined;
+  readonly known: readonly KnownSecret[];
+}): string | undefined {
+  if (!containsRedactionPlaceholder(input.text)) {
     return undefined;
   }
-  return `${field} contains a ${PLACEHOLDER_PREFIX}…] placeholder, which stands for a secret you were not shown. Writing it would replace the real value in the file. Leave the lines that hold secrets out of ${field}.`;
+  const placeholderPattern = new RegExp(`\\${PLACEHOLDER_PREFIX}([^\\]\\n]*)\\]`, "g");
+  const namesIn = (text: string): string[] =>
+    [...text.matchAll(placeholderPattern)].map((match) => match[1] ?? "");
+  const secretNames = new Set(input.known.map((secret) => secret.name));
+  if (input.currentContent !== undefined) {
+    for (const name of namesIn(redactSecretText(input.currentContent, input.known))) {
+      secretNames.add(name);
+    }
+  }
+  const standIns = [...new Set(namesIn(input.text).filter((name) => secretNames.has(name)))];
+  if (standIns.length === 0) {
+    return undefined;
+  }
+  const named = standIns.map(redactionPlaceholder).join(", ");
+  const remedy =
+    input.tool === "write_file"
+      ? "Use edit_file to change the other lines, and leave the lines showing placeholders as they are."
+      : "Keep the lines showing placeholders out of every pattern, replacement and content, and edit the lines around them.";
+  return `${input.field} carries ${named}, which stands for a secret value you were shown redacted; writing it would replace the real value. ${remedy}`;
 }
 
 function looksLikePath(value: string): boolean {

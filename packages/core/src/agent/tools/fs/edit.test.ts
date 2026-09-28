@@ -82,7 +82,7 @@ describe("read-bound edit_file", () => {
     };
     for (const half of [edit.approval, edit.execute]) {
       await expect(runTool(half, input, directory)).rejects.toThrow(
-        "edits[0].content contains a [redacted:",
+        "edits[0].content carries [redacted:API_TOKEN]",
       );
     }
     expect(readFileSync(path, "utf8")).toBe("DEBUG=1\nAPI_TOKEN=real-value\n");
@@ -152,5 +152,86 @@ describe("read-bound edit_file", () => {
     const execution = await runTool(edit.execute, args(other, version), directory);
     expect(execution.result).toMatchObject({ errorType: "StaleFileError" });
     expect(readFileSync(other, "utf8")).toBe("first\nsecond\nthird\n");
+  });
+
+  it("matches patterns against the redacted view, so a secret value cannot be probed", async () => {
+    const { directory, path } = fixture("DEBUG=1\nDB_PASSWORD=hunter2hunter2\nPORT=3000\n");
+    const version = await snapshot(path, directory);
+    const replace = (pattern: string) => ({
+      path,
+      snapshot: version,
+      edits: [{ type: "replace_pattern", pattern, replacement: "x" }],
+    });
+
+    const rightGuess = await runTool(edit.approval, replace("re:^DB_PASSWORD=h"), directory);
+    const wrongGuess = await runTool(edit.approval, replace("re:^DB_PASSWORD=z"), directory);
+    const valueGuess = await runTool(edit.approval, replace("hunter2"), directory);
+    for (const result of [rightGuess, wrongGuess, valueGuess]) {
+      expect(result.result).toMatchObject({ errorType: "PatternNotFoundError" });
+    }
+
+    const onSecretLine = await runTool(edit.approval, replace("DB_PASSWORD="), directory);
+    expect(onSecretLine.result).toMatchObject({ errorType: "SecretLineMatchError" });
+    expect(readFileSync(path, "utf8")).toBe("DEBUG=1\nDB_PASSWORD=hunter2hunter2\nPORT=3000\n");
+  });
+
+  it("edits the lines around a secret and keeps the secret line exactly", async () => {
+    const { directory, path } = fixture("DEBUG=1\nDB_PASSWORD=hunter2hunter2\nPORT=3000\n");
+    const input = {
+      path,
+      snapshot: await snapshot(path, directory),
+      edits: [
+        { type: "replace_pattern", pattern: "DEBUG=1", replacement: "# debug\nDEBUG=0" },
+        { type: "replace_pattern", pattern: "PORT=3000", replacement: "PORT=4000" },
+      ],
+    };
+    expect((await runTool(edit.approval, input, directory)).result).toMatchObject({
+      approvalRequired: true,
+    });
+    expect((await runTool(edit.execute, input, directory)).success).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe(
+      "# debug\nDEBUG=0\nDB_PASSWORD=hunter2hunter2\nPORT=4000\n",
+    );
+  });
+
+  it("writes placeholder-shaped text that stands for no secret of the file", async () => {
+    const { directory, path } = fixture("# Redaction\n");
+    const input = {
+      path,
+      snapshot: await snapshot(path, directory),
+      edits: [{ type: "insert", line: 1, content: "Secrets appear as [redacted:<name>]." }],
+    };
+    expect((await runTool(edit.execute, input, directory)).success).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("# Redaction\nSecrets appear as [redacted:<name>].\n");
+  });
+
+  it("always asks before editing Jazz's config", async () => {
+    const { directory } = fixture();
+    const savedHome = process.env["JAZZ_HOME"];
+    const savedConfigPath = process.env["JAZZ_CONFIG_PATH"];
+    process.env["JAZZ_HOME"] = directory;
+    delete process.env["JAZZ_CONFIG_PATH"];
+    try {
+      const path = join(directory, "config.json");
+      writeFileSync(path, '{\n  "autoApprovedCommands": []\n}\n');
+      const input = {
+        path,
+        snapshot: await snapshot(path, directory),
+        edits: [{ type: "replace_lines", startLine: 2, endLine: 2, content: '  "x": 1' }],
+      };
+      expect((await runTool(edit.approval, input, directory)).result).toMatchObject({
+        approvalRequired: true,
+        alwaysAsk: true,
+      });
+    } finally {
+      if (savedHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = savedHome;
+      }
+      if (savedConfigPath !== undefined) {
+        process.env["JAZZ_CONFIG_PATH"] = savedConfigPath;
+      }
+    }
   });
 });

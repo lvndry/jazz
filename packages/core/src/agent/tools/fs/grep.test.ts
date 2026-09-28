@@ -6,6 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createGrepTool } from "./grep";
 import { runTool } from "./test-helpers";
 
+/** These tests start a Bun process that loads the tool, which takes seconds on a busy machine. */
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000;
+
 describe("grep tool", () => {
   const testDir = join(tmpdir(), `jazz-grep-test-${Date.now()}`);
   const tool = createGrepTool();
@@ -257,13 +260,13 @@ describe("grep filename framing", () => {
           const secondPath = join(workspace, "ordinary:19:odd\nname.txt");
           writeFileSync(
             firstPath,
-            "before:12:first\nTOKEN=prefix:123:first-value\nafter-13-first\n",
+            "before:12:first\nMARKER=prefix:123:first-value\nafter-13-first\n",
           );
           writeFileSync(
             secondPath,
-            "before:12:second\nTOKEN=prefix:123:second-value\nafter-13-second\n",
+            "before:12:second\nMARKER=prefix:123:second-value\nafter-13-second\n",
           );
-          writeFileSync(join(workspace, "binary-file"), "TOKEN=BINARY_VALUE\0tail\n");
+          writeFileSync(join(workspace, "binary-file"), "MARKER=BINARY_VALUE\0tail\n");
           const bin = join(root, "bin");
           mkdirSync(bin);
           const grep = Bun.which("grep");
@@ -286,7 +289,7 @@ describe("grep filename framing", () => {
           const results = [];
           for (const outputMode of ["content", "files", "count"]) {
             results.push(await runTool(createGrepTool(), {
-              path: ${JSON.stringify(workspace)}, pattern: "TOKEN", contextLines: 1, outputMode
+              path: ${JSON.stringify(workspace)}, pattern: "MARKER", contextLines: 1, outputMode
             }, ${JSON.stringify(workspace)}));
           }
           console.log(JSON.stringify(results));
@@ -314,14 +317,14 @@ describe("grep filename framing", () => {
             {
               file: firstPath,
               line: 2,
-              text: "TOKEN=prefix:123:first-value",
+              text: "MARKER=prefix:123:first-value",
               contextBefore: [{ line: 1, text: "before:12:first" }],
               contextAfter: [{ line: 3, text: "after-13-first" }],
             },
             {
               file: secondPath,
               line: 2,
-              text: "TOKEN=prefix:123:second-value",
+              text: "MARKER=prefix:123:second-value",
               contextBefore: [{ line: 1, text: "before:12:second" }],
               contextAfter: [{ line: 3, text: "after-13-second" }],
             },
@@ -342,6 +345,81 @@ describe("grep filename framing", () => {
           rmSync(root, { recursive: true, force: true });
         }
       },
+      SUBPROCESS_TEST_TIMEOUT_MS,
+    );
+  }
+});
+
+describe("grep over secret values", () => {
+  for (const backend of ["ripgrep", "grep"] as const) {
+    it.skipIf(backend === "ripgrep" && Bun.which("rg") === null)(
+      `matches the redacted text, so a value cannot be probed, with ${backend}`,
+      () => {
+        const root = mkdtempSync(join(tmpdir(), "jazz-grep-oracle-"));
+        try {
+          const workspace = join(root, "workspace");
+          mkdirSync(workspace);
+          writeFileSync(
+            join(workspace, ".env"),
+            "DEBUG=1\nDB_PASSWORD=hunter2hunter2\nDB_HOST=localhost\n",
+          );
+          const bin = join(root, "bin");
+          mkdirSync(bin);
+          symlinkSync(Bun.which("grep")!, join(bin, "grep"));
+          if (backend === "grep") {
+            writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+          } else {
+            symlinkSync(Bun.which("rg")!, join(bin, "rg"));
+          }
+          const searches = [
+            { pattern: "re:^DB_PASSWORD=h", outputMode: "count" },
+            { pattern: "re:^DB_PASSWORD=[a-m]", outputMode: "files" },
+            { pattern: "hunter2", outputMode: "content" },
+            { pattern: "DB_", outputMode: "count" },
+            { pattern: "DB_", outputMode: "content" },
+          ];
+          const child = Bun.spawnSync({
+            cmd: [
+              process.execPath,
+              "-e",
+              `
+          import { createGrepTool } from ${JSON.stringify(import.meta.dir + "/grep.ts")};
+          import { runTool } from ${JSON.stringify(import.meta.dir + "/test-helpers.ts")};
+          const results = [];
+          for (const search of ${JSON.stringify(searches)}) {
+            results.push(await runTool(createGrepTool(), {
+              path: ${JSON.stringify(join(workspace, ".env"))}, ...search
+            }, ${JSON.stringify(workspace)}));
+          }
+          console.log(JSON.stringify(results));
+        `,
+            ],
+            env: { ...process.env, JAZZ_HOME: join(root, "home"), PATH: bin },
+          });
+          expect(child.exitCode).toBe(0);
+          const output = child.stdout.toString();
+          expect(output).not.toContain("hunter2hunter2");
+          const results = JSON.parse(output) as Array<{ result: Record<string, unknown> }>;
+          const [probeCount, probeFiles, valueSearch, nameCount, nameContent] = results.map(
+            (entry) => entry.result,
+          );
+          expect(probeCount?.["counts"]).toEqual([]);
+          expect(probeFiles?.["files"]).toEqual([]);
+          expect(valueSearch?.["matches"]).toEqual([]);
+          expect(nameCount?.["counts"]).toEqual([{ file: join(workspace, ".env"), count: 2 }]);
+          expect(
+            (nameContent?.["matches"] as Array<{ line: number; text: string }>).map(
+              (match) => [match.line, match.text] as const,
+            ),
+          ).toEqual([
+            [2, "DB_PASSWORD=[redacted:DB_PASSWORD]"],
+            [3, "DB_HOST=localhost"],
+          ]);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      },
+      SUBPROCESS_TEST_TIMEOUT_MS,
     );
   }
 });

@@ -335,6 +335,45 @@ describe("handleSpecialCommand shell escape", () => {
     expect(result.messageForAgent).toContain("alpha");
   });
 
+  test("shows the operator the output and gives the agent its redacted form", async () => {
+    const output: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock((message: string) => {
+        output.push(message);
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
+      error: mock(() => Effect.void),
+    };
+    const mockLogger: Partial<LoggerService> = { info: mock(() => Effect.void) };
+    const fsContextLayer = createFileSystemContextServiceLayer().pipe(
+      Layer.provide(NodeFileSystem.layer),
+    );
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as TerminalService),
+      Layer.succeed(LoggerServiceTag, mockLogger as LoggerService),
+      fsContextLayer,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand(
+        { type: "shell", args: ["printf 'DB_PASSWORD=%s%s' hunter2 hunter2"] },
+        {
+          agent: testAgent,
+          conversationHistory: [],
+          conversationId: "test-session",
+          sessionUsage: { promptTokens: 0, completionTokens: 0 },
+          sessionTurnCount: 0,
+          sessionLimits: {},
+          sessionStartedAt: new Date(),
+        },
+      ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(output).toEqual(["DB_PASSWORD=hunter2hunter2"]);
+    expect(result.messageForAgent).toContain("DB_PASSWORD=[redacted:DB_PASSWORD]");
+    expect(result.messageForAgent).not.toContain("hunter2hunter2");
+  });
+
   test("does not execute a denylisted command", async () => {
     const error = mock(() => Effect.void);
     const mockTerminal: Partial<TerminalService> = { error };

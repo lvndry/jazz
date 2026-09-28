@@ -12,6 +12,7 @@ import {
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
+import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
  * Move or rename files and directories tool.
@@ -54,7 +55,10 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           { skipExistenceCheck: true },
         );
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
-        return `About to move: ${source}\n       to: ${destination}${overwrite}`;
+        return jazzStateApproval(
+          `About to move: ${source}\n       to: ${destination}${overwrite}`,
+          [source, destination],
+        );
       }),
 
     handler: (args: MvArgs, context: ToolExecutionContext) =>

@@ -10,8 +10,9 @@
  */
 
 import * as os from "node:os";
-import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
+import { tailForModel } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
+import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import {
   COMPLETED_BATCH_SWEEP_INTERVAL_MS,
   DEFAULT_BACKOFF_MAX_MS,
@@ -19,6 +20,7 @@ import {
   WORKER_POOL_SIZE,
 } from "@jazz/core/constants/job-queue";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
+import { redactSecretText, type KnownSecret } from "@jazz/core/secrets/redaction";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
@@ -46,7 +48,8 @@ function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
 }
 
-function formatJobLine(job: JobRecord): string {
+function formatJobLine(job: JobRecord, known: readonly KnownSecret[]): string {
+  const tail = (output: string): string => tailForModel(redactSecretText(output, known));
   if (job.status === "cancelled") {
     return `- \`${job.command}\`: cancelled before it ran.`;
   }
@@ -64,10 +67,13 @@ function formatJobLine(job: JobRecord): string {
   return `- \`${job.command}\`: failed after ${job.attempt} attempt(s)${why}`;
 }
 
-/** Exported for test: the entire report a woken agent gets about its batch. */
-export function summarizeBatch(batch: JobBatchRecord): string {
+/**
+ * Exported for test: the entire report a woken agent gets about its batch, with every job's
+ * output redacted against `known` and by shape before it is trimmed.
+ */
+export function summarizeBatch(batch: JobBatchRecord, known: readonly KnownSecret[]): string {
   const succeeded = batch.jobs.filter((job) => job.status === "succeeded").length;
-  const lines = batch.jobs.map(formatJobLine);
+  const lines = batch.jobs.map((job) => formatJobLine(job, known));
   return (
     `Background job batch "${batch.reason}" finished: ${succeeded}/${batch.jobs.length} succeeded.\n\n` +
     `${lines.join("\n")}\n\n` +
@@ -87,10 +93,11 @@ export function deliverBatchFanIn(agentId: string, batchId: string) {
     if (batch === null) {
       return;
     }
+    const known = yield* toolKnownSecrets();
     const exit = yield* runUnattendedTurn({
       agentId,
       conversationId: batch.conversationId,
-      prompt: summarizeBatch(batch),
+      prompt: summarizeBatch(batch, known),
       fallbackTitle: batch.reason,
       source: "job batch",
       sourceId: batch.id,

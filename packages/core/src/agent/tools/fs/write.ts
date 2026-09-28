@@ -2,10 +2,12 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { redactLines } from "@/core/secrets/redacted-lines";
 import { redactedWriteProblem } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
+import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
@@ -15,6 +17,7 @@ import {
 } from "../base-tool";
 import { writeFileAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
+import { toolKnownSecrets } from "../tool-secrets";
 
 /**
  * Write file tool - writes content to a file.
@@ -32,6 +35,56 @@ export type WriteFileArgs = z.infer<typeof writeFileParameters>;
 
 type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 
+/** Most secret line numbers listed in a refusal before it summarizes the rest. */
+const LISTED_SECRET_LINES = 10;
+
+/**
+ * Why writing `content` to `target` must not happen, or undefined when it may: the content puts
+ * a placeholder where one of the file's secrets is, or it leaves out or changes a line of the
+ * existing file that holds a secret.
+ */
+function writeProblem(
+  target: string,
+  content: string,
+): Effect.Effect<string | undefined, never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const currentContent = yield* fs
+      .readFileString(target)
+      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    const known = yield* toolKnownSecrets();
+    const placeholderProblem = redactedWriteProblem({
+      tool: "write_file",
+      field: "content",
+      text: content,
+      currentContent,
+      known,
+    });
+    if (placeholderProblem !== undefined || currentContent === undefined) {
+      return placeholderProblem;
+    }
+    const currentLines = currentContent.split("\n");
+    const { secretLineIndexes } = redactLines(currentLines, known);
+    if (secretLineIndexes.size === 0) {
+      return undefined;
+    }
+    const writtenLines = new Set(content.split("\n"));
+    const lostLineNumbers = [...secretLineIndexes]
+      .filter((index) => !writtenLines.has(currentLines[index] ?? ""))
+      .map((index) => index + 1);
+    if (lostLineNumbers.length === 0) {
+      return undefined;
+    }
+    const listed = lostLineNumbers.slice(0, LISTED_SECRET_LINES).join(", ");
+    const more =
+      lostLineNumbers.length > LISTED_SECRET_LINES
+        ? ` and ${String(lostLineNumbers.length - LISTED_SECRET_LINES)} more`
+        : "";
+    const label = lostLineNumbers.length === 1 ? "line" : "lines";
+    return `content leaves out or changes ${label} ${listed}${more} of ${target}, holding secret values you were shown redacted; writing it would lose them. Use edit_file to change the other lines, and leave the lines showing placeholders as they are.`;
+  });
+}
+
 /**
  * Create write file tools (approval + execution pair).
  * Returns both tools that need to be registered.
@@ -41,7 +94,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     name: "write_file",
     disclosure: "public",
     description:
-      "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file.",
+      "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file. " +
+      "Secret values in files you read appear as `[redacted:<name>]`; change files holding them with edit_file, editing the lines around those placeholders.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),
@@ -53,9 +107,9 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const redactedWrite = redactedWriteProblem("content", args.content);
-        if (redactedWrite !== undefined) {
-          return yield* Effect.fail(new Error(redactedWrite));
+        const problem = yield* writeProblem(target, args.content);
+        if (problem !== undefined) {
+          return yield* Effect.fail(new Error(problem));
         }
 
         // Check if file exists and read original content for preview diff
@@ -85,6 +139,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
           message += `\n   Consider using edit_file instead if you only need to modify part of the file.`;
         }
+        const stateReason = jazzStateChangeReason(target);
+        if (stateReason !== undefined) {
+          message += `\n\n${jazzStateApprovalNotice(stateReason)}`;
+        }
 
         // Generate full diff for Ctrl+O expansion
         const { diff } = generateDiffWithMetadata(originalContent, args.content, target, {
@@ -92,7 +150,11 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           maxLines: Number.POSITIVE_INFINITY,
         });
 
-        return { message, previewDiff: diff };
+        return {
+          message,
+          previewDiff: diff,
+          ...(stateReason !== undefined ? { alwaysAsk: true as const } : {}),
+        };
       }),
 
     handler: (args: WriteFileArgs, context: ToolExecutionContext) =>
@@ -102,9 +164,9 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const redactedWrite = redactedWriteProblem("content", args.content);
-        if (redactedWrite !== undefined) {
-          return yield* Effect.fail(new Error(redactedWrite));
+        const problem = yield* writeProblem(target, args.content);
+        if (problem !== undefined) {
+          return yield* Effect.fail(new Error(problem));
         }
 
         try {

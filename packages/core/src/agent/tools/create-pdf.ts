@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
@@ -28,6 +29,7 @@ import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
 import { guardPageRequests } from "./guarded-page";
+import { toolKnownSecrets } from "./tool-secrets";
 import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
@@ -90,6 +92,7 @@ async function renderPdf(
   executablePath: string,
   options: { landscape: boolean; format: NonNullable<CreatePdfArgs["format"]> },
   policy: EgressPolicy,
+  known: readonly KnownSecret[],
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -101,7 +104,7 @@ async function renderPdf(
   });
   try {
     const page = await browser.newPage();
-    await guardPageRequests(page, htmlPath, policy);
+    await guardPageRequests(page, htmlPath, policy, known);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.pdf({
       path: pdfPath,
@@ -156,6 +159,7 @@ export function createPdfTool(
         yield* fs.writeFileString(htmlPath, args.html);
 
         const egressPolicy = yield* egressPolicyForContext(context);
+        const known = yield* toolKnownSecrets();
         yield* Effect.tryPromise({
           try: () =>
             renderPdf(
@@ -167,6 +171,7 @@ export function createPdfTool(
                 format: args.format ?? "A4",
               },
               egressPolicy,
+              known,
             ),
           catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });

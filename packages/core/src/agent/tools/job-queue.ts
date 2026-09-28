@@ -14,12 +14,14 @@ import type { JobBatchRecord, JobQueueService } from "@/core/interfaces/job-queu
 import { JobQueueServiceTag } from "@/core/interfaces/job-queue-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
+import { redactSecretText, type KnownSecret } from "@/core/secrets/redaction";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { denylistBlockedError } from "./shell";
+import { toolKnownSecrets } from "./tool-secrets";
 
 type JobQueueToolDeps = JobQueueService | FileSystemContextService | FileSystem.FileSystem;
 
@@ -35,13 +37,16 @@ function summarizeJobStatuses(batch: JobBatchRecord): {
   return counts;
 }
 
-function tailOutput(output: string | undefined): string | null {
+/** The end of a job's output, redacted whole before it is cut so no secret is split. */
+function tailOutput(output: string | undefined, known: readonly KnownSecret[]): string | null {
   const trimmed = output?.trim();
-  if (!trimmed) return null;
-  return tailForModel(trimmed);
+  if (!trimmed) {
+    return null;
+  }
+  return tailForModel(redactSecretText(trimmed, known));
 }
 
-function formatBatchSummary(batch: JobBatchRecord) {
+function formatBatchSummary(batch: JobBatchRecord, known: readonly KnownSecret[]) {
   const counts = summarizeJobStatuses(batch);
   return {
     batchId: batch.id,
@@ -59,8 +64,8 @@ function formatBatchSummary(batch: JobBatchRecord) {
       maxAttempts: job.maxAttempts,
       exitCode: job.result?.exitCode ?? null,
       lastError: job.lastError,
-      stdout: tailOutput(job.result?.stdout),
-      stderr: tailOutput(job.result?.stderr),
+      stdout: tailOutput(job.result?.stdout, known),
+      stderr: tailOutput(job.result?.stderr, known),
     })),
   };
 }
@@ -242,6 +247,7 @@ These commands will run unattended, without further approval, until every job fi
     handler: (args, context) =>
       Effect.gen(function* () {
         const jobQueueService = yield* JobQueueServiceTag;
+        const known = yield* toolKnownSecrets();
 
         if (args.batchId !== undefined) {
           const batch = yield* jobQueueService.getBatch(context.agentId, args.batchId);
@@ -254,14 +260,14 @@ These commands will run unattended, without further approval, until every job fi
           }
           return {
             success: true,
-            result: { batches: [formatBatchSummary(batch)] },
+            result: { batches: [formatBatchSummary(batch, known)] },
           } satisfies ToolExecutionResult;
         }
 
         const batches = yield* jobQueueService.listActiveBatches(context.agentId);
         return {
           success: true,
-          result: { batches: batches.map(formatBatchSummary) },
+          result: { batches: batches.map((batch) => formatBatchSummary(batch, known)) },
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>

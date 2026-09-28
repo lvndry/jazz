@@ -12,7 +12,7 @@ about the last two and about where credentials live.
 Config writes route through the OS keyring, or a `chmod 600` `$JAZZ_HOME/secrets.json` where
 there is no keyring.
 
-One file decides which config paths hold a secret: `packages/adapters/src/secrets/registry.ts`.
+One file decides which config paths hold a secret: `packages/core/src/secrets/registry.ts`.
 That is why `jazz config set llm.openai.api_key` never lands in `config.json`.
 
 The OS keyring is shared by every Jazz home on the account, so each home files its entries under
@@ -96,6 +96,26 @@ back is the secret values inside them. Every tool result passes through one reda
 anything logs it or shows it to the model, the transcript or an approver, so file contents, command
 output, MCP and HTTP responses, errors, and approval previews are all covered.
 
+Tools that cut their output redact first, so no cut can split a secret into a piece that is no
+longer recognized:
+
+- `read_file` redacts the whole file before it takes a line range or applies its character cap, and
+  keeps the file's line numbers: every line of a private key block shows the placeholder. A
+  `sinceByte` read redacts the appended text together with the lines before the offset, and an
+  offset inside a line holding a secret returns that whole line redacted.
+- `execute_command` and `wait_for` redact stdout and stderr before capping them at 256 KB, with
+  16 KB of lookahead past the cap, so a key block that crosses the cap is recognized. `list_jobs`
+  redacts a job's output before it keeps the tail.
+- `grep` and `edit_file`'s `replace_pattern` match against the redacted text. A file holding a
+  secret is searched again through its redacted form, in every output mode, so a pattern probing a
+  value (`^DB_PASSWORD=[a-m]` with `outputMode: "count"`) finds nothing, while a search for the
+  name finds the line and shows it redacted. A `replace_pattern` match on a line holding a secret
+  is refused.
+- `create_pdf` and `create_composition` serve the local text files their HTML loads (an
+  `<iframe src=".env">`, a stylesheet, a script) with secret values redacted. `read_file` does not
+  attach a PDF whose text holds a secret; it points the model at `read_pdf`, whose output is
+  redacted.
+
 Two passes replace secrets with `[redacted:<name>]`:
 
 - **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
@@ -120,9 +140,21 @@ Two passes replace secrets with `[redacted:<name>]`:
   a string under a secret-named key (`access_token`, `client_secret`, `password`) is replaced
   whole.
 
-`write_file` and `edit_file` refuse text that contains a `[redacted:` placeholder, so an edit copied
-from redacted output cannot overwrite the real value. The agent can still change a `.env` file: it
-edits the lines around a secret, or replaces a secret line with a new value you asked for.
+`write_file` and `edit_file` refuse text carrying a placeholder that stands for a secret: one the
+target file holds, or one Jazz knows. An edit copied from redacted output cannot overwrite the real
+value, while placeholder-shaped text that names no such secret, such as documentation of this
+feature, is written as it is. `write_file` also refuses to replace an existing file when the new
+content leaves out or changes a line holding a secret, and tells the model to use `edit_file` on
+the other lines instead. The agent can still change a `.env` file: it edits the lines around a
+secret, or replaces a secret line with a new value you asked for.
+
+Jazz's own configuration is readable like any file, but a `write_file`, `edit_file`, `mv`, `cp` or
+`rm` that changes it always asks for approval, under every auto-approve policy and allowlist
+(`yolo` included). That covers `config.json` (or `$JAZZ_CONFIG_PATH`), a project's
+`.jazz/config.json`, and everything else under `$JAZZ_HOME` except the directories that hold
+authored content: `skills`, `workflows`, `personas`, `memory`, `workspace`, `compositions`,
+`generated` and `webapps`. Symlinked spellings count, and so does case on macOS and Windows. With
+nobody to ask, the run parks for approval.
 
 Recognition by shape is best-effort. A secret with an unrecognized name and format, or one a shell
 pipeline transforms before it reaches a tool result (base64, splitting it across lines), is not
@@ -174,7 +206,9 @@ None of it replaces operating-system permissions or network isolation. A shell t
 your user reaches whatever your user reaches.
 
 Scrubbing the environment stops a key being read out of `env`. It does not stop a read tool or a
-shell command from reading `~/.aws/credentials`: the read tools protect recognized credential paths and recorded copies, and `execute_command` is gated by approval.
+shell command from reading `~/.aws/credentials`: the read tools return it with the secret values
+they recognize redacted, and `execute_command` is gated by approval. A secret neither pass
+recognizes reaches the model.
 
 If that matters for your deployment, the answer is a dedicated OS user or a container, not a
 tighter approval policy. See [unattended runs](./unattended-runs.md).

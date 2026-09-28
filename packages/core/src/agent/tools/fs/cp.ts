@@ -12,6 +12,7 @@ import {
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
 import { buildKeyFromContext } from "../context-utils";
+import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
  * Copy files and directories tool.
@@ -53,7 +54,10 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           { skipExistenceCheck: true },
         );
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
-        return `About to copy: ${source}\n       to: ${destination}${overwrite}`;
+        return jazzStateApproval(
+          `About to copy: ${source}\n       to: ${destination}${overwrite}`,
+          [destination],
+        );
       }),
 
     handler: (args: CpArgs, context: ToolExecutionContext) =>

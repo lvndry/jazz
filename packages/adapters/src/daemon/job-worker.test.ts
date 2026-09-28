@@ -35,13 +35,40 @@ function batch(jobs: readonly JobRecord[]): JobBatchRecord {
   };
 }
 
+function summarizeWithoutHeldSecrets(record: JobBatchRecord): string {
+  return summarizeBatch(record, []);
+}
+
 describe("summarizeBatch", () => {
+  it("redacts held and shaped secrets from job output before the woken agent reads it", () => {
+    const held = "held-secret-value-123";
+    const summary = summarizeBatch(
+      batch([
+        job({
+          id: "j1",
+          command: "env",
+          result: {
+            stdout: `TOKEN_VALUE=${held}\nDB_PASSWORD=hunter2hunter2\nPORT=3000\n`,
+            stderr: "",
+            exitCode: 0,
+          },
+        }),
+      ]),
+      [{ name: "peers.sam.token", value: held }],
+    );
+
+    expect(summary).not.toContain(held);
+    expect(summary).not.toContain("hunter2hunter2");
+    expect(summary).toContain("[redacted:peers.sam.token]");
+    expect(summary).toContain("PORT=3000");
+  });
+
   /**
    * The regression: a batch of four `git status` snapshots reported "4/4 succeeded" and not
    * one line of what they saw, so polling a worktree could never tell the agent anything.
    */
   it("quotes what a succeeded job printed", () => {
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([
         job({
           id: "j1",
@@ -56,7 +83,7 @@ describe("summarizeBatch", () => {
   });
 
   it("says so when a succeeded job printed nothing", () => {
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([job({ id: "j1", command: "true", result: { stdout: "", stderr: "", exitCode: 0 } })]),
     );
 
@@ -64,7 +91,7 @@ describe("summarizeBatch", () => {
   });
 
   it("quotes stderr for a failed job", () => {
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([
         job({
           id: "j1",
@@ -81,7 +108,7 @@ describe("summarizeBatch", () => {
   });
 
   it("falls back to stdout for a failed job that diagnosed itself there", () => {
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([
         job({
           id: "j1",
@@ -98,7 +125,7 @@ describe("summarizeBatch", () => {
 
   it("keeps the tail of a long output, and marks that it cut", () => {
     const long = `${"x".repeat(TOOL_OUTPUT_TAIL_CHARS * 2)}THE-VERDICT`;
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([
         job({ id: "j1", command: "build", result: { stdout: long, stderr: "", exitCode: 0 } }),
       ]),
@@ -110,7 +137,7 @@ describe("summarizeBatch", () => {
   });
 
   it("reports a cancelled job without pretending it ran", () => {
-    const summary = summarizeBatch(
+    const summary = summarizeWithoutHeldSecrets(
       batch([job({ id: "j1", command: "git fetch", status: "cancelled" })]),
     );
 

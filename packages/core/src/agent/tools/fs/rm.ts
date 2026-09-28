@@ -11,6 +11,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
  * Remove files or directories tool
@@ -48,7 +49,8 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
         const recurse = args.recursive === true ? " recursively" : "";
-        return `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
+        const message = `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
+        return jazzStateApproval(message, [target]);
       }),
 
     handler: (args: RmArgs, context: ToolExecutionContext) =>

@@ -659,11 +659,16 @@ export class ToolExecutor {
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            (shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
+            approvalResult.alwaysAsk !== true &&
+            ((shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
               !taintGated() &&
               !privateGated()) ||
-            isToolNameAutoApproved(name, context.autoApprovedTools) ||
-            isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
+              isToolNameAutoApproved(name, context.autoApprovedTools) ||
+              isCommandAutoApproved(
+                name,
+                approvalResult.executeArgs,
+                context.autoApprovedCommands,
+              ));
 
           // A picker-style request is never auto-approved, under any policy including
           // yolo: there is nothing to approve until somebody picked a row. The
@@ -1218,8 +1223,8 @@ export class ToolExecutor {
           );
           const privateGated = privateDestinationNeedsApproval(privateAddresses, policy, false);
           if (
-            (shouldAutoApprove(riskLevel, policy) && !taintGated && !privateGated) ||
-            allowlisted
+            request.alwaysAsk !== true &&
+            ((shouldAutoApprove(riskLevel, policy) && !taintGated && !privateGated) || allowlisted)
           ) {
             continue;
           }

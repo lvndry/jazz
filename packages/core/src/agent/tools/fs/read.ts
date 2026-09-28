@@ -14,8 +14,11 @@ import { Effect } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { redactLines } from "@/core/secrets/redacted-lines";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { toolKnownSecrets } from "../tool-secrets";
 import { attachMediaFile } from "./attach-media";
 import { fileSnapshot } from "./file-snapshot";
 import { localFileProvenance, resolveReadableFile, stripUtf8Bom } from "./read-common";
@@ -98,11 +101,30 @@ function trimToMaxChars(
   return { lines: kept, truncated: true };
 }
 
-/** What a `sinceByte` read found, before line numbering and capping are applied. */
-interface IncrementalRead {
+/**
+ * Bytes before `sinceByte` read along with the appended text, so a secret that began before the
+ * offset (a private key block, the name half of `NAME=value`) is recognized with its context.
+ */
+const REDACTION_LOOKBACK_BYTES = 16 * 1024;
+
+const NEWLINE_BYTE = 0x0a;
+const CARRIAGE_RETURN_BYTE = 0x0d;
+
+/** One line of an incremental read, as shown and as it sits in the file. */
+interface IncrementalLine {
+  /** The line as returned: redacted, without its line ending. */
   readonly text: string;
-  /** Byte offset where `text` begins in the current file. */
+  /** Byte offset in the file where `text`'s source begins. */
   readonly startByte: number;
+  /** Byte offset just past the line's ending, or the end of the read for the last line. */
+  readonly endByte: number;
+  /** The line holds a secret, so `text` is not a character-for-character copy of the file. */
+  readonly secret: boolean;
+}
+
+/** What a `sinceByte` read found, redacted, before capping is applied. */
+interface IncrementalRead {
+  readonly lines: readonly IncrementalLine[];
   readonly nextByte: number;
   readonly fileSize: number;
   readonly inode: number;
@@ -110,17 +132,50 @@ interface IncrementalRead {
   readonly reset?: "rotated" | "truncated";
 }
 
+/** Split `buffer` (which begins at file offset `baseByte`) into lines with their byte spans. */
+function splitLinesWithOffsets(
+  buffer: Buffer,
+  baseByte: number,
+): Array<{ text: string; startByte: number; endByte: number }> {
+  const lines: Array<{ text: string; startByte: number; endByte: number }> = [];
+  let lineStart = 0;
+  for (;;) {
+    const newline = buffer.indexOf(NEWLINE_BYTE, lineStart);
+    if (newline === -1) {
+      lines.push({
+        text: buffer.subarray(lineStart).toString("utf8"),
+        startByte: baseByte + lineStart,
+        endByte: baseByte + buffer.length,
+      });
+      return lines;
+    }
+    const contentEnd =
+      newline > lineStart && buffer[newline - 1] === CARRIAGE_RETURN_BYTE ? newline - 1 : newline;
+    lines.push({
+      text: buffer.subarray(lineStart, contentEnd).toString("utf8"),
+      startByte: baseByte + lineStart,
+      endByte: baseByte + newline + 1,
+    });
+    lineStart = newline + 1;
+  }
+}
+
 /**
- * Read the bytes appended after `sinceByte`, restarting at 0 when the offset went stale.
+ * Read the bytes appended after `sinceByte`, restarting at 0 when the offset went stale, and
+ * redact them with the lines before the offset as context.
  *
  * Rotation needs the inode, not the size: a renamed-away log's replacement is often *longer* than
  * the old offset, so a size check sees a valid offset into unrelated content. Truncation in place
  * keeps the inode and drops below the offset.
+ *
+ * An offset in the middle of a line holding a secret returns that whole line, redacted: the
+ * part after the offset alone could be the secret with nothing left to recognize it by.
  */
 async function readSince(
   filePath: string,
   sinceByte: number,
   sinceInode: number | undefined,
+  known: readonly KnownSecret[],
 ): Promise<IncrementalRead> {
   const stats = await stat(filePath);
   const inode = Number(stats.ino);
@@ -129,77 +184,89 @@ async function readSince(
   const rotated = sinceInode !== undefined && sinceInode !== inode;
   const truncated = fileSize < sinceByte;
   const start = rotated || truncated ? 0 : sinceByte;
+  const reset = rotated
+    ? { reset: "rotated" as const }
+    : truncated
+      ? { reset: "truncated" as const }
+      : {};
 
+  if (fileSize <= start) {
+    return { lines: [], nextByte: fileSize, fileSize, inode, ...reset };
+  }
+
+  const readFrom = Math.max(0, start - REDACTION_LOOKBACK_BYTES);
   const handle = await open(filePath, "r");
+  let buffer: Buffer;
   try {
-    const length = Math.max(0, fileSize - start);
-    if (length === 0) {
-      return {
-        text: "",
-        startByte: start,
-        nextByte: fileSize,
-        fileSize,
-        inode,
-        ...(rotated
-          ? { reset: "rotated" as const }
-          : truncated
-            ? { reset: "truncated" as const }
-            : {}),
-      };
-    }
-    const buffer = Buffer.allocUnsafe(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, start);
-    return {
-      text: buffer.subarray(0, bytesRead).toString("utf8"),
-      startByte: start,
-      nextByte: start + bytesRead,
-      fileSize,
-      inode,
-      ...(rotated
-        ? { reset: "rotated" as const }
-        : truncated
-          ? { reset: "truncated" as const }
-          : {}),
-    };
+    const length = fileSize - readFrom;
+    const allocated = Buffer.allocUnsafe(length);
+    const { bytesRead } = await handle.read(allocated, 0, length, readFrom);
+    buffer = allocated.subarray(0, bytesRead);
   } finally {
     await handle.close();
   }
+  const readEnd = readFrom + buffer.length;
+  if (readEnd <= start) {
+    return { lines: [], nextByte: readEnd, fileSize, inode, ...reset };
+  }
+
+  // The lookback usually starts mid-line; context begins at the first whole line in it.
+  let contextStart = 0;
+  if (readFrom > 0) {
+    const firstNewline = buffer.indexOf(NEWLINE_BYTE);
+    contextStart =
+      firstNewline !== -1 && readFrom + firstNewline < start ? firstNewline + 1 : start - readFrom;
+  }
+  const sourceLines = splitLinesWithOffsets(buffer.subarray(contextStart), readFrom + contextStart);
+  const view = redactLines(
+    sourceLines.map((line) => line.text),
+    known,
+  );
+
+  const firstIndex = sourceLines.findIndex((line) => line.endByte > start);
+  const lines: IncrementalLine[] = [];
+  for (let index = Math.max(firstIndex, 0); index < sourceLines.length; index++) {
+    const source = sourceLines[index];
+    if (source === undefined) {
+      continue;
+    }
+    const secret = view.secretLineIndexes.has(index);
+    const text = view.lines[index] ?? "";
+    if (index === firstIndex && source.startByte < start && !secret) {
+      const suffix = buffer
+        .subarray(start - readFrom, source.endByte - readFrom)
+        .toString("utf8")
+        .replace(/\r?\n$/, "");
+      lines.push({ text: suffix, startByte: start, endByte: source.endByte, secret });
+      continue;
+    }
+    lines.push({ text, startByte: source.startByte, endByte: source.endByte, secret });
+  }
+  return { lines, nextByte: readEnd, fileSize, inode, ...reset };
 }
 
 /**
  * The byte cursor immediately after the source represented by a capped incremental response.
  *
- * `trimToMaxChars` deliberately returns whole lines where it can, so the next reader must pass
- * the line ending too; otherwise it gets an artificial empty line before the first unseen one.
- * When a single line is longer than the cap, it instead returns a character prefix of that line.
- * Calculating the offset from the original text preserves CRLF and UTF-8 byte widths, which the
- * normalized rendered response does not retain.
+ * `trimToMaxChars` returns whole lines where it can, so the next read starts past the last
+ * returned line's ending. When a single line is longer than the cap, it returns a character
+ * prefix of that line: the cursor lands after that prefix's bytes, or, for a line holding a
+ * secret, whose redacted text has no byte-for-byte source, after the whole line.
  */
 function nextByteAfterCappedText(
   incremental: IncrementalRead,
   returnedLines: readonly string[],
 ): number {
-  let sourceIndex = 0;
-  for (const returned of returnedLines) {
-    const newline = incremental.text.indexOf("\n", sourceIndex);
-    const contentEnd =
-      newline === -1
-        ? incremental.text.length
-        : newline > sourceIndex && incremental.text[newline - 1] === "\r"
-          ? newline - 1
-          : newline;
-    const sourceLine = incremental.text.slice(sourceIndex, contentEnd);
-
-    if (returned.length < sourceLine.length) {
-      return (
-        incremental.startByte +
-        Buffer.byteLength(incremental.text.slice(0, sourceIndex + returned.length))
-      );
-    }
-
-    sourceIndex = newline === -1 ? incremental.text.length : newline + 1;
+  const lastIndex = returnedLines.length - 1;
+  const lastLine = incremental.lines[lastIndex];
+  const lastReturned = returnedLines[lastIndex];
+  if (lastLine === undefined || lastReturned === undefined) {
+    return incremental.lines[0]?.startByte ?? incremental.nextByte;
   }
-  return incremental.startByte + Buffer.byteLength(incremental.text.slice(0, sourceIndex));
+  if (lastReturned.length < lastLine.text.length && !lastLine.secret) {
+    return lastLine.startByte + Buffer.byteLength(lastReturned);
+  }
+  return lastLine.endByte;
 }
 
 /**
@@ -278,7 +345,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     disclosure: "private",
     description:
       "Read a file; for a directory, use ls. Text comes back as numbered `N|` lines plus a snapshot to pass to edit_file; copy only the text after `N|` into edits. " +
-      "Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
+      "Secret values appear as `[redacted:<name>]`. Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
       "To follow a growing file, pass sinceByte and sinceInode from the previous read; a reset field flags rotation or truncation.",
     tags: ["filesystem", "read"],
     parameters,
@@ -293,7 +360,10 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         // Images, PDFs, audio and video are not text. Reading their bytes as UTF-8 produces
         // mojibake that costs thousands of tokens and tells the model nothing, so they are
         // attached to the turn instead and delivered to the model as file parts.
-        const mediaOutcome = yield* Effect.promise(() => attachMediaFile(filePathResult, context));
+        const known = yield* toolKnownSecrets();
+        const mediaOutcome = yield* Effect.promise(() =>
+          attachMediaFile(filePathResult, context, known),
+        );
         if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
         const untrusted = yield* localFileProvenance(filePathResult, "read_file", context);
@@ -302,9 +372,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         try {
           if (isIncrementalRead(args)) {
             const incremental = yield* Effect.promise(() =>
-              readSince(filePathResult, args.sinceByte ?? 0, args.sinceInode),
+              readSince(filePathResult, args.sinceByte ?? 0, args.sinceInode, known),
             );
-            const appendedLines = incremental.text === "" ? [] : incremental.text.split(/\r?\n/);
+            const appendedLines = incremental.lines.map((line) => line.text);
             const requestedMax =
               typeof args.maxBytes === "number" && args.maxBytes > 0
                 ? args.maxBytes
@@ -335,7 +405,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
           const canonicalPath = yield* fs.realPath(filePathResult);
           const fileContent = yield* fs.readFileString(canonicalPath);
           const raw = stripUtf8Bom(fileContent);
-          const allLines = raw === "" ? [] : raw.split(/\r?\n/);
+          const allLines = raw === "" ? [] : redactLines(raw.split(/\r?\n/), known).lines;
           const totalLines = allLines.length;
           const hasRange = args.startLine !== undefined || args.endLine !== undefined;
           const range = hasRange
