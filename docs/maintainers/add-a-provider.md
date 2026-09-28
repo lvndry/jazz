@@ -161,7 +161,9 @@ backoff.
 
 A 15-minute ceiling exists because slow reasoning models on a long prompt genuinely take
 minutes, and a tighter timeout would fail runs that were about to succeed. Rate-limit errors
-are typed (`LLMRateLimitError`) so they're distinguishable from real failures.
+are typed (`LLMRateLimitError`) so they're distinguishable from real failures. Deterministic
+local rejections, including a missing ChatGPT sign-in, fail immediately rather than being
+reported as network errors and retried.
 
 ---
 
