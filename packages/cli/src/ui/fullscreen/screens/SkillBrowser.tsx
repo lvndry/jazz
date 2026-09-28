@@ -11,9 +11,9 @@ import type { ReactNode } from "react";
 import { windowStart } from "./AgentPicker";
 import { getGlyphs } from "../../glyphs";
 import { filterSkills, skillDetailRows, skillLine } from "../../skill-browser";
+import { clipTerminalCells } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
 import { CaretValue } from "../overlays/TextPrompt";
-import { clipTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 
 const GUTTER = 2;

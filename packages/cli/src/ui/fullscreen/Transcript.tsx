@@ -47,15 +47,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  continueFenceHighlight,
-  highlightCodeLine,
-  highlightFenceLines,
-  pathFromFileArgsPreview,
-  sourceLanguageFromPath,
-  type FenceHighlight,
-  type SyntaxSpan,
-} from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
 import { getThemeRevision, THEME } from "../theme";
@@ -66,7 +57,7 @@ import {
   terminalCellWidth,
   terminalGraphemes,
   terminalSegmentsWidth,
-} from "./terminal-cells";
+} from "../text/terminal-cells";
 import { foldedThoughtLine, formatPreciseDuration, thoughtLabel } from "../turn-thought";
 import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
@@ -81,6 +72,15 @@ import {
 } from "./types";
 import { spaceReasoningSections } from "../../presentation/format-utils";
 import { stoppedHeading } from "../models/interrupt";
+import {
+  continueFenceHighlight,
+  highlightCodeLine,
+  highlightFenceLines,
+  pathFromFileArgsPreview,
+  sourceLanguageFromPath,
+  type FenceHighlight,
+  type SyntaxSpan,
+} from "../text/syntax-spans";
 
 /** The rail lives in the left page margin, so the content column never moves. */
 const GUTTER = 2;

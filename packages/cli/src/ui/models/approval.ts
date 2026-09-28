@@ -12,9 +12,9 @@
 
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
-import { sourceLanguageFromPath } from "../fullscreen/syntax-spans";
-import { terminalCellWidth } from "../fullscreen/terminal-cells";
 import type { PendingApproval } from "../store";
+import { sourceLanguageFromPath } from "../text/syntax-spans";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 export type ActionClass =
   "send" | "delete" | "run" | "edit" | "write" | "move" | "copy" | "create" | "act";

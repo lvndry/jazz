@@ -46,7 +46,6 @@ import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
-import { clipTerminalCells } from "@/cli/ui/fullscreen/terminal-cells";
 import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
 import {
   interruptSummary,
@@ -55,6 +54,7 @@ import {
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
 import { retryLine } from "@/cli/ui/models/retry";
+import { clipTerminalCells } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,

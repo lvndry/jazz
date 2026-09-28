@@ -18,12 +18,12 @@ import {
 } from "@jazz/core/utils/tool-formatter";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { getGlyphs } from "../ui/glyphs";
 import {
   highlightSourceAnsi,
   looksLikeUnifiedDiff,
   sourceLanguageFromPath,
-} from "../ui/fullscreen/syntax-spans";
-import { getGlyphs } from "../ui/glyphs";
+} from "../ui/text/syntax-spans";
 import { CHALK_THEME } from "../ui/theme";
 
 export { compactToolArguments, formatToolDisplayName } from "@jazz/core/utils/tool-formatter";

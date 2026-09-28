@@ -37,10 +37,14 @@ import {
   approvalTitle,
   type ApprovalDiff,
 } from "../../models/approval";
+import { highlightCodeLine, highlightFenceLines, type SyntaxSpan } from "../../text/syntax-spans";
+import {
+  clipTerminalCells,
+  sliceTerminalCells,
+  terminalCellWidth,
+} from "../../text/terminal-cells";
 import { THEME } from "../../theme";
 import { blendHex } from "../../themes/registry";
-import { highlightCodeLine, highlightFenceLines, type SyntaxSpan } from "../syntax-spans";
-import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
 
 /** The legend under the band starts where the band's text does. */

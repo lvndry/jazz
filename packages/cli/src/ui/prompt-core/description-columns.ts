@@ -3,7 +3,7 @@
  * choices. Shared by both renderers' pickers, so a model list reads as a table in either.
  */
 
-import { terminalCellWidth } from "../fullscreen/terminal-cells";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 /** Pads a column; a no-break space survives word wrapping and whitespace collapsing. */
 export const COLUMN_PAD = " ";

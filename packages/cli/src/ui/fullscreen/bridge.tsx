@@ -91,21 +91,6 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { approvalFacts, diffLanguage } from "../models/approval";
-import { approvalTitle } from "../models/approval";
-import type { FilePickerModel } from "./overlays/FilePicker";
-import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
-import type { QuestionStep } from "./overlays/stepper";
-import { initialChoiceIndex } from "../prompt-core/picker-adapter";
-import { readPromptStep } from "../prompt-core/stepper";
-import type { TextPromptModel } from "./overlays/TextPrompt";
-import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
-import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
-import { Home } from "./screens/Home";
-import { MenuScreen } from "./screens/Menu";
-import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
-import { subagentBlocks, subagentListItem } from "./subagent-view";
-import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { themePickerTarget } from "./theme-picker-keys";
 import { foldTurn } from "./turn-fold";
@@ -125,7 +110,22 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
+import { approvalFacts, diffLanguage } from "../models/approval";
+import { approvalTitle } from "../models/approval";
+import type { FilePickerModel } from "./overlays/FilePicker";
+import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
+import type { QuestionStep } from "./overlays/stepper";
+import { initialChoiceIndex } from "../prompt-core/picker-adapter";
+import { readPromptStep } from "../prompt-core/stepper";
+import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
+import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
+import { Home } from "./screens/Home";
+import { MenuScreen } from "./screens/Menu";
+import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
+import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { compactWorkingDirectory } from "./working-directory";
+import { pathFromFileArgsPreview, sourceLanguageFromPath } from "../text/syntax-spans";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;

@@ -46,7 +46,8 @@ import { isShellEscape } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { pickerWindow, wrapIndex } from "../picker-window";
 import { plainDescription, suggestionOrigin } from "../suggestion-menu";
-import { THEME } from "../theme";
+import { useThemeRevision } from "./theme-revision";
+import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
 import {
   clipTerminalCells,
   fitTerminalSegments,
@@ -54,9 +55,8 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
   wrapTerminalCells,
-} from "./terminal-cells";
-import { useThemeRevision } from "./theme-revision";
-import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
+} from "../text/terminal-cells";
+import { THEME } from "../theme";
 
 /**
  * The composer grows to six rows and then scrolls inside itself. Past six rows

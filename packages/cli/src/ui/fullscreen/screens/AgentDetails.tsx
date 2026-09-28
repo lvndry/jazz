@@ -8,8 +8,8 @@
 
 import type { ReactNode } from "react";
 import type { ActiveAgentDetails } from "../../store";
+import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 
 const GUTTER = 2;

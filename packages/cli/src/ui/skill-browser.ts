@@ -5,7 +5,7 @@
  */
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { wrapTerminalCells } from "./fullscreen/terminal-cells";
+import { wrapTerminalCells } from "./text/terminal-cells";
 
 /** Flatten metadata to one safe terminal line, including untrusted frontmatter. */
 export function skillLine(value: string): string {

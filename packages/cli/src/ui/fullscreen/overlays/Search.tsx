@@ -16,19 +16,19 @@
 
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
+import { OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { CaretValue } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
   sliceTerminalCells,
   terminalCellWidth,
   terminalGraphemes,
-} from "../terminal-cells";
+} from "../../text/terminal-cells";
+import { THEME } from "../../theme";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
-import { OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
-import { CaretValue } from "./TextPrompt";
 
 /** Windowed height, fixed: the overlay does not grow with the result count. */
 const WINDOWED_HEIGHT = 19;
