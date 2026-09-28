@@ -228,7 +228,6 @@ export function isConnectionError(error: unknown): boolean {
  * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server.
  */
 const PERMANENT_REQUEST_ERROR_NAMES = new Set([
-  // Raised by the ChatGPT adapter before any request can be sent when OAuth is absent.
   "ChatGPTSignInRequiredError",
   "AI_UnsupportedFunctionalityError",
   "AI_UnsupportedModelVersionError",
