@@ -116,6 +116,16 @@ const SUBAGENT_NOTICE_MS = 2500;
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
 
+/**
+ * What the waiting row says. Before the first event arrives nothing is known
+ * about what the model is doing, so the house copy fills the silence. Once it
+ * is reasoning, the row says so plainly.
+ */
+export function waitingLabel(phase: string, elapsedMs: number | undefined): string {
+  if (phase === "thinking") return "thinking";
+  return WAITING[Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length] as string;
+}
+
 /** Footer and live elapsed digits update once a second, not on the indicator. */
 const FOOTER_ELAPSED_MS = 1000;
 const WAITING_ROTATE_MS = 4_000;
@@ -2724,18 +2734,12 @@ export function FullscreenBridge(): React.ReactNode {
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
       ...(todoList.length === 0 ? {} : { todoList }),
-      ...(waitingNow
-        ? {
-            waiting: WAITING[
-              Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length
-            ] as string,
-          }
-        : {}),
+      ...(waitingNow ? { waiting: waitingLabel(activity.phase, elapsedMs) } : {}),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
     };
-  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [tools, step, todoList, waitingNow, activity.phase, elapsedMs, reservedRows, regions]);
 
   const view = useMemo<ViewModel>(
     () => ({

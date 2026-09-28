@@ -364,6 +364,16 @@ describe("activity indicator", () => {
         expect(aligned / composite).toBeLessThan(0.005);
       });
 
+      it("plays one lane per unit of work in flight and leaves the rest dark", () => {
+        for (let active = 1; active <= set.lanePeriods.length; active++) {
+          for (let tick = 0; tick < composite; tick += 7) {
+            const cells = [...laneFrame(tick, set, active)];
+            expect(cells.slice(active).every((cell) => cell === set.laneRest)).toBe(true);
+            expect(cells.every((cell) => cell === set.laneRest)).toBe(false);
+          }
+        }
+      });
+
       it("shows a healthy variety of frames", () => {
         const distinct = new Set<string>();
         for (let tick = 0; tick < composite; tick++) distinct.add(laneFrame(tick, set));

@@ -358,17 +358,27 @@ export function getGlyphs(): GlyphSet {
 /**
  * One frame of the activity indicator.
  *
- * Each lane rests until the tail of its own period, then plays the burst, so
- * a longer period means a longer rest and the number of moving lanes tracks
- * how much work is actually in flight. Two properties hold for every frame,
- * and both matter: no frame is ever entirely at rest, and no frame has all
- * lanes in the same state. An activity indicator that can look frozen is
- * broken.
+ * One lane plays per unit of work in flight (`activeLanes`), and the rest
+ * stay dark, so the number of moving lanes says how much is happening. Each
+ * playing lane rests until the tail of its own period, then plays the burst,
+ * on pairwise-coprime periods so the pattern never visibly repeats and the
+ * lanes almost never line up. The first lane's period is the burst's length,
+ * so it never rests: however little is in flight, no frame is entirely dark,
+ * and an indicator that can look frozen is broken.
  */
-export function laneFrame(tick: number, glyphs: GlyphSet = getGlyphs()): string {
+export function laneFrame(
+  tick: number,
+  glyphs: GlyphSet = getGlyphs(),
+  activeLanes: number = glyphs.lanePeriods.length,
+): string {
   const { lanePeriods, laneBurst, laneRest } = glyphs;
+  const playing = Math.max(1, Math.min(lanePeriods.length, Math.trunc(activeLanes)));
   let frame = "";
   for (let lane = 0; lane < lanePeriods.length; lane++) {
+    if (lane >= playing) {
+      frame += laneRest;
+      continue;
+    }
     const period = lanePeriods[lane] as number;
     // Offset each lane by its index so they do not all start together.
     const position = (((tick + lane) % period) + period) % period;

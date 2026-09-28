@@ -210,7 +210,8 @@ function waitingRow(
   return alignRow(
     "waiting",
     [
-      { text: laneFrame(tick, glyphs), fg: THEME.primary },
+      // Waiting is one thing in flight: the model, before its first word.
+      { text: laneFrame(tick, glyphs, 1), fg: THEME.primary },
       { text: " ", fg: THEME.muted },
       { text: waiting, fg: THEME.secondary },
     ],
