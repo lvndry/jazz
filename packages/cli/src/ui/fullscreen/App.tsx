@@ -136,6 +136,12 @@ export interface AppProps {
    */
   readonly onPaste?: (text: string) => boolean;
   /**
+   * Whether the reader can see the live edge: the transcript is at its bottom
+   * and nothing covers it. Called when that changes, so work that only matters
+   * to someone watching (pacing a streaming answer) can stop while they can't.
+   */
+  readonly onWatchingLiveEdgeChange?: (watching: boolean) => void;
+  /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
    * call stays mounted.
@@ -257,6 +263,7 @@ function AppView({
   onAction,
   onKey,
   onPaste,
+  onWatchingLiveEdgeChange,
   overrideContent,
 }: AppProps): React.ReactNode {
   useThemeRevision();
@@ -293,6 +300,10 @@ function AppView({
   viewRef.current = view;
 
   const overlayOpen = view.overlay !== undefined;
+  const watchingLiveEdge = followLive && !overlayOpen;
+  useEffect(() => {
+    onWatchingLiveEdgeChange?.(watchingLiveEdge);
+  }, [watchingLiveEdge, onWatchingLiveEdgeChange]);
 
   const dispatch = useCallback((action: KeyAction) => {
     switch (action.type) {

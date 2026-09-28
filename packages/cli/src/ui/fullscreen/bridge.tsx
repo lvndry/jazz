@@ -1049,7 +1049,8 @@ export function FullscreenBridge(): React.ReactNode {
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
   const streaming = output.streaming;
-  const revealedStreaming = useStreamReveal(streaming);
+  const [watchingLiveEdge, setWatchingLiveEdge] = useState(true);
+  const revealedStreaming = useStreamReveal(streaming, watchingLiveEdge);
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -2804,6 +2805,7 @@ export function FullscreenBridge(): React.ReactNode {
       onAction={onAction}
       onKey={onKey}
       onPaste={applyPaste}
+      onWatchingLiveEdgeChange={setWatchingLiveEdge}
       {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );
