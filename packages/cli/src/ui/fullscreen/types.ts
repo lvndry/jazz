@@ -92,8 +92,10 @@ export interface ReasoningBlock extends BlockBase {
   /** Total once settled. A live block has none: the live zone ticks the elapsed time. */
   readonly durationMs?: number;
   readonly tokens?: number;
-  /** The model is still thinking: only the newest lines show, under a live label. */
+  /** The model is still thinking: only the newest lines show. */
   readonly live?: boolean;
+  /** False when the model thought without returning text, so there is nothing for ctrl+r to open. */
+  readonly readable?: boolean;
 }
 
 /**

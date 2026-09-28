@@ -775,17 +775,17 @@ export function blocksFrom(
       const collapsed = entry.meta["collapsed"] === true;
       const fullText = entry.meta["fullText"];
       const durationMs = entry.meta["durationMs"];
+      const steps = entry.meta["steps"];
+      const readable = typeof fullText === "string" && fullText.trim().length > 0;
       blocks.push({
         id,
         seq: seq++,
         kind: "reasoning",
-        text: collapsed
-          ? ""
-          : typeof fullText === "string" && fullText.length > 0
-            ? fullText
-            : text,
+        text: collapsed ? "" : readable ? fullText : text,
         collapsed,
+        ...(collapsed && !readable ? { readable: false } : {}),
         ...(typeof durationMs === "number" ? { durationMs } : {}),
+        ...(typeof steps === "number" ? { steps } : {}),
       });
       continue;
     }
@@ -884,7 +884,8 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.steps === current.steps &&
         previous.durationMs === current.durationMs &&
         previous.tokens === current.tokens &&
-        previous.live === current.live
+        previous.live === current.live &&
+        previous.readable === current.readable
       );
     case "tool":
       return (

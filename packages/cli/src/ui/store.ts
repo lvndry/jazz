@@ -5,6 +5,7 @@
  */
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import chalk from "chalk";
 import { useSyncExternalStore } from "react";
 import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
@@ -15,6 +16,7 @@ import {
   type ScrollbackState,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
+import { getGlyphs } from "./glyphs";
 import type { LocalModelHosts } from "./local-model-hosts";
 import { createStreamPacer, type StreamPacer } from "./stream-pacer";
 import {
@@ -29,6 +31,13 @@ import {
   type SubagentRun,
   type SubagentStatus,
 } from "./subagent-runs";
+import {
+  addThoughtStep,
+  foldedThoughtLine,
+  NO_THOUGHT,
+  thoughtText,
+  type TurnThought,
+} from "./turn-thought";
 import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 
 type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
@@ -68,6 +77,8 @@ export interface ExpandableReasoning {
   readonly fullText: string;
   readonly label: string;
   readonly durationMs: number;
+  /** How many reasoning steps of a turn this stands for. */
+  readonly steps?: number;
   readonly tokens?: number;
   readonly entryId?: string;
 }
@@ -356,6 +367,10 @@ export class UIStore {
     this.applyStreamDelta(kind, delta);
   });
   private streamPacingEnabled = false;
+  /** Folded reasoning of the turn in progress, printed as one line when it settles. */
+  private turnThought: TurnThought = NO_THOUGHT;
+  private turnThoughtLabel = "Reasoning";
+  private turnThoughtCounter = 0;
   private readerFollowing = true;
 
   subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
@@ -723,34 +738,24 @@ export class UIStore {
     const pinned = this.pinnedReasoningIds.delete(id);
     const keepExpanded = pinned || !this.collapseReasoning;
 
-    if (region.kind === "reasoning" && capturedText.length > 0) {
-      const entryId = `reasoning-${id}`;
-      const seconds = (summary.durationMs / 1000).toFixed(1);
-      this.printOutput({
-        id: entryId,
-        type: "streamContent",
-        message: keepExpanded
-          ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
-          : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
-        meta: {
-          kind: "reasoning",
-          collapsed: !keepExpanded,
-          fullText: capturedText,
-          durationMs: summary.durationMs,
-          label: region.label,
-        },
-        timestamp: new Date(),
-      });
-      this.flushOutputBatchNow();
-      if (this.collapseReasoning) {
-        this.pushExpandableReasoning({
-          fullText: capturedText,
-          label: region.label,
-          durationMs: summary.durationMs,
-          entryId,
-          ...(summary.tokens !== undefined && { tokens: summary.tokens }),
-        });
+    if (region.kind === "reasoning") {
+      if (keepExpanded && capturedText.length > 0) {
+        this.printExpandedReasoning(
+          `reasoning-${id}`,
+          region.label,
+          summary.durationMs,
+          capturedText,
+        );
+        return;
       }
+      // Folded reasoning waits for the turn to settle, so the turn gets one
+      // line however many times it thought (settleTurnThought).
+      this.turnThought = addThoughtStep(this.turnThought, {
+        durationMs: summary.durationMs,
+        text: capturedText,
+        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+      });
+      this.turnThoughtLabel = region.label;
       return;
     }
 
@@ -762,6 +767,64 @@ export class UIStore {
         meta: { collapsedRegion: region.kind },
       });
       this.flushOutputBatchNow();
+    }
+  };
+
+  private printExpandedReasoning(
+    entryId: string,
+    label: string,
+    durationMs: number,
+    fullText: string,
+  ): void {
+    const seconds = (durationMs / 1000).toFixed(1);
+    this.printOutput({
+      id: entryId,
+      type: "streamContent",
+      message: `*${label} · ${seconds}s*\n\n${fullText}`,
+      meta: { kind: "reasoning", collapsed: false, fullText, durationMs, label },
+      timestamp: new Date(),
+    });
+    this.flushOutputBatchNow();
+  }
+
+  /**
+   * Print the turn's folded reasoning as one line, and make it the block ctrl+r
+   * opens. Called when a turn ends however it ends: an answer, an error, or an
+   * interrupt. A turn that did not think prints nothing.
+   */
+  settleTurnThought = (): void => {
+    const thought = this.turnThought;
+    this.turnThought = NO_THOUGHT;
+    if (thought.steps === 0) return;
+    const fullText = thoughtText(thought);
+    const glyphs = getGlyphs();
+    const entryId = `reasoning-turn-${String(++this.turnThoughtCounter)}`;
+    this.printOutput({
+      id: entryId,
+      type: "streamContent",
+      message: chalk.dim(
+        foldedThoughtLine(thought, fullText.length > 0, glyphs.folded, ` ${glyphs.bullet} `),
+      ),
+      meta: {
+        kind: "reasoning",
+        collapsed: true,
+        fullText,
+        durationMs: thought.durationMs,
+        steps: thought.steps,
+        label: this.turnThoughtLabel,
+      },
+      timestamp: new Date(),
+    });
+    this.flushOutputBatchNow();
+    if (fullText.length > 0) {
+      this.pushExpandableReasoning({
+        fullText,
+        label: this.turnThoughtLabel,
+        durationMs: thought.durationMs,
+        steps: thought.steps,
+        entryId,
+        ...(thought.tokens !== undefined && { tokens: thought.tokens }),
+      });
     }
   };
 
@@ -785,40 +848,27 @@ export class UIStore {
     this.setExpandableReasoning(value);
   }
 
+  /** The run was interrupted: every open region closes, and the turn's thinking settles. */
   collapseAllEphemeral = (): void => {
-    if (this.ephemeralRegions.size === 0) return;
     for (const id of this.ephemeralRegions.keys()) this.finishSubagentRunWith(id, "interrupted");
     for (const region of this.ephemeralRegions.values()) {
       if (region.kind !== "reasoning") continue;
       const fullText = region.tail.join("\n").trim();
+      // Cut off before it said anything: there is no thought to account for.
       if (fullText.length === 0) continue;
       const durationMs = Date.now() - region.startedAt;
       if (!this.collapseReasoning) {
-        const seconds = (durationMs / 1000).toFixed(1);
-        this.printOutput({
-          id: `reasoning-${region.id}`,
-          type: "streamContent",
-          message: `*${region.label} · ${seconds}s*\n\n${fullText}`,
-          meta: {
-            kind: "reasoning",
-            collapsed: false,
-            fullText,
-            durationMs,
-            label: region.label,
-          },
-          timestamp: new Date(),
-        });
-        this.flushOutputBatchNow();
+        this.printExpandedReasoning(`reasoning-${region.id}`, region.label, durationMs, fullText);
         continue;
       }
-      this.pushExpandableReasoning({
-        fullText,
-        label: region.label,
-        durationMs,
-      });
+      this.turnThought = addThoughtStep(this.turnThought, { durationMs, text: fullText });
+      this.turnThoughtLabel = region.label;
     }
-    this.ephemeralRegions.clear();
-    this.publishEphemeralRegions();
+    if (this.ephemeralRegions.size > 0) {
+      this.ephemeralRegions.clear();
+      this.publishEphemeralRegions();
+    }
+    this.settleTurnThought();
   };
 
   private publishSubagentRuns(): void {
@@ -931,6 +981,7 @@ export class UIStore {
         fullText: value.fullText,
         durationMs: value.durationMs,
         label: value.label,
+        ...(value.steps === undefined ? {} : { steps: value.steps }),
       },
       timestamp: new Date(),
       ...(target === "in-place" && value.entryId !== undefined ? { id: value.entryId } : {}),
@@ -997,6 +1048,7 @@ export class UIStore {
 
   clearOutputs = (): void => {
     this.streamPacer.reset();
+    this.turnThought = NO_THOUGHT;
     this.outputBatch = [];
     this.batchFlushScheduled = false;
     this.expandableReasoningStack = [];

@@ -2844,6 +2844,7 @@ describe("fullscreen bridge", () => {
       fullText: "the full chain of thought",
       durationMs: 3_200,
     });
+    store.settleTurnThought();
     store.flushOutputBatchNow();
     await rendered.flush();
 
@@ -2866,6 +2867,8 @@ describe("fullscreen bridge", () => {
       fullText: "thought that belongs first",
       durationMs: 1_000,
     });
+    // The answer's first text settles what the turn thought, just above it.
+    store.settleTurnThought();
     store.printOutput({
       type: "streamContent",
       message: "the spoken answer",
@@ -2896,6 +2899,7 @@ describe("fullscreen bridge", () => {
       fullText: "the earlier thought",
       durationMs: 1_000,
     });
+    store.settleTurnThought();
     store.openEphemeral("reasoning", "Reasoning", 8);
     store.flushOutputBatchNow();
     await rendered.flush();

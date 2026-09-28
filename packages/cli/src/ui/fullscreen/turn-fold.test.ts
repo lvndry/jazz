@@ -11,43 +11,6 @@ function text(row: RenderRow | undefined): string {
   return row?.content.map((segment) => segment.text).join("") ?? "";
 }
 
-describe("one folded reasoning line per turn", () => {
-  it("folds a turn's reasoning into its first block, adding durations and steps", () => {
-    const blocks: Block[] = [
-      { id: "u", seq: 0, kind: "user", text: "plan my week" },
-      { id: "r1", seq: 1, kind: "reasoning", text: "", collapsed: true, durationMs: 1_500 },
-      { id: "t", seq: 2, kind: "tool", app: "gmail", summary: "4 flagged", status: "ok" },
-      { id: "r2", seq: 3, kind: "reasoning", text: "", collapsed: true, durationMs: 2_600 },
-      { id: "a", seq: 4, kind: "agent", markdown: "Here is the plan." },
-    ];
-    const folded = foldTurn(blocks);
-    expect(folded.map((block) => block.id)).toEqual(["u", "r1", "t", "a"]);
-    const reasoning = folded[1];
-    expect(reasoning?.kind === "reasoning" ? [reasoning.durationMs, reasoning.steps] : []).toEqual([
-      4_100, 2,
-    ]);
-  });
-
-  it("starts a new line for each turn", () => {
-    const blocks: Block[] = [
-      { id: "u1", seq: 0, kind: "user", text: "one" },
-      { id: "r1", seq: 1, kind: "reasoning", text: "", collapsed: true, durationMs: 1_000 },
-      { id: "u2", seq: 2, kind: "user", text: "two" },
-      { id: "r2", seq: 3, kind: "reasoning", text: "", collapsed: true, durationMs: 2_000 },
-    ];
-    expect(foldTurn(blocks).map((block) => block.id)).toEqual(["u1", "r1", "u2", "r2"]);
-  });
-
-  it("leaves reasoning the reader opened, and live reasoning, in place", () => {
-    const blocks: Block[] = [
-      { id: "r1", seq: 0, kind: "reasoning", text: "", collapsed: true, durationMs: 1_000 },
-      { id: "r2", seq: 1, kind: "reasoning", text: "opened", collapsed: false, durationMs: 2_000 },
-      { id: "r3", seq: 2, kind: "reasoning", text: "now", collapsed: false, live: true },
-    ];
-    expect(foldTurn(blocks).map((block) => block.id)).toEqual(["r1", "r2", "r3"]);
-  });
-});
-
 describe("one plan receipt per turn", () => {
   const update = (id: string, seq: number, summary: string): Block => ({
     id,

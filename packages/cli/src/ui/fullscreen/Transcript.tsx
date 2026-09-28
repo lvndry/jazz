@@ -66,6 +66,7 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
 } from "./terminal-cells";
+import { foldedThoughtLine, formatPreciseDuration, thoughtLabel } from "../turn-thought";
 import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import {
@@ -236,14 +237,6 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${String(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1_000);
-  return `${String(minutes)}m ${String(seconds)}s`;
-}
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
@@ -1614,12 +1607,6 @@ function streamingFenceRows(
 /** While the model thinks, only its newest lines show, so reasoning cannot push the conversation away. */
 export const LIVE_REASONING_LINES = 3;
 
-function thoughtLabel(block: Extract<Block, { kind: "reasoning" }>): string {
-  const duration = block.durationMs === undefined ? "" : ` for ${formatDuration(block.durationMs)}`;
-  const steps = block.steps ?? 1;
-  return `thought${duration}${steps > 1 ? ` across ${String(steps)} steps` : ""}`;
-}
-
 /**
  * Reasoning is the model's scratchpad, never its answer: italic, muted, behind
  * a thin rule, and at a narrower measure. It has three states.
@@ -1655,8 +1642,10 @@ function reasoningRows(
     return [
       row(`${block.id}:0`, [
         indent,
-        { text: `${glyphs.folded} ${thoughtLabel(block)}`, fg: THEME.muted },
-        { text: `${separator}ctrl+r to read`, fg: THEME.muted },
+        {
+          text: foldedThoughtLine(block, block.readable !== false, glyphs.folded, separator),
+          fg: THEME.muted,
+        },
       ]),
     ];
   }
@@ -1829,7 +1818,7 @@ function receiptRows(
             : { text: glyphs.pending, fg: THEME.muted };
       const meta: readonly Segment[] =
         block.expanded === true && block.durationMs !== undefined && geometry.metadata > 0
-          ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
+          ? [{ text: formatPreciseDuration(block.durationMs), fg: THEME.muted }]
           : [];
       if (segments.some((segment) => segment.text.trim().length > 0)) {
         const lines = wrap(segments, geometry.prose);
