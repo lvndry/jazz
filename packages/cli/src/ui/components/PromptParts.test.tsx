@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
-import React from "react";
 import { ChoiceMeta, StepperLine } from "./PromptParts";
 import { initialChoiceIndex, toPickerChoices } from "../prompt-core/picker-adapter";
 import { stepperView } from "../prompt-core/stepper";

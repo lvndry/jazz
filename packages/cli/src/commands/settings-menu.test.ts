@@ -17,7 +17,7 @@ describe("settingsMenuOptions", () => {
   it("shows each setting's current value beside it", () => {
     const options = settingsMenuOptions(
       config({
-        llm: { openai: { api_key: "sk-test" } } as AppConfig["llm"],
+        llm: { openai: { api_key: "sk-test" } } as NonNullable<AppConfig["llm"]>,
         notifications: { enabled: true },
         spend: { dayUSD: 20 },
         ui: { theme: "jazz:light" },

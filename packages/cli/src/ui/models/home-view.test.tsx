@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
-import React from "react";
 import {
   conversationTag,
   detectionLines,

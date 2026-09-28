@@ -1517,7 +1517,8 @@ describe("code fences", () => {
   it("sets the band off with one breathing row on each side", () => {
     const rows = transcriptRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
     const first = rows.findIndex((row) => row.backgroundColor !== undefined);
-    const last = rows.findLastIndex((row) => row.backgroundColor !== undefined);
+    const last =
+      rows.length - 1 - [...rows].reverse().findIndex((row) => row.backgroundColor !== undefined);
     expect(rows[first - 1]?.content).toEqual([]);
     expect(rows[first - 2]?.content).not.toEqual([]);
     expect(rows[last + 1]?.content).toEqual([]);
