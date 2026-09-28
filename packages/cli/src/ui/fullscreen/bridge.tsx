@@ -14,6 +14,7 @@
  */
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
+import { egressRequestMethod } from "@jazz/core/agent/execution/egress-taint";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
@@ -1004,19 +1005,23 @@ function approvalFrom(
   const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
   const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
   const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
-  const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
+  const alwaysLabel = `always allow ${commandKey ?? pending.toolName} this session`;
+  const method = egressRequestMethod(pending.executeToolName, pending.args);
 
   return {
     kind: "approval",
     app,
     action: pending.executeToolName.replace(/[_.]/g, " "),
     account: accountEntry === undefined ? "this machine" : String(accountEntry[1]),
-    fields: entries
-      .filter(([key]) => key !== accountEntry?.[0])
-      .map(([label, value]) => ({
-        label,
-        value: typeof value === "string" ? value : JSON.stringify(value),
-      })),
+    fields: [
+      ...(method === undefined ? [] : [{ label: "method", value: method }]),
+      ...entries
+        .filter(([key]) => key !== accountEntry?.[0] && !(method !== undefined && key === "method"))
+        .map(([label, value]) => ({
+          label,
+          value: typeof value === "string" ? value : JSON.stringify(value),
+        })),
+    ],
     consequence: pending.message,
     fieldOffset,
     expanded,

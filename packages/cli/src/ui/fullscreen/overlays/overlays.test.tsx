@@ -271,6 +271,25 @@ describe("approval overlay", () => {
     }
   });
 
+  it("keeps always-allow on screen when navigation hints crowd the controls", async () => {
+    for (const viewport of [WIDE, TINY]) {
+      const { renderer, captureCharFrame } = await draw(
+        <Approval
+          model={{
+            ...APPROVAL,
+            fields: [...APPROVAL.fields, { label: "Body", value: "x ".repeat(400) }],
+            consequence: "Once this is sent it cannot be unsent. ".repeat(12),
+            alwaysLabel: "always allow send_email this session",
+          }}
+          viewport={viewport}
+        />,
+        viewport,
+      );
+      expect(captureCharFrame()).toContain("a always allow send_email");
+      renderer.destroy();
+    }
+  });
+
   it("puts the controls on a line beneath the data frame", async () => {
     const { renderer, captureCharFrame } = await draw(
       <Approval
@@ -321,10 +340,11 @@ describe("approval overlay", () => {
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
-    // Fullscreen: the frame starts at column zero of row zero, and the
-    // controls line is the last row of the viewport.
+    // Fullscreen: the frame starts at column zero of row zero, and the two
+    // control rows are the last rows of the viewport.
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
-    expect(narrowRows[NARROW.height - 1]).toContain("accept");
+    expect(narrowRows[NARROW.height - 2]).toContain("accept");
+    expect(narrowRows[NARROW.height - 1]).toContain("always allow");
     narrow.renderer.destroy();
   });
 

@@ -147,17 +147,46 @@ export const FIXED_ENDPOINT_EGRESS_TOOLS: ReadonlySet<string> = new Set(["web_se
 
 const SAFE_HTTP_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
+/** Built-in URL tools that only ever issue a GET, so their arguments carry no method. */
+const GET_ONLY_URL_TOOLS: ReadonlySet<string> = new Set(["web_fetch", "read_pdf"]);
+
+/**
+ * The HTTP method a built-in URL tool will send, uppercased, or undefined when the tool does not
+ * say (MCP and custom tools) or the call has no URL.
+ */
+export function egressRequestMethod(
+  toolName: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  if (typeof args["url"] !== "string") {
+    return undefined;
+  }
+  if (GET_ONLY_URL_TOOLS.has(toolName)) {
+    return "GET";
+  }
+  if (toolName === "http_request" && typeof args["method"] === "string") {
+    return args["method"].toUpperCase();
+  }
+  return undefined;
+}
+
+/** `GET https://…` when the method is known, the bare URL otherwise. */
+function describeRequest(toolName: string, args: Record<string, unknown>, url: string): string {
+  const method = egressRequestMethod(toolName, args);
+  return method === undefined ? url : `${method} ${url}`;
+}
+
 /** The URL of a call that sends nothing but that URL, or undefined for any other call. */
 function plainGetUrl(toolName: string, args: Record<string, unknown>): string | undefined {
   const url = args["url"];
   if (typeof url !== "string") {
     return undefined;
   }
-  if (toolName === "web_fetch" || toolName === "read_pdf") {
+  if (GET_ONLY_URL_TOOLS.has(toolName)) {
     return url;
   }
   if (toolName === "http_request") {
-    const method = typeof args["method"] === "string" ? args["method"].toUpperCase() : "";
+    const method = egressRequestMethod(toolName, args) ?? "";
     const sendsMore =
       args["body"] !== undefined || args["headers"] !== undefined || args["query"] !== undefined;
     return SAFE_HTTP_METHODS.has(method) && !sendsMore ? url : undefined;
@@ -245,7 +274,10 @@ export function taintedEgressApprovalMessage(
     sources.length > MAX_LISTED_SOURCES
       ? ` and ${String(sources.length - MAX_LISTED_SOURCES)} more`
       : "";
-  const target = typeof args["url"] === "string" ? `\nDestination: ${args["url"]}` : "";
+  const target =
+    typeof args["url"] === "string"
+      ? `\nRequest: ${describeRequest(toolName, args, args["url"])}`
+      : "";
   return (
     `${toolName} sends data off this machine, and this run has read untrusted content ` +
     `(${listed}${more}).${target}\nArguments: ${JSON.stringify(args).slice(0, MAX_ARGUMENT_PREVIEW_CHARS)}\n` +
