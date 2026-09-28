@@ -355,6 +355,8 @@ export class ToolExecutor {
           message,
           executeToolName: name,
           executeArgs: args,
+          riskLevel: toolMeta.riskLevel,
+          warning: message,
           isAutoApproved: () => !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context),
         }));
 
@@ -671,10 +673,14 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
-          const approvalMessage =
+          const taintWarning =
             !isAutoApproved && context.egressTaint !== undefined && taintGated()
-              ? `${approvalResult.message}\n\n${taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)}`
-              : approvalResult.message;
+              ? taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)
+              : undefined;
+          const approvalMessage =
+            taintWarning === undefined
+              ? approvalResult.message
+              : `${approvalResult.message}\n\n${taintWarning}`;
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
@@ -685,6 +691,7 @@ export class ToolExecutor {
             ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
             riskLevel,
+            ...(taintWarning === undefined ? {} : { warning: taintWarning }),
             isAutoApproved: checkAutoApproved,
           };
 

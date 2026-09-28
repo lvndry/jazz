@@ -1534,6 +1534,7 @@ export class InkPresentationService implements PresentationService {
       ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
       ...(request.impact === undefined ? {} : { impact: request.impact }),
       ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
+      ...(request.warning === undefined ? {} : { warning: request.warning }),
     });
 
     store.setPrompt({

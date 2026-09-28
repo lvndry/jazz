@@ -48,6 +48,7 @@ import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
+import { approvalIntent, diffLanguage } from "./approval-intent";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
 import {
   commit,
@@ -1020,6 +1021,13 @@ function approvalFrom(
   const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
   const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
   const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
+  const intent = approvalIntent({
+    toolName: pending.toolName,
+    args: pending.args,
+    ...(pending.riskLevel === undefined ? {} : { riskLevel: pending.riskLevel }),
+    ...(pending.impact === undefined ? {} : { impact: pending.impact }),
+    ...(pending.previewDiff === undefined ? {} : { previewDiff: pending.previewDiff }),
+  });
 
   return {
     kind: "approval",
@@ -1027,7 +1035,7 @@ function approvalFrom(
     action: pending.executeToolName.replace(/[_.]/g, " "),
     account: accountEntry === undefined ? "this machine" : String(accountEntry[1]),
     fields: entries
-      .filter(([key]) => key !== accountEntry?.[0])
+      .filter(([key]) => key !== accountEntry?.[0] && !intent.consumedKeys.includes(key))
       .map(([label, value]) => ({
         label,
         value: typeof value === "string" ? value : JSON.stringify(value),
@@ -1037,6 +1045,15 @@ function approvalFrom(
     expanded,
     alwaysLabel,
     armed,
+    ...(intent.headline === undefined ? {} : { headline: intent.headline }),
+    acceptLabel: intent.accept,
+    rejectLabel: intent.reject,
+    ...(intent.impact === undefined ? {} : { impact: intent.impact }),
+    ...(intent.command === undefined ? {} : { command: intent.command }),
+    ...(intent.diff === undefined
+      ? {}
+      : { diff: intent.diff, diffLanguage: diffLanguage(pending.args) }),
+    ...(pending.warning === undefined ? {} : { warning: pending.warning }),
   };
 }
 

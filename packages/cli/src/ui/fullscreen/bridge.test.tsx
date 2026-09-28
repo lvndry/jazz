@@ -22,7 +22,7 @@ import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
 import { THEME } from "../theme";
-import { flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
+import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 
 /**
@@ -98,6 +98,18 @@ function resetStoreSlices(): void {
   store.clearModeToast();
   store.collapseAllEphemeral();
   store.setInterruptHandler(null);
+}
+
+/** Margin past the arming delay, so the timer that arms the card has certainly fired. */
+const ARMING_MARGIN_MS = 50;
+
+/**
+ * Wait until an approval card accepts enter. The accept control is drawn from the start
+ * (dimmed while inert), so arming is waited for by time rather than by frame text.
+ */
+async function afterArming(flush: () => Promise<void>): Promise<void> {
+  await Bun.sleep(APPROVAL_ARM_MS + ARMING_MARGIN_MS);
+  await flush();
 }
 
 describe("fullscreen bridge", () => {
@@ -1897,8 +1909,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("field9");
-    expect(rendered.captureCharFrame()).toContain("esc to reject");
-    expect(rendered.captureCharFrame()).not.toContain("enter to accept");
+    expect(rendered.captureCharFrame()).toContain("esc cancel");
 
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
@@ -1906,9 +1917,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
     expect(settled).toBeUndefined();
 
-    expect(await frameWhen(rendered, (frame) => frame.includes("enter to accept"))).toContain(
-      "enter to accept",
-    );
+    await afterArming(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
     expect(await pending).toEqual({ approved: true });
@@ -1948,13 +1957,10 @@ describe("fullscreen bridge", () => {
 
   it("accepts only denial until an approval has armed", async () => {
     const decisions: string[] = [];
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
-      <FullscreenBridge />,
-      {
-        width: 100,
-        height: 28,
-      },
-    );
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: 100,
+      height: 28,
+    });
     await renderOnce();
     store.setPrompt({
       type: "select",
@@ -1976,7 +1982,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(flush);
     expect(decisions).toEqual([]);
 
-    await frameWhen({ flush, captureCharFrame }, (frame) => frame.includes("enter to accept"));
+    await afterArming(flush);
     await mockInput.pressKey("RETURN");
     await settleKeypress(flush);
 
@@ -2028,7 +2034,7 @@ describe("fullscreen bridge", () => {
     expect(decisions).toEqual(["no"]);
   });
 
-  it("crops a long approval command and expands it with Ctrl+O", async () => {
+  it("shows a long shell command whole, as code, with its consequence on the title row", async () => {
     const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
     const command = `${"a".repeat(160)} ${TAIL}`;
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
@@ -2047,16 +2053,12 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
 
-    const collapsed = rendered.captureCharFrame();
-    expect(collapsed).toContain("ctrl+o");
-    expect(collapsed).toContain("expand");
-    expect(collapsed).not.toContain(TAIL);
-
-    await rendered.mockInput.pressKey("\x0f");
-    await settleKeypress(rendered.flush);
-    const expanded = rendered.captureCharFrame();
-    expect(expanded).toContain(TAIL);
-    expect(expanded).toContain("collapse");
+    const frame = rendered.captureCharFrame();
+    // The tail of a command is the part an approval exists to show, so it is never cropped.
+    expect(frame).toContain(TAIL);
+    expect(frame).toContain("$ aaaa");
+    expect(frame).toContain("changes this machine");
+    expect(frame).not.toContain("This command will be executed");
 
     rendered.renderer.destroy();
     store.setApprovalRequest(null);
@@ -2118,7 +2120,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("always allow git add");
-    await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
+    await afterArming(rendered.flush);
     await rendered.mockInput.pressKey("a");
     await settleKeypress(rendered.flush);
 
@@ -2162,7 +2164,7 @@ describe("fullscreen bridge", () => {
         args: { command: "git push --force" },
       });
       await rendered.flush();
-      await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
+      await afterArming(rendered.flush);
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey("a", key);
       await settleKeypress(rendered.flush);

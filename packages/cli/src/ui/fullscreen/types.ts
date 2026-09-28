@@ -20,6 +20,7 @@
 import type { TodoSnapshotItem } from "../activity-state";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
+import type { ApprovalCommand, ApprovalDiff } from "./approval-intent";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
@@ -327,6 +328,20 @@ export interface ApprovalOverlay {
   readonly alwaysLabel: string;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
+  /** The consequence in two or three words for the title row: `can't be unsent`. */
+  readonly headline?: string;
+  /** The verbs on the two controls: `send` / `don't send`. */
+  readonly acceptLabel?: string;
+  readonly rejectLabel?: string;
+  /** The measured effect, shown as one more field: `removes  214 files, 1.3 GB`. */
+  readonly impact?: ApprovalField;
+  /** A shell command, shown as code in its own band rather than as a field value. */
+  readonly command?: ApprovalCommand;
+  /** A file change, shown as tinted rows with `+N −M` on the title row. */
+  readonly diff?: ApprovalDiff;
+  readonly diffLanguage?: string;
+  /** A caution that must be read before accepting; shown even when the headline replaces the tool's prose. */
+  readonly warning?: string;
 }
 
 export interface SearchHit {

@@ -359,7 +359,7 @@ describe("footer hints", () => {
       "^r for reasoning",
       "^c to stop",
     ]);
-    expect(hintsFor("input", true, true, undefined, false, true, true)).toEqual([
+    expect(hintsFor("input", true, true, undefined, false, true)).toEqual([
       "esc esc to send all",
       "enter to queue",
       "up to recall",
@@ -371,23 +371,14 @@ describe("footer hints", () => {
       "^f to search",
       "^r for reasoning",
     ]);
-    expect(hintsFor("input", false, false, "approval", false, false)).toEqual([
-      "esc to reject",
-      "pgup to read above",
-    ]);
-    expect(hintsFor("input", false, false, "approval", false, true)).toEqual([
-      "enter to accept",
-      "esc to reject",
-      "pgup to read above",
-    ]);
+    // The card carries its own legend; the footer states that the session is waiting.
+    expect(hintsFor("input", false, false, "approval")).toEqual(["waiting for you"]);
     expect(hintsFor("input", false, false, "text")).toEqual([
-      "enter to confirm",
-      "esc to go back",
+      "waiting for you",
       "pgup to read above",
     ]);
     expect(hintsFor("input", false, false, "question")).toEqual([
-      "enter to confirm",
-      "esc to cancel",
+      "waiting for you",
       "pgup to read above",
     ]);
     expect(hintsFor("input", true, false, "search")).toEqual([

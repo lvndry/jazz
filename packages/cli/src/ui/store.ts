@@ -178,6 +178,8 @@ export interface PendingApproval {
   /** What approving concretely does, with real numbers (`214 files, 1.3 GB`). */
   readonly impact?: string;
   readonly riskLevel?: ToolRiskLevel;
+  /** A caution the card shows even when it replaces the tool's prose (untrusted content read this run). */
+  readonly warning?: string;
 }
 
 export interface RunStats {

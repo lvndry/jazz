@@ -274,6 +274,13 @@ export interface ApprovalRequest {
   /** The risk class of the call being approved, when the tool declares one. */
   readonly riskLevel?: ToolRiskLevel;
   /**
+   * A caution the executor adds on top of the tool's own message, such as the run having
+   * read untrusted content before this outbound call. `message` already contains it; a
+   * surface that replaces the tool's prose with its own summary shows this instead, so the
+   * caution is never lost with the prose.
+   */
+  readonly warning?: string;
+  /**
    * When present, the surface renders a picker (one row per option) instead of an
    * approve/deny card. The chosen row's id returns as `selectedOptionId`.
    */

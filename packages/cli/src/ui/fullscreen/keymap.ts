@@ -473,17 +473,14 @@ export function hintsFor(
   queueing = false,
   overlay?: "approval" | "search" | "question" | "text" | "filepicker",
   commandsOpen = false,
-  overlayArmed = true,
   hasQueued = false,
 ): readonly string[] {
-  if (overlay === "approval") {
-    return overlayArmed
-      ? ["enter to accept", "esc to reject", "pgup to read above"]
-      : ["esc to reject", "pgup to read above"];
-  }
+  // A card that waits on a person carries its own legend under it; the footer says what
+  // state the session is in rather than repeating the card's keys a second time.
+  if (overlay === "approval") return ["waiting for you"];
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
-  if (overlay === "text") return ["enter to confirm", "esc to go back", "pgup to read above"];
-  if (overlay === "question") return ["enter to confirm", "esc to cancel", "pgup to read above"];
+  if (overlay === "text") return ["waiting for you", "pgup to read above"];
+  if (overlay === "question") return ["waiting for you", "pgup to read above"];
   if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
