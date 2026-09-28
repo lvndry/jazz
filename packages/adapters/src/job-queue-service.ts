@@ -3,7 +3,7 @@
  * lock-guarded JSON file per batch, under `<agentId>/<batchId>.json`, using the same
  * directory-mutex (`withLock`) and atomic-write (`writeFileStringAtomic`) primitives as
  * `WakeTriggerServiceImpl`. A batch's completion is fanned in and resumed the same way a wake
- * trigger fires — see `packages/adapters/src/daemon/job-worker.ts` and `trigger-runner.ts`.
+ * trigger fires — see `packages/daemon/src/job-worker.ts` and `trigger-runner.ts`.
  *
  * Two families of exports live here:
  * - the `JobQueueService` methods (`enqueueBatch`, `getBatch`, `listActiveBatches`,
@@ -71,7 +71,7 @@ import {
   withLock,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
-import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/daemon/runs-in-flight";
+import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/runs/runs-in-flight";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
 export class JobQueueGuardrailViolation extends Error {}

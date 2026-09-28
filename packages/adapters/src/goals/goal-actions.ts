@@ -44,12 +44,12 @@ import { findByNameOrIdPrefix } from "@jazz/core/utils/handle";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import type { ProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
-import { resumeGoalRun, settleStoppingGoal } from "@/adapters/daemon/goal-worker";
+import { resumeGoalRun, settleStoppingGoal } from "@/adapters/goals/goal-worker";
 import {
   pendingRunInput,
   runAnswerOutcome,
   type RunAnswer,
-} from "@/adapters/daemon/resume-owned-run";
+} from "@/adapters/runs/resume-owned-run";
 
 /**
  * The read-only feasibility pass before a proposal: a few tool rounds, then report. Every

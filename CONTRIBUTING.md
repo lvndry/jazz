@@ -16,7 +16,8 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | ----------------------- | ----------------------------------------------------------------------- | -------------------------------- |
 | `packages/core`         | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace    |
 | `packages/adapters`     | Service implementations (LLM, storage, MCP, keyring, etc.)              | `core`                           |
-| `packages/cli`          | Ink/OpenTUI commands and presentation                                   | `core`                           |
+| `packages/daemon`       | Daemon: HTTP server, scheduled ticks, attention, OS service install     | `core`, `adapters`               |
+| `packages/cli`          | Ink/OpenTUI commands and presentation                                   | `core`, `adapters`, `daemon`     |
 | `packages/runtime`      | Composition root: wires core+adapters+cli into the `jazz` binary        | `core`, `adapters`, `cli`        |
 | `packages/bot-shared`   | Shared turn, approval, run-logging and usage code for the bot bridges   | `core`, `adapters`               |
 | `packages/telegram-bot` | Telegram bridge                                                         | `core`, `adapters`, `bot-shared` |
@@ -29,6 +30,8 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | `plugins/*`             | Reviewed optional plugins; never imported by core                       | `plugin-sdk` only                |
 
 **Critical rule**: `core/` must **never** import from `adapters/`, `cli/`, or `runtime/`.
+`adapters/` and the bot packages must **never** import from `daemon/`: an eslint rule and
+`scripts/package-layering.test.ts` both reject it.
 Dependencies flow inward only.
 
 Read the READMEs:
@@ -37,6 +40,7 @@ Read the READMEs:
 - `docs/maintainers/architecture.md` - Code organization and conventions
 - `packages/core/README.md` - Core package patterns
 - `packages/adapters/README.md` - Adapter implementations
+- `packages/daemon/README.md` - The daemon application
 - `packages/cli/README.md` - CLI commands
 - `docs/maintainers/index.md` - Runtime traces, extension points, and test strategy
 

@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,

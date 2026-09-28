@@ -105,9 +105,7 @@
         "@opentelemetry/exporter-metrics-otlp-proto": "0.222.0",
         "@opentelemetry/resources": "2.11.0",
         "@opentelemetry/sdk-metrics": "2.11.0",
-        "hono": "^4.13.5",
         "nanotar": "^0.3.0",
-        "plist": "^5.0.0",
       },
     },
     "packages/bot-shared": {
@@ -125,6 +123,7 @@
         "@jazz/adapters": "workspace:*",
         "@jazz/bot-shared": "workspace:*",
         "@jazz/core": "workspace:*",
+        "@jazz/daemon": "workspace:*",
         "@jazz/imessage-bot": "workspace:*",
         "@jazz/photon-bot": "workspace:*",
         "@jazz/whatsapp-bot": "workspace:*",
@@ -165,6 +164,16 @@
       },
       "devDependencies": {
         "@jazz/adapters": "workspace:*",
+      },
+    },
+    "packages/daemon": {
+      "name": "@jazz/daemon",
+      "version": "0.15.6",
+      "dependencies": {
+        "@jazz/adapters": "workspace:*",
+        "@jazz/core": "workspace:*",
+        "hono": "^4.13.5",
+        "plist": "^5.0.0",
       },
     },
     "packages/discord-bot": {
@@ -577,6 +586,8 @@
     "@jazz/cli": ["@jazz/cli@workspace:packages/cli"],
 
     "@jazz/core": ["@jazz/core@workspace:packages/core"],
+
+    "@jazz/daemon": ["@jazz/daemon@workspace:packages/daemon"],
 
     "@jazz/discord-bot": ["@jazz/discord-bot@workspace:packages/discord-bot"],
 

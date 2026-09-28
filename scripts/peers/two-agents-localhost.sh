@@ -3,7 +3,7 @@
 # Two jazz agents on one machine, becoming peers by invite instead of by hand, then actually
 # asking each other something and getting a real, model-generated answer back.
 #
-# This is the part `packages/adapters/src/daemon/peer-invite-flow.test.ts` cannot cover: that
+# This is the part `packages/daemon/src/peer-invite-flow.test.ts` cannot cover: that
 # test proves the invite/redeem/authorize plumbing with fakes standing in for a real agent
 # stack, deliberately, because a real answer needs a real LLM and a real keyring — neither of
 # which belongs in an automated, deterministic CI run. This script is the other half: run it

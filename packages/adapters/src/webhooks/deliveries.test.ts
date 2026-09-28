@@ -56,9 +56,13 @@ describe("claiming a webhook delivery", () => {
   });
 
   it("remembers only the most recent deliveries", async () => {
-    for (let index = 0; index <= MAX_REMEMBERED_DELIVERIES; index++) {
-      await claim("gh", [`delivery:${String(index)}`]);
-    }
+    await claim("gh", ["delivery:0"]);
+    const newerKeys = Array.from(
+      { length: MAX_REMEMBERED_DELIVERIES },
+      (_, index) => `delivery:${String(index + 1)}`,
+    );
+    expect(await claim("gh", newerKeys)).toBe("fresh");
+
     expect(await claim("gh", ["delivery:0"])).toBe("fresh");
     expect(await claim("gh", [`delivery:${String(MAX_REMEMBERED_DELIVERIES)}`])).toBe("duplicate");
   });

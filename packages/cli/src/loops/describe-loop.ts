@@ -1,5 +1,5 @@
-import type { PendingRunInput } from "@jazz/adapters/daemon/resume-owned-run";
 import { pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
+import type { PendingRunInput } from "@jazz/adapters/runs/resume-owned-run";
 import type { LoopRecord, LoopSchedule } from "@jazz/core/agent/loop/loop-record";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { describeCronSchedule } from "@jazz/core/utils/cron";

@@ -1,5 +1,5 @@
-import { drainAgentJobs } from "@jazz/adapters/daemon/job-worker";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { drainAgentJobs } from "@jazz/daemon/job-worker";
 import { Effect } from "effect";
 
 /**
