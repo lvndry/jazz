@@ -608,7 +608,7 @@ function withoutProjectNetwork(localPath: string, local: ConfigFile): ConfigFile
   }
   process.stderr.write(
     `jazz: ignoring network in ${localPath}. Only your global config lists private hosts; ` +
-      "edit them with jazz > Update configuration > Private network hosts.\n",
+      "edit them with jazz > Settings > Private network hosts.\n",
   );
   const { network: _network, ...rest } = local;
   return rest;

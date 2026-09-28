@@ -93,10 +93,7 @@ export function spendCommand(options: { readonly json: boolean }) {
     const keyWidth = Math.max(0, ...caps.map((cap) => cap.key.length));
     const capLines =
       caps.length === 0
-        ? [
-            "",
-            "Caps: none (unlimited). Set them with `jazz` > Update configuration > Spend Limits.",
-          ]
+        ? ["", "Caps: none (unlimited). Set them with `jazz` > Settings > Spend Limits."]
         : [
             "",
             "Caps (unattended runs only; chat never counts)",

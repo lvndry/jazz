@@ -86,6 +86,7 @@ export const TIPS = [
   // Troubleshooting
   "Use '/new' to clear the context and start a new conversation",
   "Use 'jazz config show' to see your configuration",
+  "Press c in Settings → LLM Providers or Web Search Providers to copy a configured API key",
   "Check 'jazz update' regularly for new features",
   "Run 'jazz config validate' to check configuration files",
   "Use /work to inspect saved task state and compaction records",

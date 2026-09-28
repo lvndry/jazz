@@ -47,7 +47,7 @@ type MenuAction =
   | "create-agent"
   | "edit-agent"
   | "list-agents"
-  | "config"
+  | "settings"
   | "delete-agent"
   | "exit";
 
@@ -127,11 +127,11 @@ function wizardSession() {
           { label: "List agents", value: "list-agents" },
           { label: "Edit agent", value: "edit-agent" },
           { label: "Delete agent", value: "delete-agent" },
-          { label: "Update configuration", value: "config" },
+          { label: "Settings", value: "settings" },
         );
       } else {
-        // Even if no agents, allow configuration
-        menuOptions.push({ label: "Update configuration", value: "config" });
+        // Even if no agents, allow settings
+        menuOptions.push({ label: "Settings", value: "settings" });
       }
 
       menuOptions.push({ label: "Exit", value: "exit" });
@@ -307,7 +307,7 @@ function wizardSession() {
           break;
         }
 
-        case "config": {
+        case "settings": {
           yield* configWizardCommand();
           yield* terminal.clear();
           break;
@@ -643,7 +643,7 @@ function promptNotificationsOnFirstRun(
       yield* terminal.log("");
     } else {
       yield* terminal.info("No API keys detected from environment.");
-      yield* terminal.log("  Set up a key via 'Update configuration' or export OPENAI_API_KEY");
+      yield* terminal.log("  Set up a key via 'Settings' or export OPENAI_API_KEY");
       yield* terminal.log("");
     }
 
