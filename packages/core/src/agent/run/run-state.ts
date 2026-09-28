@@ -20,7 +20,11 @@
  * over.
  */
 
-import type { FilePickerRequest, UserInputRequest } from "@/core/interfaces/presentation";
+import type {
+  FilePickerRequest,
+  SecretInputRequest,
+  UserInputRequest,
+} from "@/core/interfaces/presentation";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalOutcome } from "@/core/types/tools";
@@ -63,6 +67,12 @@ export type PendingInput =
   | {
       readonly kind: "file-picker";
       readonly request: FilePickerRequest;
+      readonly toolCallId: string;
+    }
+  | {
+      /** A secret for the person to type. Only the prompt and name are stored, never a value. */
+      readonly kind: "secret";
+      readonly request: SecretInputRequest;
       readonly toolCallId: string;
     };
 

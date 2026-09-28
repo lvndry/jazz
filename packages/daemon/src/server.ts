@@ -1024,10 +1024,18 @@ async function answerRunRoute(
 }
 
 /**
- * The outcome an answer body asks for: a question's `response`, a file picker's `filePath`, or
- * otherwise an approval that is `approved` only when it says so exactly.
+ * The outcome an answer body asks for: a question's `response`, a typed `secret` (an empty one
+ * declines), a file picker's `filePath`, or otherwise an approval that is `approved` only when
+ * it says so exactly. A secret is held in memory for the resumed run and never stored.
  */
 function runAnswerFromBody(body: Record<string, unknown>): ResumeRunOptions["outcome"] {
+  if (typeof body["secret"] === "string") {
+    const value = body["secret"];
+    return {
+      kind: "secret",
+      value: value.length > 0 ? { kind: "provided", value } : { kind: "declined" },
+    };
+  }
   const note = typeof body["note"] === "string" ? body["note"] : undefined;
   const response = typeof body["response"] === "string" ? body["response"].trim() : undefined;
   const filePath = typeof body["filePath"] === "string" ? body["filePath"].trim() : undefined;
@@ -2665,6 +2673,8 @@ function describePendingInput(pending: PendingInput) {
           : {}),
         ...(pending.request.includeDirectories === true ? { includeDirectories: true } : {}),
       };
+    case "secret":
+      return { kind: pending.kind, prompt: pending.request.prompt, name: pending.request.name };
   }
 }
 

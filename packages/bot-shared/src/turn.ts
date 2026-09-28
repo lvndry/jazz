@@ -184,6 +184,19 @@ export interface InboundMessage {
   readonly text: string;
   /** The message this one follows up (a tapped suggestion), to thread the reply under. */
   readonly replyTo?: MessageRef | undefined;
+  /**
+   * Whether this is a one-to-one chat between the sender and the bot. A secret is collected
+   * only there. Unset keeps what an earlier message of the chat said; a chat never said to be
+   * private is treated as shared.
+   */
+  readonly privateChat?: boolean | undefined;
+  /** This message itself, so the reply that answered a secret can be deleted. */
+  readonly ref?: MessageRef | undefined;
+  /**
+   * The sender's own words, when `text` also carries quoted context around them. A secret is
+   * answered with these.
+   */
+  readonly ownText?: string | undefined;
 }
 
 /** A tap on a choice, as a bridge resolved it from the button's payload. */
@@ -213,6 +226,7 @@ export const REJECT_CHOICE_ID = "reject";
 export const ALWAYS_ALLOW_CHOICE_ID = "always";
 export const APPROVE_ALL_CHOICE_ID = "approve-all";
 export const REJECT_ALL_CHOICE_ID = "reject-all";
+export const DECLINE_SECRET_CHOICE_ID = "decline-secret";
 
 /** Told to anyone with a run in flight, or writing in, while the bridge shuts down. */
 const RESTARTING_NOTICE: RichText = [
@@ -255,13 +269,21 @@ interface PendingQuestion {
   messageRef?: MessageRef | undefined;
 }
 
-type PendingPrompt = PendingApproval | PendingQuestion;
+/** A secret the requester types as their next message; a button surface also offers declining. */
+interface PendingSecret {
+  readonly kind: "secret";
+  readonly requestId: string;
+  readonly choices: readonly Choice[];
+  messageRef?: MessageRef | undefined;
+}
+
+type PendingPrompt = PendingApproval | PendingQuestion | PendingSecret;
 
 /** What a bridge needs to re-render its outstanding prompts. */
 export interface PendingSummary {
-  /** `toolCallId` for an approval, `requestId` for a question. */
+  /** `toolCallId` for an approval, `requestId` for a question or a secret. */
   readonly id: string;
-  readonly kind: "approval" | "question";
+  readonly kind: "approval" | "question" | "secret";
 }
 
 function promptId(pending: PendingPrompt): string {
@@ -279,6 +301,11 @@ interface ChatState {
   run?: JazzRun | undefined;
   /** Whose message started the run in flight; only they answer its prompts. */
   requester?: SenderId | undefined;
+  /**
+   * Whether this is a one-to-one chat, as the last message that said so reported. A chat's kind
+   * never changes, so a tapped follow-up, which carries no kind of its own, keeps it.
+   */
+  privateChat?: boolean | undefined;
   /**
    * Prompts waiting on the person, keyed by the id the agent minted.
    *
@@ -594,6 +621,71 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     notifyPendingChange(chatId);
   };
 
+  /**
+   * Put a secret request in front of the requester, in a one-to-one chat only. In a shared chat
+   * everyone would read the reply, so the run is told at once that it cannot be collected here
+   * and the chat is told to take it to a private chat.
+   */
+  const announceSecret = async (chatId: ChatId, event: JazzEvent): Promise<void> => {
+    const requestId = event.requestId;
+    const prompt = event.prompt?.trim();
+    const state = stateFor(chatId);
+    if (requestId === undefined || !prompt || state.run === undefined) {
+      return;
+    }
+
+    if (state.privateChat !== true) {
+      await state.run.answerSecret(requestId, { kind: "shared-chat" });
+      await send(chatId, [
+        line(bold("🔒 The agent asked for a secret")),
+        plainLine(prompt),
+        plainLine(
+          "Secrets are never collected in a shared chat. Message me privately and ask again there.",
+        ),
+      ]);
+      return;
+    }
+
+    const choices: readonly Choice[] = buttons
+      ? [{ id: DECLINE_SECRET_CHOICE_ID, label: "🙅 Don't share", intent: "danger" }]
+      : [];
+    const pending: PendingSecret = { kind: "secret", requestId, choices };
+    state.pending.set(requestId, pending);
+    pending.messageRef = await surface.send(chatId, {
+      body: [
+        line(bold("🔒 The agent needs a secret")),
+        plainLine(prompt),
+        plainLine(
+          surface.deleteReceived === undefined
+            ? "Send it as your next message. It stays in this chat's history, so delete it yourself once the agent is done."
+            : "Send it as your next message. I delete it from this chat as soon as I have read it.",
+        ),
+        plainLine(
+          buttons
+            ? "The agent only ever sees a placeholder. Tap Don't share to decline."
+            : "The agent only ever sees a placeholder. Send /stop to decline and stop the run.",
+        ),
+      ],
+      ...(choices.length > 0 ? { choices, promptId: requestId } : {}),
+    });
+    notifyPendingChange(chatId);
+  };
+
+  /** Remove the message that answered a secret, where the surface can; never logs its text. */
+  const deleteSecretReply = async (message: InboundMessage): Promise<void> => {
+    if (surface.deleteReceived === undefined || message.ref === undefined) {
+      return;
+    }
+    try {
+      await surface.deleteReceived(message.chatId, message.ref);
+    } catch {
+      console.error(`Could not delete a secret reply on ${surface.name} in ${message.chatId}.`);
+      await send(message.chatId, [
+        plainLine("⚠️ I couldn't delete your message with the secret. Delete it yourself."),
+      ]).catch(() => undefined);
+    }
+  };
+
   const notifyPendingChange = (chatId: ChatId): void => {
     if (config.onPendingChange === undefined) return;
     const outstanding = [...stateFor(chatId).pending.values()].map((pending) => ({
@@ -624,6 +716,13 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           console.error(`Failed to persist an always-allowed command: ${String(error)}`);
         }
       }
+    } else if (pending.kind === "secret") {
+      await state.run?.answerSecret(
+        pending.requestId,
+        choiceId === DECLINE_SECRET_CHOICE_ID
+          ? { kind: "declined" }
+          : { kind: "provided", value: choiceId },
+      );
     } else {
       await state.run?.answerQuestion(pending.requestId, choiceId);
     }
@@ -648,6 +747,17 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     // Someone else in a group saying "1" is conversation, not a decision about
     // another person's request.
     if (state.requester !== senderId) return false;
+
+    // Whatever the requester sends next is the secret, except a command. The message is
+    // answered here and never queued, so it never becomes a turn or reaches a transcript.
+    if (pending.kind === "secret") {
+      if (parseCommand(reply) !== undefined && commands.isCommand(reply)) {
+        return false;
+      }
+      await settle(chatId, pending, message.ownText ?? reply);
+      await deleteSecretReply(message);
+      return true;
+    }
 
     // A free-text question has no options, so whatever they say next is it, except a
     // command, which is still a command.
@@ -764,6 +874,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         onUserInputRequired: (event) => {
           void announceQuestion(chatId, event).catch((error) =>
             console.error(`Failed to send a question to ${chatId}: ${String(error)}`),
+          );
+        },
+        onUserSecretRequired: (event) => {
+          void announceSecret(chatId, event).catch((error) =>
+            console.error(`Failed to ask ${chatId} for a secret: ${String(error)}`),
           );
         },
       },
@@ -1011,6 +1126,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       if (choiceId === ALWAYS_ALLOW_CHOICE_ID && !config.operators.has(senderId)) {
         return "not-operator";
       }
+      if (pending.kind === "secret" && choiceId !== DECLINE_SECRET_CHOICE_ID) {
+        return "expired";
+      }
       await settle(chatId, pending, choiceId);
       return "answered";
     },
@@ -1034,6 +1152,9 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
     async handle(message: InboundMessage): Promise<void> {
       const state = stateFor(message.chatId);
+      if (message.privateChat !== undefined) {
+        state.privateChat = message.privateChat;
+      }
 
       if (stopping) {
         await send(message.chatId, RESTARTING_NOTICE).catch(() => undefined);

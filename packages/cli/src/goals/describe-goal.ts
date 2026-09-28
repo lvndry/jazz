@@ -26,7 +26,13 @@ export function goalHandle(goal: Pick<GoalRecord, "goalId" | "name">): string {
 }
 
 /** What the goal is waiting on when it waits for the user (see `pendingRunInput`). */
-export type PendingGoalInput = Pick<PendingRunInput, "kind" | "described">;
+export type PendingGoalInput = Pick<PendingRunInput, "kind" | "described"> &
+  Partial<Pick<PendingRunInput, "runId">>;
+
+/** Where a parked run's secret is typed: a terminal, never a chat. */
+export function typedSecretCommand(runId: string | undefined): string {
+  return `jazz runs secret ${runId ?? "<run id>"} (in a terminal)`;
+}
 
 /** The goal's state as a person would say it. */
 export function goalStatus(goal: GoalRecord, pending?: PendingGoalInput): string {
@@ -37,6 +43,9 @@ export function goalStatus(goal: GoalRecord, pending?: PendingGoalInput): string
     case "active":
       return goal.cycle !== undefined ? `working (cycle ${String(goal.usage.cycles)})` : "working";
     case "awaiting-input":
+      if (pending?.kind === "secret") {
+        return "waiting for a secret you type";
+      }
       return pending?.kind === "question" || state.reason === "question"
         ? "waiting for your answer"
         : "waiting for your approval";
@@ -73,6 +82,9 @@ export function nextGoalCommands(
     case "active":
       return [`${command} pause ${id}`, `${command} cancel ${id}`];
     case "awaiting-input":
+      if (pending?.kind === "secret") {
+        return [typedSecretCommand(pending.runId)];
+      }
       return pending?.kind === "question" || goal.state.reason === "question"
         ? [`${command} answer ${id} <your answer>`]
         : [`${command} approve ${id}`, `${command} reject ${id} [why]`];

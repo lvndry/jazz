@@ -9,6 +9,7 @@ import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
   PresentationService,
+  SecretInputOutcome,
   StreamingRenderer,
   StreamingRendererConfig,
   UserInputOutcome,
@@ -136,6 +137,10 @@ class QuietPresentationService implements PresentationService {
 
   // Quiet mode has nobody to ask; the caller must not read this as a refusal.
   requestUserInput(): Effect.Effect<UserInputOutcome, never> {
+    return Effect.succeed({ kind: "unavailable" });
+  }
+
+  requestSecretInput(): Effect.Effect<SecretInputOutcome, never> {
     return Effect.succeed({ kind: "unavailable" });
   }
 

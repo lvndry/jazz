@@ -10,11 +10,16 @@ import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
+
+/** A secret typed for a parked ask_user_secret call, or the person declining to type one. */
+export type ResolvedUserSecret =
+  { readonly kind: "provided"; readonly value: string } | { readonly kind: "declined" };
 
 // Re-export ToolRiskLevel from tool-registry interface
 export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
@@ -391,6 +396,13 @@ export interface ToolExecutionContext {
     string,
     { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" }
   >;
+  /** Secrets typed after a run parked on ask_user_secret, held in memory only. */
+  readonly resolvedUserSecrets?: ReadonlyMap<string, ResolvedUserSecret>;
+  /**
+   * This run's typed secrets: what `ask_user_secret` holds and what the registry substitutes
+   * into a tool that accepts them. Shared with sub-agents by reference.
+   */
+  readonly userSecrets?: UserSecretStore;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**

@@ -13,6 +13,7 @@ import path from "node:path";
 import { jsonBigIntReplacer } from "@jazz/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { isSecretName, redactionPlaceholder } from "@jazz/core/secrets/secret-names";
+import { redactHeldUserSecrets, redactHeldUserSecretsDeep } from "@jazz/core/secrets/user-secrets";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
@@ -401,14 +402,16 @@ export function formatLogLineAsJson(
   const logEntry: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
     level: level.toUpperCase(),
-    message,
+    message: redactHeldUserSecrets(message),
   };
 
   if (conversationId) {
     logEntry["conversationId"] = conversationId;
   }
 
-  if (meta && Object.keys(meta).length > 0) logEntry["attributes"] = redactLogMetadata(meta);
+  if (meta && Object.keys(meta).length > 0) {
+    logEntry["attributes"] = redactLogMetadata(redactHeldUserSecretsDeep(meta));
+  }
 
   return JSON.stringify(logEntry, jsonBigIntReplacer) + "\n";
 }
@@ -422,10 +425,10 @@ export function formatLogLineAsPlain(
   meta?: Record<string, unknown>,
 ): string {
   const now = new Date();
-  const safeMessage = message.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+  const safeMessage = redactHeldUserSecrets(message).replace(/\r/g, "\\r").replace(/\n/g, "\\n");
   const metaText =
     meta && Object.keys(meta).length > 0
-      ? " " + JSON.stringify(redactLogMetadata(meta), jsonBigIntReplacer)
+      ? " " + JSON.stringify(redactLogMetadata(redactHeldUserSecretsDeep(meta)), jsonBigIntReplacer)
       : "";
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${safeMessage}${metaText}\n`;
 }

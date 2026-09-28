@@ -91,7 +91,7 @@ whether the run may make it at all.
 A run resolves its toolset once at the start: the agent's own tools, plus the built-in
 categories its persona admits, minus the persona and agent deny lists, minus the carve-outs
 for a run that cannot persist (`manage_memory`) or cannot ask a human anything
-(`ask_user_question`, `ask_file_picker`), narrowed by any `toolAllowlist` it inherited. That list
+(`ask_user_question`, `ask_file_picker`, `ask_user_secret`), narrowed by any `toolAllowlist` it inherited. That list
 is then expanded with the names its tools also answer to: advertised aliases (`glob` for
 `find`) and the hidden execute half of each gated pair (`execute_execute_command`), and the
 denials are re-applied over what expansion added, so a deny entry cannot be undone by an
@@ -450,9 +450,9 @@ Tools are registered by category at startup, except MCP:
 | Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                     |
 | Context                | 3       | `context_info` `get_time` `retrieve_tool_result`                                                      |
 | Sub Agents             | 5       | `spawn_subagent` `list_subagents` `wait_subagents` `steer_subagent` `summarize_context`               |
-| User Interaction       | 2       | `ask_user_question` `ask_file_picker`                                                                 |
+| User Interaction       | 3       | `ask_user_question` `ask_file_picker` `ask_user_secret`                                               |
 | Compositions           | 1       | `create_composition`                                                                                  |
-| **Total agent-facing** | **38**  | plus 7 hidden `execute_*` counterparts                                                                |
+| **Total agent-facing** | **39**  | plus 7 hidden `execute_*` counterparts                                                                |
 | **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                            |
 | **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                    |
 

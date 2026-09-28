@@ -58,7 +58,8 @@ export type RunAnswer =
 
 /**
  * `answer` as the outcome a parked run resumes with, or why it does not fit what the run waits
- * on: an approval is approved or rejected, a question is answered.
+ * on: an approval is approved or rejected, a question is answered, and a secret is typed only
+ * through `jazz runs secret`.
  */
 export function runAnswerOutcome(
   pending: PendingRunInput,
@@ -66,6 +67,12 @@ export function runAnswerOutcome(
 ):
   | { readonly kind: "outcome"; readonly outcome: ResumeRunOptions["outcome"] }
   | { readonly kind: "mismatch"; readonly reason: string } {
+  if (pending.kind === "secret") {
+    return {
+      kind: "mismatch",
+      reason: `It is waiting for a secret you type, which never goes through a chat or a command line: run \`jazz runs secret ${pending.runId}\` in a terminal.`,
+    };
+  }
   const wantsApproval = pending.kind === "tool-approval";
   if (wantsApproval !== (answer.kind !== "answer")) {
     return {

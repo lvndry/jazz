@@ -10,6 +10,8 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { KnownSecret } from "@/core/secrets/redaction";
+import { redactionPlaceholder } from "@/core/secrets/secret-names";
+import { userSecretNamesIn } from "@/core/secrets/user-secrets";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
@@ -688,9 +690,11 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
       "Run a non-interactive shell command; stdin is empty. Use a dedicated tool whenever one covers the task, including tools from search_tools; use this for git and everything else. " +
       "Read-only commands may be auto-approved; anything that mutates needs approval. " +
       "sudo and inline -c/-e code are blocked: write code to a temp file and run it. The environment has no secrets and takes no env vars. " +
+      "Put a secret from ask_user_secret in the command as its placeholder; the person approves every such command. " +
       "stdout and stderr are each capped at 256 KB.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",
+    userSecretArguments: ["command"],
     timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS,
     parameters: executeCommandParameters,
     validate: makeZodValidator(executeCommandParameters),
@@ -719,12 +723,24 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         const timeout = args.timeout ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
         const description = args.description.trim();
 
-        return `Command: ${args.command}
+        const message = `Command: ${args.command}
 Description: ${description}
 Working Directory: ${workingDir}
 Timeout: ${formatDuration(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
+        const typedSecrets =
+          context.userSecrets === undefined
+            ? []
+            : userSecretNamesIn(args.command, context.userSecrets);
+        if (typedSecrets.length === 0) {
+          return message;
+        }
+        const placeholders = typedSecrets.map(redactionPlaceholder).join(", ");
+        return {
+          message: `${message}\n\nApproving puts the secret you typed in place of ${placeholders} when the command runs.`,
+          alwaysAsk: true,
+        };
       }),
 
     approvalErrorMessage: "Command execution requires explicit user approval for security reasons.",

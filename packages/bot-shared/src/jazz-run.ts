@@ -36,6 +36,9 @@ export interface JazzEvent {
   readonly requestId?: string;
   readonly question?: string;
   readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
+  /** `user_secret_required`: what the secret is for, and the name it is held under. */
+  readonly prompt?: string;
+  readonly name?: string;
   /** `run_spend`: what the run has spent so far. */
   readonly costUSD?: number;
   readonly costIncomplete?: boolean;
@@ -129,7 +132,18 @@ export interface JazzRunHandlers {
   readonly onApprovalRequired?: (event: JazzEvent) => void;
   /** The agent asked the human a question; answer with `answerQuestion`. */
   readonly onUserInputRequired?: (event: JazzEvent) => void;
+  /** The agent asked the human to type a secret; answer with `answerSecret`. */
+  readonly onUserSecretRequired?: (event: JazzEvent) => void;
 }
+
+/**
+ * What the person did about a secret: typed it, declined, or could not be asked safely because
+ * the chat is shared with other people.
+ */
+export type SecretAnswer =
+  | { readonly kind: "provided"; readonly value: string }
+  | { readonly kind: "declined" }
+  | { readonly kind: "shared-chat" };
 
 export interface JazzRun {
   /** Resolves with the envelope once the process exits, and never rejects. */
@@ -140,6 +154,8 @@ export interface JazzRun {
   lastSpend(): RunSpend | undefined;
   approve(decisions: readonly { toolCallId: string; approved: boolean }[]): Promise<void>;
   answerQuestion(requestId: string, response: string): Promise<void>;
+  /** Hand the run a secret over its stdin pipe; the value is written nowhere else. */
+  answerSecret(requestId: string, answer: SecretAnswer): Promise<void>;
   cancel(): void;
 }
 
@@ -299,6 +315,18 @@ export function createKillTimer(
   };
 }
 
+/** The stdin line that answers a `user_secret_required` event. */
+export function userSecretResponseLine(requestId: string, answer: SecretAnswer) {
+  switch (answer.kind) {
+    case "provided":
+      return { type: "user_secret_response", requestId, value: answer.value };
+    case "declined":
+      return { type: "user_secret_response", requestId, declined: true };
+    case "shared-chat":
+      return { type: "user_secret_response", requestId, unavailable: "shared-chat" };
+  }
+}
+
 /**
  * Spawn the turn and return immediately with handles onto it.
  *
@@ -350,6 +378,11 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       waitingOnHuman.add(event.requestId);
       killTimer.pause();
       handlers.onUserInputRequired?.(event);
+    }
+    if (event.type === "user_secret_required" && event.requestId) {
+      waitingOnHuman.add(event.requestId);
+      killTimer.pause();
+      handlers.onUserSecretRequired?.(event);
     }
   });
 
@@ -405,6 +438,10 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     },
     answerQuestion: async (requestId, response) => {
       await writeStdin({ type: "user_input_response", requestId, response });
+      humanAnswered(requestId);
+    },
+    answerSecret: async (requestId, answer) => {
+      await writeStdin(userSecretResponseLine(requestId, answer));
       humanAnswered(requestId);
     },
     cancel: () => {

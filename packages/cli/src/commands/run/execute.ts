@@ -587,15 +587,11 @@ export function runAgentOnceCommand(
       (error): error is RunParkRequested => isRunParkRequested(error) && error.runId !== undefined,
       (parked) =>
         Effect.sync(() => {
-          const request =
-            parked.pending.kind === "tool-approval" ? parked.pending.request : undefined;
           const formatted = formatOneShotParked(
             {
               runId: parked.runId ?? "",
               expiresAt: parked.expiresAt ?? "",
-              toolName: request?.toolName ?? "",
-              toolCallId: request?.toolCallId ?? "",
-              message: request?.message ?? "Waiting for input.",
+              pending: parked.pending,
             },
             outputOptions,
             parked.costUSD ?? 0,

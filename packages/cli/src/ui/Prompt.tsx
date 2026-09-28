@@ -456,6 +456,7 @@ function PromptComponent({
           <TextInput
             inputId={`password-${prompt.message}`}
             mask="*"
+            conceal={prompt.options?.["conceal"] === true}
             onSubmit={(value: string) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { JazzEnvelope, JazzEvent, JazzRun } from "./jazz-run";
+import type { JazzEnvelope, JazzEvent, JazzRun, SecretAnswer } from "./jazz-run";
 import {
   type ChatId,
   type MessageRef,
@@ -17,6 +17,7 @@ import {
   APPROVE_CHOICE_ID,
   commandKeyFromApproval,
   createTurnRunner,
+  DECLINE_SECRET_CHOICE_ID,
   type PendingSummary,
   type TurnConfig,
   type TurnRunner,
@@ -28,6 +29,7 @@ interface FakeRun {
   readonly run: JazzRun;
   readonly decisions: { toolCallId: string; approved: boolean }[];
   readonly answers: { requestId: string; response: string }[];
+  readonly secretAnswers: { requestId: string; answer: SecretAnswer }[];
   emit(event: JazzEvent): void;
   finish(envelope?: JazzEnvelope): void;
   cancelled(): boolean;
@@ -66,6 +68,7 @@ describe("turn runner", () => {
     let lastSpend: RunSpend | undefined;
     const decisions: { toolCallId: string; approved: boolean }[] = [];
     const answers: { requestId: string; response: string }[] = [];
+    const secretAnswers: { requestId: string; answer: SecretAnswer }[] = [];
     const result = new Promise<JazzEnvelope>((resolve) => {
       settle = resolve;
     });
@@ -73,6 +76,7 @@ describe("turn runner", () => {
       onEvent?: (e: JazzEvent) => void;
       onApprovalRequired?: (e: JazzEvent) => void;
       onUserInputRequired?: (e: JazzEvent) => void;
+      onUserSecretRequired?: (e: JazzEvent) => void;
     } = {};
 
     const fake: FakeRun = {
@@ -86,6 +90,9 @@ describe("turn runner", () => {
         answerQuestion: async (requestId, response) => {
           answers.push({ requestId, response });
         },
+        answerSecret: async (requestId, answer) => {
+          secretAnswers.push({ requestId, answer });
+        },
         cancel: () => {
           killed = true;
           settle({ ok: false, error: "cancelled" });
@@ -93,11 +100,13 @@ describe("turn runner", () => {
       },
       decisions,
       answers,
+      secretAnswers,
       emit: (event) => {
         lastSpend = runSpendFromEvent(event) ?? lastSpend;
         handlers.onEvent?.(event);
         if (event.type === "approval_required") handlers.onApprovalRequired?.(event);
         if (event.type === "user_input_required") handlers.onUserInputRequired?.(event);
+        if (event.type === "user_secret_required") handlers.onUserSecretRequired?.(event);
       },
       finish: (envelope = DONE) => settle(envelope),
       cancelled: () => killed,
@@ -705,6 +714,110 @@ describe("turn runner", () => {
     expect(runsStarted).toEqual(["hello", "other chat"]);
     running()?.finish();
     await other;
+  });
+
+  describe("a secret the agent asks for", () => {
+    const SECRET_VALUE = "correct-horse-battery";
+    const secretEvent: JazzEvent = {
+      type: "user_secret_required",
+      requestId: "secret-1",
+      prompt: "Password for invoice.pdf",
+      name: "pdf-password",
+    };
+
+    const startSecretTurn = async (privateChat: boolean) => {
+      const turn = runner.handle({ ...message("open invoice.pdf"), privateChat });
+      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
+        await Bun.sleep(1);
+      }
+      current?.emit(secretEvent);
+      await Bun.sleep(5);
+      return { turn };
+    };
+
+    test("in a private chat, the next message answers it, is deleted, and never becomes a turn", async () => {
+      const deleted: string[] = [];
+      runner = createTurnRunner({
+        ...baseConfig,
+        surface: {
+          ...surface,
+          deleteReceived: (_chatId, ref) => {
+            deleted.push(ref);
+            return Promise.resolve();
+          },
+        },
+      });
+      const { turn } = await startSecretTurn(true);
+      const prompt = sent.find((entry) => entry.text.includes("needs a secret"));
+      expect(prompt?.text).toContain("I delete it from this chat");
+      expect(pendingSeen.at(-1)).toEqual([{ id: "secret-1", kind: "secret" }]);
+
+      await runner.handle({ ...message(SECRET_VALUE), ref: "m42" });
+
+      expect(current?.secretAnswers).toEqual([
+        { requestId: "secret-1", answer: { kind: "provided", value: SECRET_VALUE } },
+      ]);
+      expect(deleted).toEqual(["m42"]);
+      current?.finish();
+      await turn;
+      expect(runsStarted).toEqual(["open invoice.pdf"]);
+      expect(sent.some((entry) => entry.text.includes(SECRET_VALUE))).toBe(false);
+    });
+
+    test("the answer is the sender's own words, without the quoted context around them", async () => {
+      const { turn } = await startSecretTurn(true);
+      await runner.handle({
+        ...message(`> Password for invoice.pdf\n\n${SECRET_VALUE}`),
+        ownText: SECRET_VALUE,
+      });
+      expect(current?.secretAnswers[0]?.answer).toEqual({ kind: "provided", value: SECRET_VALUE });
+      current?.finish();
+      await turn;
+    });
+
+    test("where a bot cannot delete it, the person is told the message stays", async () => {
+      const { turn } = await startSecretTurn(true);
+      expect(sent.some((entry) => entry.text.includes("stays in this chat's history"))).toBe(true);
+      current?.finish();
+      await turn;
+    });
+
+    test("Don't share declines it", async () => {
+      const { turn } = await startSecretTurn(true);
+      expect(await runner.deliverChoice(tap("secret-1", DECLINE_SECRET_CHOICE_ID))).toBe(
+        "answered",
+      );
+      expect(await runner.deliverChoice(tap("secret-1", "anything-else"))).toBe("expired");
+      expect(current?.secretAnswers).toEqual([
+        { requestId: "secret-1", answer: { kind: "declined" } },
+      ]);
+      current?.finish();
+      await turn;
+    });
+
+    test("in a shared chat, it is refused at once and the chat is pointed to a private one", async () => {
+      const { turn } = await startSecretTurn(false);
+      expect(current?.secretAnswers).toEqual([
+        { requestId: "secret-1", answer: { kind: "shared-chat" } },
+      ]);
+      expect(sent.some((entry) => entry.text.includes("Message me privately"))).toBe(true);
+      expect(runner.awaitsReplyFrom("c1", REQUESTER)).toBe(false);
+      current?.finish();
+      await turn;
+    });
+
+    test("a tapped follow-up keeps the chat's private kind", async () => {
+      await runner.handle({ ...message("/help"), privateChat: true });
+      const turn = runner.handle(message("open invoice.pdf"));
+      for (let attempt = 0; current === undefined && attempt < 200; attempt += 1) {
+        await Bun.sleep(1);
+      }
+      current?.emit(secretEvent);
+      await Bun.sleep(5);
+      expect(runner.awaitsReplyFrom("c1", REQUESTER)).toBe(true);
+      current?.finish();
+      await turn;
+    });
   });
 
   test("shutdown tells whoever is waiting, cancels, and refuses new messages", async () => {

@@ -184,6 +184,14 @@ uses the same Jazz agent surface behind a hosted iMessage transport.
 | **Isolation**        | Per-conversation uid sandboxing is a Linux mechanism the containerised bridges use. On a Mac or a linked device every chat shares one `JAZZ_HOME` and runs as your user.                                                         |
 | **Sanctioning**      | WhatsApp publishes no API for personal accounts; the bridge speaks the WhatsApp Web protocol via Baileys. Unusual behaviour can get a number limited or banned. Use a dedicated one if it matters.                               |
 
+**Secrets the agent asks for** (`ask_user_secret`, a PDF password, say) are collected only in a
+one-to-one chat with the bot: your next message is the value, it goes to the run over its private
+pipe and is never forwarded as a turn, and the agent sees only `[redacted:<name>]`. Telegram deletes
+your message once it is read; Discord, WhatsApp and iMessage bots cannot, so the prompt asks you to
+delete it. In a group, a server channel or a Photon space the secret is not collected, and the chat
+is told to take it to a private chat. See
+[Secrets the person types](../security/secrets-and-egress.md#secrets-the-person-types).
+
 ---
 
 ## Slack, Google Chat

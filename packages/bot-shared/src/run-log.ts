@@ -39,6 +39,7 @@ const RUN_EVENT_TYPES = new Set([
   "tools_detected",
   "usage_update",
   "user_input_required",
+  "user_secret_required",
 ]);
 
 /**

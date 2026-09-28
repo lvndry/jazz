@@ -77,6 +77,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * `false`. Only the peer door reads it — see {@link Tool.egress}.
    */
   readonly egress?: boolean;
+  /** See {@link Tool.userSecretArguments}. Defaults to none. */
+  readonly userSecretArguments?: readonly string[];
   /**
    * Optional validator. When omitted, arguments are checked with
    * {@link makeZodValidator} against `parameters`.
@@ -143,6 +145,9 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     disclosure: config.disclosure,
     egress: config.egress === true,
     ...(config.peerGrantRequired === true ? { peerGrantRequired: true } : {}),
+    ...(config.userSecretArguments !== undefined
+      ? { userSecretArguments: config.userSecretArguments }
+      : {}),
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),
@@ -217,6 +222,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * `false`, and applies to both halves of the pair. See {@link Tool.egress}.
    */
   readonly egress?: boolean;
+  /** See {@link Tool.userSecretArguments}. Applies to both halves of the pair. */
+  readonly userSecretArguments?: readonly string[];
   /** Optional custom validator */
   readonly validate?: ToolValidator<Args>;
   /**
@@ -302,6 +309,9 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     riskLevel,
     disclosure: config.disclosure,
     ...(config.egress === true ? { egress: true } : {}),
+    ...(config.userSecretArguments !== undefined
+      ? { userSecretArguments: config.userSecretArguments }
+      : {}),
     validate: validator,
     approvalExecuteToolName: executeToolName,
     handler: (args: Args, context: ToolExecutionContext) =>
@@ -344,6 +354,9 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     riskLevel,
     disclosure: config.disclosure,
     ...(config.egress === true ? { egress: true } : {}),
+    ...(config.userSecretArguments !== undefined
+      ? { userSecretArguments: config.userSecretArguments }
+      : {}),
     parameters: config.parameters,
     validate: validator,
     handler: config.handler,

@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeUserSecretStore, openUserSecretStore } from "@jazz/core/secrets/user-secrets";
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
   formatLogLineAsJson,
@@ -218,5 +219,29 @@ describe("LoggerService", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  describe("secrets a person typed for a run in progress", () => {
+    it("are replaced by their placeholder in every format while the run holds them", () => {
+      const typed = "p4ss-typed-by-person";
+      const store = openUserSecretStore();
+      store.hold("pdf-password", typed);
+      try {
+        const lines = [
+          formatLogLineAsJson("info", `ran with ${typed}`, { command: `unlock ${typed}` }, "s"),
+          formatLogLineAsPlain("info", `ran with ${typed}`, { nested: [{ value: typed }] }),
+        ];
+        for (const line of lines) {
+          expect(line).not.toContain(typed);
+          expect(line.split("[redacted:pdf-password]").length - 1).toBe(2);
+        }
+        expect(
+          formatToolCallLogLine("s", "execute_command", { command: `unlock ${typed}` }),
+        ).not.toContain(typed);
+      } finally {
+        closeUserSecretStore(store);
+      }
+      expect(formatLogLineAsPlain("info", `ran with ${typed}`)).toContain(typed);
+    });
   });
 });

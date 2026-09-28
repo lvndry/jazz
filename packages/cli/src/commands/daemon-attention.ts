@@ -29,11 +29,13 @@ function describeItem(item: WaitingItem): string {
       ? `jazz runs approve ${item.runId}  ·  jazz runs reject ${item.runId}`
       : item.runId !== undefined && item.kind === "question"
         ? `jazz runs answer ${item.runId} --response "<your answer>"`
-        : item.goalId !== undefined
-          ? `jazz goal show ${item.goalId.slice(0, 8)}`
-          : item.loopId !== undefined
-            ? `jazz loop show ${item.loopId.slice(0, 8)}`
-            : undefined;
+        : item.runId !== undefined && item.kind === "secret"
+          ? `jazz runs secret ${item.runId}`
+          : item.goalId !== undefined
+            ? `jazz goal show ${item.goalId.slice(0, 8)}`
+            : item.loopId !== undefined
+              ? `jazz loop show ${item.loopId.slice(0, 8)}`
+              : undefined;
   return [
     `  • ${item.title}`,
     `    ${item.detail.split("\n").join(" ")}`,

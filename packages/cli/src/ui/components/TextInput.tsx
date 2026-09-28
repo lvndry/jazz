@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTextInput } from "../hooks/use-input-service";
-import { maskSecret, maskSecretCaret } from "../mask-secret";
+import { displayedInput } from "../mask-secret";
 import { THEME } from "../theme";
 
 export interface TextInputProps {
@@ -11,6 +11,8 @@ export interface TextInputProps {
   placeholder?: string;
   /** When set, display a masked value (last 6 characters, or last 2 if shorter). */
   mask?: string;
+  /** When true, display one bullet per character and nothing of the value. */
+  conceal?: boolean;
   validate?: (input: string) => boolean | string;
   onSubmit: (value: string) => void;
   onCancel?: () => void;
@@ -28,6 +30,7 @@ export const TextInput = React.memo(function TextInput({
   defaultValue = "",
   placeholder = "",
   mask,
+  conceal = false,
   validate,
   onSubmit,
   onCancel,
@@ -112,8 +115,9 @@ export const TextInput = React.memo(function TextInput({
       );
     }
 
-    const displayValue = mask ? maskSecret(value) : value;
-    const displayCaret = mask ? maskSecretCaret(value, cursor) : cursor;
+    const displayed = displayedInput(value, cursor, conceal ? "conceal" : mask ? "tail" : "plain");
+    const displayValue = displayed.text;
+    const displayCaret = displayed.caret;
 
     const beforeCursor = displayValue.slice(0, displayCaret);
     const cursorChar = displayCaret < displayValue.length ? displayValue[displayCaret] : " ";

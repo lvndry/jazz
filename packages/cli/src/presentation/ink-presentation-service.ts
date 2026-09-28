@@ -21,12 +21,15 @@ import type {
   StreamingRenderer,
   StreamingRendererConfig,
   StreamTarget,
+  SecretInputOutcome,
+  SecretInputRequest,
   UserInputOutcome,
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
 import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { ink } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
+import { redactionPlaceholder } from "@jazz/core/secrets/secret-names";
 import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
@@ -1692,6 +1695,66 @@ export class InkPresentationService implements PresentationService {
         resume(Effect.succeed({ kind: "declined" })); // Dismissed the prompt.
         this.processNextUserInput();
       },
+    });
+  }
+
+  /**
+   * Ask for a secret in a concealed prompt: one bullet per character while typing, and only
+   * the placeholder it is held under in the transcript afterwards. Esc declines.
+   */
+  requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
+    return Effect.async((resume) => {
+      if (this.notificationService) {
+        Effect.runFork(
+          this.notificationService
+            .notify("Agent is asking for a secret", { title: "Jazz Input Required", sound: true })
+            .pipe(Effect.catchAll(() => Effect.void)),
+        );
+      }
+      const separator = chalk.dim(separatorLine(50));
+      store.printOutput({ type: "log", message: `\n${separator}`, timestamp: new Date() });
+      store.printOutput({
+        type: "log",
+        message: `${CHALK_THEME.primary("🔒")} ${chalk.bold(request.prompt)}`,
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "log",
+        message: chalk.dim("Typed hidden and kept only for this run. Esc to decline."),
+        timestamp: new Date(),
+      });
+      store.printOutput({ type: "log", message: separator, timestamp: new Date() });
+      store.setPrompt({
+        type: "password",
+        message: request.prompt,
+        options: { conceal: true },
+        resolve: (value: unknown) => {
+          const typed = typeof value === "string" ? value : "";
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message:
+              typed.length > 0
+                ? `${chalk.dim("Secret held as")} ${redactionPlaceholder(request.name)}`
+                : chalk.dim("No secret typed."),
+            timestamp: new Date(),
+          });
+          resume(
+            Effect.succeed(
+              typed.length > 0 ? { kind: "provided", value: typed } : { kind: "declined" },
+            ),
+          );
+        },
+        reject: () => {
+          store.setPrompt(null);
+          store.printOutput({
+            type: "log",
+            message: chalk.dim("Declined."),
+            timestamp: new Date(),
+          });
+          resume(Effect.succeed({ kind: "declined" }));
+        },
+      });
     });
   }
 

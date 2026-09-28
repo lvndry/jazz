@@ -7,12 +7,16 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  SecretInputOutcome,
+  SecretInputRequest,
   UserInputOutcome,
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
 import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { readConcealedLine } from "@jazz/core/presentation/concealed-line";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
+import { redactionPlaceholder } from "@jazz/core/secrets/secret-names";
 import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
@@ -399,6 +403,28 @@ export class CLIPresentationService implements PresentationService {
       return answer.length > 0
         ? ({ kind: "answered", response: answer } as const)
         : ({ kind: "declined" } as const);
+    });
+  }
+
+  /** Ask for a secret with one bullet drawn per character, when this terminal can prompt. */
+  requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
+    return Effect.gen(this, function* () {
+      if (!this.interactive) {
+        return { kind: "unavailable" } as const;
+      }
+      const separator = chalk.dim(separatorLine(50));
+      yield* this.writeOutput(`\n${separator}\n`);
+      yield* this.writeOutput(`${CHALK_THEME.primary("🔒")} ${chalk.bold(request.prompt)}\n`);
+      const value = yield* Effect.promise(() =>
+        readConcealedLine("Type it (hidden; Esc to decline): "),
+      );
+      if (value === undefined || value.length === 0) {
+        return { kind: "declined" } as const;
+      }
+      yield* this.writeOutput(
+        `${chalk.dim("Secret held as")} ${redactionPlaceholder(request.name)}\n`,
+      );
+      return { kind: "provided", value } as const;
     });
   }
 
