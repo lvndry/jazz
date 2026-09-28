@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { toError } from "@/core/utils/errors";
+import { formatByteSize } from "@/core/utils/string";
 import { defineTool, makeZodValidator } from "../base-tool";
 import {
   isPdfPasswordError,
@@ -121,9 +122,5 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 function formatFileSize(bytes: number | string | null): string {
   if (bytes === null || bytes === undefined) return "Unknown";
   const numBytes = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
-  if (isNaN(numBytes) || numBytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(numBytes) / Math.log(k));
-  return parseFloat((numBytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  return formatByteSize(numBytes);
 }

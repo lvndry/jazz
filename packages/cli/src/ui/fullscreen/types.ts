@@ -19,11 +19,13 @@
 
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
+import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import type { RetryBand } from "../models/retry";
 
 /**
  * Once the content column is at least this wide, leftover columns become a
@@ -112,6 +114,8 @@ export interface ToolReceiptBlock extends BlockBase {
   readonly status: "ok" | "failed" | "denied";
   /** Shown only on failure, with the remedy inline. */
   readonly reason?: string;
+  /** What the failed call did not do, when that is certain: `nothing was sent`. */
+  readonly notDone?: string;
   readonly remedyKey?: string;
   readonly durationMs?: number;
   readonly detail?: string;
@@ -141,6 +145,14 @@ export interface DividerBlock extends BlockBase {
   readonly label: string;
 }
 
+/** A turn the person stopped: how long it ran, what finished, and what did not. */
+export interface StoppedBlock extends BlockBase {
+  readonly kind: "stopped";
+  readonly elapsedMs: number;
+  readonly done: readonly string[];
+  readonly notDone: readonly string[];
+}
+
 /** A delegated subagent. Depth is a lane column, never indentation. */
 export interface LaneBlock extends BlockBase {
   readonly kind: "lane";
@@ -160,6 +172,7 @@ export type Block =
   | NoticeBlock
   | ReportBlock
   | DividerBlock
+  | StoppedBlock
   | LaneBlock;
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -237,6 +250,8 @@ export interface LiveModel {
    * a pure function of the model, so a frame is still reproducible from data.
    */
   readonly reservedRows: number;
+  /** A model call waiting to be tried again. Takes the band's top rows while it lasts. */
+  readonly retry?: RetryBand;
 }
 
 // ─── Sub-agents ──────────────────────────────────────────────────────────────
@@ -344,6 +359,22 @@ export interface ApprovalOverlay {
   readonly alwaysLabel: string;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
+  /** The consequence in two or three words for the title row: `can't be unsent`. */
+  readonly headline?: string;
+  /** The verbs on the two controls: `send` / `don't send`. */
+  readonly acceptLabel?: string;
+  readonly rejectLabel?: string;
+  /** The measured effect, shown as one more field: `removes  214 files, 1.3 GB`. */
+  readonly impact?: ApprovalField;
+  /** A shell command, shown as code in its own band rather than as a field value. */
+  readonly command?: ApprovalCommand;
+  /** A file change, shown as tinted rows with `+N −M` on the title row. */
+  readonly diff?: ApprovalDiff;
+  readonly diffLanguage?: string;
+  /** A caution that must be read before accepting; shown even when the headline replaces the tool's prose. */
+  readonly warning?: string;
+  /** The argument `e` rewrites before accepting (`command`), when the tool allows it. */
+  readonly editableArg?: string;
 }
 
 export interface SearchHit {

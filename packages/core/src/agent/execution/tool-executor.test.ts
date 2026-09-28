@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Cause, Deferred, Effect, Either, Exit, Fiber, Layer, Option } from "effect";
-import { ToolExecutor } from "./tool-executor";
+import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import type { FileSystemContextService } from "../../interfaces/fs";
@@ -1728,4 +1728,23 @@ describe("bound media during approval preflight", () => {
       }
     });
   }
+});
+
+describe("applyApprovalEdit", () => {
+  const args = { command: "rm -rf ./build", workingDirectory: "/work" };
+
+  it("replaces the editable argument with the approver's rewrite", () => {
+    expect(applyApprovalEdit(args, "command", { command: "rm -rf ./build/cache" })).toEqual({
+      command: "rm -rf ./build/cache",
+      workingDirectory: "/work",
+    });
+  });
+
+  it("ignores rewrites of any other argument", () => {
+    expect(applyApprovalEdit(args, "command", { workingDirectory: "/" })).toEqual(args);
+  });
+
+  it("ignores rewrites when the tool declared nothing editable", () => {
+    expect(applyApprovalEdit(args, undefined, { command: "echo hi" })).toEqual(args);
+  });
 });

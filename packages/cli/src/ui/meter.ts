@@ -3,9 +3,18 @@
  * two can never disagree about when a window counts as filling up.
  */
 
-/** A context window filling up is worth noticing before it is a problem. */
-export const CONTEXT_WARN_PERCENT = 80;
-export const CONTEXT_ERROR_PERCENT = 92;
+import {
+  CONTEXT_TRIM_THRESHOLD_RATIO,
+  CONTEXT_WARN_THRESHOLD_RATIO,
+} from "@jazz/core/agent/context/context-window-manager";
+
+/**
+ * The meter follows the agent's own context ladder: it warms where the agent starts
+ * warning (before it compacts), and turns red only where history would be trimmed
+ * without being summarised.
+ */
+export const CONTEXT_WARN_PERCENT = CONTEXT_WARN_THRESHOLD_RATIO * 100;
+export const CONTEXT_ERROR_PERCENT = CONTEXT_TRIM_THRESHOLD_RATIO * 100;
 
 /** Whole percent of `max` that `used` covers, clamped to 0–100. */
 export function contextPercent(used: number, max: number): number {
@@ -13,10 +22,17 @@ export function contextPercent(used: number, max: number): number {
   return Math.min(100, Math.max(0, Math.round((used / max) * 100)));
 }
 
-/** The lit run of a meter: the accent while calm, then warning, then error. */
+/**
+ * The lit run of a meter: the accent while calm, warning once usage is above the agent's
+ * warning line, and error from the trim budget on, where history starts being cut.
+ */
 export function meterTone(percent: number): "accent" | "warning" | "error" {
-  if (percent > CONTEXT_ERROR_PERCENT) return "error";
-  if (percent > CONTEXT_WARN_PERCENT) return "warning";
+  if (percent >= CONTEXT_ERROR_PERCENT) {
+    return "error";
+  }
+  if (percent > CONTEXT_WARN_PERCENT) {
+    return "warning";
+  }
   return "accent";
 }
 

@@ -148,6 +148,7 @@ export function executeWithStreaming(
             agent.name,
             showAgentStatus,
             retryAttemptRef,
+            presentationService.presentRetry,
           );
 
           const streamingAttempt = Effect.gen(function* () {

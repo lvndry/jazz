@@ -85,6 +85,26 @@ type ParsedToolArguments =
  * JSON, and JSON that is not an object are all refused with the reason, so the model is told
  * its call was malformed instead of the tool running on defaults.
  */
+/**
+ * The call's arguments after a person's rewrite on the approval card. Only the argument
+ * the tool declared editable is taken, and only as a string replacing a string, so an
+ * approver can change what a command says but never add or retarget other arguments.
+ */
+export function applyApprovalEdit(
+  args: Record<string, unknown>,
+  editableArg: string | undefined,
+  editedArgs: Readonly<Record<string, string>> | undefined,
+): Record<string, unknown> {
+  if (editableArg === undefined || editedArgs === undefined) {
+    return args;
+  }
+  const edited = editedArgs[editableArg];
+  if (typeof edited !== "string" || typeof args[editableArg] !== "string") {
+    return args;
+  }
+  return { ...args, [editableArg]: edited };
+}
+
 export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
   if (toolCall.invalidReason !== undefined) {
     return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
@@ -355,6 +375,8 @@ export class ToolExecutor {
           message,
           executeToolName: name,
           executeArgs: args,
+          riskLevel: toolMeta.riskLevel,
+          warning: message,
           isAutoApproved: () => !plainToolNeedsTaintApproval(name, args, toolMeta.egress, context),
         }));
 
@@ -671,10 +693,14 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
-          const approvalMessage =
+          const taintWarning =
             !isAutoApproved && context.egressTaint !== undefined && taintGated()
-              ? `${approvalResult.message}\n\n${taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)}`
-              : approvalResult.message;
+              ? taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)
+              : undefined;
+          const approvalMessage =
+            taintWarning === undefined
+              ? approvalResult.message
+              : `${approvalResult.message}\n\n${taintWarning}`;
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
@@ -682,7 +708,11 @@ export class ToolExecutor {
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+            ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
+            ...(approvalResult.editableArg ? { editableArg: approvalResult.editableArg } : {}),
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
+            riskLevel,
+            ...(taintWarning === undefined ? {} : { warning: taintWarning }),
             isAutoApproved: checkAutoApproved,
           };
 
@@ -745,10 +775,15 @@ export class ToolExecutor {
             // Execute the execution tool. A picker-style outcome carries the row the
             // human chose; it rides to the execution tool under a reserved key the
             // model never writes and cannot spoof.
-            const executeArgs =
+            const selectedArgs =
               "selectedOptionId" in outcome && typeof outcome.selectedOptionId === "string"
                 ? { ...approvalResult.executeArgs, _selectedOptionId: outcome.selectedOptionId }
                 : approvalResult.executeArgs;
+            const executeArgs = applyApprovalEdit(
+              selectedArgs,
+              approvalResult.editableArg,
+              "editedArgs" in outcome ? outcome.editedArgs : undefined,
+            );
             const executeStartTime = Date.now();
 
             // Emit execution start for the follow-up tool

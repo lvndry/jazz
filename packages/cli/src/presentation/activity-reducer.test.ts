@@ -313,6 +313,31 @@ describe("activity-reducer", () => {
       expect(receipt?.reason).toBeUndefined();
     });
 
+    test("a failed call's receipt and its Ink line both say what did not happen and the fix", () => {
+      const a = acc();
+      const capture = createCapturingInk();
+      a.activeTools.set("tc-slack", { toolName: "mcp_slack_post_message", startedAt: Date.now() });
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-slack",
+          result: "",
+          durationMs: 0,
+          success: false,
+          error: "401 token expired",
+        },
+        capture.render,
+      );
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as
+        { notDone?: string; remedyKey?: string } | undefined;
+      expect(receipt?.notDone).toBe("nothing was sent");
+      expect(receipt?.remedyKey).toBe("/mcp reconnect slack");
+      expect(capture.nodes.map((node) => extractText(node)).join("\n")).toContain(
+        "nothing was sent · /mcp reconnect slack to fix",
+      );
+    });
+
     test("tool_execution_complete receipt carries the classifier verdict", () => {
       const a = acc();
       a.activeTools.set("tc-1", {

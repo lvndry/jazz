@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Ref } from "effect";
+import type { LlmRetryNotice } from "@/core/interfaces/presentation";
 import { LLMRequestError } from "@/core/types/errors";
 import { makeUserVisibleLlmRetrySchedule } from "./llm-retry-present";
 
@@ -70,5 +71,55 @@ describe("makeUserVisibleLlmRetrySchedule", () => {
 
     expect(notices[0]).toContain("network issue (Unsupported provider)");
     expect(notices[0]).not.toContain("selectModel");
+  }, 20_000);
+
+  it("names the real wait in the prose notice", async () => {
+    const transient = new LLMRequestError({ provider: "ollama", message: "fetch failed" });
+    const notices = await Effect.runPromise(collectNotices(1, transient));
+    expect(notices[0]).toMatch(/Trying again in \d+s \(attempt 1 of up to 1\)/);
+  }, 20_000);
+
+  it("hands a structured notice, with the scheduled delay, to a surface that shows retries", async () => {
+    const transient = new LLMRequestError({
+      provider: "openai",
+      message: "Service Unavailable",
+      statusCode: 503,
+    });
+    const program = Effect.gen(function* () {
+      const structured: LlmRetryNotice[] = [];
+      const prose: string[] = [];
+      const attemptRef = yield* Ref.make(0);
+      const schedule = makeUserVisibleLlmRetrySchedule(
+        1,
+        "agent",
+        (message) => {
+          prose.push(message);
+          return Effect.void;
+        },
+        attemptRef,
+        (notice) => {
+          structured.push(notice);
+          return Effect.void;
+        },
+      );
+      yield* Effect.fail(transient).pipe(
+        Effect.retry(schedule),
+        Effect.catchAll(() => Effect.void),
+      );
+      return { structured, prose };
+    });
+    const { structured, prose } = await Effect.runPromise(program);
+
+    expect(prose).toEqual([]);
+    expect(structured).toHaveLength(1);
+    expect(structured[0]).toMatchObject({
+      agentName: "agent",
+      provider: "openai",
+      statusCode: 503,
+      reason: "server error (503)",
+      attempt: 1,
+      maxAttempts: 1,
+    });
+    expect(structured[0]?.retryInMs).toBeGreaterThan(0);
   }, 20_000);
 });

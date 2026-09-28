@@ -537,8 +537,8 @@ function PromptComponent({
         {prompt.type === "questionnaire" && (
           <Questionnaire
             suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
-            allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
             allowMultiple={(prompt.options?.["allowMultiple"] as boolean) === true}
+            position={prompt.options?.["position"] as { index: number; total: number } | undefined}
             onSubmit={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />

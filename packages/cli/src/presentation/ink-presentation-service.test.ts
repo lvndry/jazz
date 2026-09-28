@@ -3,6 +3,7 @@ import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { renderToString } from "ink";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
@@ -1653,6 +1654,78 @@ describe("InkPresentationService approval rejection", () => {
     );
   }
 
+  function requestCommandApproval() {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    return Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-2",
+        toolName: "execute_command",
+        message: "Command: rm -rf ./build",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "rm -rf ./build" },
+        editableArg: "command",
+      }),
+    );
+  }
+
+  test("the Ink card states the same facts and verbs as the fullscreen card", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const pending = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-rm",
+        toolName: "rm",
+        message: "About to delete: /tmp/old-exports",
+        executeToolName: "execute_rm",
+        executeArgs: { path: "/tmp/old-exports", recursive: true },
+        impact: "214 files, 1.3 GB",
+      }),
+    );
+    const prompt = await waitForPromptType("select");
+    const card = printed.find(
+      (entry) => typeof entry.message === "object" && entry.message !== null,
+    );
+    const text = renderToString((card?.message as unknown as { node: React.ReactElement }).node, {
+      columns: 100,
+    });
+    expect(text).toContain("Delete");
+    expect(text).toContain("can't be undone");
+    expect(text).toContain("removes");
+    expect(text).toContain("214 files, 1.3 GB");
+    const labels = (prompt.options?.choices ?? []).map((choice) => choice.label);
+    expect(labels[0]).toBe("Yes, delete");
+    expect(labels.at(-1)).toBe("No, don't delete");
+    prompt.resolve("no");
+    (await waitForPromptType("text")).resolve("");
+    await pending;
+  });
+
+  test("runs the approver's rewrite of an editable argument, prefilled with the original", async () => {
+    const pending = requestCommandApproval();
+    const approvalPrompt = await waitForPromptType("select");
+    approvalPrompt.resolve("edit");
+
+    const editor = await waitForPromptType("text");
+    expect(editor.options?.["defaultValue"]).toBe("rm -rf ./build");
+    editor.resolve("rm -rf ./build/cache");
+
+    expect(await pending).toEqual({
+      approved: true,
+      editedArgs: { command: "rm -rf ./build/cache" },
+    });
+  });
+
+  test("goes back to the same approval when the rewrite is abandoned", async () => {
+    const pending = requestCommandApproval();
+    (await waitForPromptType("select")).resolve("edit");
+    const editor = await waitForPromptType("text");
+    editor.reject?.();
+
+    const again = await waitForPromptType("select");
+    expect(store.getApprovalRequestSnapshot()?.args["command"]).toBe("rm -rf ./build");
+    again.resolve("yes");
+    expect(await pending).toEqual({ approved: true });
+  });
+
   test("echoes what the user would rather do as a user turn", async () => {
     const pending = requestEditApproval();
     const approvalPrompt = await waitForPromptType("select");
@@ -1754,5 +1827,106 @@ describe("InkPresentationService sub-agent collapse line", () => {
     expect(summary).toBeDefined();
     expect(entryText(summary!)).not.toContain("tok");
     expect(entryText(summary!)).not.toContain("$");
+  });
+});
+
+describe("model retries", () => {
+  afterEach(() => {
+    store.setRetryNotice(null);
+  });
+
+  test("a scheduled retry is state with a real deadline, and the model's next words clear it", () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const before = Date.now();
+    Effect.runSync(
+      service.presentRetry({
+        agentName: "sol",
+        provider: "openai",
+        reason: "rate limit",
+        detail: "Too Many Requests",
+        statusCode: 429,
+        attempt: 1,
+        maxAttempts: 5,
+        retryInMs: 8_000,
+      }),
+    );
+    const notice = store.getSessionSnapshot().retryNotice;
+    expect(notice?.attempt).toBe(1);
+    expect(notice?.retryAt).toBeGreaterThanOrEqual(before + 8_000);
+
+    const renderer = new InkStreamingRenderer(
+      "sol",
+      false,
+      { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+      { textBufferMs: 0 },
+      0,
+    );
+    // A new attempt opening is not an answer: it may fail and be retried again.
+    Effect.runSync(
+      renderer.handleEvent({ type: "stream_start", provider: "openai", model: "m", timestamp: 0 }),
+    );
+    expect(store.getSessionSnapshot().retryNotice).not.toBeNull();
+
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    expect(store.getSessionSnapshot().retryNotice).toBeNull();
+  });
+});
+
+describe("the run's interrupt handler", () => {
+  const displayConfig = {
+    showReasoning: true,
+    showToolExecution: true,
+    mode: "rendered" as const,
+    colorProfile: "full" as const,
+  };
+
+  afterEach(() => {
+    store.setInterruptHandler(null);
+  });
+
+  test("survives a reset and a flush, so a run that retried can still be stopped", () => {
+    const renderer = new InkStreamingRenderer("sol", false, displayConfig, { textBufferMs: 0 }, 0);
+    const handler = (): void => undefined;
+    Effect.runSync(renderer.setInterruptHandler(handler));
+    Effect.runSync(renderer.reset());
+    Effect.runSync(renderer.flush());
+    expect(store.getSessionSnapshot().interruptHandler).toBe(handler);
+  });
+
+  test("is never replaced or cleared by a sub-agent's renderer", () => {
+    const parent = (): void => undefined;
+    store.setInterruptHandler(parent);
+    const child = new InkStreamingRenderer("scout", false, displayConfig, { textBufferMs: 0 }, 0, {
+      kind: "ephemeral",
+      regionId: "eph-child",
+    });
+    Effect.runSync(child.setInterruptHandler(() => undefined));
+    Effect.runSync(child.setInterruptHandler(null));
+    expect(store.getSessionSnapshot().interruptHandler).toBe(parent);
+  });
+});
+
+describe("stopping a turn in the Ink interface", () => {
+  test("prints the same done / not done summary the fullscreen block shows", () => {
+    store.setChatBusy(true);
+    store.printOutput({ type: "user", message: "Get Saturday sorted", timestamp: new Date() });
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: {
+        toolReceipt: { app: "mcp_calendar_create_event", summary: "hold placed", status: "ok" },
+      },
+    });
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    Effect.runSync(service.presentInterrupted("sol"));
+    store.flushOutputBatchNow();
+    const last = store.getOutputSnapshot().entries.at(-1);
+    store.setChatBusy(false);
+
+    expect(last?.meta?.["interruptNotice"]).toBe(true);
+    const text = String(last?.message);
+    expect(text).toMatch(/^stopped by you after \d+\.\ds/);
+    expect(text).toContain("done      mcp_calendar_create_event  hold placed");
   });
 });

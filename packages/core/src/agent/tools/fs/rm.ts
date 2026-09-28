@@ -13,6 +13,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { describeFootprint, measureFootprint } from "./footprint";
 
 /**
  * Remove files or directories tool
@@ -51,7 +52,11 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
         yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
         const recurse = args.recursive === true ? " recursively" : "";
-        return `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
+        const footprint = yield* measureFootprint(target);
+        const message = `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
+        return footprint === undefined
+          ? message
+          : { message, impact: describeFootprint(footprint) };
       }),
 
     handler: (args: RmArgs, context: ToolExecutionContext) =>

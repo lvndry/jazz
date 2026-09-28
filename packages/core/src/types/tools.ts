@@ -239,6 +239,17 @@ export interface ApprovalRequiredResult {
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /**
+   * What approving concretely does, with real numbers, in one short line:
+   * `214 files, 1.3 GB` or `overwrites 173 lines`. Surfaces show it beside the
+   * fields; it never repeats a path or a command the fields already carry.
+   */
+  readonly impact?: string;
+  /**
+   * The one string argument a person may rewrite before approving, such as a shell
+   * command. The rewritten value runs through the execution tool's own checks.
+   */
+  readonly editableArg?: string;
+  /**
    * When present, the human picks one option instead of approving yes/no.
    * The selected option's id reaches the execution tool via the executor,
    * merged into its args under `_selectedOptionId`.
@@ -263,6 +274,19 @@ export interface ApprovalRequest {
   readonly executeArgs: Record<string, unknown>;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
+  /** What approving concretely does, with real numbers. See {@link ApprovalRequiredResult.impact}. */
+  readonly impact?: string;
+  /** The argument a person may rewrite before approving. See {@link ApprovalRequiredResult.editableArg}. */
+  readonly editableArg?: string;
+  /** The risk class of the call being approved, when the tool declares one. */
+  readonly riskLevel?: ToolRiskLevel;
+  /**
+   * A caution the executor adds on top of the tool's own message, such as the run having
+   * read untrusted content before this outbound call. `message` already contains it; a
+   * surface that replaces the tool's prose with its own summary shows this instead, so the
+   * caution is never lost with the prose.
+   */
+  readonly warning?: string;
   /**
    * When present, the surface renders a picker (one row per option) instead of an
    * approve/deny card. The chosen row's id returns as `selectedOptionId`.
@@ -292,6 +316,11 @@ export type ApprovalOutcome =
        * `_selectedOptionId`; absent when the request had no options.
        */
       readonly selectedOptionId?: string;
+      /**
+       * A person's rewrite of the request's `editableArg`, applied before the call runs.
+       * Keyed by argument name; any key other than `editableArg` is ignored.
+       */
+      readonly editedArgs?: Readonly<Record<string, string>>;
     }
   | { readonly approved: false; readonly userMessage?: string };
 

@@ -17,7 +17,6 @@ import { search, type SearchHit } from "@jazz/adapters/history/conversation-sear
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { isTerminalReport } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,9 +30,19 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
+import { hostForModel } from "../local-model-hosts";
+import {
+  interruptSummary,
+  type InterruptSnapshot,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "../models/interrupt";
+import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
+import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
 import { wrapIndex } from "../picker-window";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
+import { filterSkills, skillDetailRows } from "../skill-browser";
 import {
   store,
   useEphemeralSlice,
@@ -82,8 +91,8 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { hostForModel } from "../local-model-hosts";
-import { filterSkills, skillDetailRows } from "../skill-browser";
+import { approvalFacts, diffLanguage } from "../models/approval";
+import { approvalTitle } from "../models/approval";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
 import type { QuestionStep } from "./overlays/stepper";
@@ -298,11 +307,38 @@ function choicesForQuestion(
   return promptChoices(prompt);
 }
 
-function allowsCustomAnswer(prompt: PromptState, suggestions: readonly Suggestion[]): boolean {
-  return (
-    prompt.type === "questionnaire" &&
-    (prompt.options?.["allowCustom"] !== false || suggestions.length === 0)
+/**
+ * Whether a question offers a row for an answer in the person's own words. Every
+ * question the agent asks does: its suggestions are the agent's framing, and a person
+ * must always be able to step outside it.
+ */
+function allowsCustomAnswer(prompt: PromptState): boolean {
+  return prompt.type === "questionnaire";
+}
+
+/**
+ * The two answers of a yes/no question. A confirm prompt always is one; an agent's
+ * question is one when the shared model says its choices are a Yes and a No.
+ */
+export function binaryAnswers(
+  prompt: PromptState,
+  choices: readonly { readonly label: string }[],
+): { readonly yes: number; readonly no: number } | undefined {
+  if (prompt.type === "confirm") return { yes: 0, no: 1 };
+  if (prompt.type !== "questionnaire") return undefined;
+  return binaryAnswerIndices(
+    choices.map((choice) => choice.label),
+    allowsMultipleAnswers(prompt),
   );
+}
+
+function questionPosition(
+  prompt: PromptState,
+): { readonly index: number; readonly total: number } | undefined {
+  const position = prompt.options?.["position"];
+  if (position === null || typeof position !== "object") return undefined;
+  const { index, total } = position as Record<string, unknown>;
+  return typeof index === "number" && typeof total === "number" ? { index, total } : undefined;
 }
 
 function allowsMultipleAnswers(prompt: PromptState): boolean {
@@ -525,6 +561,7 @@ function overlayFromPrompt(
           { label: "No", value: "choice-1" },
         ],
         selected: question.selected,
+        buttons: true,
       };
     case "select":
     case "search":
@@ -567,13 +604,18 @@ function overlayFromPrompt(
     case "questionnaire": {
       const suggestions = promptSuggestions(prompt);
       const allowMultiple = allowsMultipleAnswers(prompt);
-      const allowCustom = allowsCustomAnswer(prompt, suggestions);
+      const allowCustom = allowsCustomAnswer(prompt);
+      const choices = choicesForQuestion(prompt, suggestions);
+      const position = questionPosition(prompt);
       return {
         kind: "question",
         mode: allowMultiple ? "checkbox" : "select",
         message: prompt.message,
-        choices: choiceModel(choicesForQuestion(prompt, suggestions)),
+        choices: choiceModel(choices),
         selected: question.selected,
+        skippable: true,
+        ...(binaryAnswers(prompt, choices) === undefined ? {} : { buttons: true }),
+        ...(position === undefined ? {} : { position }),
         ...(allowMultiple
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
@@ -636,6 +678,8 @@ interface ToolReceiptMeta {
   readonly args?: string;
   readonly durationMs?: number;
   readonly reason?: string;
+  readonly notDone?: string;
+  readonly remedyKey?: string;
   readonly detail?: string;
   readonly classifiedRisk?: string;
 }
@@ -654,10 +698,44 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
     ...(typeof record["args"] === "string" ? { args: record["args"] } : {}),
     ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
     ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
+    ...(typeof record["notDone"] === "string" ? { notDone: record["notDone"] } : {}),
+    ...(typeof record["remedyKey"] === "string" ? { remedyKey: record["remedyKey"] } : {}),
     ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
     ...(typeof record["classifiedRisk"] === "string"
       ? { classifiedRisk: record["classifiedRisk"] }
       : {}),
+  };
+}
+
+/** The settled tool calls after the last user message: the turn a stop summarises. */
+function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
+  let start = blocks.length;
+  while (start > 0 && blocks[start - 1]?.kind !== "user") start -= 1;
+  return blocks.slice(start).flatMap((block) =>
+    block.kind === "tool"
+      ? [
+          {
+            app: block.app,
+            summary: block.summary,
+            status: block.status,
+            ...(block.args === undefined ? {} : { args: block.args }),
+          },
+        ]
+      : [],
+  );
+}
+
+function stoppedOf(entry: OutputEntry): InterruptSummary | null {
+  const candidate = entry.meta?.["stoppedSummary"];
+  if (candidate === null || typeof candidate !== "object") return null;
+  const record = candidate as Record<string, unknown>;
+  const strings = (value: unknown): readonly string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  if (typeof record["elapsedMs"] !== "number") return null;
+  return {
+    elapsedMs: record["elapsedMs"],
+    done: strings(record["done"]),
+    notDone: strings(record["notDone"]),
   };
 }
 
@@ -741,6 +819,12 @@ export function blocksFrom(
     // other renderer. Behind the empty-text guard below, every settled tool
     // call was therefore skipped in silence, and the transcript showed nothing
     // at all between the question and the answer.
+    const stopped = stoppedOf(entry);
+    if (stopped !== null) {
+      blocks.push({ id, seq: seq++, kind: "stopped", ...stopped });
+      continue;
+    }
+
     const receipt = receiptOf(entry);
     if (receipt !== null) {
       blocks.push({
@@ -752,6 +836,8 @@ export function blocksFrom(
         status: receipt.status,
         ...(receipt.args === undefined ? {} : { args: receipt.args }),
         ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
+        ...(receipt.notDone === undefined ? {} : { notDone: receipt.notDone }),
+        ...(receipt.remedyKey === undefined ? {} : { remedyKey: receipt.remedyKey }),
         ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
         ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
         ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
@@ -763,6 +849,10 @@ export function blocksFrom(
       entry.meta?.["toolStart"] === true ||
       entry.meta?.["agentHeader"] === true ||
       entry.meta?.["approvalEcho"] === true ||
+      // The live zone draws a scheduled retry as a band with a countdown; this line is
+      // the same notice for the classic interface.
+      entry.meta?.["retryNotice"] === true ||
+      entry.meta?.["interruptNotice"] === true ||
       // Reasoning that returned no text collapses to a bare duration line; there
       // is no thought to show, and the turn receipt already carries the time.
       entry.meta?.["collapsedRegion"] === "reasoning"
@@ -943,6 +1033,7 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.status === current.status &&
         previous.reason === current.reason &&
         previous.remedyKey === current.remedyKey &&
+        previous.notDone === current.notDone &&
         previous.durationMs === current.durationMs &&
         previous.detail === current.detail &&
         previous.expanded === current.expanded &&
@@ -958,6 +1049,13 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
       return current.kind === "report" && previous.report === current.report;
     case "divider":
       return current.kind === "divider" && previous.label === current.label;
+    case "stopped":
+      return (
+        current.kind === "stopped" &&
+        previous.elapsedMs === current.elapsedMs &&
+        previous.done.join("\n") === current.done.join("\n") &&
+        previous.notDone.join("\n") === current.notDone.join("\n")
+      );
     case "lane":
       return (
         current.kind === "lane" &&
@@ -1066,39 +1164,35 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
  * single most important string on the screen, so it is looked for explicitly
  * rather than left to land somewhere in a list.
  */
-const ACCOUNT_KEYS = ["account", "calendar", "calendarId", "from", "sender", "mailbox", "channel"];
-
 function approvalFrom(
   pending: PendingApproval,
   armed: boolean,
   fieldOffset: number,
   expanded: boolean,
 ): ApprovalOverlay {
-  const entries = Object.entries(pending.args).filter(
-    ([, value]) => value !== undefined && value !== null && value !== "",
-  );
-  const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
-  const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
-  const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
-  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
-  const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
-
+  const facts = approvalFacts(pending);
+  const { intent } = facts;
   return {
     kind: "approval",
-    app,
-    action: pending.executeToolName.replace(/[_.]/g, " "),
-    account: accountEntry === undefined ? "this machine" : String(accountEntry[1]),
-    fields: entries
-      .filter(([key]) => key !== accountEntry?.[0])
-      .map(([label, value]) => ({
-        label,
-        value: typeof value === "string" ? value : JSON.stringify(value),
-      })),
+    app: facts.app,
+    action: facts.title,
+    account: facts.account,
+    fields: facts.fields,
     consequence: pending.message,
     fieldOffset,
     expanded,
-    alwaysLabel,
+    alwaysLabel: facts.alwaysLabel,
     armed,
+    ...(intent.headline === undefined ? {} : { headline: intent.headline }),
+    acceptLabel: intent.accept,
+    rejectLabel: intent.reject,
+    ...(intent.impact === undefined ? {} : { impact: intent.impact }),
+    ...(intent.command === undefined ? {} : { command: intent.command }),
+    ...(intent.diff === undefined
+      ? {}
+      : { diff: intent.diff, diffLanguage: diffLanguage(pending.args) }),
+    ...(facts.warning === undefined ? {} : { warning: facts.warning }),
+    ...(facts.editableArg === undefined ? {} : { editableArg: facts.editableArg }),
   };
 }
 
@@ -1248,6 +1342,20 @@ export function FullscreenBridge(): React.ReactNode {
 
   const interrupt = useRef(session.interruptHandler);
   interrupt.current = session.interruptHandler;
+  // What the turn looks like right now, kept current every render so a stop can be
+  // summarised from the moment the key was pressed rather than after the run unwinds.
+  const stopContextRef = useRef<Omit<InterruptSnapshot, "elapsedMs"> | null>(null);
+  const announceStop = useCallback((): void => {
+    const context = stopContextRef.current;
+    const startedAt = runStartedAt.current;
+    if (context === null || startedAt === null) return;
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: { stoppedSummary: interruptSummary({ ...context, elapsedMs: Date.now() - startedAt }) },
+    });
+  }, []);
   const background = useRef(session.backgroundHandler);
   background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
@@ -1383,9 +1491,11 @@ export function FullscreenBridge(): React.ReactNode {
   }
   const todoList = freshTodoList ?? lastTodoListRef.current;
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
+  const retryNotice = runActive ? session.retryNotice : null;
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
     tools.length +
+      (retryNotice === null ? 0 : RETRY_BAND_ROWS) +
       (waitingNow ? 1 : 0) +
       (step === undefined ? 0 : 1) +
       (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
@@ -1611,10 +1721,7 @@ export function FullscreenBridge(): React.ReactNode {
           sourceChoices.map((_choice, index) => index),
         );
         const questionState = promptControlsRef.current.question;
-        if (
-          allowsCustomAnswer(active, suggestions) &&
-          questionState.selected === visibleChoices.length
-        ) {
+        if (allowsCustomAnswer(active) && questionState.selected === visibleChoices.length) {
           updatePromptQuestion((state) => ({
             ...state,
             custom: insertTextAt(state.custom.value, state.custom.caret, flattenPaste(pasted)),
@@ -1659,6 +1766,7 @@ export function FullscreenBridge(): React.ReactNode {
       if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
         if (interrupt.current !== null && quitArmed.current === false) {
           quitArmed.current = true;
+          announceStop();
           interrupt.current();
           return true;
         }
@@ -1926,6 +2034,19 @@ export function FullscreenBridge(): React.ReactNode {
           active.resolve("yes");
           return true;
         }
+        // `e` rewrites the tool's editable argument first. Like accept, it waits for the
+        // card to arm, so a keystroke typed before the card appeared cannot open it.
+        if (
+          name === "e" &&
+          !ctrl &&
+          !superKey &&
+          !meta &&
+          !option &&
+          approvalRef.current.editableArg !== undefined
+        ) {
+          active.resolve("edit");
+          return true;
+        }
         // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in
         // the composer, and the standing allowlist this writes outlives the
         // turn — a caret keystroke must never be able to grant it.
@@ -2148,9 +2269,56 @@ export function FullscreenBridge(): React.ReactNode {
           ? matchingChoiceIndices(sourceChoices, questionState.filter)
           : sourceChoices.map((_choice, index) => index);
         const visibleChoices = choicesAtIndices(sourceChoices, filteredIndices);
-        const allowCustom = allowsCustomAnswer(active, suggestions);
+        const allowCustom = allowsCustomAnswer(active);
         const allowMultiple = allowsMultipleAnswers(active);
         const typedAnswer = typedAnswerFor(active, questionState.filter);
+
+        const binary = binaryAnswers(active, sourceChoices);
+        const typingCustom = allowCustom && questionState.selected === visibleChoices.length;
+        const plainKey = !ctrl && !meta && !option && !superKey;
+
+        if (binary !== undefined && !typingCustom && plainKey && (name === "y" || name === "n")) {
+          const answer = sourceChoices[name === "y" ? binary.yes : binary.no];
+          if (answer !== undefined) active.resolve(answer.value);
+          return true;
+        }
+        if (binary !== undefined && !typingCustom && (name === "left" || name === "right")) {
+          updatePromptQuestion((state) => ({
+            ...state,
+            selected: name === "left" ? 0 : 1,
+          }));
+          return true;
+        }
+
+        // Number keys pick a row at once. They stay text while a filter or the
+        // free-text row is taking input, where a digit is part of the answer.
+        const quickPick = /^[1-9]$/.test(sequence) ? Number(sequence) - 1 : undefined;
+        if (
+          quickPick !== undefined &&
+          plainKey &&
+          binary === undefined &&
+          !typingCustom &&
+          !promptIsFilterable(active) &&
+          quickPick < Math.min(visibleChoices.length, MAX_QUICK_PICK)
+        ) {
+          const originalIndex = filteredIndices[quickPick];
+          const picked = visibleChoices[quickPick];
+          if (originalIndex === undefined || picked === undefined || picked.disabled === true) {
+            return true;
+          }
+          if (allowMultiple) {
+            updatePromptQuestion((state) => ({
+              ...state,
+              selected: quickPick,
+              checked: state.checked.includes(originalIndex)
+                ? state.checked.filter((index) => index !== originalIndex)
+                : [...state.checked, originalIndex],
+            }));
+            return true;
+          }
+          active.resolve(sourceChoices[originalIndex]?.value);
+          return true;
+        }
 
         if (name === "up" || name === "down") {
           updatePromptQuestion((state) => ({
@@ -2596,11 +2764,7 @@ export function FullscreenBridge(): React.ReactNode {
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") {
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
       }
@@ -2613,11 +2777,7 @@ export function FullscreenBridge(): React.ReactNode {
           commitComposer(EMPTY_COMPOSER);
         }
         store.requestFlushQueue();
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
         return;
@@ -2641,6 +2801,13 @@ export function FullscreenBridge(): React.ReactNode {
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
   }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
+
+  stopContextRef.current = {
+    receipts: currentTurnReceipts(blocks),
+    runningTools: tools,
+    ...(approval === null ? {} : { pendingApproval: approvalTitle(approval.executeToolName) }),
+    todos: todoList,
+  };
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;
@@ -2811,8 +2978,20 @@ export function FullscreenBridge(): React.ReactNode {
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
+      // Recomputed on the once-a-second clock below, which is what moves the countdown.
+      ...(retryNotice === null ? {} : { retry: retryBand(retryNotice, Date.now()) }),
     };
-  }, [tools, step, todoList, waitingNow, activity.phase, elapsedMs, reservedRows, regions]);
+  }, [
+    tools,
+    step,
+    todoList,
+    waitingNow,
+    activity.phase,
+    elapsedMs,
+    reservedRows,
+    regions,
+    retryNotice,
+  ]);
 
   const view = useMemo<ViewModel>(
     () => ({

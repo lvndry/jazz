@@ -28,6 +28,7 @@ import {
 import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
+import { declinedOutcome, failureOutcome } from "../ui/models/failure";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
@@ -444,6 +445,10 @@ export function reduceEvent(
           : receiptOutcome(event.result);
       const argsPreview = toolEntry?.argsPreview?.trim();
       const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
+      const failure =
+        failureReason !== undefined && !denied && toolName !== undefined
+          ? failureOutcome(toolName, failureReason)
+          : undefined;
       const receipt = {
         app: toolName ?? "tool",
         summary: failed ? "" : (outcome ?? ""),
@@ -451,10 +456,24 @@ export function reduceEvent(
         durationMs: event.durationMs,
         ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
         ...(failureReason !== undefined && !denied ? { reason: failureReason } : {}),
+        ...(failure?.notDone === undefined ? {} : { notDone: failure.notDone }),
+        ...(denied && toolName !== undefined ? { notDone: declinedOutcome(toolName) } : {}),
+        ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
         ...(!failed && plainBody.length > 0 && plainBody !== outcome ? { detail: summary } : {}),
         ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
       };
 
+      // The Ink line carries the same two facts the fullscreen receipt shows: what the
+      // failed call did not do, and the command that fixes it.
+      if (denied && summary !== undefined && toolName !== undefined) {
+        summary = `${summary} · ${declinedOutcome(toolName)}`;
+      } else if (failed && summary !== undefined && failure !== undefined) {
+        const extras = [
+          failure.notDone,
+          failure.remedy === undefined ? undefined : `${failure.remedy} to fix`,
+        ].filter((part): part is string => part !== undefined);
+        if (extras.length > 0) summary = `${summary} · ${extras.join(" · ")}`;
+      }
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
 

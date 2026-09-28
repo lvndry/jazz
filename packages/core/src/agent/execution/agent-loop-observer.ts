@@ -92,7 +92,9 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
     onThinking: (agentName, isFirstIteration) =>
       presentation.presentThinking(agentName, isFirstIteration),
     onInterrupted: (agentName) =>
-      presentation.presentWarning(agentName, "generation stopped by user"),
+      presentation.presentInterrupted === undefined
+        ? presentation.presentWarning(agentName, "generation stopped by user")
+        : presentation.presentInterrupted(agentName),
     onIterationLimit: (agentName, maxIterations) =>
       presentation.presentWarning(
         agentName,

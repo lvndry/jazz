@@ -11,16 +11,14 @@
  * enforced here or nowhere.
  */
 
-import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
+import { RGBA, TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { approvalConsequence, approvalTag, approvalTitle } from "../../models/approval";
 import { renderForTest } from "../test-helpers";
 import {
   approvalBodyRows,
-  approvalConsequence,
   approvalFieldNeedsExpand,
-  approvalTag,
-  approvalTitle,
   Approval,
   COLLAPSED_FIELD_CELLS,
   wrapProse,
@@ -191,6 +189,105 @@ describe("approval wording", () => {
 });
 
 describe("approval overlay", () => {
+  it("states the consequence and the measured effect, and words the controls with the verb", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          headline: "can't be undone",
+          acceptLabel: "delete",
+          rejectLabel: "don't delete",
+          impact: { label: "removes", value: "214 files, 1.3 GB" },
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame).toContain("can't be undone");
+    expect(frame).toContain("removes");
+    expect(frame).toContain("214 files, 1.3 GB");
+    expect(frame).toContain("enter delete");
+    expect(frame).toContain("esc don't delete");
+    // The headline replaces the tool's own prose rather than sitting beside it.
+    expect(frame).not.toContain(APPROVAL.consequence);
+    const headline = spanWithText(captureSpans(), "can't be undone");
+    expect(headline.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.warning).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("shows a shell command as code on the element band", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{ ...APPROVAL, fields: [], command: { text: "rm -rf ./build", language: "sh" } }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(captureCharFrame()).toContain("$ rm -rf ./build");
+    const prompt = spanWithText(captureSpans(), "$ ");
+    expect(prompt.bg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.surfaceStrong).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("draws a file change as tinted rows with +N −M on the title row", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          fields: [],
+          diff: {
+            added: 1,
+            removed: 1,
+            rows: [
+              { sign: "-", text: "Venue: undecided", line: 12 },
+              { sign: "+", text: "Venue: Lisbon Loft", line: 12 },
+            ],
+          },
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame).toContain("+1 −1");
+    expect(frame).toContain("Venue: Lisbon Loft");
+    const added = allSpans(captureSpans()).find((span) => span.text === "+ ");
+    const removed = allSpans(captureSpans()).find((span) => span.text === "- ");
+    expect(added?.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.success).toInts().slice(0, 3),
+    );
+    expect(removed?.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.error).toInts().slice(0, 3),
+    );
+    // Tinted grounds, distinct from each other and from the panel.
+    expect(added?.bg.toInts()).not.toEqual(removed?.bg.toInts());
+    expect(added?.bg.toInts().slice(0, 3)).not.toEqual(
+      RGBA.fromHex(THEME.surface).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("keeps a caution the executor added, even when a headline replaces the prose", async () => {
+    const { renderer, captureCharFrame } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          headline: "can't be unsent",
+          warning: "This run read an untrusted web page before this call.",
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(captureCharFrame()).toContain("untrusted web page");
+    renderer.destroy();
+  });
+
   it("names the account and every field before anything is committed", async () => {
     const { renderer, captureCharFrame } = await draw(
       <Approval

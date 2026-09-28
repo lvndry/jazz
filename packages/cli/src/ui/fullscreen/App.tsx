@@ -611,7 +611,6 @@ function AppView({
     [view.input, overlayOpen, composerMeta],
   );
   const overlayKind = view.overlay?.kind;
-  const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
   const footerHints = useMemo(
     () =>
       hintsFor(
@@ -620,7 +619,6 @@ function AppView({
         view.input.queueing === true,
         overlayKind,
         view.input.commands !== undefined,
-        overlayArmed,
         view.input.queued.length > 0,
       ),
     [
@@ -629,7 +627,6 @@ function AppView({
       view.input.queueing,
       overlayKind,
       view.input.commands,
-      overlayArmed,
       view.input.queued.length,
     ],
   );

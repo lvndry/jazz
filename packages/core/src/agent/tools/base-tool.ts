@@ -217,7 +217,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    *
    * Return types:
    * - `string` — simple approval message
-   * - `{ message, previewDiff? }` — approval message with optional diff preview
+   * - `{ message, previewDiff?, impact? }` — approval message with an optional diff preview and
+   *   a one-line statement of the concrete effect (`214 files, 1.3 GB`)
    * - `{ skipApproval: true, toolResult }` — bypass approval and return result directly to the LLM
    *   (use when pre-validation detects the edit will fail, e.g., pattern not found)
    */
@@ -226,13 +227,18 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
     context: ToolExecutionContext,
   ) => Effect.Effect<
     | string
-    | { message: string; previewDiff?: string }
+    | { message: string; previewDiff?: string; impact?: string }
     | { skipApproval: true; toolResult: ToolExecutionResult },
     Error,
     R
   >;
   /** Custom error message when approval is required */
   readonly approvalErrorMessage?: string;
+  /**
+   * A string argument a person may rewrite on the approval card before accepting, such
+   * as a shell command. The execution handler still validates the rewritten value.
+   */
+  readonly editableArg?: keyof Args & string;
   /** The actual execution handler (runs after approval) */
   readonly handler: (
     args: Args,
@@ -310,12 +316,15 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
           typeof approvalResult === "string" ? approvalResult : approvalResult.message;
         const previewDiff =
           typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
+        const impact = typeof approvalResult === "string" ? undefined : approvalResult.impact;
         return {
           success: false,
           result: {
             approvalRequired: true,
             message,
             previewDiff,
+            ...(impact === undefined ? {} : { impact }),
+            ...(config.editableArg === undefined ? {} : { editableArg: config.editableArg }),
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
           },

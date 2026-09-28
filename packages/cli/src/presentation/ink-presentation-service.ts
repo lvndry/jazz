@@ -12,6 +12,7 @@ import {
   NotificationServiceTag,
   type NotificationService,
 } from "@jazz/core/interfaces/notification";
+import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
@@ -24,7 +25,7 @@ import type {
   UserInputOutcome,
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
-import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import { ink } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { DisplayConfig } from "@jazz/core/types/output";
@@ -45,6 +46,15 @@ import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
+import { clipTerminalCells } from "@/cli/ui/fullscreen/terminal-cells";
+import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
+import {
+  interruptSummary,
+  interruptSummaryLines,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "@/cli/ui/models/interrupt";
+import { retryLine } from "@/cli/ui/models/retry";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -461,8 +471,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
@@ -481,19 +489,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
+  /**
+   * The Esc/Ctrl+C handler belongs to the run, which installs it when it starts and removes
+   * it when it ends; reset() and flush() run many times inside one run (every retried model
+   * call resets the renderer) and leave it alone, or a run that had retried once could no
+   * longer be stopped. A sub-agent's renderer does not install one either: the store holds
+   * a single handler, the parent run's interrupt already cancels its children, and a child
+   * clearing the handler as it finished would leave the parent unstoppable.
+   */
   setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setInterruptHandler(handler);
     });
   }
 
   setBackgroundHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setBackgroundHandler(handler);
     });
   }
@@ -579,6 +595,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         InkStreamingRenderer.COLLAPSE_REASONING_BEFORE.has(event.type)
       ) {
         this.collapseReasoningRegion();
+      }
+
+      // Anything the model sends after a retry means the retry went through. A new
+      // attempt opening (stream_start) does not: it may fail and be retried again.
+      if (event.type !== "stream_start") {
+        store.setRetryNotice(null);
       }
 
       if (event.type === "stream_start") {
@@ -1103,9 +1125,53 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
+/** The stop summary from what the store holds for the current turn. */
+function inkStopSummary(): InterruptSummary {
+  // Receipts printed this tick are still batched; read the turn as it really stands.
+  store.flushOutputBatchNow();
+  const session = store.getSessionSnapshot();
+  const entries = store.getOutputSnapshot().entries;
+  let start = entries.length;
+  while (start > 0 && entries[start - 1]?.type !== "user") start -= 1;
+  const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
+    const receipt = entry.meta?.["toolReceipt"] as Partial<ReceiptFacts> | undefined;
+    return receipt?.app === undefined || receipt.status === undefined
+      ? []
+      : [
+          {
+            app: receipt.app,
+            summary: receipt.summary ?? "",
+            status: receipt.status,
+            ...(receipt.args === undefined ? {} : { args: receipt.args }),
+          },
+        ];
+  });
+  const activity = session.activity;
+  const running =
+    activity.phase === "tool-execution"
+      ? activity.tools.map((tool) => ({ app: tool.toolName, operation: tool.argsPreview ?? "" }))
+      : [];
+  const todos = activity.phase === "tool-execution" ? (activity.todoSnapshot ?? []) : [];
+  const approval = session.approvalRequest;
+  return interruptSummary({
+    elapsedMs: session.busySince === null ? 0 : Date.now() - session.busySince,
+    receipts,
+    runningTools: running,
+    ...(approval === null ? {} : { pendingApproval: approvalFacts(approval).title }),
+    todos,
+  });
+}
+
+/** Labels share a column so the approval's values line up and read as a record. */
+const APPROVAL_LABEL_COLUMN = 11;
+
 export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
+  /** Questions answered in the current set, for the `1 of 2` position. */
+  private questionsAnswered = 0;
+  /** Questions still queued behind the one on screen when it opened. */
+  private questionsWaiting = 0;
   private isProcessingApproval: boolean = false;
 
   // User input queue to handle parallel requestUserInput calls
@@ -1147,6 +1213,21 @@ export class InkPresentationService implements PresentationService {
     // already marks completion — a second "completed successfully" banner
     // was pure noise.
     return Effect.void;
+  }
+
+  presentInterrupted(_agentName: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // The fullscreen transcript settles the stop as its own block, snapshotted when the
+      // key was pressed. The Ink transcript prints the same summary here, from the turn's
+      // receipts and whatever was still pending, in the same words.
+      const summary = inkStopSummary();
+      store.printOutput({
+        type: "info",
+        message: interruptSummaryLines(summary).join("\n"),
+        timestamp: new Date(),
+        meta: { interruptNotice: true },
+      });
+    });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
@@ -1257,6 +1338,22 @@ export class InkPresentationService implements PresentationService {
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
+    });
+  }
+
+  presentRetry(notice: LlmRetryNotice): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      const now = Date.now();
+      const scheduled = { ...notice, retryAt: now + notice.retryInMs };
+      store.setRetryNotice(scheduled);
+      // The Ink transcript has no live band, so it prints the band's words once. The
+      // fullscreen transcript skips this line and draws the band from the store instead.
+      store.printOutput({
+        type: "info",
+        message: `${chalk.cyan(getGlyphs().pending)} ${retryLine(scheduled, now)}`,
+        timestamp: new Date(),
+        meta: { retryNotice: true },
+      });
     });
   }
 
@@ -1404,6 +1501,28 @@ export class InkPresentationService implements PresentationService {
 
     const isPicker = (request.options?.length ?? 0) > 0;
 
+    // The card's facts and words come from the shared approval model, the same function the
+    // fullscreen card is built from: same account, same fields, same consequence, same verbs.
+    const pendingApproval = {
+      toolName: request.toolName,
+      executeToolName: request.executeToolName,
+      message: request.message,
+      args: request.executeArgs,
+      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
+      ...(request.impact === undefined ? {} : { impact: request.impact }),
+      ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
+      ...(request.warning === undefined ? {} : { warning: request.warning }),
+      ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
+    };
+    const facts = approvalFacts(pendingApproval);
+    const factRow = (label: string, value: string, key: string) =>
+      React.createElement(
+        Box,
+        { key },
+        React.createElement(Text, { color: THEME.muted }, label.padEnd(APPROVAL_LABEL_COLUMN)),
+        React.createElement(Text, {}, clipTerminalCells(value.replace(/\s+/g, " "), 120)),
+      );
+    const diff = facts.intent.diff;
     const approvalCard = React.createElement(
       Box,
       {
@@ -1417,33 +1536,56 @@ export class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(
-          Text,
-          { color: THEME.warning, bold: true },
-          isPicker ? "Pick a model" : "Approval Required",
-        ),
-        isPicker
-          ? React.createElement(Text, { dimColor: true }, `  ${request.toolName}`)
-          : React.createElement(Text, {}, " for "),
-        !isPicker &&
-          React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
+        React.createElement(Text, { bold: true }, isPicker ? "Pick a model" : facts.title),
+        !isPicker && facts.consequence.length > 0
+          ? React.createElement(Text, { color: THEME.warning }, `  ${facts.consequence}`)
+          : null,
         pendingCount > 0
           ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
           : null,
       ),
-      React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { bold: true }, request.message),
-      ),
-      // Never let users approve a file edit blind: point at the diff.
-      request.previewDiff
-        ? React.createElement(
+      isPicker
+        ? React.createElement(Box, { marginTop: 1 }, React.createElement(Text, {}, request.message))
+        : React.createElement(
             Box,
-            { marginTop: 1 },
-            React.createElement(Text, { dimColor: true }, "Press Ctrl+O to view the diff"),
-          )
-        : null,
+            { flexDirection: "column", marginTop: 1 },
+            factRow("Account", approvalAccount(facts.account, facts.app), "account"),
+            ...facts.fields.map((field, index) => factRow(field.label, field.value, `f${index}`)),
+            ...(facts.intent.impact === undefined
+              ? []
+              : [factRow(facts.intent.impact.label, facts.intent.impact.value, "impact")]),
+            ...(facts.intent.command === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "command", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.muted }, "$ "),
+                    React.createElement(Text, {}, facts.intent.command.text),
+                  ),
+                ]),
+            ...(diff === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "diff", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.success }, `+${diff.added}`),
+                    React.createElement(Text, { color: THEME.error }, ` −${diff.removed}`),
+                    // Never let users approve a file edit blind: point at the diff.
+                    React.createElement(Text, { dimColor: true }, "  Ctrl+O to view the diff"),
+                  ),
+                ]),
+            ...(facts.warning === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "warning", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.warning }, facts.warning),
+                  ),
+                ]),
+          ),
     );
 
     store.printOutput({
@@ -1513,7 +1655,13 @@ export class InkPresentationService implements PresentationService {
       return;
     }
 
-    const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
+    const choices: Array<{ label: string; value: string }> = [
+      { label: `Yes, ${facts.intent.accept}`, value: "yes" },
+    ];
+    const editable = facts.editableArg;
+    if (editable !== undefined && typeof request.executeArgs[editable] === "string") {
+      choices.push({ label: `Edit the ${editable} first`, value: "edit" });
+    }
 
     if (approvalKey) {
       const truncatedKey = approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
@@ -1528,18 +1676,12 @@ export class InkPresentationService implements PresentationService {
       value: "always_tool",
     });
 
-    choices.push({ label: "No", value: "no" });
+    choices.push({ label: `No, ${facts.intent.reject}`, value: "no" });
 
     // Publish the request itself alongside the menu. The fullscreen approval
     // card needs the account, the resulting fields and the consequence, none of
     // which survive being flattened into a list of choices.
-    store.setApprovalRequest({
-      toolName: request.toolName,
-      executeToolName: request.executeToolName,
-      message: request.message,
-      args: request.executeArgs,
-      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
-    });
+    store.setApprovalRequest(pendingApproval);
 
     store.setPrompt({
       type: "select",
@@ -1576,11 +1718,55 @@ export class InkPresentationService implements PresentationService {
           return;
         }
 
+        const editableArg = request.editableArg;
+        const editableValue =
+          editableArg === undefined ? undefined : request.executeArgs[editableArg];
+        if (choice === "edit" && editableArg !== undefined && typeof editableValue === "string") {
+          store.setPrompt(null);
+          this.promptApprovalEdit(request, resume, editableArg, editableValue);
+          return;
+        }
+
         // Rejected: prompt for optional message to guide the agent
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.promptRejectionMessage(resume);
       },
+    });
+  }
+
+  /**
+   * Let a person rewrite the request's editable argument, then run the rewrite. An empty
+   * submission or esc goes back to the same approval, so editing never approves by accident.
+   */
+  private promptApprovalEdit(
+    request: ApprovalRequest,
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+    editableArg: string,
+    current: string,
+  ): void {
+    const backToApproval = (): void => {
+      store.setPrompt(null);
+      store.setApprovalRequest(null);
+      this.approvalQueue.unshift({ request, resume });
+      this.isProcessingApproval = false;
+      this.processNextApproval();
+    };
+    store.setPrompt({
+      type: "text",
+      message: `Edit the ${editableArg}, then press enter to run it`,
+      options: { defaultValue: current },
+      resolve: (input: unknown) => {
+        const edited = typeof input === "string" ? input.trim() : "";
+        if (edited.length === 0) {
+          backToApproval();
+          return;
+        }
+        store.setPrompt(null);
+        store.setApprovalRequest(null);
+        this.completeApproval(resume, { approved: true, editedArgs: { [editableArg]: edited } });
+      },
+      reject: backToApproval,
     });
   }
 
@@ -1655,6 +1841,14 @@ export class InkPresentationService implements PresentationService {
 
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
+    // Questions asked together are numbered as a set: `1 of 2`. The count restarts once
+    // every queued question has been answered.
+    this.questionsAnswered = this.questionsWaiting === 0 ? 0 : this.questionsAnswered;
+    const position = {
+      index: this.questionsAnswered + 1,
+      total: this.questionsAnswered + 1 + this.userInputQueue.length,
+    };
+    this.questionsWaiting = this.userInputQueue.length;
 
     // Send system notification for user input request.
     if (this.notificationService) {
@@ -1699,12 +1893,14 @@ export class InkPresentationService implements PresentationService {
         suggestions: request.suggestions,
         allowCustom: request.allowCustom,
         allowMultiple: request.allowMultiple,
+        position,
       },
       resolve: (value: unknown) => {
         const response = String(value).trim();
         echoUserTurn(response);
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(
           Effect.succeed(
@@ -1716,6 +1912,7 @@ export class InkPresentationService implements PresentationService {
       reject: () => {
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(Effect.succeed({ kind: "declined" })); // Dismissed the prompt.
         this.processNextUserInput();

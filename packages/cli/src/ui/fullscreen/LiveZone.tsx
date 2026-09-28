@@ -38,6 +38,7 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
+import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
@@ -60,6 +61,8 @@ export interface LiveSegment {
 export interface LiveRow {
   readonly key: string;
   readonly segments: readonly LiveSegment[];
+  /** A row painted as part of a band, such as the retry notice. */
+  readonly background?: string;
 }
 
 /**
@@ -329,6 +332,48 @@ function todoPanelRows(
   return rows;
 }
 
+/**
+ * The retry band: the error bar, because a call really did fail, on the panel tier, and
+ * the keys underneath it. It says "Nothing is lost" because the one thing a stalled
+ * screen makes people fear is that their turn is gone.
+ */
+function retryRows(band: RetryBand, glyphs: GlyphSet, width: number): LiveRow[] {
+  const bar: LiveSegment = { text: `${glyphs.bandBar} `, fg: THEME.error };
+  const title = alignRow(
+    "retry:title",
+    [bar, { text: band.title, fg: THEME.selected, bold: true }],
+    [{ text: `${band.attempt} `, fg: THEME.muted }],
+    width,
+  );
+  const countdown = alignRow(
+    "retry:countdown",
+    [
+      bar,
+      { text: `${band.cause} Retrying in `, fg: THEME.secondary },
+      { text: `${String(band.secondsLeft)}s`, fg: THEME.selected, bold: true },
+      { text: ". Nothing is lost.", fg: THEME.secondary },
+    ],
+    [],
+    width,
+  );
+  const keys = alignRow(
+    "retry:keys",
+    [
+      { text: "  esc esc", fg: THEME.selected, bold: true },
+      { text: " stop retrying    ", fg: THEME.secondary },
+      { text: "/model", fg: THEME.selected, bold: true },
+      { text: " switch model", fg: THEME.secondary },
+    ],
+    [],
+    width,
+  );
+  return [
+    { ...title, background: THEME.surface },
+    { ...countdown, background: THEME.surface },
+    keys,
+  ];
+}
+
 export interface LiveZoneProps {
   readonly model: LiveModel;
   readonly viewport: Viewport;
@@ -386,8 +431,14 @@ export function liveRows(
   // Rows are claimed in the order the reader needs them: what is running, then
   // the plan, then the copy. An under-provisioned reservation therefore loses
   // the waiting line first — it is the only row that says nothing about state.
+  const retry =
+    model.retry === undefined || capacity < RETRY_BAND_ROWS
+      ? []
+      : retryRows(model.retry, glyphs, width);
   const demand = otherTools.length + (model.hiddenTools.length > 0 ? 1 : 0);
-  let showWaiting = model.waiting !== undefined && !streaming;
+  // While a retry is scheduled the band says why nothing is arriving, which is what the
+  // waiting line would otherwise guess at.
+  let showWaiting = model.waiting !== undefined && !streaming && retry.length === 0;
   let showStep = model.step !== undefined && !showTodo;
   while ((showWaiting ? 1 : 0) + (showStep ? 1 : 0) + Math.min(demand, 1) > capacity) {
     if (showWaiting) showWaiting = false;
@@ -399,7 +450,7 @@ export function liveRows(
   // owed a slot whether or not the remaining tools overflow on their own.
   const carriedOver = model.hiddenTools.length > 0;
   const reservedForToggles = (showWaiting ? 1 : 0) + (showStep ? 1 : 0);
-  let budget = Math.max(0, capacity - reservedForToggles);
+  let budget = Math.max(0, capacity - reservedForToggles - retry.length);
 
   // The checklist takes priority over the (redundant) manage_todos tool row and
   // shares the remaining room with any other tools, windowed with `+N more`.
@@ -418,7 +469,7 @@ export function liveRows(
   }
   const hiddenNames = [...dropped.map((tool) => tool.app), ...model.hiddenTools];
 
-  const rows: LiveRow[] = [];
+  const rows: LiveRow[] = [...retry];
   if (showWaiting && model.waiting !== undefined) {
     rows.push(
       waitingRow(model.waiting, model.reasoningElapsedMs ?? model.elapsedMs, tick, glyphs, width),
@@ -493,7 +544,12 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
       {rows.map((row) => (
         <box
           key={row.key}
-          style={{ width: viewport.width, height: 1, flexShrink: 0 }}
+          style={{
+            width: viewport.width,
+            height: 1,
+            flexShrink: 0,
+            ...(row.background === undefined ? {} : { backgroundColor: row.background }),
+          }}
         >
           <text style={{ wrapMode: "none" }}>
             {row.segments.map((segment, index) => (

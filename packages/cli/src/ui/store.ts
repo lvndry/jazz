@@ -4,7 +4,9 @@
  * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import chalk from "chalk";
 import { useSyncExternalStore } from "react";
 import { isCommandInput } from "@/cli/chat/commands/parser";
@@ -223,6 +225,13 @@ export interface PendingApproval {
   readonly message: string;
   readonly args: Record<string, unknown>;
   readonly previewDiff?: string;
+  /** What approving concretely does, with real numbers (`214 files, 1.3 GB`). */
+  readonly impact?: string;
+  readonly riskLevel?: ToolRiskLevel;
+  /** A caution the card shows even when it replaces the tool's prose (untrusted content read this run). */
+  readonly warning?: string;
+  /** The argument `e` lets a person rewrite before accepting. */
+  readonly editableArg?: string;
 }
 
 export interface RunStats {
@@ -262,6 +271,15 @@ export interface SessionSnapshot {
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
   readonly modeToast: string | null;
+  /** A model call that failed and is scheduled to be tried again. Cleared once the model answers. */
+  readonly retryNotice: RetryNotice | null;
+  /** When the current turn started, for "stopped by you after 6.2s"; null between turns. */
+  readonly busySince: number | null;
+}
+
+/** A scheduled retry, with the wall-clock time it will be sent so a countdown stays true. */
+export interface RetryNotice extends LlmRetryNotice {
+  readonly retryAt: number;
 }
 
 export interface PromptSnapshot {
@@ -299,6 +317,8 @@ const INITIAL_SESSION: SessionSnapshot = {
   approvalRequest: null,
   activeMenu: null,
   modeToast: null,
+  retryNotice: null,
+  busySince: null,
 };
 
 const INITIAL_PROMPT: PromptSnapshot = {
@@ -647,7 +667,11 @@ export class UIStore {
     // A new turn starts the list over. Finished sub-agents stay readable between
     // turns, but the list is "this run's sub-agents", not the session's.
     if (busy && !this.session.getSnapshot().chatBusy) this.pruneFinishedSubagentRuns();
-    patchSlice(this.session, { chatBusy: busy });
+    const snapshot = this.session.getSnapshot();
+    patchSlice(this.session, {
+      chatBusy: busy,
+      busySince: busy ? (snapshot.busySince ?? Date.now()) : null,
+    });
   };
 
   setExpandableDiff = (fullDiff: string): void => {
@@ -1142,6 +1166,13 @@ export class UIStore {
 
   setApprovalRequest = (request: PendingApproval | null): void => {
     patchSlice(this.session, { approvalRequest: request });
+  };
+
+  setRetryNotice = (notice: RetryNotice | null): void => {
+    if (notice === null && this.session.getSnapshot().retryNotice === null) {
+      return;
+    }
+    patchSlice(this.session, { retryNotice: notice });
   };
 
   getApprovalRequestSnapshot(): PendingApproval | null {

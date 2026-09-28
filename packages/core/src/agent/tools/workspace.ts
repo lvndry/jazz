@@ -17,15 +17,10 @@ import type { WorkspaceService, WorkspaceViewOutcome } from "@/core/interfaces/w
 import { WorkspaceServiceTag } from "@/core/interfaces/workspace-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { formatByteSize } from "@/core/utils/string";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type WorkspaceToolDeps = WorkspaceService | FileSystem.FileSystem;
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 function joinDisplayPath(base: string, name: string): string {
   return base === "/" ? `/${name}` : `${base}/${name}`;
@@ -41,7 +36,7 @@ function formatDirectoryOutcome(
   const lines = outcome.entries.map((entry) =>
     entry.kind === "directory"
       ? joinDisplayPath(outcome.path, entry.name)
-      : `${joinDisplayPath(outcome.path, entry.name)}\t(${formatSize(entry.sizeBytes)})`,
+      : `${joinDisplayPath(outcome.path, entry.name)}\t(${formatByteSize(entry.sizeBytes)})`,
   );
   return [header, ...lines].join("\n");
 }

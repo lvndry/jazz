@@ -570,6 +570,31 @@ describe("tool receipts", () => {
     expect(text.split("\n").length).toBeGreaterThan(1);
   });
 
+  it("says what a failed call did not do, and the command that fixes it", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "mcp_slack_post_message",
+        summary: "",
+        status: "failed",
+        reason: "token expired",
+        notDone: "nothing was sent",
+        remedyKey: "/mcp reconnect slack",
+      },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const text = rows.map((row) => row.content.map((segment) => segment.text).join("")).join("\n");
+    expect(text).toContain("token expired");
+    expect(text).toContain("nothing was sent");
+    expect(text).toContain("/mcp reconnect slack to fix");
+    const remedy = rows
+      .flatMap((row) => row.content)
+      .find((segment) => segment.text === "/mcp reconnect slack");
+    expect(remedy?.bold).toBe(true);
+  });
+
   it("folds reasoning to one dim line of duration, steps and the key", async () => {
     const { rows, spans } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("thought")) ?? "";
