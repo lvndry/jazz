@@ -39,6 +39,7 @@ import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
+import { formatElapsed } from "../text/format";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
@@ -63,21 +64,6 @@ export interface LiveRow {
   readonly segments: readonly LiveSegment[];
   /** A row painted as part of a band, such as the retry notice. */
   readonly background?: string;
-}
-
-/**
- * Whole seconds, derived from `elapsedMs` alone.
- *
- * The indicator runs at ~6fps and the digits must not: a number changing
- * faster than it can be read is noise wearing the costume of information. This
- * changes at most once a second no matter how often the frame redraws.
- */
-export function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
 /**

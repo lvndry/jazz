@@ -138,6 +138,7 @@ import {
   type SessionLimitMetric,
 } from "./session-limits";
 import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
+import { formatCost } from "../../ui/text/format";
 
 /**
  * Handle special commands from user input.
@@ -2622,7 +2623,7 @@ function handleInfoCommand(
         { kind: "field", key: "tool calls", value: String(toolCalls) },
         { kind: "field", key: "tokens in", value: promptTokens.toLocaleString() },
         { kind: "field", key: "tokens out", value: completionTokens.toLocaleString() },
-        { kind: "field", key: "cost", value: formatUsd(inputCost + outputCost) },
+        { kind: "field", key: "cost", value: formatCost(inputCost + outputCost) },
         { kind: "gap" },
         {
           kind: "field",
@@ -3568,16 +3569,6 @@ function handleContextCommand(
 }
 
 /**
- * Format a small USD amount for display (e.g. 0.0012 → "$0.0012", 0 → "$0.00").
- */
-function formatUsd(amount: number): string {
-  if (amount === 0) return "$0.00";
-  if (amount >= 0.01) return `$${amount.toFixed(2)}`;
-  if (amount >= 0.0001) return `$${amount.toFixed(4)}`;
-  return `$${amount.toExponential(2)}`;
-}
-
-/**
  * Handle /cost command - Show conversation token usage and estimated cost
  */
 function handleCostCommand(
@@ -3612,19 +3603,19 @@ function handleCostCommand(
         kind: "field",
         key: "input",
         value: promptTokens.toLocaleString(),
-        ...(priced ? { detail: formatUsd(inputCost) } : {}),
+        ...(priced ? { detail: formatCost(inputCost) } : {}),
       },
       {
         kind: "field",
         key: "output",
         value: completionTokens.toLocaleString(),
-        ...(priced ? { detail: formatUsd(outputCost) } : {}),
+        ...(priced ? { detail: formatCost(outputCost) } : {}),
       },
       {
         kind: "field",
         key: "total",
         value: totalTokens.toLocaleString(),
-        ...(priced ? { detail: formatUsd(inputCost + outputCost) } : {}),
+        ...(priced ? { detail: formatCost(inputCost + outputCost) } : {}),
       },
     ];
     yield* terminal.log(

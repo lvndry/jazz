@@ -18,6 +18,7 @@ import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
+import { formatCost } from "../ui/text/format";
 import { codeColor, CHALK_THEME } from "../ui/theme";
 
 /**
@@ -475,15 +476,8 @@ export class CLIRenderer {
         const totalCost = computeUsageCostUSD(this.accumulatedUsage, meta) ?? 0;
         const inputCost = totalCost - outputCost;
 
-        const fmt = (cost: number): string => {
-          if (cost === 0) return "$0.00";
-          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-          return `$${cost.toExponential(2)}`;
-        };
-
         output += this.theme.colors.dim(
-          `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]\n`,
+          `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]\n`,
         );
       }
     }

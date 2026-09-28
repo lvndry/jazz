@@ -8,19 +8,13 @@ import React, { useEffect, useRef, useState } from "react";
 import type { ActivityState } from "./activity-state";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
+import { formatElapsed } from "./text/format";
 import { PADDING, THEME } from "./theme";
 
 const G = getGlyphs();
 
 /** Seconds before the elapsed counter appears (avoids a "0s" flash). */
 const ELAPSED_VISIBLE_AFTER_S = 2;
-
-export function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
-}
 
 /**
  * Self-ticking elapsed counter. Resets whenever `resetKey` changes; when
@@ -46,7 +40,7 @@ function useElapsedSeconds(resetKey: string, externalStart?: number): number {
 
 function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | null {
   if (seconds < ELAPSED_VISIBLE_AFTER_S) return null;
-  return <Text dimColor> · {formatElapsed(seconds)}</Text>;
+  return <Text dimColor> · {formatElapsed(seconds * 1000)}</Text>;
 }
 
 type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";

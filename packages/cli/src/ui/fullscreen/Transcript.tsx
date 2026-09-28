@@ -67,7 +67,8 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
 } from "./terminal-cells";
-import { foldedThoughtLine, formatPreciseDuration, thoughtLabel } from "../turn-thought";
+import { formatPreciseDuration } from "../text/format";
+import { foldedThoughtLine, thoughtLabel } from "../turn-thought";
 import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import {

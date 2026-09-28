@@ -7,6 +7,7 @@
  */
 
 import { formatCompactCount } from "@jazz/core/utils/string";
+import { formatCost, formatPreciseDuration } from "../ui/text/format";
 
 export interface StepStats {
   readonly durationMs: number;
@@ -27,19 +28,6 @@ export const EMPTY_TURN: TurnTotals = { steps: [] };
 
 export function addStep(turn: TurnTotals, step: StepStats): TurnTotals {
   return { steps: [...turn.steps, step] };
-}
-
-export function formatReceiptCost(cost: number): string {
-  if (cost === 0) {
-    return "$0.00";
-  }
-  if (cost >= 0.01) {
-    return `$${cost.toFixed(2)}`;
-  }
-  if (cost >= 0.0001) {
-    return `$${cost.toFixed(4)}`;
-  }
-  return "<$0.0001";
 }
 
 function sum(
@@ -75,7 +63,7 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   const parts: string[] = [];
   const durationMs = sum(steps, (step) => step.durationMs) ?? 0;
   if (durationMs > 0) {
-    parts.push(`${(durationMs / 1000).toFixed(1)}s`);
+    parts.push(formatPreciseDuration(durationMs));
   }
   if (steps.length > 1) {
     parts.push(`${String(steps.length)} steps`);
@@ -94,7 +82,7 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   }
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
-    parts.push(formatReceiptCost(cost));
+    parts.push(formatCost(cost));
   }
   return parts.length === 0 ? undefined : parts.join(" · ");
 }
@@ -103,7 +91,7 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
 export function formatStepBreakdown(turn: TurnTotals): string {
   return turn.steps
     .map((step, index) => {
-      const parts = [`step ${String(index + 1)}`, `${(step.durationMs / 1000).toFixed(1)}s`];
+      const parts = [`step ${String(index + 1)}`, formatPreciseDuration(step.durationMs)];
       const tokens = tokenPart(step.promptTokens, step.completionTokens);
       if (tokens !== undefined) {
         const cached =
@@ -118,7 +106,7 @@ export function formatStepBreakdown(turn: TurnTotals): string {
         parts.push(`${step.tokensPerSecond.toFixed(1)} tok/s`);
       }
       if (step.costUSD !== undefined) {
-        parts.push(formatReceiptCost(step.costUSD));
+        parts.push(formatCost(step.costUSD));
       }
       return parts.join(" · ");
     })

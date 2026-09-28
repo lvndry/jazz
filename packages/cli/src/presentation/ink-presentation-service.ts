@@ -76,7 +76,6 @@ import { isInsideOpenStructure } from "./markdown-split";
 import {
   addStep,
   EMPTY_TURN,
-  formatReceiptCost,
   formatStepBreakdown,
   formatTurnReceipt,
   type TurnTotals,
@@ -85,6 +84,7 @@ import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
+import { formatCost } from "../ui/text/format";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
@@ -113,7 +113,7 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
     const parts = [`${label} completed`, `${seconds}s`];
     if (outcome.totalTokens !== undefined)
       parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
-    if (outcome.costUSD !== undefined) parts.push(formatReceiptCost(outcome.costUSD));
+    if (outcome.costUSD !== undefined) parts.push(formatCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";

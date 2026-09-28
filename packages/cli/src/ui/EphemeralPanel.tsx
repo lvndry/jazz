@@ -7,15 +7,12 @@ import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
+import { formatPreciseDuration } from "./text/format";
 
 const G = getGlyphs();
 
 function elapsed(startedAt: number): string {
-  const seconds = Math.max(0, (Date.now() - startedAt) / 1000);
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}m ${s}s`;
+  return formatPreciseDuration(Date.now() - startedAt);
 }
 
 /**

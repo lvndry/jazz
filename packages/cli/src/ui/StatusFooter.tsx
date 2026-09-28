@@ -8,21 +8,8 @@ import { Box, Text } from "ink";
 import React from "react";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import type { RunStats } from "./store";
+import { formatCost } from "./text/format";
 import { THEME } from "./theme";
-
-/**
- * Format a USD cost for the status footer.
- *
- * - Below $0.01: 4 decimals so micro-runs aren't all "$0.00".
- * - Below $10: 3 decimals (`$0.042`, `$1.234`).
- * - $10+: 2 decimals (`$12.34`).
- */
-function formatCost(cost: number): string {
-  if (cost === 0) return "$0";
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  if (cost < 10) return `$${cost.toFixed(3)}`;
-  return `$${cost.toFixed(2)}`;
-}
 
 /**
  * Compress a path for footer display.
