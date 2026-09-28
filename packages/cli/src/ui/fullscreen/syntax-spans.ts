@@ -614,9 +614,12 @@ export function sourceLanguageFromPath(path: string): string | undefined {
   return SOURCE_EXTENSIONS.has(ext) ? ext : undefined;
 }
 
-/** `file: src/app.py  import os…` — the path compactToolArguments puts first. */
+/**
+ * The path in `src/app.py  import os…` or `README.md 1–300`: the first word,
+ * which compactToolArguments makes the path for every tool that acts on a file.
+ */
 export function pathFromFileArgsPreview(args: string): string | undefined {
-  const match = /^file:\s+(\S+)/.exec(args.trim());
+  const match = /^(\S+)/.exec(args.trim());
   return match?.[1];
 }
 

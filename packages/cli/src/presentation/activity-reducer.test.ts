@@ -356,11 +356,11 @@ describe("activity-reducer", () => {
         stubInk,
       );
 
-      expect(a.activeTools.get("mem-1")?.argsPreview).toContain("path: /");
+      expect(a.activeTools.get("mem-1")?.argsPreview).toBe("/");
       expect(String(result.outputs[0]!.message)).toContain("path:");
       expect(String(result.outputs[0]!.message)).toContain("/");
       if (result.activity?.phase === "tool-execution") {
-        expect(result.activity.tools[0]?.argsPreview).toContain("path: /");
+        expect(result.activity.tools[0]?.argsPreview).toBe("/");
       }
     });
 

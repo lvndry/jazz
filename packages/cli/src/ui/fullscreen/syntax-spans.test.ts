@@ -90,7 +90,7 @@ describe("syntax-spans", () => {
     expect(sourceLanguageFromPath("bin/run.sh")).toBe("sh");
     expect(sourceLanguageFromPath("index.js")).toBe("js");
     expect(sourceLanguageFromPath("notes.md")).toBeUndefined();
-    expect(pathFromFileArgsPreview("file: src/app.py  def main():")).toBe("src/app.py");
+    expect(pathFromFileArgsPreview("src/app.py  def main():")).toBe("src/app.py");
   });
 
   it("carries a block comment across fence lines", () => {

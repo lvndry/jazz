@@ -2979,7 +2979,7 @@ describe("fullscreen bridge", () => {
         }
       });
       expect(text).toContain("view_memory");
-      expect(text).toContain("path: /");
+      expect(text).toContain("view_memory  /  1 entry");
       expect(text).toContain("1 entry");
       expect(text).not.toContain("Here're the files");
     });
