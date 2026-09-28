@@ -281,6 +281,38 @@ describe("activity-reducer", () => {
       expect(result.activity!.phase).toBe("idle");
     });
 
+    test("a declined call becomes one denied receipt that names the tool", () => {
+      const a = acc();
+      reduceEvent(
+        a,
+        {
+          type: "approval_resolved",
+          toolCallId: "tc-9",
+          toolName: "write_file",
+          approved: false,
+          auto: false,
+        },
+        stubInk,
+      );
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-9",
+          result: JSON.stringify({ rejected: true, message: "put it in my home folder" }),
+          durationMs: 0,
+          success: false,
+          error: "User rejected the operation",
+        },
+        stubInk,
+      );
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as
+        { app?: string; status?: string; reason?: string } | undefined;
+      expect(receipt?.app).toBe("write_file");
+      expect(receipt?.status).toBe("denied");
+      expect(receipt?.reason).toBeUndefined();
+    });
+
     test("tool_execution_complete receipt carries the classifier verdict", () => {
       const a = acc();
       a.activeTools.set("tc-1", {

@@ -565,10 +565,18 @@ export function reduceEvent(
       return { activity: buildToolExecutionActivity(acc), outputs };
     }
 
+    case "approval_resolved": {
+      // A declined call never emits a start event, so remember its name here for
+      // the denied receipt its completion produces.
+      if (!event.approved && !acc.activeTools.has(event.toolCallId)) {
+        acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
+      }
+      return { activity: null, outputs };
+    }
+
     case "usage_update":
     case "run_spend":
     case "approval_required":
-    case "approval_resolved":
     case "subagent_start":
     case "subagent_complete":
     case "subagent_result":
