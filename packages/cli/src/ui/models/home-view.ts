@@ -22,6 +22,9 @@ export const RECENT_AGENT_LIMIT = 5;
 /** A readable title never runs past this many characters; longer ones end in "…". */
 export const TITLE_MAX_LENGTH = 48;
 
+/** A waiting conversation's need, where it shares a line with other text, stays this short. */
+export const BRIEF_DETAIL_LENGTH = 56;
+
 export const COMPOSER_PLACEHOLDER = "Or type your first message";
 export const FIRST_RUN_PITCH = "One agent for your email, calendar, files and the web.";
 export const FIRST_RUN_PROMISE = "It asks before it touches anything real.";
@@ -150,6 +153,8 @@ function textAsTitle(text: string | undefined): string | undefined {
     title = title.slice(0, -1).replace(/\s*\S*$/, "");
   }
   title = title.replace(URL_PATTERN, (url) => nameUrl(url));
+  // A bracket opened and never closed was cut off mid-thought; it is not part of the title.
+  title = title.replace(/\s*[[(][^\])]*$/, "");
   const sentence = title.split(/(?<=[.?!])\s/)[0] ?? title;
   const cleaned = sentence.replace(/[.\s]+$/, "").trim();
   if (cleaned.length === 0 || ID_LIKE.test(cleaned)) {
@@ -215,7 +220,12 @@ export function waitingPhrase(reason: WaitingReason, age: string): string {
   }
 }
 
-/** The waiting section, numbered 1–N in the order given. */
+/** A need cut to one short line on a word boundary, for lists where it sits beside a name. */
+export function briefDetail(detail: string, max: number = BRIEF_DETAIL_LENGTH): string {
+  return cutAtWord(detail.replace(/\s+/g, " ").trim(), max);
+}
+
+/** The waiting section, in the order given. */
 export function waitingEntries(sources: readonly WaitingSource[]): HomeWaiting[] {
   return sources.map((source, index) => ({
     key: String(index + 1),

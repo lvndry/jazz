@@ -166,8 +166,8 @@ export function InkHome({ model, onAnswer, onQuit }: InkHomeProps): React.ReactE
           </Text>
           <Text>
             <Text color={THEME.secondary}>{`${COMPOSER_PLACEHOLDER}: `}</Text>
-            <Text color={THEME.primary}>▍</Text>
             <Text>{state.draft}</Text>
+            <Text color={THEME.primary}>▍</Text>
             {hint !== undefined ? <Text color={THEME.muted}>{`  ${hint}`}</Text> : null}
           </Text>
           {matches !== undefined &&

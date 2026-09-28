@@ -38,6 +38,7 @@ import { sessionOpenLine } from "./session-open";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import {
   PICK_AGENT,
+  briefDetail,
   parseOpenConversationValue,
   readableTitle,
   waitingTag,
@@ -796,7 +797,9 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
             ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
             : readableTitle(work),
         description:
-          work?.detail === undefined ? entry.agent.name : `${entry.agent.name} · ${work.detail}`,
+          work?.detail === undefined
+            ? entry.agent.name
+            : `${entry.agent.name} · ${briefDetail(work.detail)}`,
         value: String(index),
         ...(work === undefined
           ? { tag: age, tagTone: "muted" as const }

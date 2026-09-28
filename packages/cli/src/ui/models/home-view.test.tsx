@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
 import {
   HOME_COMMANDS,
+  briefDetail,
   enterHint,
   homeCommandMatches,
   homeIntent,
@@ -232,6 +233,21 @@ describe("readableTitle", () => {
     expect(
       readableTitle({ conversationTitle: "check https://www.example.com/a", agentName: "x" }),
     ).toBe("Check example.com");
+  });
+
+  it("drops a bracket that was cut off before it closed", () => {
+    expect(
+      readableTitle({
+        conversationTitle: "Reply with exactly one word: hello [memory recall",
+        agentName: "sol",
+      }),
+    ).toBe("Reply with exactly one word: hello");
+  });
+
+  it("keeps a first line under a short limit for lists", () => {
+    expect(
+      briefDetail("The accepted plan starts with a read-only inventory of ~/Downloads", 30),
+    ).toBe("The accepted plan starts…");
   });
 
   it("falls back to the agent rather than 'untitled conversation'", () => {
