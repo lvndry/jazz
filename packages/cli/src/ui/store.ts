@@ -222,6 +222,8 @@ export interface SessionSnapshot {
   readonly modeToast: string | null;
   /** A model call that failed and is scheduled to be tried again. Cleared once the model answers. */
   readonly retryNotice: RetryNotice | null;
+  /** When the current turn started, for "stopped by you after 6.2s"; null between turns. */
+  readonly busySince: number | null;
 }
 
 /** A scheduled retry, with the wall-clock time it will be sent so a countdown stays true. */
@@ -265,6 +267,7 @@ const INITIAL_SESSION: SessionSnapshot = {
   activeMenu: null,
   modeToast: null,
   retryNotice: null,
+  busySince: null,
 };
 
 const INITIAL_PROMPT: PromptSnapshot = {
@@ -595,7 +598,11 @@ export class UIStore {
     // A new turn starts the list over. Finished sub-agents stay readable between
     // turns, but the list is "this run's sub-agents", not the session's.
     if (busy && !this.session.getSnapshot().chatBusy) this.pruneFinishedSubagentRuns();
-    patchSlice(this.session, { chatBusy: busy });
+    const snapshot = this.session.getSnapshot();
+    patchSlice(this.session, {
+      chatBusy: busy,
+      busySince: busy ? (snapshot.busySince ?? Date.now()) : null,
+    });
   };
 
   setExpandableDiff = (fullDiff: string): void => {

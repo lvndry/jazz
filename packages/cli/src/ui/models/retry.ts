@@ -28,6 +28,12 @@ function titleFor(reason: string): string {
   return "The model call failed";
 }
 
+/** The band as one line, for a renderer that prints text: the same words, counted down once. */
+export function retryLine(notice: RetryNotice, now: number): string {
+  const band = retryBand(notice, now);
+  return `${band.title} (${band.attempt}). ${band.cause} Retrying in ${String(band.secondsLeft)}s. Nothing is lost.`;
+}
+
 export function retryBand(notice: RetryNotice, now: number): RetryBand {
   const provider =
     notice.provider === undefined ? "The provider" : formatProviderDisplayName(notice.provider);

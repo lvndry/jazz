@@ -462,6 +462,15 @@ export function reduceEvent(
         ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
       };
 
+      // The Ink line carries the same two facts the fullscreen receipt shows: what the
+      // failed call did not do, and the command that fixes it.
+      if (failed && summary !== undefined && failure !== undefined) {
+        const extras = [
+          failure.notDone,
+          failure.remedy === undefined ? undefined : `${failure.remedy} to fix`,
+        ].filter((part): part is string => part !== undefined);
+        if (extras.length > 0) summary = `${summary} · ${extras.join(" · ")}`;
+      }
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
 

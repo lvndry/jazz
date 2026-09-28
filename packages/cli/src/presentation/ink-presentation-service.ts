@@ -6,7 +6,6 @@
  */
 
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
-import { retryNoticeText } from "@jazz/core/agent/execution/llm-retry-present";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -49,6 +48,13 @@ import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
 import { clipTerminalCells } from "@/cli/ui/fullscreen/terminal-cells";
 import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
+import {
+  interruptSummary,
+  interruptSummaryLines,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "@/cli/ui/models/interrupt";
+import { retryLine } from "@/cli/ui/models/retry";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -1112,6 +1118,43 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
+/** The stop summary from what the store holds for the current turn. */
+function inkStopSummary(): InterruptSummary {
+  // Receipts printed this tick are still batched; read the turn as it really stands.
+  store.flushOutputBatchNow();
+  const session = store.getSessionSnapshot();
+  const entries = store.getOutputSnapshot().entries;
+  let start = entries.length;
+  while (start > 0 && entries[start - 1]?.type !== "user") start -= 1;
+  const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
+    const receipt = entry.meta?.["toolReceipt"] as Partial<ReceiptFacts> | undefined;
+    return receipt?.app === undefined || receipt.status === undefined
+      ? []
+      : [
+          {
+            app: receipt.app,
+            summary: receipt.summary ?? "",
+            status: receipt.status,
+            ...(receipt.args === undefined ? {} : { args: receipt.args }),
+          },
+        ];
+  });
+  const activity = session.activity;
+  const running =
+    activity.phase === "tool-execution"
+      ? activity.tools.map((tool) => ({ app: tool.toolName, operation: tool.argsPreview ?? "" }))
+      : [];
+  const todos = activity.phase === "tool-execution" ? (activity.todoSnapshot ?? []) : [];
+  const approval = session.approvalRequest;
+  return interruptSummary({
+    elapsedMs: session.busySince === null ? 0 : Date.now() - session.busySince,
+    receipts,
+    runningTools: running,
+    ...(approval === null ? {} : { pendingApproval: approvalFacts(approval).title }),
+    todos,
+  });
+}
+
 /** Labels share a column so the approval's values line up and read as a record. */
 const APPROVAL_LABEL_COLUMN = 11;
 
@@ -1165,13 +1208,15 @@ export class InkPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  presentInterrupted(agentName: string): Effect.Effect<void, never> {
+  presentInterrupted(_agentName: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // The fullscreen transcript settles the stop as its own summary, taken when the
-      // person pressed the key; this line is the classic interface's account of it.
+      // The fullscreen transcript settles the stop as its own block, snapshotted when the
+      // key was pressed. The Ink transcript prints the same summary here, from the turn's
+      // receipts and whatever was still pending, in the same words.
+      const summary = inkStopSummary();
       store.printOutput({
-        type: "warn",
-        message: formatWarning(agentName, "generation stopped by user"),
+        type: "info",
+        message: interruptSummaryLines(summary).join("\n"),
         timestamp: new Date(),
         meta: { interruptNotice: true },
       });
@@ -1291,12 +1336,14 @@ export class InkPresentationService implements PresentationService {
 
   presentRetry(notice: LlmRetryNotice): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      store.setRetryNotice({ ...notice, retryAt: Date.now() + notice.retryInMs });
-      // The classic interface has no retry band; it keeps the one-line notice. The
+      const now = Date.now();
+      const scheduled = { ...notice, retryAt: now + notice.retryInMs };
+      store.setRetryNotice(scheduled);
+      // The Ink transcript has no live band, so it prints the band's words once. The
       // fullscreen transcript skips this line and draws the band from the store instead.
       store.printOutput({
         type: "info",
-        message: `${chalk.cyan(getGlyphs().pending)} ${retryNoticeText(notice)}`,
+        message: `${chalk.cyan(getGlyphs().pending)} ${retryLine(scheduled, now)}`,
         timestamp: new Date(),
         meta: { retryNotice: true },
       });

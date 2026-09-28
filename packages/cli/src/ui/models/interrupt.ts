@@ -72,12 +72,22 @@ export function interruptSummary(snapshot: InterruptSnapshot): InterruptSummary 
   };
 }
 
+/** `stopped by you after 6.2s`: tenths under a minute, minutes and seconds after. */
+export function stoppedHeading(elapsedMs: number): string {
+  const ms = Math.max(0, Math.round(elapsedMs));
+  const duration =
+    ms < 60_000
+      ? `${(ms / 1_000).toFixed(1)}s`
+      : `${String(Math.floor(ms / 60_000))}m ${String(Math.round((ms % 60_000) / 1_000))}s`;
+  return `stopped by you after ${duration}`;
+}
+
 /** The summary as plain lines, for a renderer that prints text: the words both surfaces share. */
-export function interruptSummaryLines(summary: InterruptSummary, duration: string): string[] {
+export function interruptSummaryLines(summary: InterruptSummary): string[] {
   const label = (text: string, index: number): string =>
     (index === 0 ? text : "").padEnd("not done  ".length);
   return [
-    `stopped by you after ${duration}`,
+    stoppedHeading(summary.elapsedMs),
     ...summary.done.map((item, index) => `${label("done", index)}${item}`),
     ...summary.notDone.map((item, index) => `${label("not done", index)}${item}`),
   ];

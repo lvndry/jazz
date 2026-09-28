@@ -75,6 +75,7 @@ import {
   type Viewport,
 } from "./types";
 import { spaceReasoningSections } from "../../presentation/format-utils";
+import { stoppedHeading } from "../models/interrupt";
 
 /** The rail lives in the left page margin, so the content column never moves. */
 const GUTTER = 2;
@@ -1566,7 +1567,7 @@ const STOPPED_LABEL = "not done  ";
  * what did not, one per row. Never the error colour: stopping is something a person chose.
  */
 function stoppedRows(block: StoppedBlock, geometry: Geometry, glyphs: GlyphSet): RenderRow[] {
-  const heading = `stopped by you after ${formatDuration(block.elapsedMs)} `;
+  const heading = `${stoppedHeading(block.elapsedMs)} `;
   const rule = glyphs.divider.repeat(
     Math.max(0, Math.min(geometry.prose, geometry.content) - terminalCellWidth(heading)),
   );

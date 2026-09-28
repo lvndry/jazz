@@ -1905,3 +1905,28 @@ describe("the run's interrupt handler", () => {
     expect(store.getSessionSnapshot().interruptHandler).toBe(parent);
   });
 });
+
+describe("stopping a turn in the Ink interface", () => {
+  test("prints the same done / not done summary the fullscreen block shows", () => {
+    store.setChatBusy(true);
+    store.printOutput({ type: "user", message: "Get Saturday sorted", timestamp: new Date() });
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: {
+        toolReceipt: { app: "mcp_calendar_create_event", summary: "hold placed", status: "ok" },
+      },
+    });
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    Effect.runSync(service.presentInterrupted("sol"));
+    store.flushOutputBatchNow();
+    const last = store.getOutputSnapshot().entries.at(-1);
+    store.setChatBusy(false);
+
+    expect(last?.meta?.["interruptNotice"]).toBe(true);
+    const text = String(last?.message);
+    expect(text).toMatch(/^stopped by you after \d+\.\ds/);
+    expect(text).toContain("done      mcp_calendar_create_event  hold placed");
+  });
+});

@@ -74,7 +74,7 @@ describe("the stopped block", () => {
 describe("interruptSummaryLines", () => {
   it("prints the same words the fullscreen block draws", () => {
     expect(
-      interruptSummaryLines({ elapsedMs: 0, done: ["hold placed"], notDone: ["reply"] }, "6.2s"),
+      interruptSummaryLines({ elapsedMs: 6_200, done: ["hold placed"], notDone: ["reply"] }),
     ).toEqual(["stopped by you after 6.2s", "done      hold placed", "not done  reply"]);
   });
 });
