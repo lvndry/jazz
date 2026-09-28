@@ -156,12 +156,6 @@ function parseIdList(raw: string): Set<number> {
   );
 }
 
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
-}
-
 function loadConfig(): BridgeConfig {
   const allowedChatIds = parseIdList(process.env["TELEGRAM_ALLOWED_CHAT_IDS"]?.trim() ?? "");
   if (allowedChatIds.size === 0) {
