@@ -693,6 +693,26 @@ describe("input", () => {
     expect(unpadded(some)).toHaveLength(4);
   });
 
+  it("sets the queue above the composer as a chip, off the band, with the key that edits it", () => {
+    const rows = inputRows(
+      { ...base, queued: ["also look for anything from Dana on Slack"] },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const chipRow = rows.find((row) => row.key === "queue:chip");
+    const firstBand = rows.findIndex((row) => row.surface !== undefined);
+    expect(chipRow?.surface).toBeUndefined();
+    expect(rows.indexOf(chipRow as (typeof rows)[number])).toBeLessThan(firstBand);
+
+    const chip = chipRow?.segments.find((segment) => segment.text.includes("queued"));
+    expect(chip).toMatchObject({
+      text: " 1 queued ",
+      fg: THEME.primary,
+      bg: THEME.surfaceStrong,
+      bold: true,
+    });
+    expect(chipRow?.segments.map((segment) => segment.text).join("")).toMatch(/up edit $/);
+  });
+
   it("keeps the newest queued messages when the queue is longer than the cap", () => {
     const queued = ["one", "two", "three", "four"];
     const some = inputRows({ ...base, queued }, { width: WIDTH, height: HEIGHT });

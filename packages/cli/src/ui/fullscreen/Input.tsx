@@ -40,6 +40,7 @@
  * region paints both without changing shape.
  */
 
+import { TextAttributes } from "@opentui/core";
 import { memo, type ReactNode } from "react";
 import { isShellEscape } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
@@ -99,6 +100,7 @@ export interface InputSegment {
   readonly text: string;
   readonly fg: string;
   readonly bg?: string;
+  readonly bold?: boolean;
 }
 
 export interface InputRow {
@@ -210,13 +212,40 @@ function previewQueuedEntry(entry: string): string {
   return entry.replace(/\s+/g, " ").trim();
 }
 
+/** Cells before the queue rows, so the chip lines up with the composer's text. */
+const QUEUE_INDENT = "  ";
+
+/**
+ * What is waiting for the next turn, above the composer rather than inside it: a chip
+ * with the count, in the accent on the element plane, and the key that pulls it all
+ * back to edit. It sits on the canvas because it is not something being typed.
+ */
+function queueChipRow(count: number, width: number): InputRow {
+  return alignRow(
+    "queue:chip",
+    [
+      { text: QUEUE_INDENT, fg: THEME.muted },
+      {
+        text: ` ${String(count)} queued `,
+        fg: THEME.primary,
+        bg: THEME.surfaceStrong,
+        bold: true,
+      },
+    ],
+    [
+      { text: "up", fg: THEME.secondary, bold: true },
+      { text: " edit ", fg: THEME.muted },
+    ],
+    width,
+  );
+}
+
 function queuePreviewRows(entries: readonly string[], width: number, glyphs: GlyphSet): InputRow[] {
   return entries.map((entry, index) => {
     const oneLine = previewQueuedEntry(entry);
     const segments: InputSegment[] = [
-      { text: `${glyphs.bandBar} `, fg: THEME.border },
-      { text: `${glyphs.bullet} `, fg: THEME.muted },
-      { text: oneLine, fg: THEME.muted },
+      { text: `${QUEUE_INDENT} ${glyphs.bullet} `, fg: THEME.muted },
+      { text: oneLine, fg: THEME.secondary },
     ];
     return {
       key: `queue:${String(index)}:${oneLine}`,
@@ -360,38 +389,38 @@ export function inputRows(
   // The text always keeps at least one row, and the list keeps at least one
   // whenever it is open — whichever of them has to shrink, neither vanishes.
   const textBudget = Math.max(1, Math.min(INPUT_MAX_ROWS, budget - commandReserve - previewCount));
-  // The chrome row and the text rows share one budget, so the marker that says
-  // "there is more above" can never itself push the composer past the cap.
-  const capWithChrome = Math.max(1, textBudget - 1);
-  const capWithoutChrome = queuedCount > 0 ? capWithChrome : textBudget;
+  // The queue's count row sits above the band, so it comes out of the text's
+  // budget too; the marker that says "there is more above" then shares what is left.
+  const textRows = Math.max(1, textBudget - queueChrome);
+  const capWithChrome = Math.max(1, textRows - 1);
   let visible = wrapped;
   let hidden = 0;
-  if (lines.length > capWithoutChrome) {
+  if (lines.length > textRows) {
     const cap = capWithChrome;
     hidden = Math.max(0, Math.min(caretLine - (cap - 1), lines.length - cap));
     visible = wrapped.slice(hidden, hidden + cap);
   }
 
   const barFg = shellCommand ? THEME.warning : live ? THEME.primary : THEME.border;
+  const queueRows: InputRow[] =
+    queuedCount > 0
+      ? [queueChipRow(queuedCount, width), ...queuePreviewRows(visibleQueued, width, glyphs)]
+      : [];
   const rows: InputRow[] = [];
-  if (hidden > 0 || queuedCount > 0) {
-    const left: InputSegment[] = [
-      { text: `${glyphs.bandBar} `, fg: THEME.border },
-      ...(hidden > 0
-        ? [
-            {
-              text: `${glyphs.railDeep} ${hidden} more line${hidden === 1 ? "" : "s"}`,
-              fg: THEME.muted,
-            },
-          ]
-        : []),
-    ];
-    const right: InputSegment[] =
-      queuedCount > 0 ? [{ text: `${String(queuedCount)} queued`, fg: THEME.secondary }] : [];
-    rows.push(alignRow("chrome", left, right, width));
-  }
-  if (visibleQueued.length > 0) {
-    rows.push(...queuePreviewRows(visibleQueued, width, glyphs));
+  if (hidden > 0) {
+    rows.push({
+      key: "chrome",
+      segments: fitTerminalSegments(
+        [
+          { text: `${glyphs.bandBar} `, fg: THEME.border },
+          {
+            text: `${glyphs.railDeep} ${hidden} more line${hidden === 1 ? "" : "s"}`,
+            fg: THEME.muted,
+          },
+        ],
+        width,
+      ),
+    });
   }
 
   // The caret's own line may have scrolled out of `visible` — the window
@@ -464,14 +493,18 @@ export function inputRows(
   // Padding rows are the first thing a short terminal gives back: they are
   // drawn only when the text, the queue and one row of any open list all fit.
   const padded =
-    viewport.height >= COMPACT_HEIGHT && rows.length + BAND_PADDING_ROWS + commandReserve <= budget;
+    viewport.height >= COMPACT_HEIGHT &&
+    queueRows.length + rows.length + BAND_PADDING_ROWS + commandReserve <= budget;
   const padRow = (key: string): InputRow => ({
     key,
     segments: [{ text: `${glyphs.bandBar} `, fg: barFg }],
   });
-  const composer = (padded ? [padRow("pad:top"), ...rows, padRow("pad:bottom")] : rows).map((row) =>
-    onBand(row, THEME.surfaceStrong, width),
-  );
+  const composer = [
+    ...queueRows,
+    ...(padded ? [padRow("pad:top"), ...rows, padRow("pad:bottom")] : rows).map((row) =>
+      onBand(row, THEME.surfaceStrong, width),
+    ),
+  ];
 
   // The list is laid on top last so it can be sized against what the text
   // actually took, then it goes above the composer where it belongs.
@@ -515,6 +548,7 @@ function InputView({ model, viewport, focused, maxRows, concealed }: InputProps)
                 style={{
                   fg: segment.fg,
                   ...(segment.bg === undefined ? {} : { bg: segment.bg }),
+                  ...(segment.bold === true ? { attributes: TextAttributes.BOLD } : {}),
                 }}
               >
                 {segment.text}
