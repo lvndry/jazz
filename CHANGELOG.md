@@ -20,15 +20,22 @@ Releases before this file existed are described in their
   fail to load instead of silently meaning `true`.
 - **`autoApprove: false` is strict.** It approves nothing, including tools that
   `read-only` or `low-risk` would have let through.
+- **Private network hosts are one global list, and reaching an unlisted one asks instead of
+  failing.** `network.allowPrivateHosts` moves from each agent's `config.network` to the global
+  config (project configs cannot set it). A model-chosen URL on this machine or the local network
+  asks for approval; approving adds the address to the list. Edit it from `jazz` > Update
+  configuration > Private Network Hosts. An agent file that still has `config.network` is
+  reported by `jazz agent list` and `jazz config validate`, and `agent create`/`edit` refuse it.
 - **Deployed chat bots follow release tags.** `auto-update.sh` moves a bot checkout to the
   newest `vX.Y.Z` tag instead of every commit on `main`.
 
-| Before                                         | After                                                        |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| no `autoApprove` in `WORKFLOW.md` (full yolo)  | add `autoApprove: high-risk` (or `true`) to keep that        |
-| `autoApprove: readonly` (typo, meant yolo)     | fix the spelling: `autoApprove: read-only`                   |
-| `autoApprove: false` still auto-approved reads | use `autoApprove: read-only` to allow reads unattended       |
-| bots auto-updated to every commit on `main`    | set `JAZZ_DEPLOY_BRANCH=main` in the cron entry to keep that |
+| Before                                         | After                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------ |
+| no `autoApprove` in `WORKFLOW.md` (full yolo)  | add `autoApprove: high-risk` (or `true`) to keep that                    |
+| `autoApprove: readonly` (typo, meant yolo)     | fix the spelling: `autoApprove: read-only`                               |
+| `autoApprove: false` still auto-approved reads | use `autoApprove: read-only` to allow reads unattended                   |
+| bots auto-updated to every commit on `main`    | set `JAZZ_DEPLOY_BRANCH=main` in the cron entry to keep that             |
+| agent `config.network.allowPrivateHosts`       | move the entries to `network.allowPrivateHosts` in `~/.jazz/config.json` |
 
 ### Added
 

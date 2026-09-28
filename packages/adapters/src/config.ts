@@ -539,6 +539,22 @@ function mergeMcpServers(
   return merged;
 }
 
+/**
+ * The project config without its `network` section. Which private hosts agents may reach is the
+ * user's call, so a config file that came with a cloned repository cannot widen it.
+ */
+function withoutProjectNetwork(localPath: string, local: ConfigFile): ConfigFile {
+  if (local.network === undefined) {
+    return local;
+  }
+  process.stderr.write(
+    `jazz: ignoring network in ${localPath}. Only your global config lists private hosts; ` +
+      "edit them with jazz > Update configuration > Private network hosts.\n",
+  );
+  const { network: _network, ...rest } = local;
+  return rest;
+}
+
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
 function noticeIgnoredProjectTrust(
   localPath: string,
@@ -576,7 +592,10 @@ export function createConfigLayer(
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : yield* requireValidConfigFile(files.local.path, files.local.document);
+          : withoutProjectNetwork(
+              files.local.path,
+              yield* requireValidConfigFile(files.local.path, files.local.document),
+            );
       const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
       const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
 

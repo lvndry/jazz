@@ -74,6 +74,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Include chat approval commands in parked-run notifications. Requires a running bridge with operators and `JAZZ_APPROVALS_HOME` configured. Defaults to false.",
   "history.maxConversationsPerAgent":
     "Conversations kept in each agent’s live history. Older conversations are archived, not deleted; active goal, loop and run conversations are protected. Defaults to 100.",
+  "network.allowPrivateHosts":
+    "Hosts on this machine or your local network agents may reach without asking: hostnames, `*.suffix` wildcards, IP addresses or CIDR blocks, at most 64. Any other private address asks for approval, and approving adds it here. Read from the global config only. See [Private network hosts](./jazz.md#private-network-hosts).",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":

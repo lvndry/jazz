@@ -47,6 +47,7 @@ import type {
   TelemetryConfig,
   VllmProviderConfig,
   WebSearchConfig,
+  NetworkConfig,
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
@@ -78,6 +79,10 @@ import type {
 } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { isRecord } from "@/core/utils/is-record";
+import {
+  describePrivateHostEntryError,
+  MAX_PRIVATE_HOST_ENTRIES,
+} from "@/core/utils/private-network";
 import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
 import { closestMatch } from "@/core/utils/string";
 
@@ -327,6 +332,20 @@ const webSearchShape = {
   provider: z.enum(WEB_SEARCH_PROVIDERS).exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
+const privateHostEntry = described(
+  z.string().superRefine((entry, refinement) => {
+    const problem = describePrivateHostEntryError(entry);
+    if (problem !== undefined) {
+      refinement.addIssue({ code: "custom", message: problem });
+    }
+  }),
+  "a hostname, *.suffix wildcard, IP address or CIDR block",
+);
+
+const networkShape = {
+  allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
+} satisfies SchemaShape<NetworkConfig>;
+
 const streamingShape = {
   enabled: z.union([flag, z.literal("auto")]).exactOptional(),
   textBufferMs: wholeNumber.exactOptional(),
@@ -570,6 +589,7 @@ const configFileShape = {
   logging: z.strictObject(loggingShape).exactOptional(),
   llm: z.strictObject(llmShape).exactOptional(),
   web_search: z.strictObject(webSearchShape).exactOptional(),
+  network: z.strictObject(networkShape).exactOptional(),
   output: z.strictObject(outputShape).exactOptional(),
   mcpServers: z.record(safeRecordKey, mcpOverrideSchema).exactOptional(),
   notifications: z.strictObject(notificationsShape).exactOptional(),

@@ -72,15 +72,17 @@ renders. It enforces four things.
 - **Bounded bodies.** Responses are streamed against the tool's byte cap and the timeout runs until
   the body is read, so an endless or slow response costs at most the cap and the timeout.
 
-To let an agent reach a service on your own network, list it in the agent's
-`network.allowPrivateHosts` (see [agent configuration](../configure/agents.md#network-access)):
+A URL that reaches this machine or your local network asks for approval instead of failing, and
+approving adds the address to the global `network.allowPrivateHosts`, so the next request goes
+through unasked. List hosts ahead of time in the same setting (see
+[private network hosts](../configure/jazz.md#private-network-hosts)):
 
 ```json
 { "network": { "allowPrivateHosts": ["homeassistant.local", "192.168.1.0/24"] } }
 ```
 
 A hostname entry allows whatever that name resolves to, so list names you control. An address or
-CIDR entry allows those addresses behind any name.
+CIDR entry allows those addresses behind any name. Only the global config file sets it.
 
 ## Secret values in tool output
 

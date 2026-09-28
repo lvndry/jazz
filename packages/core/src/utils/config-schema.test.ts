@@ -714,6 +714,25 @@ describe("checkConfigWrite", () => {
     });
   });
 
+  it("accepts private hosts as hostnames, wildcards, addresses and CIDR blocks", () => {
+    expect(
+      checkConfigWrite("network.allowPrivateHosts", [
+        "homeassistant.local",
+        "*.lan",
+        "192.168.1.10",
+        "10.0.0.0/8",
+        "::1",
+      ]),
+    ).toEqual({ ok: true });
+  });
+
+  it("refuses a private host that is a URL, and more than 64 of them", () => {
+    expect(checkConfigWrite("network.allowPrivateHosts", ["http://nas.lan"]).ok).toBe(false);
+    const entries = Array.from({ length: 65 }, (_unused, index) => `host-${String(index)}.lan`);
+    expect(checkConfigWrite("network.allowPrivateHosts", entries).ok).toBe(false);
+    expect(checkConfigWrite("network", { allowPrivate: ["nas.lan"] }).ok).toBe(false);
+  });
+
   it("refuses a path that is not a setting", () => {
     expect(checkConfigWrite("wizard.lastUsedAgentId", "a")).toEqual({
       ok: false,

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
+import { testConfigLayer } from "@/core/agent/test-config";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import {
   type BrowserExecutableLookup,
@@ -33,7 +34,11 @@ function lookupWithChannels(
 }
 
 function runTool(tool: ReturnType<typeof createCompositionTool>, args: Record<string, unknown>) {
-  return Effect.runPromise(tool.execute(args, context).pipe(Effect.provide(NodeFileSystem.layer)));
+  return Effect.runPromise(
+    tool
+      .execute(args, context)
+      .pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, testConfigLayer()))),
+  );
 }
 
 describe("resolveBrowserExecutablePath", () => {
@@ -126,7 +131,7 @@ describe("create_composition without a browser", () => {
           { html: MINIMAL_HTML, title: "Session composition", mode: "interactive" },
           sessionContext,
         )
-        .pipe(Effect.provide(NodeFileSystem.layer)),
+        .pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, testConfigLayer()))),
     );
 
     expect(result.result).toMatchObject({

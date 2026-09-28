@@ -77,8 +77,9 @@ URLs the model chooses (`http_request`, `web_fetch`, `read_pdf`, and the pages `
 `create_composition` render) reach public hosts only. One guarded fetch resolves each hostname,
 refuses loopback, private, link-local (including cloud metadata), CGNAT, IPv4-mapped and
 unspecified addresses in every spelling, re-checks every redirect hop, drops credential and custom
-headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches its own
-network only through the hosts listed in `network.allowPrivateHosts`.
+headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches your
+own network only through hosts in the global `network.allowPrivateHosts`, or after you approve the
+address, which then joins that list. A project config cannot widen it.
 
 Tool results that carry someone else's words (web pages, API responses, search results, MCP output,
 peer answers, the output of every shell and custom command, files outside the working directory)

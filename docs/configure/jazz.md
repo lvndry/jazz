@@ -168,6 +168,40 @@ The `daemon` caps bound what unattended runs (the daemon's work, `jazz run`, wor
 
 `notify.targets` is where Jazz tells you something needs you, that the daemon paused, that unattended work failed or hit a cap, a reminder a desktop could not show, and a workflow's result. Unset, it is one desktop target. Kinds are `desktop`, `ntfy`, `webhook`, `telegram` and `discord`; secrets live in the keyring. Pick an ntfy topic name nobody can guess: anyone who knows it can read what you are sent. See [Notifications](./notifications.md).
 
+## Private network hosts
+
+The URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, and pages rendered by
+`create_pdf` and `create_composition`) reach public internet hosts directly. A URL that reaches
+this machine or your local network (loopback, private, link-local including the cloud metadata
+address `169.254.169.254`, CGNAT and other non-public addresses) stops for your approval first,
+like any gated call: a prompt in chat, a parked run when you are away, a decline when nobody can
+answer. Approving adds the address to `network.allowPrivateHosts`, so the next request to it goes
+through without asking. A `high-risk` or yolo run reaches it without asking and leaves the list
+as it is.
+
+`network.allowPrivateHosts` applies to every agent and is read from the global config file only;
+a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Update configuration** >
+**Private Network Hosts**, or in the file, at most 64 entries:
+
+```json
+{
+  "network": { "allowPrivateHosts": ["homeassistant.local", "*.lan", "192.168.1.10", "10.0.0.0/8"] }
+}
+```
+
+| Entry                 | Allows                                         |
+| --------------------- | ---------------------------------------------- |
+| `homeassistant.local` | that hostname, whatever address it resolves to |
+| `*.lan`               | every name ending in `.lan`                    |
+| `192.168.1.10`, `::1` | that address, reached by IP or by any hostname |
+| `192.168.1.0/24`      | every address in the block                     |
+
+Use a hostname entry for a name you control, and an address or block entry for a device with a
+fixed address. Approvals add the address the request reached. A redirect or a page subresource
+that lands on an unlisted private address is refused rather than asked about; the model can
+request that URL directly, which asks you. See
+[secrets and egress](../security/secrets-and-egress.md#network-egress) for what the guard checks.
+
 ## MCP overrides
 
 Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`. `trusted` is read from the global file only, and applies only to servers defined in `~/.agents/mcp.json`; a project file's `trusted` is ignored with a warning. See [MCP](./mcp.md#trust-controls-approval-not-identity).

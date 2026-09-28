@@ -33,6 +33,16 @@ describe("agentConfigProblems", () => {
     expect(problems[0]?.message).toContain('"openai"');
   });
 
+  it("flags a leftover network section, which is a global setting now", () => {
+    const problems = agentConfigProblems(
+      agent({ network: { allowPrivateHosts: ["nas.lan"] } } as Partial<Agent["config"]>),
+    );
+    expect(problems).toEqual([
+      expect.objectContaining({ field: "config.network", severity: "error" }),
+    ]);
+    expect(problems[0]?.message).toContain("network.allowPrivateHosts");
+  });
+
   it("warns about a tool nothing built in provides, but not about MCP tools", () => {
     const problems = agentConfigProblems(
       agent({ tools: ["read_fille", "mcp_linear_list_issues"] }),

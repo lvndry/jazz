@@ -17,11 +17,30 @@ export interface SchedulerConfig {
   readonly mode?: SchedulerMode;
 }
 
+/**
+ * Network reach for the URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, headless
+ * renders), for every agent. Read from the global config file only: a project config cannot
+ * widen it.
+ *
+ * Public internet hosts are always reachable. Loopback, private, link-local and other
+ * non-public addresses are refused unless listed here.
+ */
+export interface NetworkConfig {
+  /**
+   * Private hosts agents may reach. Each entry is a hostname (`homeassistant.local`), a
+   * `*.suffix` wildcard (`*.lan`), an IP address (`192.168.1.10`, `::1`) or a CIDR block
+   * (`192.168.1.0/24`). A hostname entry allows whatever that name resolves to; an address or
+   * block entry allows those addresses behind any name. At most 64 entries.
+   */
+  readonly allowPrivateHosts?: readonly string[];
+}
+
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
+  readonly network?: NetworkConfig;
   readonly output?: OutputConfig;
   /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
   readonly mcpServers?: Record<string, MCPServerConfig>;

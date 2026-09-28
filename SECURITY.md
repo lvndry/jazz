@@ -195,10 +195,11 @@ not you. At `high-risk`, a message, or a prompt injection inside a web page the 
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
-Below `high-risk`, Jazz narrows what injected content can do on its own: model-chosen URLs reach
-public hosts only unless the agent lists private ones in `network.allowPrivateHosts`, secret
-values in every tool result are redacted before the model sees them, outside content
-reaches the model labelled as untrusted, and once a run has read it, egress tools need approval.
+Below `high-risk`, Jazz narrows what injected content can do on its own: a model-chosen URL on
+this machine or your network asks for approval unless it is in the global
+`network.allowPrivateHosts`, secret values in every tool result are redacted before the model sees
+them, outside content reaches the model labelled as untrusted, and once a run has read it, egress
+tools need approval.
 See [Secrets and egress](docs/security/secrets-and-egress.md).
 
 ### Before approving, ask

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -187,8 +188,8 @@ async function renderStaticScreenshot(
 
 export function createCompositionTool(
   browserLookup: () => BrowserExecutableLookup = createSystemBrowserLookup,
-): Tool<FileSystem.FileSystem> {
-  return defineTool<FileSystem.FileSystem, CreateCompositionArgs>({
+): Tool<FileSystem.FileSystem | AgentConfigService> {
+  return defineTool<FileSystem.FileSystem | AgentConfigService, CreateCompositionArgs>({
     name: "create_composition",
     disclosure: "internal",
     summary:
@@ -255,16 +256,10 @@ export function createCompositionTool(
           return yield* Effect.fail(new Error(MISSING_BROWSER_ERROR));
         }
 
+        const egressPolicy = yield* egressPolicyForContext(context);
         yield* Effect.tryPromise({
           try: () =>
-            renderStaticScreenshot(
-              htmlPath,
-              pngPath,
-              width,
-              height,
-              executablePath,
-              egressPolicyForContext(context),
-            ),
+            renderStaticScreenshot(htmlPath, pngPath, width, height, executablePath, egressPolicy),
           catch: (error) => new Error(`Failed to render static web app: ${toError(error).message}`),
         });
 

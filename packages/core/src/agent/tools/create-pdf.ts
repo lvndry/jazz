@@ -18,6 +18,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import puppeteer from "puppeteer-core";
 import { z } from "zod";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -117,8 +118,11 @@ async function renderPdf(
 
 export function createPdfTool(
   browserLookup: () => BrowserExecutableLookup = createSystemBrowserLookup,
-): Tool<FileSystem.FileSystem | FileSystemContextService> {
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, CreatePdfArgs>({
+): Tool<FileSystem.FileSystem | FileSystemContextService | AgentConfigService> {
+  return defineTool<
+    FileSystem.FileSystem | FileSystemContextService | AgentConfigService,
+    CreatePdfArgs
+  >({
     name: "create_pdf",
     disclosure: "internal",
     summary:
@@ -151,6 +155,7 @@ export function createPdfTool(
         const htmlPath = `${pdfPath}.source.html`;
         yield* fs.writeFileString(htmlPath, args.html);
 
+        const egressPolicy = yield* egressPolicyForContext(context);
         yield* Effect.tryPromise({
           try: () =>
             renderPdf(
@@ -161,7 +166,7 @@ export function createPdfTool(
                 landscape: args.landscape ?? false,
                 format: args.format ?? "A4",
               },
-              egressPolicyForContext(context),
+              egressPolicy,
             ),
           catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });
