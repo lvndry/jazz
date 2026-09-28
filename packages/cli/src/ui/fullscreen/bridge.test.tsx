@@ -2784,8 +2784,9 @@ describe("fullscreen bridge", () => {
     const rows = text.split("\n").filter((row) => row.length > 0);
     const composerIndex = rows.findIndex((row) => row.includes("Ask anything"));
     expect(composerIndex).toBeGreaterThan(1);
-    expect(rows[composerIndex - 1]?.trim()).toBe("");
-    const waitingRow = rows[composerIndex - 2] ?? "";
+    // Band padding, then the quiet row, then the live band's indicator.
+    expect(rows[composerIndex - 2]?.trim()).toBe("");
+    const waitingRow = rows[composerIndex - 3] ?? "";
     expect(waitingRow.trim().length).toBeGreaterThan(0);
   });
 

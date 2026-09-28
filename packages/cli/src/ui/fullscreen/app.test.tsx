@@ -126,7 +126,8 @@ describe("fullscreen frame", () => {
     expect(idleInput).toBeGreaterThan(0);
     expect(busyInput).toBe(idleInput);
     // The composer never sits on the live band — one quiet row between them.
-    expect(busy.rows[busyInput - 1]?.trim()).toBe("");
+    // Above the band's top padding row, one quiet row.
+    expect(busy.rows[busyInput - 2]?.trim()).toBe("");
   });
 
   it("shows the whole approval card, naming the real account verbatim", async () => {
@@ -668,14 +669,14 @@ describe("composer after a completed turn", () => {
     );
     await renderOnce();
     const idle = captureCharFrame();
-    expect(idle).toContain(getGlyphs().promptCursor);
+    expect(idle).toContain(`${getGlyphs().bandBar} Ask anything`);
     expect(idle).toContain("enter to send");
 
     await mockInput.pressKey("x");
     await settle(flush);
     const typed = captureCharFrame();
     renderer.destroy();
-    expect(typed).toContain(getGlyphs().promptCursor);
+    expect(typed).toContain(`${getGlyphs().bandBar} x`);
     expect(typed).toContain("x");
     expect(typed).toContain("enter to send");
   });

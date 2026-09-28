@@ -54,7 +54,7 @@ import {
   terminalSegmentsWidth,
   wrapTerminalCells,
 } from "./terminal-cells";
-import type { InputModel, Viewport } from "./types";
+import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
 
 /**
  * The composer grows to six rows and then scrolls inside itself. Past six rows
@@ -85,8 +85,14 @@ export function wrapCommandIndex(index: number, length: number): number {
   return wrapIndex(index, length);
 }
 
-/** Frame rail, prompt marker, and the spaces that keep the text column still. */
-const GUTTER_CELLS = 4;
+/** The band's bar and its space on the left, one cell of padding on the right. */
+const GUTTER_CELLS = 3;
+
+/** Cells kept between the draft's first line and the model on the right. */
+const META_GAP = 2;
+
+/** Top and bottom padding rows of the composer's band. */
+const BAND_PADDING_ROWS = 2;
 
 export interface InputSegment {
   readonly text: string;
@@ -107,6 +113,21 @@ export function wrapCells(value: string, columns: number): string[] {
     lines.push(...wrapTerminalCells(paragraph, width));
   }
   return lines;
+}
+
+/**
+ * A row laid on a band: every cell takes the band's ground unless it already
+ * has its own (the caret, a selection), and the row is filled to the full width
+ * so the band reads as one surface rather than as highlighted text.
+ */
+function onBand(row: InputRow, surface: string, width: number): InputRow {
+  const fitted = fitTerminalSegments(row.segments, width);
+  const gap = Math.max(0, width - terminalSegmentsWidth(fitted));
+  const segments: InputSegment[] = fitted.map((segment) =>
+    segment.bg === undefined ? { ...segment, bg: surface } : segment,
+  );
+  if (gap > 0) segments.push({ text: " ".repeat(gap), fg: THEME.muted, bg: surface });
+  return { key: row.key, segments };
 }
 
 function alignRow(
@@ -161,7 +182,7 @@ function commandSuggestRows(
     const descriptionBudget = Math.max(0, width - lead - tagCells);
     const description = clipTerminalCells(plainDescription(command.description), descriptionBudget);
     const segments: InputSegment[] = [
-      { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
+      { text: selected ? `${glyphs.bandBar} ` : "  ", fg: THEME.primary },
       {
         text: name.padEnd(name.length + labelColumn - terminalCellWidth(name)),
         fg: selected ? THEME.selected : THEME.secondary,
@@ -190,7 +211,7 @@ function queuePreviewRows(entries: readonly string[], width: number, glyphs: Gly
   return entries.map((entry, index) => {
     const oneLine = previewQueuedEntry(entry);
     const segments: InputSegment[] = [
-      { text: `${glyphs.rail} `, fg: THEME.border },
+      { text: `${glyphs.bandBar} `, fg: THEME.border },
       { text: `${glyphs.bullet} `, fg: THEME.muted },
       { text: oneLine, fg: THEME.muted },
     ];
@@ -206,7 +227,7 @@ function caret(character: string): InputSegment {
 }
 
 function selected(character: string, fg: string): InputSegment {
-  return { text: character, fg, bg: THEME.surfaceStrong };
+  return { text: character, fg, bg: THEME.muted };
 }
 
 function pushSegment(segments: InputSegment[], segment: InputSegment): void {
@@ -348,10 +369,11 @@ export function inputRows(
     visible = wrapped.slice(hidden, hidden + cap);
   }
 
+  const barFg = shellCommand ? THEME.warning : live ? THEME.primary : THEME.border;
   const rows: InputRow[] = [];
   if (hidden > 0 || queuedCount > 0) {
     const left: InputSegment[] = [
-      { text: `${glyphs.rail} `, fg: THEME.border },
+      { text: `${glyphs.bandBar} `, fg: THEME.border },
       ...(hidden > 0
         ? [
             {
@@ -376,17 +398,12 @@ export function inputRows(
   const visibleCaretLine = Math.max(0, caretLine - hidden);
 
   visible.forEach((line, index) => {
-    const rail: InputSegment = {
-      text: `${glyphs.rail} `,
-      fg: shellCommand ? THEME.warning : live ? THEME.primary : THEME.border,
+    // The bar is the composer's state: the accent while it takes keys, the
+    // warning hue while the line is a shell escape, the border tone otherwise.
+    const bar: InputSegment = {
+      text: `${glyphs.bandBar} `,
+      fg: barFg,
     };
-    const marker: InputSegment =
-      index === 0
-        ? {
-            text: `${glyphs.promptCursor} `,
-            fg: shellCommand ? THEME.warning : live ? THEME.prompt : THEME.muted,
-          }
-        : { text: "  ", fg: THEME.muted };
 
     const body: InputSegment[] = [];
     const onCaretLine = live && index === visibleCaretLine;
@@ -425,14 +442,42 @@ export function inputRows(
       }
     }
 
-    rows.push({ key: `line:${String(index)}`, segments: [rail, marker, ...body] });
+    const meta = index === 0 && model.meta !== undefined ? model.meta : "";
+    const room = contentWidth - terminalSegmentsWidth(body) - META_GAP;
+    const right: InputSegment[] =
+      meta.length > 0 && terminalCellWidth(meta) <= room
+        ? [
+            { text: meta, fg: THEME.muted },
+            { text: " ", fg: THEME.muted },
+          ]
+        : [];
+    rows.push(
+      right.length === 0
+        ? { key: `line:${String(index)}`, segments: [bar, ...body] }
+        : alignRow(`line:${String(index)}`, [bar, ...body], right, width),
+    );
   });
+
+  // Padding rows are the first thing a short terminal gives back: they are
+  // drawn only when the text, the queue and one row of any open list all fit.
+  const padded =
+    viewport.height >= COMPACT_HEIGHT && rows.length + BAND_PADDING_ROWS + commandReserve <= budget;
+  const padRow = (key: string): InputRow => ({
+    key,
+    segments: [{ text: `${glyphs.bandBar} `, fg: barFg }],
+  });
+  const composer = (padded ? [padRow("pad:top"), ...rows, padRow("pad:bottom")] : rows).map((row) =>
+    onBand(row, THEME.surfaceStrong, width),
+  );
 
   // The list is laid on top last so it can be sized against what the text
   // actually took, then it goes above the composer where it belongs.
-  if (!wantsCommands || model.commands === undefined) return rows;
-  const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - rows.length));
-  return [...commandSuggestRows(model.commands, width, glyphs, listSize), ...rows];
+  if (!wantsCommands || model.commands === undefined) return composer;
+  const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - composer.length));
+  const list = commandSuggestRows(model.commands, width, glyphs, listSize).map((row) =>
+    onBand(row, THEME.surface, width),
+  );
+  return [...list, ...composer];
 }
 
 function InputView({ model, viewport, focused, maxRows, concealed }: InputProps): ReactNode {

@@ -20,6 +20,7 @@ import {
 } from "@opentui/react";
 import { Effect } from "effect";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import {
@@ -574,9 +575,17 @@ function AppView({
   const viewportRef = useRef<Viewport>({ width, height });
   viewportRef.current = reuseViewport(width, height, viewportRef.current);
   const viewport = viewportRef.current;
+  const composerMeta =
+    view.header.reasoning === undefined
+      ? view.header.model
+      : `${view.header.model} ${getGlyphs().bullet} ${view.header.reasoning}`;
   const inputModel = useMemo(
-    () => ({ ...view.input, disabled: view.input.disabled || overlayOpen }),
-    [view.input, overlayOpen],
+    () => ({
+      ...view.input,
+      disabled: view.input.disabled || overlayOpen,
+      ...(view.input.meta === undefined ? { meta: composerMeta } : {}),
+    }),
+    [view.input, overlayOpen, composerMeta],
   );
   const overlayKind = view.overlay?.kind;
   const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
