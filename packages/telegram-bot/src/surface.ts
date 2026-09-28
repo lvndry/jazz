@@ -355,6 +355,13 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
       });
     },
 
+    async deleteReceived(chatId: ChatId, ref: MessageRef): Promise<void> {
+      await call("deleteMessage", {
+        chat_id: Number.parseInt(chatId, 10),
+        message_id: Number.parseInt(ref, 10),
+      });
+    },
+
     async typing(chatId: ChatId): Promise<void> {
       await call(
         "sendChatAction",

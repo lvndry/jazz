@@ -96,7 +96,7 @@ export function capLifted(state: DaemonState, now: Date): boolean {
 
 /** Something that cannot go on until the person answers or looks at it. */
 export type WaitingKind =
-  "approval" | "question" | "file" | "goal-review" | "goal-limit" | "loop-stopped";
+  "approval" | "question" | "secret" | "file" | "goal-review" | "goal-limit" | "loop-stopped";
 
 export interface WaitingItem {
   /** Changes whenever something new starts waiting, so each is announced once. */
@@ -137,7 +137,9 @@ export function describePendingInput(pending: PendingInput): string {
     ? pending.request.message
     : pending.kind === "question"
       ? pending.request.question
-      : "a file to be picked";
+      : pending.kind === "secret"
+        ? pending.request.prompt
+        : "a file to be picked";
 }
 
 /**
@@ -187,6 +189,13 @@ export function parkedRunWaitingItem(input: {
         kind: "file",
         title: `${who} needs a file`,
       };
+    case "secret":
+      return {
+        ...common,
+        key: `run:${input.runId}:${pending.toolCallId}`,
+        kind: "secret",
+        title: `${who} needs a secret you type`,
+      };
   }
 }
 
@@ -206,6 +215,9 @@ export function answerHint(
   if (item.runId !== undefined && item.kind === "question") {
     return `jazz runs answer ${item.runId} --response "<your answer>"`;
   }
+  if (item.runId !== undefined && item.kind === "secret") {
+    return `jazz runs secret ${item.runId} (in a terminal)`;
+  }
   if (item.goalId !== undefined) {
     return `jazz goal show ${item.goalId.slice(0, 8)}`;
   }
@@ -218,6 +230,7 @@ export function answerHint(
 const waitingKinds = [
   "approval",
   "question",
+  "secret",
   "file",
   "goal-review",
   "goal-limit",

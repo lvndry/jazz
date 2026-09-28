@@ -14,6 +14,7 @@ import { answerGrantsSomething, type ResumeRunOptions } from "@jazz/core/agent/r
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { readConcealedLine } from "@jazz/core/presentation/concealed-line";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
@@ -29,7 +30,9 @@ function describeState(record: RunRecord): string {
     case "input-required":
       return state.pending.kind === "tool-approval"
         ? `waiting on approval: ${state.pending.request.toolName}`
-        : "waiting on an answer";
+        : state.pending.kind === "secret"
+          ? "waiting on a secret (jazz runs secret)"
+          : "waiting on an answer";
     case "working":
       return "working";
     case "submitted":
@@ -155,12 +158,17 @@ export function answerRunCommand(options: {
                     ...(options.note !== undefined ? { userMessage: options.note } : {}),
                   },
           };
-  const fail = (message: string) => Effect.sync(() => failEnvelope(options.json, message));
+  return resumeWithAnswer(options.runId, outcome, options.json);
+}
+
+/** Resume `runId` with `outcome` in this process and report how it ended. */
+function resumeWithAnswer(runId: string, outcome: ResumeRunOptions["outcome"], json: boolean) {
+  const fail = (message: string) => Effect.sync(() => failEnvelope(json, message));
   return Effect.gen(function* () {
     if (answerGrantsSomething(outcome) && isAgentStartedProcess()) {
       return yield* fail(AGENT_ANSWER_REFUSAL);
     }
-    const result = yield* resumeOwnedRun({ runId: options.runId, outcome });
+    const result = yield* resumeOwnedRun({ runId, outcome });
     if (result.kind === "blocked") {
       return yield* fail(result.reason);
     }
@@ -175,8 +183,8 @@ export function answerRunCommand(options: {
       return yield* fail(settled.error);
     }
     emitEnvelope(
-      options.json,
-      { ok: true, runId: options.runId, answer: settled.response.content },
+      json,
+      { ok: true, runId, answer: settled.response.content },
       settled.response.content,
     );
   }).pipe(
@@ -187,6 +195,52 @@ export function answerRunCommand(options: {
     // The resumed run renders like `jazz run`: stdout carries only the result (one envelope
     // with --json), never the agent's progress.
     Effect.provide(makeOneShotPresentationServiceLayer(new Set())),
+  );
+}
+
+/**
+ * Type the secret a parked run asked for and let it finish.
+ *
+ * The value is read with a bullet drawn per character (or as the first line of a piped stdin)
+ * and handed to the resumed run in this process's memory; it is never stored, logged or put on
+ * a command line. Submitting nothing, or Esc, declines.
+ */
+export function answerRunSecretCommand(options: {
+  readonly runId: string;
+  readonly json: boolean;
+  /** Reads the secret after showing `prompt`; the terminal by default. */
+  readonly readSecret?: (prompt: string) => Promise<string | undefined>;
+}) {
+  return Effect.gen(function* () {
+    const store = yield* RunStoreTag;
+    const record = yield* store.get(options.runId);
+    if (record === undefined) {
+      return failEnvelope(options.json, `No run with id "${options.runId}".`);
+    }
+    const pending = record.state.kind === "input-required" ? record.state.pending : undefined;
+    if (pending?.kind !== "secret") {
+      return failEnvelope(options.json, `Run ${options.runId} is not waiting for a secret.`);
+    }
+    if (isAgentStartedProcess()) {
+      return failEnvelope(options.json, AGENT_ANSWER_REFUSAL);
+    }
+    const readSecret = options.readSecret ?? ((prompt: string) => readConcealedLine(prompt));
+    const value = yield* Effect.promise(() =>
+      readSecret(`🔒 ${pending.request.prompt}\nType it (hidden; Esc to decline): `),
+    );
+    const outcome: ResumeRunOptions["outcome"] = {
+      kind: "secret",
+      value:
+        value === undefined || value.length === 0
+          ? { kind: "declined" }
+          : { kind: "provided", value },
+    };
+    return yield* resumeWithAnswer(options.runId, outcome, options.json);
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => failEnvelope(options.json, getErrorMessage(error))),
+    ),
+    Effect.provide(makeFileRunStoreLayer()),
   );
 }
 

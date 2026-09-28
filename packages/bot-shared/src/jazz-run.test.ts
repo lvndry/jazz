@@ -1,7 +1,11 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
+import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
+import { OneShotPresentationService } from "@jazz/core/presentation/oneshot-presentation-service";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import type { ChatSandbox } from "./chat-sandbox";
 import {
   buildJazzRunArgs,
@@ -9,6 +13,7 @@ import {
   type JazzRunOptions,
   startJazzRun,
   stdinFrame,
+  userSecretResponseLine,
 } from "./jazz-run";
 
 const sandbox: ChatSandbox = { home: "/data", uid: null, gid: null, isolated: false };
@@ -148,5 +153,39 @@ describe("createKillTimer", () => {
     timer.resume();
     await Bun.sleep(40);
     expect(killed).toBe(false);
+  });
+});
+
+describe("userSecretResponseLine", () => {
+  test("is the answer a jazz run reads for each thing a person can do", async () => {
+    const stdin = new PassThrough();
+    const writeStderr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const run = new OneShotPresentationService(
+        DEFAULT_DISPLAY_CONFIG,
+        new Set(["approval_required"]),
+        stdin,
+        undefined,
+        "protocol",
+      );
+      const asked = [1, 2, 3].map(() =>
+        Effect.runPromise(run.requestSecretInput({ prompt: "p", name: "n" })),
+      );
+      await Bun.sleep(1);
+      const lines = [
+        userSecretResponseLine("secret-1", { kind: "provided", value: "v-typed" }),
+        userSecretResponseLine("secret-2", { kind: "declined" }),
+        userSecretResponseLine("secret-3", { kind: "shared-chat" }),
+      ];
+      stdin.write(lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
+      expect(await Promise.all(asked)).toEqual([
+        { kind: "provided", value: "v-typed" },
+        { kind: "declined" },
+        { kind: "unavailable", reason: "shared-chat" },
+      ]);
+    } finally {
+      process.stderr.write = writeStderr;
+    }
   });
 });

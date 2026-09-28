@@ -275,7 +275,7 @@ rather keep the batch path and take tool events only.
 ## Asking the human something
 
 An unattended run has nobody to ask, so by default the tools that solicit an answer ,
-`ask_user_question`, `ask_file_picker`: are **not offered to the model at all**. It never
+`ask_user_question`, `ask_file_picker`, `ask_user_secret`: are **not offered to the model at all**. It never
 sees them, so it cannot spend a round on a question that will not be answered, and cannot
 mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
 something would hang until its timeout for nobody's benefit.

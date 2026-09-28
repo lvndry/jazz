@@ -281,6 +281,7 @@ one, runs begun from somewhere else entirely.
 | `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes                                               |
 | `jazz runs reject <runId>`  | Refuse what it's waiting for; `--note <text>` tells it why                                                       |
 | `jazz runs answer <runId>`  | Answer a question the run asked, in your own words: `--response <text>` (empty declines it)                      |
+| `jazz runs secret <runId>`  | Type the secret the run asked for, hidden (or pipe it in); held in memory for the resumed run. Empty declines    |
 | `jazz runs cancel <runId>`  | Abandon a parked run without answering it                                                                        |
 
 A run parks when it hits something needing your approval and nobody is there to give it: see

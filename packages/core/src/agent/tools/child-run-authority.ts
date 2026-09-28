@@ -4,7 +4,8 @@
  * Spawning grants nothing new: the child runs under the parent's live approval policy
  * getter (so a mode switch reaches it, and no policy stays no policy), the same command and
  * tool allowlists by reference, the parent's egress taint (so untrusted content the parent
- * read still gates the child's egress), and at most the parent's effective tool set. When the
+ * read still gates the child's egress), the parent's typed secrets (so the child redacts them
+ * and can pass their placeholders to the tools that take them), and at most the parent's effective tool set. When the
  * parent's set is unknown the child gets no tools, unless the parent is itself an explicit
  * `unrestrictedTools` caller, in which case the child resolves the agent's own toolset.
  *
@@ -21,6 +22,7 @@ export type ChildRunAuthority = Pick<
   | "autoApprovedCommands"
   | "autoApprovedTools"
   | "egressTaint"
+  | "userSecrets"
 >;
 
 export function childRunAuthority(context: ToolExecutionContext): ChildRunAuthority {
@@ -42,5 +44,6 @@ export function childRunAuthority(context: ToolExecutionContext): ChildRunAuthor
       ? { autoApprovedTools: context.autoApprovedTools }
       : {}),
     ...(context.egressTaint !== undefined ? { egressTaint: context.egressTaint } : {}),
+    ...(context.userSecrets !== undefined ? { userSecrets: context.userSecrets } : {}),
   };
 }

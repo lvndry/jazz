@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { type AccessConfig, decideAccess, isGroupJid, normalizeJid, parseJidList } from "./access";
+import {
+  type AccessConfig,
+  decideAccess,
+  isDirectChatJid,
+  isGroupJid,
+  normalizeJid,
+  parseJidList,
+} from "./access";
 
 describe("normalizeJid", () => {
   test("reduces a DM jid to its digits", () => {
@@ -33,6 +40,15 @@ describe("isGroupJid", () => {
   test("distinguishes a group from a person", () => {
     expect(isGroupJid("120363042@g.us")).toBe(true);
     expect(isGroupJid("33123456789@s.whatsapp.net")).toBe(false);
+  });
+});
+
+describe("isDirectChatJid", () => {
+  test("is a person's chat, not a group or a broadcast", () => {
+    expect(isDirectChatJid("33123456789@s.whatsapp.net")).toBe(true);
+    expect(isDirectChatJid("8a3f9b2c@lid")).toBe(true);
+    expect(isDirectChatJid("120363042@g.us")).toBe(false);
+    expect(isDirectChatJid("status@broadcast")).toBe(false);
   });
 });
 

@@ -186,6 +186,17 @@ export interface Tool<R = never> {
    */
   readonly peerGrantRequired?: boolean;
   /**
+   * The top-level string arguments a secret the person typed into `ask_user_secret` may reach.
+   * The registry replaces each `[redacted:<name>]` of this run's typed secrets in these
+   * arguments with the value just before the tool runs; for an approval pair that is the
+   * execute half, after the approval was shown and granted. A call carrying one anywhere else,
+   * or to a tool without this list, is refused.
+   *
+   * Name only arguments whose value stays on this machine and is written nowhere: a local
+   * reader's password, or `execute_command`'s command, which a person approves every time.
+   */
+  readonly userSecretArguments?: readonly string[];
+  /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.
    */

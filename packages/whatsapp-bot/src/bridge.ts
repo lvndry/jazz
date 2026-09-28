@@ -28,7 +28,13 @@ import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-impo
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import qrcode from "qrcode-terminal";
-import { type AccessConfig, decideAccess, normalizeJid, parseJidList } from "./access";
+import {
+  type AccessConfig,
+  decideAccess,
+  isDirectChatJid,
+  normalizeJid,
+  parseJidList,
+} from "./access";
 import { agentIdForChat, jidFromAgentId } from "./agents";
 import { createWhatsAppSurface } from "./surface";
 import { connect, type Connection, type WhatsAppMessage } from "./whatsapp";
@@ -293,7 +299,12 @@ export async function handleIncoming(
   const prompt = await promptFrom(message, connection, config.jazzHome);
   if (prompt.length === 0) return;
 
-  await runner.handle({ chatId: message.chatJid, senderId, text: prompt });
+  await runner.handle({
+    chatId: message.chatJid,
+    senderId,
+    text: prompt,
+    privateChat: isDirectChatJid(message.chatJid),
+  });
 }
 
 export async function startBridge(): Promise<void> {

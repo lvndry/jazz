@@ -175,6 +175,8 @@ When a Telegram or Discord target points at a chat that a running Jazz bridge se
   cannot approve its own run.
 
 A question (rather than a tool approval) is answered with `jazz runs answer <runId> --response`.
+A secret the run asked for is never answered from chat: type it in a terminal with
+`jazz runs secret <runId>`.
 
 ## Related
 

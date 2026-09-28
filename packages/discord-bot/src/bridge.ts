@@ -485,7 +485,12 @@ export async function dispatchMessage(
       .filter((part) => part.length > 0)
       .join("\n\n");
     if (prompt.length === 0) return;
-    await bridge.runner.handle({ chatId: channelId, senderId: message.author.id, text: prompt });
+    await bridge.runner.handle({
+      chatId: channelId,
+      senderId: message.author.id,
+      text: prompt,
+      privateChat: meta.type === CHANNEL_TYPE_DM,
+    });
   } catch (error) {
     console.error(`Handling failed for ${message.channel_id}: ${String(error)}`);
     await bridge.runner
@@ -629,6 +634,7 @@ export async function dispatchSlash(
     chatId: channelId,
     senderId: userId,
     text: slashCommandText(interaction),
+    privateChat: meta.type === CHANNEL_TYPE_DM || interaction.guild_id === undefined,
   });
   // A command answers in a moment; one that starts a run (/remind) is shown by its own
   // progress message, so the placeholder goes as soon as the reply is under way.

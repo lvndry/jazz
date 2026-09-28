@@ -162,6 +162,38 @@ caught. Shell children also lose credential-named environment variables (see bel
 isolation remains the job of a dedicated OS user or container (see
 [unattended runs](./unattended-runs.md)).
 
+## Secrets the person types
+
+Some secrets exist only in your head: the password of an encrypted PDF, a one-time code, a disk
+passphrase. The agent asks for one with `ask_user_secret`, and the value never reaches the model:
+
+- **You type it hidden.** In the terminal, both interfaces draw one `•` per character and never
+  show the value, before or after you press Enter. Esc declines. `jazz run` at a terminal reads it
+  the same way; piped into a run, the first line of stdin is taken as it is.
+- **The model gets a placeholder**, `[redacted:<name>]` (for example `[redacted:pdf-password]`),
+  and passes it as-is to the argument that needs the secret.
+- **The value is held in memory for the rest of the run**, and forgotten when the run ends.
+  While it is held, it is a known secret: every tool result, approval preview and log line has it
+  replaced by its placeholder, whatever its length. It is never written to the transcript, the
+  conversation log, the run record or a provider request.
+- **Only declared arguments get the value.** Just before a tool runs, Jazz puts the value in place
+  of the placeholder in the arguments that tool declares for secrets: `password` of `read_pdf` and
+  `pdf_page_count`, and `command` of `execute_command`. A command carrying one always asks you,
+  under every auto-approve policy, and its approval shows the placeholder. Any other tool or
+  argument carrying the placeholder is refused, so it cannot reach a file, a URL, a web search, an
+  MCP server, a notification or a sub-agent's prompt. A placeholder standing for a secret Jazz holds
+  in its config (`[redacted:llm.openai.api_key]`) is never replaced by anything.
+- **A parked run asks again.** A run nobody can answer (a goal, a loop, `jazz run --park`) parks
+  with the prompt and name only. Type the secret in a terminal with `jazz runs secret <run id>`; it
+  goes to the resumed run in memory. A run resumed for any other reason starts with no typed
+  secrets, so the model asks again.
+- **In a chat bridge, only a private chat collects one.** Telegram, Discord, WhatsApp and iMessage
+  ask for it in a one-to-one chat with the bot and take your next message as the value; that
+  message is never forwarded to the agent as a turn. The Telegram bridge deletes your message as
+  soon as it is read; on the other platforms a bot cannot delete it, so the prompt tells you to
+  delete it yourself. In a group, a server channel or a Photon space, the secret is not collected:
+  the chat is told to use a private chat instead, and the agent is told the same.
+
 ## Content from outside is labelled
 
 Results that carry someone else's words arrive inside an `<untrusted-content>` envelope that names

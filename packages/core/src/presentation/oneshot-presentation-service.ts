@@ -10,12 +10,15 @@ import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
   PresentationService,
+  SecretInputOutcome,
+  SecretInputRequest,
   StreamingRenderer,
   StreamingRendererConfig,
   UserInputOutcome,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { readConcealedLine } from "@/core/presentation/concealed-line";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
@@ -81,6 +84,45 @@ interface UserInputResponseLine {
   readonly type: "user_input_response";
   readonly requestId: string;
   readonly response: string;
+}
+
+/**
+ * Shape of a line written back to `stdinStream` to answer a pending secret: the typed `value`,
+ * `declined`, or `unavailable` with why (a bridge in a shared chat).
+ */
+interface UserSecretResponseLine {
+  readonly type: "user_secret_response";
+  readonly requestId: string;
+  readonly outcome: SecretInputOutcome;
+}
+
+function parseUserSecretResponseLine(line: string): UserSecretResponseLine | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate["type"] !== "user_secret_response" || typeof candidate["requestId"] !== "string") {
+    return undefined;
+  }
+  const requestId = candidate["requestId"];
+  const value = candidate["value"];
+  if (typeof value === "string" && value.length > 0) {
+    return { type: "user_secret_response", requestId, outcome: { kind: "provided", value } };
+  }
+  if (candidate["unavailable"] === "shared-chat") {
+    return {
+      type: "user_secret_response",
+      requestId,
+      outcome: { kind: "unavailable", reason: "shared-chat" },
+    };
+  }
+  return { type: "user_secret_response", requestId, outcome: { kind: "declined" } };
 }
 
 function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefined {
@@ -156,6 +198,9 @@ function parseUserInputResponseLine(line: string): UserInputResponseLine | undef
 export class OneShotPresentationService implements PresentationService {
   private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
   private readonly pendingUserInputs = new Map<string, (response: string) => void>();
+  private readonly pendingSecrets = new Map<string, (outcome: SecretInputOutcome) => void>();
+  /** Set while a secret is read from the terminal, so the line reader never sees its keys. */
+  private concealing = false;
   // Questions have no id of their own the way a tool call does, so one is minted
   // here. Only ever compared against ids this process emitted, so a counter is
   // enough — it does not need to be unguessable or unique across runs.
@@ -191,6 +236,9 @@ export class OneShotPresentationService implements PresentationService {
     let buffer = "";
     this.stdinStream.setEncoding?.("utf-8");
     this.stdinStream.on("data", (chunk: string | Buffer) => {
+      if (this.concealing) {
+        return;
+      }
       buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
       let newlineIndex = buffer.indexOf("\n");
       while (newlineIndex >= 0) {
@@ -223,6 +271,16 @@ export class OneShotPresentationService implements PresentationService {
           if (!resolveInput) continue;
           this.pendingUserInputs.delete(answer.requestId);
           resolveInput(answer.response);
+          continue;
+        }
+        const secret = parseUserSecretResponseLine(line);
+        if (secret) {
+          const resolveSecret = this.pendingSecrets.get(secret.requestId);
+          if (!resolveSecret) {
+            continue;
+          }
+          this.pendingSecrets.delete(secret.requestId);
+          resolveSecret(secret.outcome);
         }
       }
     });
@@ -513,6 +571,59 @@ export class OneShotPresentationService implements PresentationService {
       });
       return Effect.sync(() => {
         pendingUserInputs.delete(requestId);
+      });
+    });
+  }
+
+  /**
+   * Ask the person for a secret. At a terminal it is typed with bullets drawn for it; over the
+   * event protocol a `user_secret_required` line carries the prompt and name, and the consumer
+   * writes a `user_secret_response` back. Nothing is ever printed or emitted with the value.
+   */
+  requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
+    if (this.askMode === "none") {
+      return Effect.succeed({ kind: "unavailable" });
+    }
+    if (this.askMode === "protocol" && !this.eventsActive) {
+      return Effect.succeed({ kind: "unavailable" });
+    }
+    this.onApprovalWaitStart?.();
+    if (this.askMode === "tty") {
+      return Effect.promise(async (): Promise<SecretInputOutcome> => {
+        this.concealing = true;
+        try {
+          const value = await readConcealedLine(
+            `\n🔒 ${request.prompt}\nType it (hidden; Esc to decline): `,
+            { input: this.stdinStream as NodeJS.ReadStream, output: process.stderr },
+          );
+          return value === undefined || value.length === 0
+            ? { kind: "declined" }
+            : { kind: "provided", value };
+        } finally {
+          this.concealing = false;
+          if (this.stdinReaderStarted) {
+            this.stdinStream.resume();
+          }
+        }
+      });
+    }
+
+    this.userInputSequence += 1;
+    const requestId = `secret-${this.userInputSequence}`;
+    process.stderr.write(
+      `${JSON.stringify({
+        type: "user_secret_required",
+        requestId,
+        prompt: request.prompt,
+        name: request.name,
+      })}\n`,
+    );
+    this.ensureStdinReaderStarted();
+    const pendingSecrets = this.pendingSecrets;
+    return Effect.async<SecretInputOutcome, never>((resume) => {
+      pendingSecrets.set(requestId, (outcome) => resume(Effect.succeed(outcome)));
+      return Effect.sync(() => {
+        pendingSecrets.delete(requestId);
       });
     });
   }

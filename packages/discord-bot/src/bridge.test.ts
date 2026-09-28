@@ -98,6 +98,7 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
       questionAnswers.push({ requestId, response });
       return Promise.resolve();
     },
+    answerSecret: () => Promise.resolve(),
     cancel: () => settle({ ok: false, error: "cancelled" }),
   };
 }

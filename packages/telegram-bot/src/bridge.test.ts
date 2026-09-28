@@ -122,6 +122,7 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
       return Promise.resolve();
     },
     answerQuestion: () => Promise.resolve(),
+    answerSecret: () => Promise.resolve(),
     cancel: () => {
       cancelled = true;
       settle({ ok: false, error: "cancelled" });
@@ -215,6 +216,21 @@ describe("messages", () => {
     expect(
       inboundFrom({ chat: { id: OWNER }, from: { id: OWNER }, text: "/status@my_jazz_bot" }),
     ).toMatchObject({ text: "/status@my_jazz_bot", senderId: String(OWNER) });
+  });
+
+  test("a message says whether its chat is private, and carries its own id and words", () => {
+    expect(
+      inboundFrom({
+        message_id: 77,
+        chat: { id: OWNER, type: "private" },
+        from: { id: OWNER },
+        text: "s3cret",
+        reply_to_message: { text: "The agent needs a secret" },
+      }),
+    ).toMatchObject({ privateChat: true, ref: "77", ownText: "s3cret" });
+    expect(
+      inboundFrom({ chat: { id: -100, type: "supergroup" }, from: { id: OWNER }, text: "hi" }),
+    ).toMatchObject({ privateChat: false });
   });
 
   test("the answer is rendered from Markdown, not escaped as text", async () => {

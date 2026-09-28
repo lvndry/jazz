@@ -6,6 +6,7 @@ import {
   formatOneShotResult,
   ONE_SHOT_EXIT,
   type OneShotSuccess,
+  formatOneShotParked,
 } from "./envelope";
 
 const baseResult: OneShotSuccess = {
@@ -196,5 +197,43 @@ describe("ONE_SHOT_EXIT", () => {
   it("uses the shell's 128 + signal convention for interruptions", () => {
     expect(ONE_SHOT_EXIT.interrupted).toBe(130);
     expect(ONE_SHOT_EXIT.terminated).toBe(143);
+  });
+});
+
+describe("formatOneShotParked", () => {
+  const parked = {
+    runId: "run-1",
+    expiresAt: "2026-10-01T00:00:00Z",
+    pending: {
+      kind: "secret" as const,
+      toolCallId: "call_1",
+      request: { prompt: "Password for a.pdf", name: "pdf-password" },
+    },
+  };
+
+  it("names the terminal command for a secret, in words and in JSON", () => {
+    const text = formatOneShotParked(parked, { json: false });
+    expect(text).toContain("Waiting for a secret: Password for a.pdf");
+    expect(text).toContain("jazz runs secret run-1");
+    expect(JSON.parse(formatOneShotParked(parked, { json: true }))).toMatchObject({
+      state: "input-required",
+      pending: { kind: "secret", prompt: "Password for a.pdf", name: "pdf-password" },
+    });
+  });
+
+  it("reports a parked question as a question, not an approval", () => {
+    const text = formatOneShotParked(
+      {
+        ...parked,
+        pending: {
+          kind: "question",
+          toolCallId: "call_2",
+          request: { question: "Which city?", suggestions: [], allowCustom: true },
+        },
+      },
+      { json: false },
+    );
+    expect(text).toContain("Waiting for an answer: Which city?");
+    expect(text).toContain('jazz runs answer run-1 --response "<your answer>"');
   });
 });

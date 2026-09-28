@@ -100,6 +100,7 @@ const LEGACY_PENDING_TO_WAITING_KIND: Readonly<Record<string, WaitingItem["kind"
 const LEGACY_PENDING_TITLE: Readonly<Record<WaitingItem["kind"], string>> = {
   approval: "needs your approval",
   question: "has a question",
+  secret: "needs a secret you type",
   file: "needs a file",
   "goal-review": "needs a review",
   "goal-limit": "stopped at its cycle cap",

@@ -2848,6 +2848,22 @@ function registerRunsCommands(program: Command): void {
     );
 
   runsCommand
+    .command("secret <runId>")
+    .description(
+      "Type the secret a parked run asked you for: hidden as you type, or read from the first line of piped stdin, and held only in memory for the resumed run",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/run/lifecycle").then((mod) =>
+            mod.answerRunSecretCommand({ runId, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
     .command("reject <runId>")
     .description(
       "Refuse what a parked run is waiting for; it resumes and reasons about the refusal",

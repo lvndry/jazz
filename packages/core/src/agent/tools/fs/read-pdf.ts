@@ -229,7 +229,11 @@ export function createReadPdfTool(): Tool<
         .positive()
         .optional()
         .describe("Max characters returned. Default 512000."),
-      password: z.string().min(1).optional().describe("For encrypted PDFs."),
+      password: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("For encrypted PDFs: the placeholder from ask_user_secret."),
     })
     .strict()
     .refine((value) => (value.path === undefined) !== (value.url === undefined), {
@@ -248,6 +252,7 @@ export function createReadPdfTool(): Tool<
     // query string just as with web_fetch. That makes this an egress tool even though its local
     // `path` mode touches nothing but disk.
     egress: true,
+    userSecretArguments: ["password"],
     description:
       "Extract text and tables from a local or remote PDF's text layer. For a large PDF, call pdf_page_count first, then read 10–20 pages per call.",
     tags: ["filesystem", "read", "pdf"],
@@ -284,8 +289,8 @@ export function createReadPdfTool(): Tool<
               result: null,
               error: isPdfPasswordError(parseError)
                 ? args.password
-                  ? "PDF parsing failed: the password provided is incorrect."
-                  : "PDF parsing failed: this PDF is password-protected. Retry with the `password` argument."
+                  ? "PDF parsing failed: the password provided is incorrect. Ask the person again with ask_user_secret and pass the new placeholder as `password`."
+                  : "PDF parsing failed: this PDF is password-protected. Ask the person for its password with ask_user_secret and pass the placeholder it returns as `password`."
                 : `PDF parsing failed: ${parseError.message}`,
             } satisfies ToolExecutionResult;
           }

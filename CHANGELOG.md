@@ -41,6 +41,13 @@ Releases before this file existed are described in their
 
 ### Added
 
+- **`ask_user_secret`: secrets the person types stay out of the model.** The agent asks for a
+  password, token or passphrase; it is typed hidden (bullets in both terminal interfaces, a
+  private chat in the bridges) and the model gets `[redacted:<name>]`. The value is held in memory
+  for the run, redacted from every tool result and log line, and put back only into `read_pdf`'s
+  and `pdf_page_count`'s `password` and `execute_command`'s `command` (which then always asks).
+  A parked run takes the secret with `jazz runs secret <run id>`. See
+  [Secrets the person types](docs/security/secrets-and-egress.md#secrets-the-person-types).
 - **Private network hosts.** A model-chosen URL on this machine or the local network asks for
   approval, and approving adds the address to the global `network.allowPrivateHosts`, so later
   requests go through unasked. Only the global config sets the list; edit it from `jazz` > Update
@@ -66,5 +73,7 @@ Releases before this file existed are described in their
 
 ### Fixed
 
+- `jazz run --park` reported a run parked on a question as waiting for an approval, with the
+  approve command; it now names what the run waits for and the command that answers it.
 - `jazz runs approve --json` printed the resumed run's progress to stdout ahead of its
   envelope; stdout now carries only the envelope.

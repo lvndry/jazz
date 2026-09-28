@@ -12,6 +12,7 @@
  */
 
 import { isTruncated, type AnswerFailureCode } from "@jazz/core/agent/run/answer-outcome";
+import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import { describeArtifact, type GeneratedArtifact } from "@jazz/core/types/artifact";
 import type { FinishReason } from "@jazz/core/types/chat";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -173,39 +174,80 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
  * Neither success nor failure: no answer was produced, but nothing went wrong and the work
  * is still there to finish. Callers that only branch on `ok` treat it as a failure, which
  * is the safe reading; callers that know about parking read `state` and `runId` and come
- * back with `jazz runs approve`.
+ * back with the command the pending input names.
  */
 export function formatOneShotParked(
   parked: {
     readonly runId: string;
     readonly expiresAt: string;
-    readonly toolName: string;
-    readonly toolCallId: string;
-    readonly message: string;
+    readonly pending: PendingInput;
   },
   options: OneShotOutputOptions,
   costUSD = 0,
 ): string {
+  const { pending, runId } = parked;
   if (options.json) {
     return `${JSON.stringify({
       ok: false,
       state: "input-required",
-      runId: parked.runId,
+      runId,
       expiresAt: parked.expiresAt,
-      pending: {
-        kind: "tool-approval",
-        toolName: parked.toolName,
-        toolCallId: parked.toolCallId,
-        message: parked.message,
-      },
+      pending: parkedPendingSummary(pending),
       costUSD,
     })}\n`;
   }
-  return (
-    `Waiting for approval: ${parked.message}\n` +
-    `Run ${parked.runId} is parked until ${parked.expiresAt}.\n` +
-    `Approve it with: jazz runs approve ${parked.runId}\n`
-  );
+  const waiting = `Run ${runId} is parked until ${parked.expiresAt}.\n`;
+  switch (pending.kind) {
+    case "tool-approval":
+      return (
+        `Waiting for approval: ${pending.request.message}\n${waiting}` +
+        `Approve it with: jazz runs approve ${runId}\n`
+      );
+    case "question":
+      return (
+        `Waiting for an answer: ${pending.request.question}\n${waiting}` +
+        `Answer it with: jazz runs answer ${runId} --response "<your answer>"\n`
+      );
+    case "secret":
+      return (
+        `Waiting for a secret: ${pending.request.prompt}\n${waiting}` +
+        `Type it in a terminal with: jazz runs secret ${runId}\n`
+      );
+    case "file-picker":
+      return `Waiting for a file to be picked: ${pending.request.message}\n${waiting}`;
+  }
+}
+
+/** What a parked run waits on, for the JSON envelope. A secret carries its prompt only. */
+function parkedPendingSummary(pending: PendingInput) {
+  switch (pending.kind) {
+    case "tool-approval":
+      return {
+        kind: pending.kind,
+        toolName: pending.request.toolName,
+        toolCallId: pending.request.toolCallId,
+        message: pending.request.message,
+      };
+    case "question":
+      return {
+        kind: pending.kind,
+        toolCallId: pending.toolCallId,
+        question: pending.request.question,
+      };
+    case "secret":
+      return {
+        kind: pending.kind,
+        toolCallId: pending.toolCallId,
+        prompt: pending.request.prompt,
+        name: pending.request.name,
+      };
+    case "file-picker":
+      return {
+        kind: pending.kind,
+        toolCallId: pending.toolCallId,
+        message: pending.request.message,
+      };
+  }
 }
 
 /** What a failed run had spent before it stopped. */
