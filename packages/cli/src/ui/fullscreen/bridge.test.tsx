@@ -800,8 +800,8 @@ describe("fullscreen bridge", () => {
         ],
       });
     });
-    expect(text).toContain("/Users/lvndry/github/jazz");
-    expect(text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
+    expect(text).toContain("darwin 24.6.0 (arm64)");
+    expect(text).not.toContain("/bin/zsh");
     store.setActiveMenu(null);
   });
 

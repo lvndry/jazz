@@ -42,6 +42,7 @@ import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
+import { compactWorkingDirectory } from "../working-directory";
 
 /** Markers live in the left margin, so the text column never moves. */
 const GUTTER = 2;
@@ -216,9 +217,18 @@ function identityRows(model: HomeModel, glyphs: GlyphSet, content: number): Home
 
 /** The environment as one muted line: the facts that orient you, joined, nothing else. */
 function environmentRows(facts: readonly HomeFact[], glyphs: GlyphSet, content: number): HomeRow[] {
-  const shown = ENVIRONMENT_LINE_FACTS.map(
-    (label) => facts.find((fact) => fact.label === label)?.detail,
-  ).filter((detail): detail is string => detail !== undefined && detail.length > 0);
+  // The os fact carries shell and user after its first ` · `; the line keeps the
+  // system alone, and the directory reads from `~`.
+  const shorten = (label: string, detail: string): string =>
+    label === "cwd"
+      ? compactWorkingDirectory(detail)
+      : label === "os"
+        ? (detail.split(" · ")[0] ?? detail)
+        : detail;
+  const shown = ENVIRONMENT_LINE_FACTS.map((label) => {
+    const detail = facts.find((fact) => fact.label === label)?.detail;
+    return detail === undefined ? undefined : shorten(label, detail);
+  }).filter((detail): detail is string => detail !== undefined && detail.length > 0);
   if (shown.length === 0) return [];
   return [
     {

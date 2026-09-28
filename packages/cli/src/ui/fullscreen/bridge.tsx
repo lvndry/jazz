@@ -106,6 +106,7 @@ import {
   type SubagentListModel,
   type ViewModel,
 } from "./types";
+import { compactWorkingDirectory } from "./working-directory";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
@@ -968,15 +969,6 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
   const todo = todos[index];
   if (todo === undefined) return undefined;
   return { index: index + 1, total: todos.length, label: todo.content };
-}
-
-function compactWorkingDirectory(workingDirectory: string | null): string {
-  const cwd = workingDirectory ?? process.cwd();
-  const home = process.env["HOME"];
-  if (home !== undefined && (cwd === home || cwd.startsWith(`${home}/`))) {
-    return `~${cwd.slice(home.length)}`;
-  }
-  return cwd;
 }
 
 /**

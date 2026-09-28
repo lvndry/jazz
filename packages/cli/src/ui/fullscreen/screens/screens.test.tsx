@@ -30,6 +30,7 @@ import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
+import { compactWorkingDirectory } from "../working-directory";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };
@@ -399,9 +400,11 @@ describe("home screen", () => {
     );
 
     // One muted line, directory first: where you are and what runs it.
-    const line = drawn.rows.find((row) => row.includes("/Users/lvndry/github/jazz")) ?? "";
-    expect(line).toContain(`/Users/lvndry/github/jazz ${getGlyphs().bullet} darwin 24.6.0 (arm64)`);
-    const lineSpan = allSpans(drawn.frame).find((span) => span.text.includes("/Users/lvndry"));
+    const cwd = compactWorkingDirectory("/Users/lvndry/github/jazz");
+    const line = drawn.rows.find((row) => row.includes(cwd)) ?? "";
+    expect(line).toContain(`${cwd} ${getGlyphs().bullet} darwin 24.6.0 (arm64)`);
+    expect(line).not.toContain("/bin/zsh");
+    const lineSpan = allSpans(drawn.frame).find((span) => span.text.includes("darwin 24.6.0"));
     expect(lineSpan === undefined ? undefined : hexOf(lineSpan)).toBe(THEME.muted.toUpperCase());
     expect(drawn.text).not.toContain("environment");
     expect(drawn.text).not.toContain("Wednesday, August 26, 2026");
@@ -412,7 +415,7 @@ describe("home screen", () => {
     const short: Viewport = { width: 100, height: 14 };
     const rows = homeRows(GROUNDED, short);
     const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).not.toContain("/Users/lvndry/github/jazz");
+    expect(text).not.toContain("darwin 24.6.0");
     expect(rows.length).toBeLessThanOrEqual(short.height - 1);
   });
 
