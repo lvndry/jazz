@@ -106,6 +106,7 @@ import {
   type SubagentListModel,
   type ViewModel,
 } from "./types";
+import { useStreamReveal } from "./use-stream-reveal";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
@@ -1053,6 +1054,7 @@ export function FullscreenBridge(): React.ReactNode {
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
   const streaming = output.streaming;
+  const revealedStreaming = useStreamReveal(streaming);
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -2509,12 +2511,15 @@ export function FullscreenBridge(): React.ReactNode {
   const blocks = useMemo(() => {
     const next =
       inspectedRun === undefined
-        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
+        ? transcriptBlocks(
+            { outputs, streaming: revealedStreaming, regions },
+            previousBlocks.current,
+          )
         : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
-  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
+  }, [outputs, revealedStreaming, regions, inspectedRun, elapsedMs]);
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;
