@@ -8,8 +8,6 @@ import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
-const G = getGlyphs();
-
 function elapsed(startedAt: number): string {
   const seconds = Math.max(0, (Date.now() - startedAt) / 1000);
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
@@ -56,7 +54,7 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
       paddingLeft={PADDING.content}
     >
       <Box>
-        <Text color={headerColor}>{G.arrow} </Text>
+        <Text color={headerColor}>{getGlyphs().arrow} </Text>
         <Text
           color={headerColor}
           italic

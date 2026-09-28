@@ -6,8 +6,6 @@ import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
-const G = getGlyphs();
-
 interface ScrollableSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
   readonly pageSize?: number;
@@ -99,7 +97,7 @@ export function ScrollableSelect<T = unknown>({
                 color={THEME.primary}
                 bold
               >
-                {row.active ? `${G.rail} ` : "  "}
+                {row.active ? `${getGlyphs().rail} ` : "  "}
               </Text>
               <Text
                 color={row.active ? THEME.selected : THEME.secondary}

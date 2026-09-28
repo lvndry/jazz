@@ -29,8 +29,6 @@ import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 import { useFileMentions } from "./use-file-mentions";
 
-const G = getGlyphs();
-
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
 // Above TEXT_INPUT (100) so ↑ recalls history on a single-line buffer, below
@@ -411,7 +409,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                {G.rail}{" "}
+                {getGlyphs().rail}{" "}
               </Text>
               <Box
                 flexDirection="column"
@@ -457,7 +455,7 @@ function PromptComponent({
                   color={THEME.error}
                   bold
                 >
-                  {G.error} {validationError}
+                  {getGlyphs().error} {validationError}
                 </Text>
               </Box>
             )}

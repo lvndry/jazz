@@ -8,8 +8,6 @@ import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
 import packageJson from "../../../../package.json";
 
-const G = getGlyphs();
-
 /**
  * Menu option for the wizard
  */
@@ -144,7 +142,7 @@ export function WizardHome({
           bold
           color={THEME.primary}
         >
-          {G.note} Jazz
+          {getGlyphs().note} Jazz
         </Text>
         <Text dimColor>v{packageJson.version} · your everyday agentic CLI</Text>
       </Box>
@@ -177,7 +175,7 @@ export function WizardHome({
 
       {/* Tip — below menu, subtle */}
       <Box marginTop={1}>
-        <Text color={THEME.primary}>{G.note} </Text>
+        <Text color={THEME.primary}>{getGlyphs().note} </Text>
         <Text
           dimColor
           italic
@@ -203,7 +201,7 @@ function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): R
           color={THEME.primary}
           bold
         >
-          {G.rail}
+          {getGlyphs().rail}
         </Text>
       ) : (
         <Text> </Text>

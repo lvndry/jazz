@@ -14,8 +14,6 @@ import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
-const G = getGlyphs();
-
 interface SearchSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
   readonly pageSize?: number;
@@ -159,7 +157,7 @@ export function SearchSelect<T = unknown>({
             color={THEME.primary}
             bold
           >
-            {typedAnswer.active ? `${G.rail} ` : "  "}
+            {typedAnswer.active ? `${getGlyphs().rail} ` : "  "}
           </Text>
           <Text
             color={typedAnswer.active ? THEME.selected : THEME.secondary}
@@ -194,7 +192,7 @@ function PickerRowLine({
         color={THEME.primary}
         bold
       >
-        {row.active ? `${G.rail} ` : "  "}
+        {row.active ? `${getGlyphs().rail} ` : "  "}
       </Text>
       {row.matchIndex >= 0 && queryLength > 0 ? (
         <Text

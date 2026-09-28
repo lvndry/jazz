@@ -6,6 +6,7 @@ import type {
 } from "@jazz/core/interfaces/terminal";
 import type { GlyphSet } from "./glyphs";
 import { contextPercent, meterFilledCells, meterTone } from "./meter";
+import { THEME } from "./theme";
 
 /**
  * How a command report reads, independent of any terminal: jazz speaking, not the agent.
@@ -319,4 +320,39 @@ export function reportStyledText(
   width?: number,
 ): string {
   return textOf(report, glyphs, width, (segment) => paint(segment.role, segment.text));
+}
+
+/** How a report role is set: a theme colour, and whether it carries weight. */
+export interface RoleStyle {
+  readonly fg: string;
+  readonly bold: boolean;
+}
+
+/**
+ * The one table from a command report's roles to colours. The scrollback and fullscreen
+ * renderers both read it, so a report looks the same in either and a theme change reaches both.
+ */
+export function reportRoleStyle(role: ReportRole): RoleStyle {
+  switch (role) {
+    case "label":
+      return { fg: THEME.secondary, bold: true };
+    case "text":
+      return { fg: THEME.selected, bold: false };
+    case "strong":
+      return { fg: THEME.selected, bold: true };
+    case "secondary":
+      return { fg: THEME.secondary, bold: false };
+    case "muted":
+      return { fg: THEME.muted, bold: false };
+    case "accent":
+      return { fg: THEME.primary, bold: false };
+    case "success":
+      return { fg: THEME.success, bold: false };
+    case "warning":
+      return { fg: THEME.warning, bold: false };
+    case "error":
+      return { fg: THEME.error, bold: false };
+    case "border":
+      return { fg: THEME.border, bold: false };
+  }
 }

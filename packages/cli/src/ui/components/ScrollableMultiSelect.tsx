@@ -7,8 +7,6 @@ import { pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
-const G = getGlyphs();
-
 interface ScrollableMultiSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
   readonly defaultSelected?: T | readonly T[];
@@ -108,7 +106,7 @@ export function ScrollableMultiSelect<T = unknown>({
               color={THEME.primary}
               bold
             >
-              {row.active ? G.rail : " "}
+              {row.active ? getGlyphs().rail : " "}
             </Text>
             <Text
               color={row.active ? THEME.selected : THEME.secondary}

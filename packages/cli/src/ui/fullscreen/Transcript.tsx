@@ -57,7 +57,12 @@ import {
   type SyntaxSpan,
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
+import {
+  reportLines,
+  reportRoleStyle,
+  type ReportRole,
+  type ReportSegment,
+} from "../report-layout";
 import { getThemeRevision, THEME } from "../theme";
 import { linkAtColumn, openLink } from "./open-link";
 import {
@@ -890,7 +895,10 @@ function tableRows(
 
 // ─── Blocks to rows ──────────────────────────────────────────────────────────
 
-const BLANK_CELL: Segment = { text: " ", fg: THEME.border };
+/** The spacer cell after the gutter mark, in the current theme. */
+function blankCell(): Segment {
+  return { text: " ", fg: THEME.border };
+}
 
 // Blank, not the rail glyph — copy-pasting a reply must not drag a bar along.
 function railCell(color: string): Segment {
@@ -900,7 +908,7 @@ function railCell(color: string): Segment {
 function blankRow(key: string, contentWidth: number): RenderRow {
   return {
     key,
-    gutter: [railCell(THEME.border), BLANK_CELL],
+    gutter: [railCell(THEME.border), blankCell()],
     content: [],
     contentWidth,
     meta: [],
@@ -1082,7 +1090,7 @@ function userRows(
     [{ text: block.text, fg: THEME.selected }],
     Math.max(1, geometry.prose - BAND_PADDING),
   );
-  const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: THEME.primary }, BLANK_CELL];
+  const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: THEME.primary }, blankCell()];
   const panel = (
     key: string,
     content: readonly Segment[],
@@ -1170,7 +1178,7 @@ function appendProseItems(
 ): void {
   const rows = state.rows;
   const gutterFor = (): readonly Segment[] => {
-    const gutter = [state.first ? style.marker : style.rail, BLANK_CELL];
+    const gutter = [state.first ? style.marker : style.rail, blankCell()];
     state.first = false;
     return gutter;
   };
@@ -1632,7 +1640,7 @@ function reasoningRows(
   glyphs: GlyphSet,
 ): RenderRow[] {
   const rail = railCell(THEME.border);
-  const gutter: readonly Segment[] = [rail, BLANK_CELL];
+  const gutter: readonly Segment[] = [rail, blankCell()];
   const indent: Segment = { text: " ".repeat(REASONING_INDENT), fg: THEME.border };
   const row = (
     key: string,
@@ -1808,7 +1816,7 @@ function receiptRows(
     if (packed.length === 0) return;
     rows.push({
       key: `${packedKey}:packed`,
-      gutter: [rail, BLANK_CELL],
+      gutter: [rail, blankCell()],
       content: packed,
       contentWidth: geometry.prose,
       meta: [],
@@ -1844,7 +1852,7 @@ function receiptRows(
           if (line === undefined) continue;
           rows.push({
             key: `${block.id}:${String(lineIndex)}`,
-            gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, BLANK_CELL],
+            gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, blankCell()],
             content: line,
             contentWidth: geometry.prose,
             meta: lineIndex === 0 ? meta : [],
@@ -1859,7 +1867,7 @@ function receiptRows(
           if (spans === undefined) continue;
           rows.push({
             key: `${block.id}:detail:${String(index)}`,
-            gutter: [rail, BLANK_CELL],
+            gutter: [rail, blankCell()],
             content: fitTerminalSegments([...spans], geometry.content),
             contentWidth: geometry.content,
             meta: [],
@@ -1911,10 +1919,10 @@ function noticeRows(
         ? { text: glyph, fg: tone }
         : glyph !== undefined
           ? railCell(THEME.border)
-          : BLANK_CELL;
+          : blankCell();
     rows.push({
       key: `${block.id}:${String(index)}`,
-      gutter: [gutterMark, BLANK_CELL],
+      gutter: [gutterMark, blankCell()],
       content: line,
       contentWidth: geometry.prose,
       meta: [],
@@ -1924,28 +1932,8 @@ function noticeRows(
 }
 
 function reportColor(role: ReportRole): Segment {
-  switch (role) {
-    case "label":
-      return { text: "", fg: THEME.secondary, bold: true };
-    case "text":
-      return { text: "", fg: THEME.selected };
-    case "strong":
-      return { text: "", fg: THEME.selected, bold: true };
-    case "secondary":
-      return { text: "", fg: THEME.secondary };
-    case "muted":
-      return { text: "", fg: THEME.muted };
-    case "accent":
-      return { text: "", fg: THEME.primary };
-    case "success":
-      return { text: "", fg: THEME.success };
-    case "warning":
-      return { text: "", fg: THEME.warning };
-    case "error":
-      return { text: "", fg: THEME.error };
-    case "border":
-      return { text: "", fg: THEME.border };
-  }
+  const style = reportRoleStyle(role);
+  return style.bold ? { text: "", fg: style.fg, bold: true } : { text: "", fg: style.fg };
 }
 
 /**
@@ -1977,7 +1965,7 @@ function reportRows(
     wrapped.forEach((content, wrapIndex) => {
       rows.push({
         key: `${block.id}:${String(lineIndex)}:${String(wrapIndex)}`,
-        gutter: [BLANK_CELL, BLANK_CELL],
+        gutter: [blankCell(), blankCell()],
         content: [...(wrapIndex === 0 ? prefix : [continuation]), ...content],
         contentWidth: geometry.prose,
         meta: [],
@@ -1997,7 +1985,7 @@ function dividerRows(
   return [
     {
       key: `${block.id}:0`,
-      gutter: [railCell(THEME.border), BLANK_CELL],
+      gutter: [railCell(THEME.border), blankCell()],
       content: [
         { text: label, fg: THEME.muted },
         { text: rule, fg: THEME.border },
@@ -2023,7 +2011,7 @@ function stoppedRows(block: StoppedBlock, geometry: Geometry, glyphs: GlyphSet):
   const rows: RenderRow[] = [
     {
       key: `${block.id}:rule`,
-      gutter: [railCell(THEME.border), BLANK_CELL],
+      gutter: [railCell(THEME.border), blankCell()],
       content: [
         { text: heading, fg: THEME.muted },
         { text: rule, fg: THEME.border },
@@ -2043,7 +2031,7 @@ function stoppedRows(block: StoppedBlock, geometry: Geometry, glyphs: GlyphSet):
       ];
       rows.push({
         key: `${block.id}:${label}:${String(index)}`,
-        gutter: [railCell(THEME.border), BLANK_CELL],
+        gutter: [railCell(THEME.border), blankCell()],
         content,
         contentWidth: geometry.prose,
         meta: [],
