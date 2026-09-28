@@ -57,6 +57,12 @@ export interface ChatMessage {
   content: string;
   /** Retained through compaction so a later turn can still quote it; tool output never carries one. */
   memorySource?: MemorySource;
+  /**
+   * Host-recorded external-content exposure. Tool delivery sets this and compaction carries it
+   * into summaries, so clearing text or resuming a stored conversation cannot relax egress.
+   * Never derive this field from model-authored summary text.
+   */
+  readonly egressTainted?: true;
   name?: string;
   /**
    * For role === "tool": the id of the tool call this message responds to

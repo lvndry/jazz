@@ -10,12 +10,12 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { LOCAL_SERVER_PROVIDERS } from "@jazz/core/constants/local-providers";
 import {
   LLM_PROVIDER_ENV_VAR_ALIASES,
   LLM_PROVIDER_ENV_VARS,
   SECRET_ENV_VARS,
-} from "@jazz/adapters/secrets/registry";
-import { LOCAL_SERVER_PROVIDERS } from "@jazz/core/constants/local-providers";
+} from "@jazz/core/secrets/registry";
 import { describe, expect, it } from "bun:test";
 import ts from "typescript";
 

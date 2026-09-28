@@ -8,9 +8,9 @@
  */
 
 import { PeerTokenServiceTag, type PeerTokenService } from "@jazz/core/interfaces/peers";
+import { peerTokenEnvVar, peerTokenPath } from "@jazz/core/secrets/registry";
 import { Effect, Layer } from "effect";
 import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
-import { peerTokenEnvVar, peerTokenPath } from "@/adapters/secrets/registry";
 
 /**
  * The environment first, then the keyring.

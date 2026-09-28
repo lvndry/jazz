@@ -7,11 +7,14 @@ import {
   SECRET_PATHS,
   envVarForSecretPath,
   isSecretPath,
-  REDACTED_SECRET,
+  heldSecretPaths,
+  isSecretEnvVarName,
+  isWithheldEnvVarName,
   redactSecretValues,
   webhookTokenEnvVar,
   webhookTokenPath,
 } from "./registry";
+import { redactionPlaceholder } from "./secret-names";
 
 describe("secret registry", () => {
   it("treats known LLM, web search, and Google secret paths as secrets", () => {
@@ -154,16 +157,35 @@ describe("redactSecretValues", () => {
     };
 
     expect(redactSecretValues(config)).toEqual({
-      llm: { openai: { api_key: REDACTED_SECRET, base_url: "https://api.openai.com" } },
-      daemon: { token: REDACTED_SECRET },
-      peers: { sam: { token: REDACTED_SECRET, url: "https://sam.example" } },
-      telemetry: { otlp: { headers: { "x-api-key": REDACTED_SECRET } } },
+      llm: {
+        openai: {
+          api_key: redactionPlaceholder("llm.openai.api_key"),
+          base_url: "https://api.openai.com",
+        },
+      },
+      daemon: { token: redactionPlaceholder("daemon.token") },
+      peers: {
+        sam: { token: redactionPlaceholder("peers.sam.token"), url: "https://sam.example" },
+      },
+      telemetry: {
+        otlp: {
+          headers: { "x-api-key": redactionPlaceholder("telemetry.otlp.headers.x-api-key") },
+        },
+      },
       mcpServers: {
         "com.example.mcp": {
           command: "server",
-          env: { SIGNOZ_API_KEY: REDACTED_SECRET, LOG_LEVEL: REDACTED_SECRET },
+          env: {
+            SIGNOZ_API_KEY: redactionPlaceholder("mcpServers.com.example.mcp.env.SIGNOZ_API_KEY"),
+            LOG_LEVEL: redactionPlaceholder("mcpServers.com.example.mcp.env.LOG_LEVEL"),
+          },
         },
-        remote: { url: "https://mcp.example", headers: { Authorization: REDACTED_SECRET } },
+        remote: {
+          url: "https://mcp.example",
+          headers: {
+            Authorization: redactionPlaceholder("mcpServers.remote.headers.Authorization"),
+          },
+        },
       },
       logging: { level: "info" },
     });
@@ -178,23 +200,27 @@ describe("redactSecretValues", () => {
     ).toEqual({
       mcpServers: {
         "com.example": {
-          headers: { "X.Api.Key": REDACTED_SECRET },
-          env: { "vendor.key": REDACTED_SECRET },
+          headers: {
+            "X.Api.Key": redactionPlaceholder("mcpServers.com.example.headers.X.Api.Key"),
+          },
+          env: { "vendor.key": redactionPlaceholder("mcpServers.com.example.env.vendor.key") },
         },
       },
     });
     expect(redactSecretValues(headers, "mcpServers.com.example.headers")).toEqual({
-      "X.Api.Key": REDACTED_SECRET,
+      "X.Api.Key": redactionPlaceholder("mcpServers.com.example.headers.X.Api.Key"),
     });
     expect(redactSecretValues("secret", "mcpServers.com.example.headers.X.Api.Key")).toBe(
-      REDACTED_SECRET,
+      redactionPlaceholder("mcpServers.com.example.headers.X.Api.Key"),
     );
   });
 
   it("redacts a single secret value looked up by its own path", () => {
-    expect(redactSecretValues("sk-live", "llm.openai.api_key")).toBe(REDACTED_SECRET);
+    expect(redactSecretValues("sk-live", "llm.openai.api_key")).toBe(
+      redactionPlaceholder("llm.openai.api_key"),
+    );
     expect(redactSecretValues({ api_key: "sk-live" }, "llm.openai")).toEqual({
-      api_key: REDACTED_SECRET,
+      api_key: redactionPlaceholder("llm.openai.api_key"),
     });
     expect(redactSecretValues("info", "logging.level")).toBe("info");
   });
@@ -203,5 +229,62 @@ describe("redactSecretValues", () => {
     expect(redactSecretValues({ llm: { openai: { api_key: "" } } })).toEqual({
       llm: { openai: { api_key: "" } },
     });
+  });
+});
+
+describe("secret environment variable names", () => {
+  it("counts every variable Jazz reads a secret from, whatever its words", () => {
+    expect(isSecretEnvVarName("JAZZ_NOTIFY_OPS_WEBHOOK_URL")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_NOTIFY_PHONE_BOT_TOKEN")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_NOTIFY_HOOK_SECRET")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_PEER_TOKEN_SAM")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_WEBHOOK_TOKEN_DEPLOY")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_WEBHOOK_SECRET_DEPLOY")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_DAEMON_TOKEN")).toBe(true);
+    expect(isSecretEnvVarName("GEMINI_API_KEY")).toBe(true);
+  });
+
+  it("leaves Jazz's other variables alone", () => {
+    expect(isSecretEnvVarName("JAZZ_HOME")).toBe(false);
+    expect(isSecretEnvVarName("JAZZ_NOTIFY_OPS_URL")).toBe(false);
+    expect(isWithheldEnvVarName("JAZZ_HOME")).toBe(false);
+  });
+
+  it("withholds from a child process any name with a secret word in it", () => {
+    expect(isWithheldEnvVarName("JAZZ_NOTIFY_OPS_WEBHOOK_URL")).toBe(true);
+    expect(isWithheldEnvVarName("GITHUB_TOKEN_FILE")).toBe(true);
+    expect(isSecretEnvVarName("GITHUB_TOKEN_FILE")).toBe(false);
+  });
+});
+
+describe("heldSecretPaths", () => {
+  it("names every door, notify and daemon secret the config implies", () => {
+    const paths = heldSecretPaths({
+      llm: { custom: { api_key: "" } },
+      peers: [{ name: "sam", url: "https://sam.example" }],
+      webhooks: [{ name: "deploy", agentId: "a" }],
+      notify: {
+        targets: [
+          { name: "ops", kind: "discord" },
+          { name: "desk", kind: "desktop" },
+        ],
+      },
+      telemetry: { otlp: { headers: { "x-honeycomb-team": "" } } },
+    });
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "llm.custom.api_key",
+        "daemon.token",
+        "daemon.operatorToken",
+        "peers.sam.token",
+        "webhooks.deploy.token",
+        "webhooks.deploy.secret",
+        "notify.targets.ops.webhookUrl",
+        "notify.targets.ops.botToken",
+        "telemetry.otlp.headers.x-honeycomb-team",
+      ]),
+    );
+    expect(paths.some((path) => path.startsWith("notify.targets.desk."))).toBe(false);
+    expect(paths.every(isSecretPath)).toBe(true);
   });
 });

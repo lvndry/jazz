@@ -15,6 +15,7 @@ import {
   type ToolRequirements,
   type ToolSummary,
 } from "@/core/interfaces/tool-registry";
+import { redactToolResult } from "@/core/secrets/redaction";
 import { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -23,6 +24,7 @@ import type {
   ToolExecutionResult,
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
@@ -344,9 +346,8 @@ class DefaultToolRegistry implements ToolRegistry {
       // Use sandbox to promote defects into the error channel, then either to convert to values
       const eitherResult = yield* tool.execute(args, context).pipe(Effect.sandbox, Effect.either);
 
-      let result: ToolExecutionResult;
+      let unredacted: ToolExecutionResult;
       if (eitherResult._tag === "Left") {
-        const durationMs = Date.now() - start;
         const cause = eitherResult.left;
 
         // Extract error message from the Cause: check typed failure first, then defects
@@ -363,18 +364,16 @@ class DefaultToolRegistry implements ToolRegistry {
             : "Unknown error";
         }
 
-        yield* logToolExecutionError(name, durationMs, errorMessage);
-        yield* recordMisfire(name, "runtime_error", errorMessage, durationMs, args);
-
-        result = {
+        unredacted = {
           success: false,
           result: null,
           error: errorMessage,
         };
       } else {
-        // Effect succeeded - use the result
-        result = eitherResult.right;
+        unredacted = eitherResult.right;
       }
+      const knownSecrets = yield* toolKnownSecrets();
+      const result = redactToolResult(unredacted, knownSecrets);
 
       const durationMs = Date.now() - start;
 

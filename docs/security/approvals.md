@@ -168,7 +168,7 @@ A configured media companion counts as standing consent, but analysis or generat
 until every call in the batch has its answer. The companion runs once when execution proceeds;
 checking whether the batch needs approval does not invoke the media companion.
 
-Park only where somebody will actually look. A [notify channel](../configure/notifications.md)
+Park only where somebody will actually look. A [notify target](../configure/notifications.md)
 brings every parked approval to your phone; from a Telegram or Discord bridge the operator can
 answer it with `/approve <runId>` or `/deny <runId> [why]`.
 

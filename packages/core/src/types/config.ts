@@ -6,10 +6,9 @@ import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
-import type { NotifyChannelConfig } from "./notify";
+import type { NotifyConfig } from "./notify";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
-import type { SpendConfig } from "./spend";
 import type { WebhookConfig } from "./webhook";
 
 export type SchedulerMode = "auto" | "in-process";
@@ -18,11 +17,30 @@ export interface SchedulerConfig {
   readonly mode?: SchedulerMode;
 }
 
+/**
+ * Network reach for the URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, headless
+ * renders), for every agent. Read from the global config file only: a project config cannot
+ * widen it.
+ *
+ * Public internet hosts are always reachable. Loopback, private, link-local and other
+ * non-public addresses are refused unless listed here.
+ */
+export interface NetworkConfig {
+  /**
+   * Private hosts agents may reach. Each entry is a hostname (`homeassistant.local`), a
+   * `*.suffix` wildcard (`*.lan`), an IP address (`192.168.1.10`, `::1`) or a CIDR block
+   * (`192.168.1.0/24`). A hostname entry allows whatever that name resolves to; an address or
+   * block entry allows those addresses behind any name. At most 64 entries.
+   */
+  readonly allowPrivateHosts?: readonly string[];
+}
+
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
+  readonly network?: NetworkConfig;
   readonly output?: OutputConfig;
   /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
   readonly mcpServers?: Record<string, MCPServerConfig>;
@@ -87,39 +105,35 @@ export interface AppConfig {
    * way (a bearer token in the keyring, never in this file).
    */
   readonly webhooks?: readonly WebhookConfig[];
-  /**
-   * Day and month spend ceilings for every run on this machine, one agent, or goal work.
-   * Unset means unlimited. Unattended runs refuse to start once one is reached; chat warns.
-   */
-  readonly spend?: SpendConfig;
+  /** Where Jazz tells you what happened while you were away: see `NotifyConfig`. */
+  readonly notify?: NotifyConfig;
   /** What `jazz daemon` may spend and how it reaches you. */
   readonly daemon?: DaemonConfig;
 }
 
-/**
- * Limits and notifications for work the daemon runs while nobody is watching: goal cycles,
- * loop runs, webhooks, peers, triggers, and parked runs it resumes.
- */
-export interface DaemonConfig {
-  /**
-   * Most dollars unattended runs may spend per day (since local midnight), across all of them.
-   * Reaching it pauses the daemon's own work until midnight or `jazz daemon resume`. Enforced
-   * only while pricing is known.
-   */
+/** A dollar cap per local day and per local month. Either may be unset (unlimited). */
+export interface CostCaps {
   readonly dailyCostUSD?: number;
-  /** Most prompt and completion tokens unattended runs may spend per day, across all of them. */
-  readonly dailyTokens?: number;
-  readonly notify?: DaemonNotifyConfig;
+  readonly monthlyCostUSD?: number;
 }
 
-/** Where the daemon tells you something needs you, or that it paused. */
-export interface DaemonNotifyConfig {
-  /** A desktop notification on this machine. Defaults to true; `notifications.enabled` false turns it off too. */
-  readonly desktop?: boolean;
-  /** An ntfy topic URL (like https://ntfy.sh/my-jazz) to push to your phone through the ntfy app. */
-  readonly ntfyUrl?: string;
-  /** A URL that receives each notification as a JSON POST. */
-  readonly webhookUrl?: string;
+/**
+ * Spend caps for work nobody is watching: runs started by the daemon, `jazz run`, workflows,
+ * webhooks, peers, goals, loops and triggers. Counted from the spend ledger; your chat turns
+ * never count. Every cap is unset, meaning unlimited, until you set it.
+ *
+ * Reaching a machine-wide daily cap pauses the daemon's own work until midnight (or
+ * `jazz daemon resume`); any reached cap refuses unattended runs it covers, before they start.
+ * Unpriced runs add nothing to a dollar cap's spend, and a daily dollar cap with an unpriced
+ * run today blocks as if reached, since its spend cannot be verified.
+ */
+export interface DaemonConfig extends CostCaps {
+  /** Most prompt and completion tokens unattended runs may spend per day, across all of them. */
+  readonly dailyTokens?: number;
+  /** Caps on goal cycles and loop runs together. */
+  readonly goals?: CostCaps;
+  /** Caps on one agent's unattended runs, keyed by agent name or id. */
+  readonly agents?: Readonly<Record<string, CostCaps>>;
 }
 
 export interface ContextConfig {
@@ -139,8 +153,6 @@ export interface ContextConfig {
 export interface NotificationsConfig {
   readonly enabled?: boolean;
   readonly sound?: boolean;
-  /** Named delivery targets for results, reminders, parked approvals and failures. */
-  readonly channels?: Readonly<Record<string, NotifyChannelConfig>>;
 }
 
 export interface TelemetryConfig {

@@ -70,9 +70,9 @@ describe("LoggerService", () => {
       const output = formatLogLineAsJson("info", "Request", args);
       const parsed = JSON.parse(output);
 
-      expect(parsed.attributes.apiKey).toBe("<redacted>");
+      expect(parsed.attributes.apiKey).toBe("[redacted:apiKey]");
       expect(parsed.attributes.headers).toEqual({
-        authorization: "<redacted>",
+        authorization: "[redacted:authorization]",
         accept: "application/json",
       });
       expect(output).not.toContain("top-secret");
@@ -99,7 +99,7 @@ describe("LoggerService", () => {
         credentials: { password: "top-secret" },
       });
 
-      expect(output).toContain('"credentials":"<redacted>"');
+      expect(output).toContain('"credentials":"[redacted:credentials]"');
       expect(output).not.toContain("top-secret");
     });
 
@@ -124,7 +124,8 @@ describe("LoggerService", () => {
         expect(output).toContain("[INFO] Tool call recorded");
         expect(output).not.toContain("[TOOL_CALL]");
       }
-      expect(output).toContain("<redacted>");
+      expect(output).toContain("[redacted:authorization]");
+      expect(output).toContain("[redacted:access_token]");
       expect(output).not.toContain("tool-secret");
       expect(output).not.toContain("nested-tool-secret");
     }
@@ -145,7 +146,7 @@ describe("LoggerService", () => {
     expect(summary).toEqual({
       command: `<omitted: ${args.command.length} chars>`,
       url: `<omitted: ${args.url.length} chars>`,
-      body: { message: `<omitted: ${secret.length} chars>`, apiKey: "<redacted>" },
+      body: { message: `<omitted: ${secret.length} chars>`, apiKey: "[redacted:apiKey]" },
       method: "POST",
       retries: "<number>",
       otherField5: "<omitted: 6 chars>",

@@ -22,8 +22,8 @@ import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { recordSpend } from "@jazz/core/spend/ledger";
+import type { DaemonConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
-import type { SpendConfig } from "@jazz/core/types/spend";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import {
@@ -49,14 +49,14 @@ interface Harness {
   prompts: AgentRunnerOptions[];
 }
 
-/** A config service whose app config carries the given spend ceilings and nothing else. */
-function configWithSpend(spend?: SpendConfig): AgentConfigService {
+/** A config service whose app config carries the given daemon spend caps and nothing else. */
+function configWithCaps(daemon?: DaemonConfig): AgentConfigService {
   return {
-    appConfig: Effect.succeed({ ...(spend !== undefined ? { spend } : {}) }),
+    appConfig: Effect.succeed({ ...(daemon !== undefined ? { daemon } : {}) }),
   } as unknown as AgentConfigService;
 }
 
-function harness(repair?: string, spend?: SpendConfig): Harness {
+function harness(repair?: string, caps?: DaemonConfig): Harness {
   const goals = new InMemoryGoalStore();
   const runs = new InMemoryRunStore();
   const agents = {
@@ -79,7 +79,7 @@ function harness(repair?: string, spend?: SpendConfig): Harness {
     Layer.succeed(AgentServiceTag, agents),
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(LoggerServiceTag, silentLogger),
-    Layer.succeed(AgentConfigServiceTag, configWithSpend(spend)),
+    Layer.succeed(AgentConfigServiceTag, configWithCaps(caps)),
     Layer.succeed(FileSystemContextServiceTag, {
       setCwd: (key: { conversationId?: string }, directory: string) =>
         Effect.sync(() => {
@@ -197,9 +197,9 @@ async function current(test: Harness): Promise<GoalRecord> {
 const placedIn: { conversationId: string; directory: string }[] = [];
 
 describe("runDueGoals", () => {
-  it("holds the next cycle back while a spend ceiling covering the goal is reached", async () => {
+  it("holds the next cycle back while a spend cap covering the goal is reached", async () => {
     const cappedAgent = "spend-capped-goal-agent";
-    const test = harness(undefined, { agents: { [cappedAgent]: { dayUSD: 0.5 } } });
+    const test = harness(undefined, { agents: { [cappedAgent]: { dailyCostUSD: 0.5 } } });
     await Effect.runPromise(
       recordSpend({
         agentId: cappedAgent,
@@ -207,6 +207,7 @@ describe("runDueGoals", () => {
         costUSD: 0.5,
         costKnown: true,
         tokens: 1,
+        unattended: true,
       }),
     );
     await run(test, test.goals.create(testGoal({ agentId: cappedAgent })));

@@ -11,7 +11,7 @@
  *   context: web pages, API responses, search results, MCP results, peer answers, and the output
  *   of every shell or custom command (Jazz cannot tell what a command read, so any command
  *   output counts, which means egress after any shell command needs a person below `high-risk`).
- *   A run whose history already holds such a result starts marked, so resuming or continuing a
+ *   A run whose history holds such a result or host-recorded exposure starts marked, so resuming or continuing a
  *   conversation does not reset it. Sub-agents share their parent's taint in both directions.
  * - Once marked, an egress tool (`egress: true`) is no longer auto-approved by the `read-only`
  *   and `low-risk` tiers or by an unset policy: it prompts, parks, or is declined, exactly like
@@ -40,13 +40,93 @@ const MAX_LISTED_SOURCES = 3;
 const MAX_ARGUMENT_PREVIEW_CHARS = 2_000;
 
 /**
+ * Heading the host puts on a Ctrl+B background task's result when it queues it as a user
+ * message. A user message holding it and an external envelope carries the task's external
+ * output, so it taints the run and its text is not treated as the user's own.
+ */
+export const DETACHED_RESULT_HEADING = "[Background task finished]";
+
+/** The queued user message that delivers a detached tool call's `summary`. */
+export function detachedResultMessage(summary: string): string {
+  return `${DETACHED_RESULT_HEADING}\n${summary}`;
+}
+
+function carriesDetachedExternalResult(message: ChatMessage): boolean {
+  return (
+    message.role === "user" &&
+    message.content.includes(DETACHED_RESULT_HEADING) &&
+    hasExternalUntrustedFrame(message.content)
+  );
+}
+
+/**
+ * Whether a message records that the run read external content: the host's `egressTainted`
+ * flag, which survives clearing, an external envelope in a tool result, or a queued background
+ * task result holding one.
+ */
+export function messageCarriesEgressTaint(message: ChatMessage): boolean {
+  return (
+    message.egressTainted === true ||
+    (message.role === "tool" && hasExternalUntrustedFrame(message.content)) ||
+    carriesDetachedExternalResult(message)
+  );
+}
+
+/**
+ * `kept` with the taint of `dropped` carried onto it, for any path that drops or replaces
+ * history (trimming, a history cap, a transcript returned from another host).
+ *
+ * When a dropped message carried taint and nothing kept does, the first kept non-system message
+ * gets `egressTainted`. System messages are skipped because saved transcripts leave them out.
+ * Returns `kept` unchanged when there is nothing to carry or nowhere to carry it.
+ */
+export function carryEgressTaint<Messages extends readonly ChatMessage[]>(
+  dropped: readonly ChatMessage[],
+  kept: Messages,
+): Messages {
+  if (!dropped.some(messageCarriesEgressTaint) || kept.some(messageCarriesEgressTaint)) {
+    return kept;
+  }
+  const carrierIndex = kept.findIndex((message) => message.role !== "system");
+  if (carrierIndex === -1) {
+    return kept;
+  }
+  const carried = [...kept];
+  carried[carrierIndex] = { ...(kept[carrierIndex] as ChatMessage), egressTainted: true };
+  return carried as unknown as Messages;
+}
+
+/**
+ * `messages` with the run's live taint recorded on it, so the next run on them starts marked.
+ *
+ * When `taint` is marked and no message carries taint, the last non-system message gets
+ * `egressTainted`. Returns `messages` unchanged otherwise.
+ */
+export function recordEgressTaint<Messages extends readonly ChatMessage[]>(
+  messages: Messages,
+  taint: EgressTaint | undefined,
+): Messages {
+  if (taint?.isTainted() !== true || messages.some(messageCarriesEgressTaint)) {
+    return messages;
+  }
+  let carrierIndex = messages.length - 1;
+  while (carrierIndex >= 0 && (messages[carrierIndex] as ChatMessage).role === "system") {
+    carrierIndex -= 1;
+  }
+  if (carrierIndex < 0) {
+    return messages;
+  }
+  const recorded = [...messages];
+  recorded[carrierIndex] = { ...(messages[carrierIndex] as ChatMessage), egressTainted: true };
+  return recorded as unknown as Messages;
+}
+
+/**
  * Taint state for a new run, marked already when `history` holds external untrusted content.
  */
 export function createEgressTaint(history: readonly ChatMessage[] = []): EgressTaint {
   const recorded: string[] = [];
-  let tainted = history.some(
-    (message) => message.role === "tool" && hasExternalUntrustedFrame(message.content),
-  );
+  let tainted = history.some(messageCarriesEgressTaint);
   if (tainted) {
     recorded.push("earlier in this conversation");
   }
@@ -94,12 +174,16 @@ function urlSpellings(url: string): readonly string[] {
   }
 }
 
-/** Text the run did not write itself: the user's messages and external content it read. */
+/**
+ * Text the run did not write itself: the user's messages and external content it read. A queued
+ * background task result is left out: the host wrote it into a user message, so it is not the
+ * user's own words.
+ */
 function knownText(messages: readonly ChatMessage[]): readonly string[] {
   return messages
     .filter(
       (message) =>
-        message.role === "user" ||
+        (message.role === "user" && !carriesDetachedExternalResult(message)) ||
         (message.role === "tool" && hasExternalUntrustedFrame(message.content)),
     )
     .map((message) => message.content);

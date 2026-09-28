@@ -30,7 +30,6 @@ import {
 } from "@jazz/adapters/detach/snapshot";
 import { encodeDetachBundle, receiveDetachBundle } from "@jazz/adapters/detach/transfer-protocol";
 import { detectKeyringBackend, keyringGet } from "@jazz/adapters/secrets/keyring";
-import { llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
 import {
   abortDetach,
   commitDetach,
@@ -38,6 +37,7 @@ import {
   releaseDetach,
 } from "@jazz/core/agent/detach/ownership";
 import { isProviderName, type ProviderName } from "@jazz/core/constants/models";
+import { llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import type { HostProfile } from "@jazz/core/types/host";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";

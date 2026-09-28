@@ -17,8 +17,8 @@
  * Provider keys stay shared: every conversation on a bridge bills the operator's accounts.
  */
 
-import { LLM_PROVIDER_ENV_VAR_ALIASES, SECRET_ENV_VARS } from "@jazz/adapters/secrets/registry";
 import { LOCAL_SERVER_PROVIDERS } from "@jazz/core/constants/local-providers";
+import { LLM_PROVIDER_ENV_VAR_ALIASES, SECRET_ENV_VARS } from "@jazz/core/secrets/registry";
 
 /** What any process needs to start, find binaries, and format text for a person. */
 const PROCESS_VARIABLES = [

@@ -12,7 +12,7 @@ about the last two and about where credentials live.
 Config writes route through the OS keyring, or a `chmod 600` `$JAZZ_HOME/secrets.json` where
 there is no keyring.
 
-One file decides which config paths hold a secret: `packages/adapters/src/secrets/registry.ts`.
+One file decides which config paths hold a secret: `packages/core/src/secrets/registry.ts`.
 That is why `jazz config set llm.openai.api_key` never lands in `config.json`.
 
 The OS keyring is shared by every Jazz home on the account, so each home files its entries under
@@ -31,9 +31,13 @@ config. Those are the three places people put them.
 
 ## The shell environment is scrubbed
 
-`execute_command` does not inherit your whole environment. Variables whose names match
-`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` are removed before the command runs, so a model
-that decides to `env` or to shell out to something chatty cannot hand your provider keys to it.
+`execute_command` does not inherit your whole environment. A variable is removed before the
+command runs when a word of its name marks a secret (`SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`,
+`PASSPHRASE`, `CREDENTIALS`, `APIKEY`, `AUTH`, `PASS`, `COOKIE`, or `KEY` after another word, as in
+`APP_KEY`), or when it is one Jazz reads a secret from (`JAZZ_PEER_TOKEN_*`, `JAZZ_WEBHOOK_*`,
+`JAZZ_NOTIFY_<TARGET>_WEBHOOK_URL` and the other notify target secrets). A model that decides to
+`env` or to shell out to something chatty cannot hand your provider keys or a Discord webhook URL
+to it. Words are matched whole, so `KEYBOARD_LAYOUT` and `TOKENIZER_PATH` pass through.
 
 When a command genuinely needs one, name it in the agent's `envAllowlist`. Per agent, explicit,
 and visible in the agent file. The exception is written down rather than implied.
@@ -72,49 +76,91 @@ renders. It enforces four things.
 - **Bounded bodies.** Responses are streamed against the tool's byte cap and the timeout runs until
   the body is read, so an endless or slow response costs at most the cap and the timeout.
 
-To let an agent reach a service on your own network, list it in the agent's
-`network.allowPrivateHosts` (see [agent configuration](../configure/agents.md#network-access)):
+A URL that reaches this machine or your local network asks for approval instead of failing, and
+approving adds the address to the global `network.allowPrivateHosts`, so the next request goes
+through unasked. List hosts ahead of time in the same setting (see
+[private network hosts](../configure/jazz.md#private-network-hosts)):
 
 ```json
 { "network": { "allowPrivateHosts": ["homeassistant.local", "192.168.1.0/24"] } }
 ```
 
 A hostname entry allows whatever that name resolves to, so list names you control. An address or
-CIDR entry allows those addresses behind any name.
+CIDR entry allows those addresses behind any name. Only the global config file sets it.
 
-## Read tools and Jazz's secret files
+## Secret values in tool output
 
-Jazz can discover and copy credential files without putting their values in the model context.
-`ls` and `find` include their paths with `protected: true`; `stat` provides metadata. Direct
-`read_file`, `read_pdf`, `pdf_page_count` and `grep` calls return a successful metadata-only result
-with `contentOmitted: true` and guidance to use `cp`. Searches spanning protected files omit their
-contents. `write_file` and `edit_file` decline protected files before building a preview diff.
+Files read normally, whatever they hold: `read_file`, `grep`, `find`, `ls`, `cp` and `mv` treat
+`.env`, `secrets.json`, `~/.zshrc` and `~/.jazz/config.json` like any other file. What Jazz holds
+back is the secret values inside them. Every tool result passes through one redaction step before
+anything logs it or shows it to the model, the transcript or an approver, so file contents, command
+output, MCP and HTTP responses, errors, and approval previews are all covered.
 
-Protection covers:
+Tools that cut their output redact first, so no cut can split a secret into a piece that is no
+longer recognized:
 
-- files named `.env`, `.env.*` (including examples) and `secrets.json`;
-- the global config file (`$JAZZ_CONFIG_PATH`, or `$JAZZ_HOME/config.json`), which can hold a daemon token;
-- Jazz's credential locks, temporary writes and corrupt-file quarantines;
-- destinations previously copied or moved from protected files, including ordinary filenames;
-- internal copy and replacement staging directories and their descendants.
+- `read_file` redacts the whole file before it takes a line range or applies its character cap, and
+  keeps the file's line numbers: every line of a private key block shows the placeholder. A
+  `sinceByte` read redacts the appended text together with the lines before the offset, and an
+  offset inside a line holding a secret returns that whole line redacted.
+- `execute_command` and `wait_for` redact stdout and stderr before capping them at 256 KB, with
+  16 KB of lookahead past the cap, so a key block that crosses the cap is recognized. `list_jobs`
+  redacts a job's output before it keeps the tail.
+- `grep` and `edit_file`'s `replace_pattern` match against the redacted text. A file holding a
+  secret is searched again through its redacted form, in every output mode, so a pattern probing a
+  value (`^DB_PASSWORD=[a-m]` with `outputMode: "count"`) finds nothing, while a search for the
+  name finds the line and shows it redacted. A `replace_pattern` match on a line holding a secret
+  is refused.
+- `create_pdf` and `create_composition` serve the local text files their HTML loads (an
+  `<iframe src=".env">`, a stylesheet, a script) with secret values redacted. `read_file` does not
+  attach a PDF whose text holds a secret; it points the model at `read_pdf`, whose output is
+  redacted.
 
-Use `cp` with the source and final destination path for a whole-file transfer. The approval shows
-paths, and the executor copies bytes internally; neither the proposal nor the result contains
-values. Protected copies have mode `0600` for a file or `0700` for the containing directory.
-Copying a directory with a protected descendant protects the entire destination tree. `mv`
-preserves protection too. Individual secret-value reads and edits are not part of this workflow.
+Two passes replace secrets with `[redacted:<name>]`:
 
-Before copying, Jazz records destination paths and their canonical aliases in the private
-`$JAZZ_HOME/.protected-files.json` registry. Protection survives process restarts and subsequent
-copies or moves through these tools. Records are append-only, including after a failed transfer
-or deletion. Filesystem mutation tools prevent replacing or deleting the registry or its ancestors.
-An unreadable or corrupt registry makes reads metadata-only and stops transfers until repaired.
+- **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
+  keys, OTLP headers, the daemon and operator tokens, peer and webhook tokens, webhook signing
+  secrets, notify target secrets), as resolved from the keyring, the environment or the config
+  file; MCP env and header values whose name marks a secret (`SIGNOZ_API_KEY`, `Authorization`);
+  and every environment variable of the Jazz process whose name marks it as a secret (`*_API_KEY`,
+  `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_KEY`, `*_PASS`, `JAZZ_NOTIFY_*_WEBHOOK_URL`, ...). The
+  placeholder names the setting or variable, for example `[redacted:llm.openai.api_key]`. Values
+  held only in the keyring are looked up again after a config change and at most once a minute.
+- **Secrets Jazz never saw**, recognized by their shape: `NAME=value` lines and YAML `name: value`
+  lines whose name marks a secret (`.env` files, shell profiles, `env` output, compose files,
+  kubeconfig, diff lines, including coloured ones), quoted secret-named literals in JSON, YAML and
+  source (`"apiKey": "..."`, also JSON-escaped), `.netrc` passwords, private key blocks (also when
+  the end marker is cut off), JWTs, Discord and Slack webhook URLs, `Bearer`/`Basic` credentials,
+  passwords in URLs, and the key formats of OpenAI, Anthropic, GitHub, Slack, AWS, Google, Stripe,
+  npm and Telegram. A name marks a secret when its last word does (`DB_PASSWORD`, `APP_KEY`,
+  `refresh_token`), so `TOKEN_URL`, `token_type` and `max_tokens` are left alone. `$VAR` references,
+  templates, `<placeholders>`, booleans, paths and values shorter than 8 characters (for known
+  values) are left alone.
+- **Structured results by key**: in an HTTP response body or an MCP tool's structured content,
+  a string under a secret-named key (`access_token`, `client_secret`, `password`) is replaced
+  whole.
 
-This is a contract of Jazz's filesystem tools using the same `JAZZ_HOME`, not an OS sandbox.
-Shell commands, external programs, hard-link aliases and runs using another home do not inherit
-this registry. Credentials with other names, such as `~/.ssh` or a cloud CLI's token cache, are
-not automatically recognized. Use a dedicated OS user or container where host isolation is needed
-(see [unattended runs](./unattended-runs.md)).
+`write_file` and `edit_file` refuse text carrying a placeholder that stands for a secret: one the
+target file holds, or one Jazz knows. An edit copied from redacted output cannot overwrite the real
+value, while placeholder-shaped text that names no such secret, such as documentation of this
+feature, is written as it is. `write_file` also refuses to replace an existing file when the new
+content leaves out or changes a line holding a secret, and tells the model to use `edit_file` on
+the other lines instead. The agent can still change a `.env` file: it edits the lines around a
+secret, or replaces a secret line with a new value you asked for.
+
+Jazz's own configuration is readable like any file, but a `write_file`, `edit_file`, `mv`, `cp` or
+`rm` that changes it always asks for approval, under every auto-approve policy and allowlist
+(`yolo` included). That covers `config.json` (or `$JAZZ_CONFIG_PATH`), a project's
+`.jazz/config.json`, and everything else under `$JAZZ_HOME` except the directories that hold
+authored content: `skills`, `workflows`, `personas`, `memory`, `workspace`, `compositions`,
+`generated` and `webapps`. Symlinked spellings count, and so does case on macOS and Windows. With
+nobody to ask, the run parks for approval.
+
+Recognition by shape is best-effort. A secret with an unrecognized name and format, or one a shell
+pipeline transforms before it reaches a tool result (base64, splitting it across lines), is not
+caught. Shell children also lose credential-named environment variables (see below), and host
+isolation remains the job of a dedicated OS user or container (see
+[unattended runs](./unattended-runs.md)).
 
 ## Content from outside is labelled
 
@@ -126,6 +172,16 @@ cannot tell what a command read: `himalaya` printing your inbox and `ls` look th
 outside. The system prompt tells the model to read that content as data and to take instructions
 only from you. After a run reads external content, egress tools need approval below `high-risk`;
 see [unattended runs](./unattended-runs.md#egress-after-untrusted-input).
+
+External-content exposure is also recorded as host-owned transcript metadata. Clearing tool
+output, automatic or manual compaction, trimming a full context window, the chat's history cap,
+the compaction journal a resumed run reads back, a sub-agent's answer, a Ctrl+B background task's
+result, a batch stopped by Esc or a timeout, and a transcript returned from a detached host all
+carry that restriction forward; saving and resuming that conversation still requires approval for
+new destinations under `read-only` and `low-risk`.
+The model's summary cannot remove the restriction. Older transcripts still containing an external
+tool envelope remain restricted, but exposure already lost from an older compacted transcript
+cannot be recovered.
 
 ## MCP servers are external input
 
@@ -150,7 +206,9 @@ None of it replaces operating-system permissions or network isolation. A shell t
 your user reaches whatever your user reaches.
 
 Scrubbing the environment stops a key being read out of `env`. It does not stop a read tool or a
-shell command from reading `~/.aws/credentials`: the read tools protect recognized credential paths and recorded copies, and `execute_command` is gated by approval.
+shell command from reading `~/.aws/credentials`: the read tools return it with the secret values
+they recognize redacted, and `execute_command` is gated by approval. A secret neither pass
+recognizes reaches the model.
 
 If that matters for your deployment, the answer is a dedicated OS user or a container, not a
 tighter approval policy. See [unattended runs](./unattended-runs.md).

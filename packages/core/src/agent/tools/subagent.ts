@@ -16,7 +16,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
-import type { RemainingRunBudget } from "@/core/types/tools";
+import type { EgressTaint, RemainingRunBudget, UntrustedProvenance } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -67,6 +67,28 @@ function subagentStopReason(
  * mid-task reads like a new task. Framing it as guidance on the current one keeps
  * the child working instead of starting over or stopping to answer it.
  */
+/**
+ * The parent's taint as a child run sees it: shared state, plus a record of whether the child
+ * itself read external content, so its answer can be delivered as external content too.
+ */
+function childEgressTaint(parent: EgressTaint): {
+  readonly taint: EgressTaint;
+  readonly childReadExternal: () => boolean;
+} {
+  let readExternal = false;
+  return {
+    taint: {
+      isTainted: parent.isTainted,
+      sources: parent.sources,
+      mark: (source) => {
+        readExternal = true;
+        parent.mark(source);
+      },
+    },
+    childReadExternal: () => readExternal,
+  };
+}
+
 function frameSteeringMessage(message: string): string {
   return `[MESSAGE FROM THE USER WHILE YOU WORK]\nTake this into account and continue the task:\n\n${message}`;
 }
@@ -372,6 +394,13 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             });
           }
 
+          const childTaint =
+            context.egressTaint === undefined ? undefined : childEgressTaint(context.egressTaint);
+          const externalProvenance = (): { untrusted?: UntrustedProvenance } =>
+            childTaint?.childReadExternal() === true
+              ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
+              : {};
+
           let childSpend: RunSpendReport | undefined;
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
@@ -416,6 +445,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                 }
               : {}),
             ...childRunAuthority(context),
+            ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
             subagentDepth: currentDepth + 1,
             ...(context.onAutoApproveCommand
               ? { onAutoApproveCommand: context.onAutoApproveCommand }
@@ -526,6 +556,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                 success: false,
                 result: { rawSummary: fullResult, validationErrors: structured.errors },
                 error: `Sub-agent structured result failed validation: ${structured.errors.join("; ")}`,
+                ...externalProvenance(),
               };
             }
 
@@ -551,7 +582,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               durationMs,
             });
             yield* presentation.writeOutput(`     ${structured.value.summary}`, subagentLabel);
-            return { success: true, result: structured.value };
+            return { success: true, result: structured.value, ...externalProvenance() };
           }
 
           const maxLines = 10;
@@ -568,6 +599,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           return {
             success: true,
             result: result || "Sub-agent completed but returned no content.",
+            ...externalProvenance(),
           };
         }),
       createSummary: (result) => {

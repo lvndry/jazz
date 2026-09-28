@@ -59,7 +59,7 @@ The full walkthrough, including error types and wiring into `createAppLayer`, is
   that needs to ask the user something takes a service that can, rather than reaching for a
   terminal.
 - **Secrets go through the keyring path**, never into `config.json` and never into a log line.
-  `src/secrets/registry.ts` is the single source of truth for which config paths hold one.
+  `@jazz/core/secrets/registry` is the single source of truth for which config paths hold one.
 - **Failure is a value.** Return a typed error in the Effect channel rather than throwing; the
   caller decides whether an unreachable provider is fatal.
 - **Tests use temporary directories and stub layers.** Never a developer's real Jazz home,

@@ -244,6 +244,11 @@ export interface ApprovalRequiredResult {
    * merged into its args under `_selectedOptionId`.
    */
   readonly options?: readonly ApprovalOption[];
+  /**
+   * A person answers this request under every auto-approve policy and allowlist; with nobody
+   * to ask, the run parks for approval.
+   */
+  readonly alwaysAsk?: true;
 }
 
 /**
@@ -321,6 +326,12 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /**
+   * Private addresses approved for this call only, on top of the global
+   * `network.allowPrivateHosts`. Set by the executor after a person or the run's policy approved a
+   * call whose URL reaches them.
+   */
+  readonly approvedPrivateAddresses?: readonly string[];
   /** User messages the model may quote for memory writes; tool output cannot add to this set. */
   readonly memorySources?: readonly MemorySource[];
   /** Trace context inherited by a child agent invoked from this tool. */

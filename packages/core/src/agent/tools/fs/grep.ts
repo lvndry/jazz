@@ -1,25 +1,27 @@
 /**
  * Search using ripgrep JSON or system grep with NUL-terminated filenames. Filename framing is
- * independent of matching content, so credentials containing delimiter-like text cannot
- * forge an unprotected path. Only complete records are returned when output is capped.
+ * independent of matching content, so a line holding `file:12:`-like text cannot pass for another
+ * file's match. Only complete records are returned when output is capped.
+ *
+ * The pattern is matched against each file as the model would read it, with secret values
+ * redacted: a file holding a secret is searched again through its redacted text, so neither
+ * whether a line matches nor how many do depends on a value the model was not shown.
  */
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { redactLines } from "@/core/secrets/redacted-lines";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { isRecord } from "@/core/utils/is-record";
-import {
-  createSecretResultFilter,
-  loadSecretPathRules,
-  secretPathReason,
-  protectedFileResult,
-} from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES, type CollectedProcessOutput } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
+import { toolKnownSecrets } from "../tool-secrets";
 import { checkExternalTool, spawnCollect } from "./utils";
 
 /**
@@ -35,6 +37,9 @@ import { checkExternalTool, spawnCollect } from "./utils";
  * - On ripgrep failure (exit code > 1), automatically retries with system grep
  *   so the user never sees a "rg not found" error even if PATH is misconfigured.
  */
+
+/** How long one search of a file's redacted text may take. */
+const REDACTED_SEARCH_TIMEOUT_MS = 30_000;
 
 function resolveGrepPattern(
   pattern: string,
@@ -173,6 +178,28 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     }
 
     cmdArgs.push("--", searchPattern, searchPath);
+    return cmdArgs;
+  }
+
+  /** Arguments searching stdin the way the main search searches a file, reporting lines. */
+  function buildStdinSearchArgs(args: GrepArgs, ripgrep: boolean, maxResults: number): string[] {
+    const resolved = resolveGrepPattern(args.pattern, args.regex);
+    const outputMode = args.outputMode ?? "content";
+    const context =
+      outputMode === "content" && typeof args.contextLines === "number" && args.contextLines > 0
+        ? ["-C", args.contextLines.toString()]
+        : [];
+    const cmdArgs = ripgrep
+      ? ["--json", "--color=never", "--no-config"]
+      : ["-H", "--null", "--color=never", "--binary-files=without-match"];
+    if (args.ignoreCase) cmdArgs.push("-i");
+    cmdArgs.push("-n", ...context, "-m", maxResults.toString());
+    if (ripgrep) {
+      if (!resolved.isRegex) cmdArgs.push("--fixed-strings");
+    } else {
+      cmdArgs.push(resolved.isRegex ? "-E" : "-F");
+    }
+    cmdArgs.push("--", resolved.pattern, "-");
     return cmdArgs;
   }
 
@@ -398,6 +425,91 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     return matches.slice(0, maxResults);
   }
 
+  /** Parallel file reads while checking matched files for secrets. */
+  const REDACTION_CHECK_CONCURRENCY = 8;
+
+  /**
+   * The search results with every file that holds a secret searched again through its redacted
+   * text. `candidateFiles` are the files the main search matched, as it printed them. A file
+   * that cannot be read or searched again is dropped from the results.
+   */
+  function redactedSearchResults(input: {
+    readonly args: GrepArgs;
+    readonly records: readonly SearchRecord[];
+    readonly candidateFiles: readonly string[];
+    readonly workingDir: string;
+    readonly ripgrep: boolean;
+    readonly maxResults: number;
+    readonly env: Record<string, string | undefined>;
+    readonly known: readonly KnownSecret[];
+  }): Effect.Effect<{ records: SearchRecord[]; replaced: Map<string, SearchRecord[]> }> {
+    return Effect.gen(function* () {
+      const replaced = new Map<string, SearchRecord[]>();
+      yield* Effect.forEach(
+        [...new Set(input.candidateFiles)],
+        (file) =>
+          Effect.gen(function* () {
+            const content = yield* Effect.tryPromise(() =>
+              readFile(path.resolve(input.workingDir, file), "utf8"),
+            ).pipe(Effect.option);
+            if (content._tag === "None") {
+              replaced.set(file, []);
+              return;
+            }
+            const view = redactLines(content.value.split("\n"), input.known);
+            if (view.secretLineIndexes.size === 0) {
+              return;
+            }
+            const search = yield* spawnCollect(
+              input.ripgrep ? "rg" : "grep",
+              buildStdinSearchArgs(input.args, input.ripgrep, input.maxResults),
+              {
+                cwd: input.workingDir,
+                env: input.env,
+                timeout: REDACTED_SEARCH_TIMEOUT_MS,
+                input: view.lines.join("\n"),
+              },
+            );
+            if (search.exitCode !== 0) {
+              replaced.set(file, []);
+              return;
+            }
+            const found = input.ripgrep
+              ? parseRipgrepOutput(search.stdout)
+              : parseFramedOutput(search.stdout + (search.stdoutTruncated ? "" : "\n"));
+            replaced.set(
+              file,
+              found.map((record) => (record === null ? null : { ...record, file })),
+            );
+          }),
+        { concurrency: REDACTION_CHECK_CONCURRENCY, discard: true },
+      );
+
+      const records: SearchRecord[] = [];
+      const emitted = new Set<string>();
+      for (const record of input.records) {
+        if (record === null) {
+          records.push(null);
+          continue;
+        }
+        const replacement = replaced.get(record.file);
+        if (replacement === undefined) {
+          records.push(record);
+          continue;
+        }
+        if (!emitted.has(record.file)) {
+          emitted.add(record.file);
+          records.push(null, ...replacement, null);
+        }
+      }
+      return { records, replaced };
+    });
+  }
+
+  function hasMatch(records: readonly SearchRecord[]): boolean {
+    return records.some((record) => record !== null && /^\d+:/.test(record.payload));
+  }
+
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     disclosure: "private",
@@ -424,16 +536,6 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         if (stat === null) {
           return yield* Effect.fail(new Error(`Path does not exist: ${start}`));
         }
-
-        const secretRules = loadSecretPathRules();
-        const startSecretReason = secretPathReason(start, secretRules);
-        if (startSecretReason !== undefined) {
-          return protectedFileResult(args.path ?? start, startSecretReason);
-        }
-        const isSecretPath = createSecretResultFilter(start, secretRules);
-        const isSecretResult = (candidate: string): boolean =>
-          isSecretPath(candidate) ||
-          secretPathReason(path.resolve(start, candidate), secretRules) !== undefined;
 
         const isFile = stat.type === "File";
         const isDirectory = stat.type === "Directory";
@@ -517,23 +619,42 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           };
         }
 
-        const records = useRipgrep
-          ? parseRipgrepOutput(result.stdout)
-          : parseFramedOutput(result.stdout + (result.stdoutTruncated ? "" : "\n"));
+        const listsFiles = outputMode === "files" && !useRipgrep;
+        const searchedRecords = listsFiles
+          ? []
+          : useRipgrep
+            ? parseRipgrepOutput(result.stdout)
+            : parseFramedOutput(result.stdout + (result.stdoutTruncated ? "" : "\n"));
+        const listedFiles = listsFiles ? parseFilesOutput(result.stdout, maxResults) : [];
+        const redacted = yield* redactedSearchResults({
+          args,
+          records: searchedRecords,
+          candidateFiles: [
+            ...listedFiles,
+            ...searchedRecords.flatMap((record) => (record === null ? [] : [record.file])),
+          ],
+          workingDir,
+          ripgrep: useRipgrep,
+          maxResults,
+          env: sanitizedEnv,
+          known: yield* toolKnownSecrets(),
+        });
+        const records = redacted.records;
 
         // Handle output modes
         if (outputMode === "files") {
-          const files = (
-            useRipgrep
-              ? [
-                  ...new Set(
-                    records.flatMap((record) =>
-                      record !== null && /^\d+:/.test(record.payload) ? [record.file] : [],
-                    ),
+          const files = useRipgrep
+            ? [
+                ...new Set(
+                  records.flatMap((record) =>
+                    record !== null && /^\d+:/.test(record.payload) ? [record.file] : [],
                   ),
-                ].slice(0, maxResults)
-              : parseFilesOutput(result.stdout, maxResults)
-          ).filter((file) => !isSecretResult(file));
+                ),
+              ].slice(0, maxResults)
+            : listedFiles.filter((file) => {
+                const replacement = redacted.replaced.get(file);
+                return replacement === undefined || hasMatch(replacement);
+              });
           return {
             success: true,
             result: {
@@ -555,7 +676,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         }
 
         if (outputMode === "count") {
-          const parsedCounts = [
+          const counts = [
             ...records.reduce((counts, record) => {
               if (record !== null && /^\d+:/.test(record.payload)) {
                 counts.set(record.file, (counts.get(record.file) ?? 0) + 1);
@@ -565,7 +686,6 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           ]
             .map(([file, count]) => ({ file, count }))
             .slice(0, maxResults);
-          const counts = parsedCounts.filter((entry) => !isSecretResult(entry.file));
           return {
             success: true,
             result: {
@@ -591,7 +711,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           records,
           maxResults,
           typeof args.contextLines === "number" && args.contextLines > 0,
-        ).filter((match) => !isSecretResult(match.file));
+        );
         return {
           success: true,
           result: {

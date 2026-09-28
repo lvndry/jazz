@@ -1,13 +1,13 @@
-/** File content mutations never preview protected credentials; use cp for whole-file transfers. */
 import { FileSystem } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { redactLines } from "@/core/secrets/redacted-lines";
+import { redactedWriteProblem, type KnownSecret } from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
-import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
-import { secretPathReason } from "@/core/utils/secret-paths";
+import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
 import { withLock } from "@/core/utils/storage";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
 import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
@@ -18,6 +18,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { toolKnownSecrets } from "../tool-secrets";
 import { writeFileAtomically } from "./atomic-replace";
 import { fileSnapshot } from "./file-snapshot";
 import { normalizeFilterPattern } from "./utils";
@@ -140,6 +141,19 @@ export class PatternTooComplexError extends Data.TaggedError("PatternTooComplexE
 }
 
 /**
+ * Secret line match error — a replace_pattern match touches a line holding a secret value, which
+ * the model sees only as a `[redacted:<name>]` placeholder.
+ */
+export class SecretLineMatchError extends Data.TaggedError("SecretLineMatchError")<{
+  readonly pattern: string;
+  readonly line: number;
+}> {
+  override get message() {
+    return `Pattern "${this.pattern}" matches line ${this.line}, which holds a secret value shown as a [redacted:…] placeholder. Use a pattern from the lines around it, or replace_lines or delete_lines for that line.`;
+  }
+}
+
+/**
  * File write error
  */
 export class FileWriteError extends Data.TaggedError("FileWriteError")<{
@@ -223,6 +237,35 @@ const editFileParameters = z
   .strict();
 
 export type EditOperation = z.infer<typeof editOperationSchema>;
+
+/** Why an edit would write a redaction placeholder over a secret, or undefined when none would. */
+function redactedEditProblem(
+  edits: readonly EditOperation[],
+  currentContent: string,
+  known: readonly KnownSecret[],
+): string | undefined {
+  for (const [index, edit] of edits.entries()) {
+    const fields: ReadonlyArray<readonly [string, string]> =
+      edit.type === "replace_pattern"
+        ? [["replacement", edit.replacement]]
+        : edit.type === "delete_lines"
+          ? []
+          : [["content", edit.content]];
+    for (const [field, text] of fields) {
+      const problem = redactedWriteProblem({
+        tool: "edit_file",
+        field: `edits[${String(index)}].${field}`,
+        text,
+        currentContent,
+        known,
+      });
+      if (problem !== undefined) {
+        return problem;
+      }
+    }
+  }
+  return undefined;
+}
 export type EditFileArgs = z.infer<typeof editFileParameters>;
 
 type EditFileDeps = FileSystem.FileSystem | FileSystemContextService;
@@ -257,6 +300,7 @@ export type EditFileError =
   | InvalidPatternError
   | RegexIterationLimitError
   | PatternTooComplexError
+  | SecretLineMatchError
   | FileWriteError;
 
 /**
@@ -275,22 +319,189 @@ function ensureGlobalRegex(regex: RegExp): RegExp {
 }
 
 /**
+ * The file's lines alongside their redacted view, carried through a sequence of edits. `masked`
+ * shows each line as the model sees it (secret lines as placeholders); `secret` flags those lines.
+ */
+interface EditableLines {
+  readonly raw: string[];
+  readonly masked: string[];
+  readonly secret: boolean[];
+}
+
+/** `lines` with no secret, where the redacted view is the text itself. */
+function plainLines(lines: readonly string[]): EditableLines {
+  return { raw: [...lines], masked: [...lines], secret: lines.map(() => false) };
+}
+
+/** The lines of `content`, split on `\n`, with the lines holding a secret masked. */
+function editableLines(content: string, known: readonly KnownSecret[]): EditableLines {
+  const raw = content.split("\n");
+  const view = redactLines(raw, known);
+  return {
+    raw,
+    masked: [...view.lines],
+    secret: raw.map((_line, index) => view.secretLineIndexes.has(index)),
+  };
+}
+
+function spliceLines(
+  current: EditableLines,
+  start: number,
+  deleteCount: number,
+  inserted: readonly string[],
+): EditableLines {
+  return {
+    raw: [...current.raw.slice(0, start), ...inserted, ...current.raw.slice(start + deleteCount)],
+    masked: [
+      ...current.masked.slice(0, start),
+      ...inserted,
+      ...current.masked.slice(start + deleteCount),
+    ],
+    secret: [
+      ...current.secret.slice(0, start),
+      ...inserted.map(() => false),
+      ...current.secret.slice(start + deleteCount),
+    ],
+  };
+}
+
+/** Where `pattern` matches `content`, left to right and without overlap, up to `maxMatches`. */
+function findPatternMatches(
+  content: string,
+  edit: Extract<EditOperation, { type: "replace_pattern" }>,
+  maxMatches: number,
+): Array<{ index: number; length: number }> {
+  const patternInfo = normalizeFilterPattern(edit.pattern);
+  // Surface regex rejection as a clear error instead of silently falling back
+  if (patternInfo.error) {
+    throw new InvalidPatternError({ pattern: edit.pattern, reason: patternInfo.error });
+  }
+  const matches: Array<{ index: number; length: number }> = [];
+  if (patternInfo.type === "regex" && patternInfo.regex) {
+    // Without the global flag, exec() always starts at index 0 and never advances.
+    const regex = ensureGlobalRegex(patternInfo.regex);
+    let match;
+    let iterations = 0;
+    while (matches.length < maxMatches && (match = regex.exec(content)) !== null) {
+      matches.push({ index: match.index, length: match[0].length });
+      // Advance past zero-length matches to prevent infinite loops
+      if (match[0].length === 0) {
+        regex.lastIndex++;
+      }
+      // Safety limit: throw instead of silently truncating replacements
+      if (++iterations > MAX_REGEX_ITERATIONS) {
+        throw new RegexIterationLimitError({
+          pattern: edit.pattern,
+          iterations: MAX_REGEX_ITERATIONS,
+        });
+      }
+    }
+    return matches;
+  }
+  const searchStr = patternInfo.value || edit.pattern;
+  // indexOf("", n) always returns n, which would never advance.
+  if (searchStr.length === 0) {
+    throw new PatternNotFoundError({ pattern: edit.pattern });
+  }
+  let searchIndex = 0;
+  while (
+    matches.length < maxMatches &&
+    (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1
+  ) {
+    matches.push({ index: searchIndex, length: searchStr.length });
+    searchIndex += searchStr.length;
+  }
+  return matches;
+}
+
+/**
+ * Replace `pattern` in the redacted view, so that whether and where it matches never depends on
+ * a secret value. A match touching a secret line is refused; every other line reads the same in
+ * both views, so the secret lines are carried over whole from the original.
+ */
+function replacePattern(
+  current: EditableLines,
+  edit: Extract<EditOperation, { type: "replace_pattern" }>,
+): { lines: EditableLines; replacementCount: number } {
+  const maxReplacements = edit.count === -1 ? Infinity : (edit.count ?? 1);
+  const maskedContent = current.masked.join("\n");
+  const matches = findPatternMatches(maskedContent, edit, maxReplacements);
+
+  // Throw when pattern finds 0 matches — this is a failure the LLM should know about
+  if (matches.length === 0) {
+    const expectedCount = edit.count === -1 ? undefined : (edit.count ?? 1);
+    throw new PatternNotFoundError(
+      expectedCount !== undefined
+        ? { pattern: edit.pattern, expectedCount }
+        : { pattern: edit.pattern },
+    );
+  }
+
+  const lineOffsets = buildLineOffsets(maskedContent);
+  for (const match of matches) {
+    const end = match.index + match.length;
+    const firstLine = offsetToLine(lineOffsets, match.index);
+    const consumesNewline = match.length > 0 && maskedContent[end - 1] === "\n";
+    const lastLine =
+      offsetToLine(lineOffsets, Math.max(match.index, end - 1)) + (consumesNewline ? 1 : 0);
+    for (let line = firstLine; line <= lastLine; line++) {
+      if (current.secret[line - 1] === true) {
+        throw new SecretLineMatchError({ pattern: edit.pattern, line });
+      }
+    }
+  }
+
+  let replaced = maskedContent;
+  for (let index = matches.length - 1; index >= 0; index--) {
+    const match = matches[index];
+    if (match) {
+      replaced =
+        replaced.slice(0, match.index) +
+        edit.replacement +
+        replaced.slice(match.index + match.length);
+    }
+  }
+
+  const masked = replaced.split("\n");
+  const raw = [...masked];
+  const secret = masked.map(() => false);
+  const newLineOffsets = buildLineOffsets(replaced);
+  const lineAtOffset = new Map(newLineOffsets.map((offset, line) => [offset, line]));
+  for (const [line, isSecret] of current.secret.entries()) {
+    if (!isSecret) {
+      continue;
+    }
+    const oldOffset = lineOffsets[line] ?? 0;
+    const shift = matches
+      .filter((match) => match.index < oldOffset)
+      .reduce((total, match) => total + edit.replacement.length - match.length, 0);
+    const newLine = lineAtOffset.get(oldOffset + shift);
+    if (newLine !== undefined) {
+      raw[newLine] = current.raw[line] ?? "";
+      secret[newLine] = true;
+    }
+  }
+  return { lines: { raw, masked, secret }, replacementCount: matches.length };
+}
+
+/**
  * Apply a sequence of edit operations to file lines.
  * Throws tagged errors for invalid operations (e.g., out-of-bounds, pattern not found).
  *
- * @param lines - The original file lines
+ * @param lines - The original file lines, or the file's lines with their redacted view
  * @param edits - The edit operations to apply
  * @returns Object with resultLines and array of descriptions for each applied edit
  * @throws {OutOfBoundsError} When line range is out of bounds
  * @throws {InsertOutOfBoundsError} When insert position is out of bounds
  * @throws {PatternNotFoundError} When replace_pattern finds 0 matches
  * @throws {InvalidPatternError} When pattern is malformed (e.g., nested quantifiers)
+ * @throws {SecretLineMatchError} When replace_pattern matches a line holding a secret
  */
 function applyEdits(
-  lines: readonly string[],
+  lines: readonly string[] | EditableLines,
   edits: readonly EditOperation[],
 ): { resultLines: string[]; appliedEdits: ApplyEditResult[] } {
-  let currentLines = [...lines];
+  let current = isEditableLines(lines) ? lines : plainLines(lines);
   const appliedEdits: ApplyEditResult[] = [];
 
   for (const edit of edits) {
@@ -299,21 +510,17 @@ function applyEdits(
         const startIdx = edit.startLine - 1;
         const endIdx = edit.endLine - 1;
 
-        if (startIdx < 0 || endIdx >= currentLines.length) {
+        if (startIdx < 0 || endIdx >= current.raw.length) {
           throw new OutOfBoundsError({
             startLine: edit.startLine,
             endLine: edit.endLine,
-            totalLines: currentLines.length,
+            totalLines: current.raw.length,
             operation: "replace_lines",
           });
         }
 
         const newContentLines = edit.content.split("\n");
-        currentLines = [
-          ...currentLines.slice(0, startIdx),
-          ...newContentLines,
-          ...currentLines.slice(endIdx + 1),
-        ];
+        current = spliceLines(current, startIdx, endIdx - startIdx + 1, newContentLines);
         appliedEdits.push({
           description: `Replaced lines ${edit.startLine}-${edit.endLine} with ${newContentLines.length} line(s)`,
         });
@@ -343,81 +550,10 @@ function applyEdits(
           });
         }
 
-        const patternInfo = normalizeFilterPattern(edit.pattern);
-        // Surface regex rejection as a clear error instead of silently falling back
-        if (patternInfo.error) {
-          throw new InvalidPatternError({ pattern: edit.pattern, reason: patternInfo.error });
-        }
-        let content = currentLines.join("\n");
-        let replacementCount = 0;
-        const maxReplacements = edit.count === -1 ? Infinity : (edit.count ?? 1);
-
-        if (patternInfo.type === "regex" && patternInfo.regex) {
-          // Ensure the regex has the global flag to avoid infinite loops
-          // when iterating with exec(). Without 'g', exec() always starts
-          // at index 0 and lastIndex is never advanced by the engine.
-          const regex = ensureGlobalRegex(patternInfo.regex);
-          let match;
-          let iterations = 0;
-          const matches: Array<{ index: number; length: number }> = [];
-
-          while ((match = regex.exec(content)) !== null && replacementCount < maxReplacements) {
-            matches.push({ index: match.index, length: match[0].length });
-            replacementCount++;
-            // Advance past zero-length matches to prevent infinite loops
-            if (match[0].length === 0) {
-              regex.lastIndex++;
-            }
-            // Safety limit: throw instead of silently truncating replacements
-            if (++iterations > MAX_REGEX_ITERATIONS) {
-              throw new RegexIterationLimitError({
-                pattern: edit.pattern,
-                iterations: MAX_REGEX_ITERATIONS,
-              });
-            }
-          }
-
-          for (let i = matches.length - 1; i >= 0; i--) {
-            const m = matches[i];
-            if (m) {
-              content =
-                content.slice(0, m.index) + edit.replacement + content.slice(m.index + m.length);
-            }
-          }
-        } else {
-          const searchStr = patternInfo.value || edit.pattern;
-          // Guard against empty search string — indexOf("", n) always returns n,
-          // causing content.length iterations with no progress
-          if (searchStr.length === 0) {
-            throw new PatternNotFoundError({ pattern: edit.pattern });
-          }
-          let searchIndex = 0;
-          while (
-            replacementCount < maxReplacements &&
-            (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1
-          ) {
-            content =
-              content.slice(0, searchIndex) +
-              edit.replacement +
-              content.slice(searchIndex + searchStr.length);
-            replacementCount++;
-            searchIndex += edit.replacement.length;
-          }
-        }
-
-        // Throw when pattern finds 0 matches — this is a failure the LLM should know about
-        if (replacementCount === 0) {
-          const expectedCount = edit.count === -1 ? undefined : (edit.count ?? 1);
-          throw new PatternNotFoundError(
-            expectedCount !== undefined
-              ? { pattern: edit.pattern, expectedCount }
-              : { pattern: edit.pattern },
-          );
-        }
-
-        currentLines = content.split("\n");
+        const replaced = replacePattern(current, edit);
+        current = replaced.lines;
         appliedEdits.push({
-          description: `Replaced pattern "${edit.pattern}" ${replacementCount} time(s) with "${edit.replacement}"`,
+          description: `Replaced pattern "${edit.pattern}" ${replaced.replacementCount} time(s) with "${edit.replacement}"`,
         });
         break;
       }
@@ -426,18 +562,14 @@ function applyEdits(
         const insertIdx = edit.line;
         const newContentLines = edit.content.split("\n");
 
-        if (insertIdx < 0 || insertIdx > currentLines.length) {
+        if (insertIdx < 0 || insertIdx > current.raw.length) {
           throw new InsertOutOfBoundsError({
             line: edit.line,
-            totalLines: currentLines.length,
+            totalLines: current.raw.length,
           });
         }
 
-        currentLines = [
-          ...currentLines.slice(0, insertIdx),
-          ...newContentLines,
-          ...currentLines.slice(insertIdx),
-        ];
+        current = spliceLines(current, insertIdx, 0, newContentLines);
         appliedEdits.push({
           description: `Inserted ${newContentLines.length} line(s) after line ${edit.line}`,
         });
@@ -448,17 +580,17 @@ function applyEdits(
         const startIdx = edit.startLine - 1;
         const endIdx = edit.endLine - 1;
 
-        if (startIdx < 0 || endIdx >= currentLines.length) {
+        if (startIdx < 0 || endIdx >= current.raw.length) {
           throw new OutOfBoundsError({
             startLine: edit.startLine,
             endLine: edit.endLine,
-            totalLines: currentLines.length,
+            totalLines: current.raw.length,
             operation: "delete_lines",
           });
         }
 
         const deletedCount = endIdx - startIdx + 1;
-        currentLines = [...currentLines.slice(0, startIdx), ...currentLines.slice(endIdx + 1)];
+        current = spliceLines(current, startIdx, deletedCount, []);
         appliedEdits.push({
           description: `Deleted lines ${edit.startLine}-${edit.endLine} (${deletedCount} line(s))`,
         });
@@ -467,7 +599,11 @@ function applyEdits(
     }
   }
 
-  return { resultLines: currentLines, appliedEdits };
+  return { resultLines: current.raw, appliedEdits };
+}
+
+function isEditableLines(lines: readonly string[] | EditableLines): lines is EditableLines {
+  return !Array.isArray(lines);
 }
 
 /**
@@ -481,6 +617,7 @@ function extractErrorType(error: unknown): string {
   if (error instanceof InvalidPatternError) return "InvalidPatternError";
   if (error instanceof RegexIterationLimitError) return "RegexIterationLimitError";
   if (error instanceof PatternTooComplexError) return "PatternTooComplexError";
+  if (error instanceof SecretLineMatchError) return "SecretLineMatchError";
   if (error instanceof FileNotFoundError) return "FileNotFoundError";
   if (error instanceof FileReadError) return "FileReadError";
   if (error instanceof FileWriteError) return "FileWriteError";
@@ -495,7 +632,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
     name: "edit_file",
     disclosure: "private",
     description:
-      "Change part of an existing file; to create one, use write_file. Call read_file first and pass its snapshot; if the file changed, read it again. Use replace_pattern with a unique substring for small changes and line-based edits for multi-line ones. Copy only the text after read_file's `N|` prefix into content. After a failed edit, read errorType, fix the edit and retry.",
+      "Change part of an existing file; to create one, use write_file. Call read_file first and pass its snapshot; if the file changed, read it again. Use replace_pattern with a unique substring for small changes and line-based edits for multi-line ones. Copy only the text after read_file's `N|` prefix into content. Keep lines showing `[redacted:<name>]` out of patterns and content; edit the lines around them. After a failed edit, read errorType, fix the edit and retry.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),
@@ -504,18 +641,6 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        yield* Effect.try({
-          try: () => {
-            assertNotProtectionStateMutation(target);
-            if (secretPathReason(target) !== undefined) {
-              throw new Error(
-                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
-              );
-            }
-          },
-          catch: toError,
-        });
-
         const fs = yield* FileSystem.FileSystem;
         const fileExists = yield* fs
           .exists(target)
@@ -553,7 +678,13 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
           return { skipApproval: true, toolResult: staleFileResult(target) };
         }
-        const lines = fileContent.split("\n");
+        const known = yield* toolKnownSecrets();
+        const redactedEdit = redactedEditProblem(args.edits, fileContent, known);
+        if (redactedEdit !== undefined) {
+          return yield* Effect.fail(new Error(redactedEdit));
+        }
+        const editable = editableLines(fileContent, known);
+        const lines = editable.masked;
         const totalLines = lines.length;
 
         const editDescriptions = args.edits.map((edit, idx) => {
@@ -600,7 +731,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         let resultLines: string[];
 
         try {
-          const result = applyEdits(lines, args.edits);
+          const result = applyEdits(editable, args.edits);
           resultLines = result.resultLines;
         } catch (error) {
           // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here
@@ -621,14 +752,23 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         // bridges like Telegram. Keep it to what is about to happen. Do not append keyboard
         // hints such as "Press Ctrl+O to preview" — most approvers have no keyboard, and
         // the TUI already renders its own hint from `previewDiff` below.
-        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}`;
+        const stateReason = jazzStateChangeReason(target);
+        const message = [
+          `About to edit file: ${target} (${totalLines} lines total)`,
+          `Edits to perform:\n${editDescriptions.join("\n")}`,
+          ...(stateReason !== undefined ? [jazzStateApprovalNotice(stateReason)] : []),
+        ].join("\n\n");
 
         // Generate full diff for Ctrl+O expansion
         const newContent = resultLines.join("\n");
         const { diff } = generateDiffWithMetadata(fileContent, newContent, target, {
           maxLines: Number.POSITIVE_INFINITY,
         });
-        return { message, previewDiff: diff };
+        return {
+          message,
+          previewDiff: diff,
+          ...(stateReason !== undefined ? { alwaysAsk: true as const } : {}),
+        };
       }),
 
     handler: (args: EditFileArgs, context: ToolExecutionContext) =>
@@ -636,17 +776,6 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        yield* Effect.try({
-          try: () => {
-            assertNotProtectionStateMutation(target);
-            if (secretPathReason(target) !== undefined) {
-              throw new Error(
-                "Protected contents cannot be previewed or edited. Use cp for an approved whole-file transfer.",
-              );
-            }
-          },
-          catch: toError,
-        });
         const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
         if (canonicalTargetResult._tag === "Left") {
           const err = new FileNotFoundError({ path: target });
@@ -698,12 +827,18 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             if (fileSnapshot(canonicalTarget, fileContent) !== args.snapshot) {
               return staleFileResult(target);
             }
-            const lines = fileContent.split("\n");
+            const known = yield* toolKnownSecrets();
+            const redactedEdit = redactedEditProblem(args.edits, fileContent, known);
+            if (redactedEdit !== undefined) {
+              return yield* Effect.fail(new Error(redactedEdit));
+            }
+            const editable = editableLines(fileContent, known);
+            const lines = editable.raw;
 
             // Apply edits using the shared helper function.
             // applyEdits throws JS exceptions (tagged errors), so try/catch is correct here.
             try {
-              const { resultLines, appliedEdits } = applyEdits(lines, args.edits);
+              const { resultLines, appliedEdits } = applyEdits(editable, args.edits);
 
               const newContent = resultLines.join("\n");
 

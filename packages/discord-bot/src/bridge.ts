@@ -433,10 +433,17 @@ export async function dispatchMessage(
     );
     return;
   }
-  if (!shouldRespond(bridge.config, context)) return;
+  const stripped = stripBotMention(message.content, runtime.botUserId);
+  if (!shouldRespond(bridge.config, context)) {
+    await bridge.runner.tryAnswerPending({
+      chatId: message.channel_id,
+      senderId: message.author.id,
+      text: stripped,
+    });
+    return;
+  }
 
   const attachments = message.attachments ?? [];
-  const stripped = stripBotMention(message.content, runtime.botUserId);
   if (stripped.length === 0 && attachments.length === 0) {
     if (context.mentionedBot && message.content.trim().length === 0) {
       await bridge.runner.send(message.channel_id, [

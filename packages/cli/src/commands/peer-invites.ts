@@ -18,10 +18,10 @@ import {
   revokeInvite,
 } from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
-import { peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import { CLIError } from "@jazz/core/types/errors";
 import { isPeerTier, PEER_TIERS, type PeerTier } from "@jazz/core/types/peer";
 import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";

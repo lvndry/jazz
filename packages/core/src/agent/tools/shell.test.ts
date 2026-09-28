@@ -324,7 +324,7 @@ describe("Shell Tools", () => {
         Effect.provide(
           tool.execute(
             {
-              command: "echo $MY_ALLOWED_TOKEN",
+              command: 'test "$MY_ALLOWED_TOKEN" = letmethrough && echo passed-through',
               description: "Print the allowlisted env var to prove it passed through.",
             },
             context,
@@ -336,7 +336,7 @@ describe("Shell Tools", () => {
       expect(result.success).toBe(true);
       expect(result.result).toHaveProperty("stdout");
       if (result.result && typeof result.result === "object" && "stdout" in result.result) {
-        expect((result.result as { stdout: string }).stdout.trim()).toBe("letmethrough");
+        expect((result.result as { stdout: string }).stdout.trim()).toBe("passed-through");
       }
     } finally {
       if (originalValue === undefined) {
@@ -474,6 +474,33 @@ describe("Shell Tools", () => {
     expect(stdout.endsWith(marker)).toBe(true);
     const payload = stdout.slice(0, stdout.length - marker.length).replace(/\n$/, "");
     expect(Buffer.byteLength(payload, "utf8")).toBe(EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+  });
+
+  it("redacts a secret that crosses the stdout cap before cutting it", async () => {
+    const bodyLine = "MIIEowIBAAKCAQEAsecretbodyline";
+    const lead = EXECUTE_COMMAND_OUTPUT_CAP_BYTES - 40;
+    const tool = shellTools.execute;
+    const result: ToolExecutionResult = await Effect.runPromise(
+      Effect.provide(
+        tool.execute(
+          {
+            command: `yes filler-line | head -c ${lead}; printf '\\n-----BEGIN RSA PRIVATE KEY-----\\n${bodyLine}\\n-----END RSA PRIVATE KEY-----\\n'`,
+            description: "Print a private key block across the stdout cap.",
+          },
+          { agentId: "test-agent", conversationId: "test-conversation" },
+        ),
+        createTestLayer(),
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    const stdout = String((result.result as { stdout: unknown }).stdout);
+    expect(stdout).not.toContain("secretbody");
+    expect(stdout).not.toContain("BEGIN RSA PRIVATE KEY");
+    expect(stdout).toContain("[redacted:private-key]");
+    expect(stdout).toContain(
+      spawnOutputTruncationNotice("stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+    );
   });
 
   it("caps stderr independently of stdout", async () => {

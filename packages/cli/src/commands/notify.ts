@@ -1,84 +1,105 @@
 /**
- * `jazz notify`: see the configured notify channels, send a test through one, and inspect or
- * retry what is waiting in the outbox. Channels themselves are configured under
- * `notifications.channels` (see docs/configure/notifications.md).
+ * `jazz notify`: list the `notify.targets`, add or replace one, send a test through one, and
+ * inspect or retry what is waiting in the outbox (see docs/configure/notifications.md).
  */
 
-import { sendToChannel } from "@jazz/adapters/notification/channels";
+import { desktopNotifierUnavailableReason } from "@jazz/adapters/notification/desktop-notifier";
 import {
   drainNotifyOutbox,
   listOutbox,
   retryStoppedNotifications,
 } from "@jazz/adapters/notification/outbox-drain";
-import { notifyChannelSecretEnvVar } from "@jazz/adapters/secrets/registry";
+import { sendToTarget } from "@jazz/adapters/notification/targets";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { notifyTargets } from "@jazz/core/notify/outbox";
+import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/core/secrets/registry";
 import {
-  NOTIFY_CHANNEL_NAME_PATTERN,
-  NOTIFY_CHANNEL_TYPES,
   NOTIFY_SUBSCRIBABLE_EVENTS,
-  type NotifyChannelConfig,
-  type NotifyChannelType,
+  NOTIFY_TARGET_KINDS,
+  NOTIFY_TARGET_NAME_PATTERN,
   type NotifySubscribableEvent,
+  type NotifyTarget,
+  type NotifyTargetKind,
 } from "@jazz/core/types/notify";
 import { checkConfigWrite } from "@jazz/core/utils/config-schema";
 import { Effect } from "effect";
 import { emitEnvelope, failEnvelope } from "../helpers/json-output";
 
-export function listNotifyChannelsCommand(options: { readonly json: boolean }) {
+function describeTarget(target: NotifyTarget): string {
+  const events = target.events === undefined ? "all events" : target.events.join(", ");
+  const where =
+    target.kind === "ntfy" || target.kind === "webhook"
+      ? `  ${target.url}`
+      : target.kind === "telegram"
+        ? `  chat ${target.chatId}`
+        : "";
+  return `${target.name}  ${target.kind}${where}  (${events})`;
+}
+
+export function listNotifyTargetsCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    const channels = Object.entries(appConfig.notifications?.channels ?? {}).map(
-      ([name, channel]) => ({
-        name,
-        type: channel.type,
-        events: channel.events === undefined ? "all" : channel.events.join(", "),
-        ...("approveFromChat" in channel && channel.approveFromChat === true
-          ? { approveFromChat: true }
-          : {}),
-      }),
-    );
+    const targets = notifyTargets(appConfig);
+    const implicit = appConfig.notify?.targets === undefined;
+    const desktopUnavailable = targets.some((target) => target.kind === "desktop")
+      ? desktopNotifierUnavailableReason()
+      : undefined;
     const text =
-      channels.length === 0
-        ? "No notify channels configured. Add one with `jazz notify add <name> --type telegram|discord|webhook|desktop`."
-        : channels
-            .map((channel) => `${channel.name}  ${channel.type}  events: ${channel.events}`)
-            .join("\n");
-    emitEnvelope(options.json, { ok: true, channels }, text);
+      targets.length === 0
+        ? "No notify targets: nothing is sent. Add one with `jazz notify add <name> --kind <kind>`."
+        : [
+            ...targets.map(describeTarget),
+            ...(implicit ? ["(the default: notify.targets is unset)"] : []),
+            ...(desktopUnavailable !== undefined
+              ? [
+                  `Desktop notifications cannot be shown on this host: ${desktopUnavailable}.${implicit ? " Nothing is queued for the default desktop target." : ""}`,
+                ]
+              : []),
+          ].join("\n");
+    emitEnvelope(
+      options.json,
+      {
+        ok: true,
+        targets,
+        implicit,
+        ...(desktopUnavailable !== undefined ? { desktopUnavailable } : {}),
+      },
+      text,
+    );
   });
 }
 
-/** Send one test message through a channel, directly, and report what the channel said. */
-export function testNotifyChannelCommand(options: {
-  readonly channel: string;
+/** Send one test message through a target, directly, and report what the target said. */
+export function testNotifyTargetCommand(options: {
+  readonly target: string;
   readonly json: boolean;
 }) {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    const channel = appConfig.notifications?.channels?.[options.channel];
-    if (channel === undefined) {
-      failEnvelope(options.json, `No notify channel named "${options.channel}".`);
+    const target = notifyTargets(appConfig).find((candidate) => candidate.name === options.target);
+    if (target === undefined) {
+      failEnvelope(options.json, `No notify target named "${options.target}".`);
       return;
     }
-    const outcome = yield* sendToChannel(
-      options.channel,
-      channel,
+    const outcome = yield* sendToTarget(
+      target,
       {
         kind: "unattended-failed",
         source: "run",
         name: "notify test",
-        error: "This is a test from `jazz notify test`. If you can read it, the channel works.",
+        error: "This is a test from `jazz notify test`. If you can read it, the target works.",
       },
       { deliveryId: `test-${Date.now().toString(36)}` },
     );
     if (!outcome.delivered) {
-      failEnvelope(options.json, `"${options.channel}" did not accept the test: ${outcome.error}`);
+      failEnvelope(options.json, `"${options.target}" did not accept the test: ${outcome.error}`);
       return;
     }
     emitEnvelope(
       options.json,
-      { ok: true, channel: options.channel },
-      `Sent a test through "${options.channel}".`,
+      { ok: true, target: options.target },
+      `Sent a test through "${options.target}".`,
     );
   });
 }
@@ -97,7 +118,7 @@ export function notifyOutboxCommand(options: { readonly json: boolean }) {
                 entry.delivery.nextAttemptAt === undefined
                   ? ""
                   : `  next try ${entry.delivery.nextAttemptAt}`;
-              return `${entry.queuedAt}  ${entry.channel}  ${entry.kind}  ${entry.delivery.status}${next}${why}`;
+              return `${entry.queuedAt}  ${entry.target}  ${entry.kind}  ${entry.delivery.status}${next}${why}`;
             })
             .join("\n");
     emitEnvelope(options.json, { ok: true, notifications: entries }, text);
@@ -120,9 +141,9 @@ export function retryNotifyOutboxCommand(options: { readonly json: boolean }) {
   });
 }
 
-export interface AddNotifyChannelOptions {
+export interface AddNotifyTargetOptions {
   readonly name: string;
-  readonly type: string;
+  readonly kind: string;
   readonly chatId?: string;
   readonly channelId?: string;
   readonly url?: string;
@@ -131,21 +152,25 @@ export interface AddNotifyChannelOptions {
   readonly approveFromChat?: boolean;
 }
 
-/** The secret a channel type needs, and the prompt that asks for it. */
-const CHANNEL_SECRET_PROMPTS: Readonly<
-  Record<NotifyChannelType, { readonly field: string; readonly prompt: string } | undefined>
+/** The secret a target kind asks for on a terminal, if any. */
+const TARGET_SECRET_PROMPTS: Readonly<
+  Record<NotifyTargetKind, { readonly field: string; readonly prompt: string } | undefined>
 > = {
+  desktop: undefined,
+  ntfy: undefined,
+  webhook: {
+    field: "secret",
+    prompt: "Signing secret shared with the receiver (empty to send unsigned):",
+  },
   telegram: { field: "botToken", prompt: "Telegram bot token (from @BotFather):" },
   discord: {
     field: "webhookUrl",
     prompt: "Discord webhook URL (Channel settings > Integrations > Webhooks):",
   },
-  webhook: { field: "secret", prompt: "Signing secret shared with the receiver:" },
-  desktop: undefined,
 };
 
-function isChannelType(value: string): value is NotifyChannelType {
-  return (NOTIFY_CHANNEL_TYPES as readonly string[]).includes(value);
+function isTargetKind(value: string): value is NotifyTargetKind {
+  return (NOTIFY_TARGET_KINDS as readonly string[]).includes(value);
 }
 
 function parseEvents(raw: string | undefined): readonly NotifySubscribableEvent[] | string {
@@ -164,105 +189,97 @@ function parseEvents(raw: string | undefined): readonly NotifySubscribableEvent[
     : (names as NotifySubscribableEvent[]);
 }
 
-function channelConfig(
-  options: AddNotifyChannelOptions,
-  type: NotifyChannelType,
-  events: readonly NotifySubscribableEvent[],
-): NotifyChannelConfig {
-  const common = events.length > 0 ? { events } : {};
-  switch (type) {
+/** The target the flags describe, or why they do not describe one. */
+export function targetFromOptions(options: AddNotifyTargetOptions): NotifyTarget | string {
+  if (!NOTIFY_TARGET_NAME_PATTERN.test(options.name)) {
+    return "A target name is lowercase letters, digits, - and _ (e.g. phone).";
+  }
+  if (!isTargetKind(options.kind)) {
+    return `Unknown target kind "${options.kind}". Pass ${NOTIFY_TARGET_KINDS.join(", ")}.`;
+  }
+  const events = parseEvents(options.events);
+  if (typeof events === "string") {
+    return events;
+  }
+  const common = { name: options.name, ...(events.length > 0 ? { events } : {}) };
+  const approve = options.approveFromChat === true ? { approveFromChat: true } : {};
+  const apiBaseUrl = options.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {};
+  switch (options.kind) {
+    case "desktop":
+      return { ...common, kind: "desktop" };
+    case "ntfy":
+    case "webhook":
+      return options.url === undefined
+        ? `A ${options.kind} target needs --url.`
+        : { ...common, kind: options.kind, url: options.url };
     case "telegram":
-      return {
-        type,
-        ...common,
-        ...(options.chatId !== undefined ? { chatId: options.chatId } : {}),
-        ...(options.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
-        ...(options.approveFromChat === true ? { approveFromChat: true } : {}),
-      };
+      return options.chatId === undefined
+        ? "A telegram target needs --chat-id (message the bot, then read it from getUpdates)."
+        : { ...common, kind: "telegram", chatId: options.chatId, ...apiBaseUrl, ...approve };
     case "discord":
       return {
-        type,
         ...common,
+        kind: "discord",
         ...(options.channelId !== undefined ? { channelId: options.channelId } : {}),
-        ...(options.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
-        ...(options.approveFromChat === true ? { approveFromChat: true } : {}),
+        ...apiBaseUrl,
+        ...approve,
       };
-    case "webhook":
-      return { type, ...common, ...(options.url !== undefined ? { url: options.url } : {}) };
-    case "desktop":
-      return { type, ...common };
   }
 }
 
 /**
- * Add (or replace) a notify channel, then ask for its secret on a terminal. Without a terminal
- * the command says which key to set instead, so the secret never has to pass through argv.
+ * Add (or replace, by name) a notify target, then ask for its secret on a terminal. Without a
+ * terminal the command says which key to set instead, so the secret never passes through argv.
  */
-export function addNotifyChannelCommand(options: AddNotifyChannelOptions) {
+export function addNotifyTargetCommand(options: AddNotifyTargetOptions) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
-    if (!NOTIFY_CHANNEL_NAME_PATTERN.test(options.name)) {
-      failEnvelope(false, "A channel name is lowercase letters, digits, - and _ (e.g. phone).");
+    const target = targetFromOptions(options);
+    if (typeof target === "string") {
+      failEnvelope(false, target);
       return;
     }
-    if (!isChannelType(options.type)) {
-      failEnvelope(
-        false,
-        `Unknown channel type "${options.type}". Pass ${NOTIFY_CHANNEL_TYPES.join(", ")}.`,
-      );
-      return;
-    }
-    const events = parseEvents(options.events);
-    if (typeof events === "string") {
-      failEnvelope(false, events);
-      return;
-    }
-    if (options.type === "telegram" && options.chatId === undefined) {
-      failEnvelope(
-        false,
-        "A telegram channel needs --chat-id (message the bot, then read it from getUpdates).",
-      );
-      return;
-    }
-    if (options.type === "webhook" && options.url === undefined) {
-      failEnvelope(false, "A webhook channel needs --url.");
-      return;
-    }
-    const check = checkConfigWrite(
-      `notifications.channels.${options.name}`,
-      channelConfig(options, options.type, events),
-    );
+    const appConfig = yield* configService.appConfig;
+    const targets = [
+      ...(appConfig.notify?.targets ?? []).filter((existing) => existing.name !== target.name),
+      target,
+    ];
+    const check = checkConfigWrite("notify.targets", targets);
     if (!check.ok) {
-      failEnvelope(false, `Refusing to write that channel: ${check.problem}`);
+      failEnvelope(false, `Refusing to write that target: ${check.problem}`);
       return;
     }
-    yield* configService.set(
-      `notifications.channels.${options.name}`,
-      channelConfig(options, options.type, events),
-    );
-    yield* terminal.success(`Notify channel "${options.name}" (${options.type}) saved.`);
+    yield* configService.set("notify.targets", targets);
+    yield* terminal.success(`Notify target "${target.name}" (${target.kind}) saved.`);
+    if (appConfig.notify?.targets === undefined && target.kind !== "desktop") {
+      yield* terminal.info(
+        "notify.targets is now set, so the default desktop target is gone: add it back with `jazz notify add desktop --kind desktop` to keep desktop notifications.",
+      );
+    }
 
-    const secret = CHANNEL_SECRET_PROMPTS[options.type];
-    const secretKey =
-      secret === undefined ? undefined : `notifications.channels.${options.name}.${secret.field}`;
-    if (secret !== undefined && secretKey !== undefined) {
+    const secret = TARGET_SECRET_PROMPTS[target.kind];
+    if (secret !== undefined) {
+      const secretKey = notifyTargetSecretPath(target.name, secret.field);
       const value = process.stdin.isTTY
         ? yield* terminal.ask(secret.prompt, { simple: true, secret: true, cancellable: true })
         : undefined;
       if (value === undefined || value.trim().length === 0) {
         yield* terminal.info(
-          `Set its ${secret.field} with \`jazz config set ${secretKey}\` (kept in the keyring), or export ${notifyChannelSecretEnvVar(options.name, secret.field)}.`,
+          `Set its ${secret.field} with \`jazz config set ${secretKey}\` (kept in the keyring), or export ${notifyTargetSecretEnvVar(target.name, secret.field)}.`,
         );
       } else {
         yield* configService.set(secretKey, value.trim());
         if (configService.secretStorageUnavailable(secretKey)) {
-          failEnvelope(false, `The ${secret.field} could not be stored: no keyring is available.`);
+          failEnvelope(
+            false,
+            `The ${secret.field} could not be stored: no keyring is available. Export ${notifyTargetSecretEnvVar(target.name, secret.field)} instead.`,
+          );
           return;
         }
         yield* terminal.success(`${secret.field} stored in the keyring.`);
       }
     }
-    yield* terminal.info(`Check it with \`jazz notify test ${options.name}\`.`);
+    yield* terminal.info(`Check it with \`jazz notify test ${target.name}\`.`);
   });
 }

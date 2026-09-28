@@ -131,7 +131,19 @@ it("retains background pause, spend caps and waiting approvals in the status tex
     paused: null,
     pauseReason: "Paused by you",
     spendToday: { runs: 2, totalTokens: 120, costUSD: 0.5, costKnown: true },
-    dailyCaps: { tokens: 1000, costUSD: 2 },
+    caps: [
+      {
+        key: "daemon.dailyCostUSD",
+        scope: { kind: "machine" },
+        period: "day",
+        measure: "cost",
+        limit: 2,
+        spent: 0.5,
+        unpricedRuns: 0,
+        reached: false,
+        unverifiable: false,
+      },
+    ],
     capLiftedToday: false,
     waiting: [],
   });

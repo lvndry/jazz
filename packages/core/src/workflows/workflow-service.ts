@@ -53,7 +53,7 @@ export interface WorkflowMetadata {
   readonly maxTokens?: number;
   /** Wall-clock spend budget in ms. Unset, the run falls back to config `maxDurationMs`; unset at both means uncapped. */
   readonly maxDurationMs?: number;
-  /** Notify channels (`notifications.channels.<name>`) that receive each run's answer. */
+  /** Notify targets (`notify.targets[].name`) that receive each run's answer. */
   readonly deliver?: readonly string[];
 }
 

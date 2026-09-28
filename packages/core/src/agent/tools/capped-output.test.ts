@@ -4,6 +4,7 @@ import {
   decodeCapped,
   decodeCappedText,
   EMPTY_CAPPED_OUTPUT,
+  formatRedactedCappedStream,
   type CappedOutput,
 } from "./capped-output";
 
@@ -77,5 +78,51 @@ describe("decodeCappedText", () => {
     const decoded = decodeCappedText(output, { dropIncompleteLastLine: true });
     expect(decoded.truncated).toBe(false);
     expect(decoded.text).toBe("only-line");
+  });
+});
+
+describe("formatRedactedCappedStream", () => {
+  const collected = (text: string, truncated = false): CappedOutput => ({
+    chunks: [Buffer.from(text, "utf8")],
+    bytes: Buffer.byteLength(text),
+    truncated,
+  });
+  const privateKey = [
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "MIIEowIBAAKCAQEAkeybodyfirstline",
+    "a2V5Ym9keXNlY29uZGxpbmU=",
+    "-----END RSA PRIVATE KEY-----",
+  ].join("\n");
+
+  it("recognizes a private key whose end lies past the cap", () => {
+    const text = `start\n${privateKey}\nafter\n`;
+    const capBytes = text.indexOf("a2V5") + 4;
+    const formatted = formatRedactedCappedStream(collected(text), "stdout", capBytes, []);
+    expect(formatted).not.toContain("keybody");
+    expect(formatted).not.toContain("a2V5");
+    expect(formatted).toContain("[redacted:private-key]");
+    expect(formatted).toContain("[truncated: stdout exceeded");
+  });
+
+  it("leaves out a secret line the cap would split, and keeps a plain line's prefix", () => {
+    const secretText = "ok\nDB_PASSWORD=hunter2hunter2\n";
+    const secretCap = "ok\nDB_PASSWORD=hunt".length;
+    const secret = formatRedactedCappedStream(collected(secretText), "stdout", secretCap, []);
+    expect(secret).not.toContain("hunt");
+    expect(secret.startsWith("ok\n[truncated:")).toBe(true);
+
+    const plain = formatRedactedCappedStream(collected("ok\nplain words\n"), "stdout", 8, []);
+    expect(plain.startsWith("ok\nplain\n[truncated:")).toBe(true);
+  });
+
+  it("returns the whole redacted output under the cap without a notice", () => {
+    const known = [{ name: "llm.test.api_key", value: "k9-capped-known-0123" }];
+    const formatted = formatRedactedCappedStream(
+      collected("key=k9-capped-known-0123\n"),
+      "stderr",
+      1024,
+      known,
+    );
+    expect(formatted).toBe("key=[redacted:llm.test.api_key]");
   });
 });

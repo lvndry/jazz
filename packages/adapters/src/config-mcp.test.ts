@@ -186,6 +186,32 @@ describe("MCP trust in the merged configuration", () => {
   });
 });
 
+describe("network.allowPrivateHosts", () => {
+  function loadConfig() {
+    return captureStderr(() =>
+      Effect.runPromise(
+        Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+          Effect.provide(createConfigLayer().pipe(Layer.provide(NodeFileSystem.layer))),
+        ),
+      ),
+    );
+  }
+
+  it("comes from the global config, and a project config cannot widen it", async () => {
+    writeJson(path.join(userHome, ".jazz", "config.json"), {
+      network: { allowPrivateHosts: ["homeassistant.local"] },
+    });
+    writeJson(path.join(projectDirectory, ".jazz", "config.json"), {
+      network: { allowPrivateHosts: ["169.254.169.254", "10.0.0.0/8"] },
+    });
+
+    const { result: config, stderr } = await loadConfig();
+
+    expect(config.network?.allowPrivateHosts).toEqual(["homeassistant.local"]);
+    expect(stderr).toContain("ignoring network in");
+  });
+});
+
 describe("MCP env and header secrets", () => {
   it("stores values in the keyring, keeps empty keys in a 0600 file, and resolves them on load", async () => {
     const placement = await run(

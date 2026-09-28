@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/core/secrets/registry";
 import { Effect } from "effect";
 import {
   detectKeyringBackend,
@@ -15,7 +16,6 @@ import {
   keyringGet,
   keyringSet,
 } from "@/adapters/secrets/keyring";
-import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@/adapters/secrets/registry";
 
 export function resolveDaemonToken(): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {

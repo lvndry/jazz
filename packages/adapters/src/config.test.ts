@@ -11,7 +11,12 @@ import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { AgentConfigServiceImpl, createConfigLayer, validateConfigFiles } from "./config";
+import {
+  AgentConfigServiceImpl,
+  createConfigLayer,
+  resolveHeldSecrets,
+  validateConfigFiles,
+} from "./config";
 
 // Mock FileSystem
 const mockFS = {
@@ -114,6 +119,61 @@ describe("AgentConfigService", () => {
     const key = await Effect.runPromise(service.get("llm.openai.api_key"));
     expect(key).toBe("sk-test");
     expect(readFileSync(configPath, "utf8")).toContain("sk-test");
+  });
+
+  it("never writes a notify target's secret into config.json, even with no targets yet", async () => {
+    const configPath = tempConfigPath("config.json");
+    writeFileSync(configPath, JSON.stringify({ maxRetries: 2 }));
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { maxRetries: 2 },
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("notify.targets.phone.botToken", "123:SECRET"));
+    await Effect.runPromise(service.set("webhooks.mira.token", "hook-secret"));
+
+    expect(readFileSync(configPath, "utf8")).not.toContain("SECRET");
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual({ maxRetries: 2 });
+    expect(service.secretStorageUnavailable("notify.targets.phone.botToken")).toBe(true);
+    expect(service.secretStorageUnavailable("webhooks.mira.token")).toBe(true);
+    expect((await Effect.runPromise(service.appConfig)).notify).toBeUndefined();
+  });
+
+  it("keeps an existing notify target list a list when its secret has nowhere to go", async () => {
+    const configPath = tempConfigPath("config.json");
+    const document = { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } };
+    writeFileSync(configPath, JSON.stringify(document));
+    const service = new AgentConfigServiceImpl(
+      { ...initialConfig, ...document } as AppConfig,
+      document,
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("notify.targets.phone.botToken", "123:SECRET"));
+
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual(document);
+    expect(service.secretStorageUnavailable("notify.targets.phone.botToken")).toBe(true);
+  });
+
+  it("does not write a config file that would fail validation", async () => {
+    const configPath = tempConfigPath("config.json");
+    writeFileSync(configPath, JSON.stringify({ maxRetries: "many" }));
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { maxRetries: "many" },
+      configPath,
+      mockFS,
+    );
+
+    const { stderr } = await captureStderr(() =>
+      Effect.runPromise(service.set("logging.level", "debug")),
+    );
+
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual({ maxRetries: "many" });
+    expect(stderr).toContain("not saving logging.level");
   });
 
   it("trims a pasted API key before storing it", async () => {
@@ -1019,6 +1079,90 @@ describe("noticing an edit made by another process", () => {
       expect(stderr).toContain("keeping the last-known-good configuration");
     } finally {
       await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("known secrets", () => {
+  const doorsConfig = {
+    peers: [{ name: "sam", url: "https://sam.example" }],
+    webhooks: [{ name: "deploy", agentId: "agent-1" }],
+    notify: { targets: [{ name: "ops", kind: "discord" }] },
+  } as unknown as AppConfig;
+
+  it("resolves every door, notify and daemon secret from the environment, then the keyring", async () => {
+    const keyring: Record<string, string> = {
+      "webhooks.deploy.secret": "signing-secret-from-keyring",
+      "notify.targets.ops.webhookUrl": "https://discord.com/api/webhooks/1/token-in-keyring",
+      "daemon.operatorToken": "operator-token-from-keyring",
+      "peers.sam.token": "ignored-because-env-wins",
+    };
+    const held = await Effect.runPromise(
+      resolveHeldSecrets(doorsConfig, (path) => Effect.succeed(keyring[path]), {
+        JAZZ_PEER_TOKEN_SAM: "peer-token-from-env",
+        JAZZ_WEBHOOK_TOKEN_DEPLOY: "webhook-token-from-env",
+      }),
+    );
+    expect(held).toEqual(
+      expect.arrayContaining([
+        { name: "peers.sam.token", value: "peer-token-from-env" },
+        { name: "webhooks.deploy.token", value: "webhook-token-from-env" },
+        { name: "webhooks.deploy.secret", value: "signing-secret-from-keyring" },
+        {
+          name: "notify.targets.ops.webhookUrl",
+          value: "https://discord.com/api/webhooks/1/token-in-keyring",
+        },
+        { name: "daemon.operatorToken", value: "operator-token-from-keyring" },
+      ]),
+    );
+    expect(held).toHaveLength(5);
+  });
+
+  it("skips secrets the runtime config already holds", async () => {
+    const lookedUp: string[] = [];
+    await Effect.runPromise(
+      resolveHeldSecrets(
+        { daemon: { token: "daemon-token-in-config" } } as unknown as AppConfig,
+        (path) => {
+          lookedUp.push(path);
+          return Effect.succeed(undefined);
+        },
+        {},
+      ),
+    );
+    expect(lookedUp).not.toContain("daemon.token");
+    expect(lookedUp).toContain("daemon.operatorToken");
+  });
+
+  it("serves known secrets from a cache that a config write invalidates", async () => {
+    const previous = process.env["JAZZ_PEER_TOKEN_SAM"];
+    process.env["JAZZ_PEER_TOKEN_SAM"] = "peer-token-first-value";
+    try {
+      const service = new AgentConfigServiceImpl(
+        doorsConfig,
+        {},
+        tempConfigPath("config.json"),
+        mockFS,
+      );
+      const first = await Effect.runPromise(service.knownSecrets);
+      expect(first).toContainEqual({ name: "peers.sam.token", value: "peer-token-first-value" });
+
+      process.env["JAZZ_PEER_TOKEN_SAM"] = "peer-token-second-value";
+      const cached = await Effect.runPromise(service.knownSecrets);
+      expect(cached).toBe(first);
+
+      await Effect.runPromise(service.set("logging.level", "debug"));
+      const refreshed = await Effect.runPromise(service.knownSecrets);
+      expect(refreshed).toContainEqual({
+        name: "peers.sam.token",
+        value: "peer-token-second-value",
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env["JAZZ_PEER_TOKEN_SAM"];
+      } else {
+        process.env["JAZZ_PEER_TOKEN_SAM"] = previous;
+      }
     }
   });
 });

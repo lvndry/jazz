@@ -120,7 +120,7 @@ export interface BridgeConfig {
   readonly jazzHome: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
-  /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
+  /** Per-day spend cap in USD across all chats; 0 disables it. */
   readonly dailyCostCapUsd: number;
   /** Reverse-geocoder base URL for shared locations; empty string disables it. */
   readonly geocodeUrl: string;
@@ -154,12 +154,6 @@ function parseIdList(raw: string): Set<number> {
       .map((entry) => Number.parseInt(entry, 10))
       .filter((entry) => Number.isFinite(entry)),
   );
-}
-
-function envFlag(name: string, defaultOn: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
-  if (raw === undefined || raw.length === 0) return defaultOn;
-  return !["0", "false", "off", "no"].includes(raw);
 }
 
 function loadConfig(): BridgeConfig {

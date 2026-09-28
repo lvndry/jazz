@@ -20,18 +20,31 @@ Releases before this file existed are described in their
   fail to load instead of silently meaning `true`.
 - **`autoApprove: false` is strict.** It approves nothing, including tools that
   `read-only` or `low-risk` would have let through.
+- **macOS desktop notifications use only `terminal-notifier`.** The AppleScript fallback is
+  gone. The release binary bundles `terminal-notifier`; a Jazz installed another way needs
+  `brew install terminal-notifier` (or `JAZZ_TERMINAL_NOTIFIER`), and without it a desktop
+  notification fails with that instruction instead of showing through AppleScript.
+- **Webhook notify bodies are `{ id, type, title, body, event }`.** The event moved under
+  `event` (with `kind`, not `type`, naming it), and a `paused` event carries `pause` and
+  `reason` but no `spend`. See [Notifications](docs/configure/notifications.md#webhook-bodies-and-signatures).
 - **Deployed chat bots follow release tags.** `auto-update.sh` moves a bot checkout to the
   newest `vX.Y.Z` tag instead of every commit on `main`.
 
-| Before                                         | After                                                        |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| no `autoApprove` in `WORKFLOW.md` (full yolo)  | add `autoApprove: high-risk` (or `true`) to keep that        |
-| `autoApprove: readonly` (typo, meant yolo)     | fix the spelling: `autoApprove: read-only`                   |
-| `autoApprove: false` still auto-approved reads | use `autoApprove: read-only` to allow reads unattended       |
-| bots auto-updated to every commit on `main`    | set `JAZZ_DEPLOY_BRANCH=main` in the cron entry to keep that |
+| Before                                         | After                                                                |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| no `autoApprove` in `WORKFLOW.md` (full yolo)  | add `autoApprove: high-risk` (or `true`) to keep that                |
+| `autoApprove: readonly` (typo, meant yolo)     | fix the spelling: `autoApprove: read-only`                           |
+| `autoApprove: false` still auto-approved reads | use `autoApprove: read-only` to allow reads unattended               |
+| bots auto-updated to every commit on `main`    | set `JAZZ_DEPLOY_BRANCH=main` in the cron entry to keep that         |
+| macOS desktop notifications via AppleScript    | `brew install terminal-notifier`, or the release binary (bundles it) |
+| webhook body `{ title, body, type, item }`     | read `event.item` (or `event.pause`, `event.reason`); no `spend`     |
 
 ### Added
 
+- **Private network hosts.** A model-chosen URL on this machine or the local network asks for
+  approval, and approving adds the address to the global `network.allowPrivateHosts`, so later
+  requests go through unasked. Only the global config sets the list; edit it from `jazz` > Update
+  configuration > Private Network Hosts.
 - `bun run test:e2e`: `jazz run --json` against a scripted model server, covering a tool
   call, an approval park (exit 2) and `jazz runs approve`.
 - Release binaries and `SHA256SUMS` carry signed build provenance
@@ -41,6 +54,12 @@ Releases before this file existed are described in their
 
 ### Changed
 
+- **Secret files read like any other file; secret values are redacted instead.** `read_file`,
+  `grep`, `find`, `ls`, `cp`, `mv` and the edit tools no longer treat `.env`, `secrets.json` or
+  Jazz's config specially. Every tool result is redacted before it is logged or shown: secrets Jazz
+  holds and credential-named environment variables exactly, `.env`-style assignments, key formats
+  and private keys by shape. `write_file` and `edit_file` refuse text carrying a `[redacted:`
+  placeholder. The `$JAZZ_HOME/.protected-files.json` registry is no longer read and can be deleted.
 - A release is created as a draft and published only after every binary is attached and
   has run on its own platform, so `releases/latest/download/install.sh` never serves a
   release without its assets.

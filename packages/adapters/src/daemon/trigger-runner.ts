@@ -17,10 +17,9 @@
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import type { WakeTriggerRecord } from "@jazz/core/interfaces/wake-trigger-service";
-import { enqueueNotification } from "@jazz/core/notify/outbox";
+import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
 import { compactSpendLedger } from "@jazz/core/spend/ledger";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import {
   createReminderOsScheduler,
@@ -39,6 +38,7 @@ import { Cause, Effect, Exit } from "effect";
 import { runDueJobs } from "@/adapters/daemon/job-worker";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import { runDueDetachedJobs } from "@/adapters/detach/job";
+import { sendDesktopNotification } from "@/adapters/notification/desktop-notifier";
 import { drainNotifyOutbox } from "@/adapters/notification/outbox-drain";
 import { claimDueReminders, isBotHostedAgentId, settleReminder } from "@/adapters/reminder-service";
 import type { ScheduledItemClaim } from "@/adapters/storage/scheduled-items";
@@ -112,27 +112,29 @@ export function deliverWakeTrigger(agentId: string, trigger: WakeTriggerRecord) 
   });
 }
 
-/** What a reminder records when it could be shown neither on the desktop nor on a channel. */
-const REMINDER_UNDELIVERABLE =
-  "No desktop notification could be shown (no notifier installed, or no desktop session on this host), and no notify channel takes reminders.";
+/** What a reminder records when it could be shown neither on the desktop nor on a notify target. */
+function reminderUndeliverable(desktopError: string): string {
+  return `No desktop notification could be shown (${desktopError}), and no notify target takes reminders.`;
+}
 
 /**
  * Deliver a claimed reminder and settle the claim. The desktop comes first; when nothing can be
  * shown there (a headless host, a system service with no desktop session), the reminder is
- * handed to every notify channel that takes reminders. The outbox retries a channel that is
- * down, so a reminder handed over is delivered. With no desktop and no channel, the reminder
+ * handed to every notify target that takes reminders. The outbox retries a target that is
+ * down, so a reminder handed over is delivered. With no desktop and no target, the reminder
  * stays on disk as failed with that reason instead of being consumed unseen.
  */
 export function deliverReminder(agentId: string, reminder: ReminderRecord) {
   return Effect.gen(function* () {
-    const shown = yield* sendDesktopNotification("Jazz reminder", reminder.text).pipe(
-      Effect.catchAll(() => Effect.succeed(false)),
-    );
-    const handedOff = shown ? false : yield* handReminderToChannels(agentId, reminder);
+    const desktop = yield* sendDesktopNotification({
+      title: "Jazz reminder",
+      message: reminder.text,
+    });
+    const handedOff = desktop.delivered ? false : yield* handReminderToTargets(agentId, reminder);
     const outcome: DeliveryOutcome =
-      shown || handedOff
+      desktop.delivered || handedOff
         ? { delivered: true }
-        : { delivered: false, error: REMINDER_UNDELIVERABLE, retryable: true };
+        : { delivered: false, error: reminderUndeliverable(desktop.error), retryable: true };
     const settled = yield* settleReminder(reminderDirectory(), agentId, reminder.id, outcome);
     if (handedOff) {
       yield* drainNotifyOutbox();
@@ -141,14 +143,14 @@ export function deliverReminder(agentId: string, reminder: ReminderRecord) {
   });
 }
 
-function handReminderToChannels(agentId: string, reminder: ReminderRecord) {
+function handReminderToTargets(agentId: string, reminder: ReminderRecord) {
   return Effect.gen(function* () {
     const config = yield* AgentConfigServiceTag;
     const appConfig = yield* config.appConfig;
     const result = yield* enqueueNotification(
-      appConfig.notifications?.channels,
+      notifyTargets(appConfig),
       { kind: "reminder", agentId, text: reminder.text, fireAt: reminder.fireAt },
-      { excludeTypes: ["desktop"] },
+      { excludeKinds: ["desktop"] },
     ).pipe(
       Effect.catchAll((error) =>
         Effect.sync(() => {
@@ -324,6 +326,16 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
       );
     }
 
+    // Telling the person and keeping the books are not new work: a paused daemon still sends
+    // what it queued (including the notice that it paused) and compacts the ledger.
+    yield* forkOnce(
+      "notifications",
+      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
+    );
+    yield* forkOnce(
+      "spend ledger",
+      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
+    );
     if (!startNew) {
       return;
     }
@@ -334,14 +346,6 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
     yield* forkOnce(
       "job batches",
       work.drainJobBatches.pipe(Effect.catchAllCause(reportFailure("jobs"))),
-    );
-    yield* forkOnce(
-      "notifications",
-      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
-    );
-    yield* forkOnce(
-      "spend ledger",
-      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
     );
   });
 }

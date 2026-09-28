@@ -420,8 +420,11 @@ worth reading before you rely on the denylist for anything.
 
 ### Environment sanitization
 
-Shell commands do not inherit your full environment. Variables whose _names_ match
-`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
+Shell commands do not inherit your full environment. Variables whose _names_ have a secret word
+in them (`SECRET`, `TOKEN`, `PASSWORD`, `CREDENTIALS`, `APIKEY`, `AUTH`, `PASS`, `COOKIE`, or `KEY`
+after another word, matched as whole words by `isWithheldEnvVarName` in
+`packages/core/src/secrets/registry.ts`), every variable Jazz reads a secret from
+(`JAZZ_PEER_TOKEN_*`, `JAZZ_WEBHOOK_*`, `JAZZ_NOTIFY_*` target secrets), and everything prefixed
 `SSH_`, are stripped before the command runs, so a command that echoes its environment cannot
 exfiltrate your provider keys.
 

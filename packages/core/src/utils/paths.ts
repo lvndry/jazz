@@ -67,18 +67,6 @@ export function getSecretsLockPath(): string {
   return path.join(getJazzHomeDirectory(), ".secrets.lock");
 }
 
-const SECRETS_TEMP_PREFIX = ".secrets-";
-const SECRETS_TEMP_SUFFIX = ".tmp";
-
-/** Whether a basename is a secret temp file left by the former keyring writer. */
-export function isSecretsTempFileName(name: string): boolean {
-  return (
-    name.startsWith(SECRETS_TEMP_PREFIX) &&
-    name.endsWith(SECRETS_TEMP_SUFFIX) &&
-    name.length > SECRETS_TEMP_PREFIX.length + SECRETS_TEMP_SUFFIX.length
-  );
-}
-
 /** The lock held while the ChatGPT OAuth credential is refreshed. */
 export function getChatGptCredentialLockPath(): string {
   return path.join(getJazzHomeDirectory(), ".chatgpt-credential.lock");

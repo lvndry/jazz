@@ -4,6 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
+import { randomUUID } from "node:crypto";
 import { FileSystem } from "@effect/platform";
 import { Cause, Effect, Option, Scope } from "effect";
 import {
@@ -30,7 +31,7 @@ import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
-import { type PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
@@ -44,6 +45,8 @@ import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import {
   guardRunStart,
+  isUnattendedRun,
+  releaseRunReservation,
   type RunAccountingInput,
   settleRunAccounting,
 } from "@/core/spend/run-accounting";
@@ -77,7 +80,7 @@ import {
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { createEgressTaint } from "./execution/egress-taint";
+import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
@@ -1022,16 +1025,25 @@ export class AgentRunner {
         const configService = yield* AgentConfigServiceTag;
         const appConfig = yield* configService.appConfig;
 
+        const presentation = yield* Effect.serviceOption(PresentationServiceTag);
+        const origin = options.origin ?? DEFAULT_RUN_ORIGIN;
         const accounting: RunAccountingInput = {
           agentId: options.agent.id,
-          origin: options.origin ?? DEFAULT_RUN_ORIGIN,
+          agentName: options.agent.name,
+          origin,
           internal: options.internal === true,
+          unattended: isUnattendedRun(
+            origin.source,
+            Option.isSome(presentation) && presentation.value.canPromptForApproval?.() === true,
+          ),
           appConfig,
           freeLocalModel: isZeroCostLocalModel(
             options.agent.config.llmProvider,
             options.agent.config.llmModel,
           ),
+          reservationId: randomUUID(),
         };
+        yield* Effect.addFinalizer(() => releaseRunReservation(accounting));
         yield* guardRunStart(accounting);
 
         // Initialize run context
@@ -1086,6 +1098,16 @@ export class AgentRunner {
               runRecursive,
             )
           : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+        const executeRecordingTaint = execute.pipe(
+          Effect.map((response) =>
+            response.messages === undefined
+              ? response
+              : {
+                  ...response,
+                  messages: recordEgressTaint(response.messages, runContext.context.egressTaint),
+                },
+          ),
+        );
 
         // Priced once here rather than per transition: the lookup is a cached network fetch,
         // and a run that parks or fails should not pay for it twice.
@@ -1117,7 +1139,7 @@ export class AgentRunner {
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
             boundary: runRecordBoundary(options),
           },
-          execute,
+          executeRecordingTaint,
         ).pipe(
           // Every way out, including failure and interruption: a run that died still spent.
           Effect.onExit(() =>

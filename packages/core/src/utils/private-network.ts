@@ -298,6 +298,9 @@ function parseEntry(rawEntry: string): AllowlistEntry | string {
   return { kind: "host", hostname };
 }
 
+/** Most entries `network.allowPrivateHosts` may hold. */
+export const MAX_PRIVATE_HOST_ENTRIES = 64;
+
 /** Why one `network.allowPrivateHosts` entry is invalid, or undefined when it is valid. */
 export function describePrivateHostEntryError(entry: string): string | undefined {
   const parsed = parseEntry(entry);
@@ -305,10 +308,10 @@ export function describePrivateHostEntryError(entry: string): string | undefined
 }
 
 /**
- * Build the matcher for an agent's `network.allowPrivateHosts`.
+ * Build the matcher for the configured `network.allowPrivateHosts`.
  *
- * Invalid entries are skipped here because the agent config boundary already rejected them;
- * a hand-edited file that slipped past it narrows access rather than widening it.
+ * Invalid entries are skipped here because config validation already rejected them; an entry
+ * that slipped past it narrows access rather than widening it.
  */
 export function parsePrivateHostAllowlist(
   entries: readonly string[] | undefined,

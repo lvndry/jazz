@@ -29,9 +29,10 @@ function bundledJazzTerminalNotifierBinary(): string | null {
   return null;
 }
 
-function findTerminalNotifierOnPath(): string | null {
+/** The absolute path `which` resolves for `executable`, or null when it is not on PATH. */
+export function findExecutableOnPath(executable: string): string | null {
   try {
-    const result = execFileSync("which", ["terminal-notifier"], {
+    const result = execFileSync("which", [executable], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -66,7 +67,7 @@ export function resolveTerminalNotifierBinary(): string | null {
     return bundledBinary;
   }
 
-  const pathBinary = findTerminalNotifierOnPath();
+  const pathBinary = findExecutableOnPath("terminal-notifier");
   if (pathBinary) {
     return pathBinary;
   }

@@ -18,13 +18,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/config";
 import { StorageNotFoundError } from "@jazz/core/types/errors";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { createInvite, type KeyringDependency } from "@/adapters/peers/invites";
-import { peerTokenPath } from "@/adapters/secrets/registry";
 import { makePeerHandler, makePeerInviteHandler, type DaemonRequirements } from "./server";
 
 let jazzHome: string;

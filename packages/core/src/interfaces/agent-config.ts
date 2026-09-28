@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import type { AppConfig } from "@/core/types/index";
 
 export interface AgentConfigService {
@@ -21,6 +22,13 @@ export interface AgentConfigService {
    * home in the config file. Lets a command report that instead of claiming success.
    */
   readonly secretStorageUnavailable: (key: string) => boolean;
+  /**
+   * Every secret value Jazz holds, for replacing in tool output: the config's own secrets and
+   * those kept only in the keyring or the environment (peer and webhook tokens, notify target
+   * secrets, the daemon's tokens), plus secret-named environment variables. A service without
+   * it has only the secrets in `appConfig`.
+   */
+  readonly knownSecrets?: Effect.Effect<readonly KnownSecret[], never>;
   /** Re-read the config file when another process has changed it. */
   readonly reloadIfChanged: () => Effect.Effect<boolean, never>;
 }
