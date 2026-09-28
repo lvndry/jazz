@@ -19,7 +19,13 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "../test-helpers";
 import { AgentDetails, agentDetailsRows } from "./AgentDetails";
-import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
+import {
+  AgentPicker,
+  agentColumns,
+  filterAgents,
+  listRowsFor,
+  type AgentChoice,
+} from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
@@ -501,6 +507,46 @@ describe("agent picker", () => {
 
     const grounds = new Set(allSpans(drawn.frame).map((span) => span.bg.toInts().join(",")));
     expect(grounds.size).toBe(1);
+  });
+
+  it("ranks name prefix, then name substring, then model or persona, then letters in order", () => {
+    const names = (query: string) => filterAgents(AGENTS, query).map((match) => match.agent.name);
+    expect(names("")).toEqual(AGENTS.map((agent) => agent.name));
+    expect(names("fe")).toEqual(["Fern"]);
+    expect(names("opus")).toEqual(["Fern"]);
+    expect(names("writer")).toEqual(["Fern"]);
+    expect(names("bsl")).toEqual(["Basil"]);
+    expect(names("zzz")).toEqual([]);
+    expect(filterAgents(AGENTS, "as")[0]?.nameHits).toEqual([1, 2]);
+  });
+
+  it("filters to what was typed, counts the matches, and sets the hit in weight", async () => {
+    const drawn = await draw(
+      <AgentPicker
+        agents={AGENTS}
+        selectedIndex={0}
+        viewport={WIDE}
+        query="fe"
+      />,
+      WIDE,
+    );
+    expect(drawn.text).toContain("fe");
+    expect(drawn.text).toContain("Fern");
+    expect(drawn.text).not.toContain("Basil");
+    expect(drawn.text).toContain("1 match");
+    expect(spanWithText(drawn.frame, "Fe").attributes & TextAttributes.BOLD).not.toBe(0);
+
+    const none = await draw(
+      <AgentPicker
+        agents={AGENTS}
+        selectedIndex={0}
+        viewport={WIDE}
+        query="zzz"
+      />,
+      WIDE,
+    );
+    expect(none.text).toContain("no matches");
+    expect(none.text).toContain('No agent matches "zzz".');
   });
 
   it("handles no agents by saying what to do instead", async () => {

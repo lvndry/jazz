@@ -845,6 +845,39 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["EXIT"]);
   });
 
+  it("filters the agent picker by typing and starts the match with enter", async () => {
+    const selected: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        initialIndex: 0,
+        agents: [
+          { id: "a1", name: "chatgpt-sol", model: "chatgpt/gpt-6-sol", persona: "default" },
+          { id: "a2", name: "luna", model: "openai/gpt-5.6-luna", persona: "default" },
+          { id: "a3", name: "nano", model: "openai/gpt-5.4-nano", persona: "default" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
+    await rendered.flush();
+    for (const key of ["n", "a", "n", "o"]) {
+      await rendered.mockInput.pressKey(key);
+      await settleKeypress(rendered.flush);
+    }
+    const filtered = rendered.captureCharFrame();
+    expect(filtered).toContain("nano");
+    expect(filtered).not.toContain("chatgpt-sol");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    store.setActiveMenu(null);
+    expect(selected).toEqual(["a3"]);
+  });
+
   it("starts the selected agent from the picker with enter", async () => {
     const selected: string[] = [];
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });

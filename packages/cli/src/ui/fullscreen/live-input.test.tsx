@@ -548,7 +548,7 @@ describe("input", () => {
       {
         name: "explain-concept",
         description: "Explain a *concept* properly with `depth`",
-        source: "skill",
+        source: "skill" as const,
       },
     ];
     const rows = inputRows(

@@ -86,7 +86,7 @@ import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
-import { AgentPicker } from "./screens/AgentPicker";
+import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
@@ -1112,7 +1112,7 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
-  const [skillField, skillFieldRef, setSkillField] = useSynchronizedState({ value: "", caret: 0 });
+  const [menuFilter, menuFilterRef, setMenuFilter] = useSynchronizedState({ value: "", caret: 0 });
   const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
     null,
   );
@@ -1195,10 +1195,10 @@ export function FullscreenBridge(): React.ReactNode {
 
   useEffect(() => {
     setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
-    setSkillField({ value: "", caret: 0 });
+    setMenuFilter({ value: "", caret: 0 });
     setSkillDetail(null);
     setSkillDetailOffset(0);
-  }, [menu, setMenuIndex, setSkillField, setSkillDetail, setSkillDetailOffset]);
+  }, [menu, setMenuIndex, setMenuFilter, setSkillDetail, setSkillDetailOffset]);
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
@@ -1475,7 +1475,7 @@ export function FullscreenBridge(): React.ReactNode {
       if (pasted.length === 0) return true;
       if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
         const flat = flattenPaste(pasted);
-        setSkillField((field) => insertTextAt(field.value, field.caret, flat));
+        setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         setMenuIndex(0);
         return true;
       }
@@ -1554,7 +1554,7 @@ export function FullscreenBridge(): React.ReactNode {
       updatePromptEditor,
       updatePromptFile,
       updatePromptQuestion,
-      setSkillField,
+      setMenuFilter,
       setMenuIndex,
     ],
   );
@@ -1678,7 +1678,7 @@ export function FullscreenBridge(): React.ReactNode {
             store.completePrompt({ kind: "exit" });
             return true;
           }
-          const field = skillFieldRef.current;
+          const field = menuFilterRef.current;
           const matches = filterSkills(openMenu.skills, field.value);
           const selected = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
           if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
@@ -1707,7 +1707,7 @@ export function FullscreenBridge(): React.ReactNode {
             super: superKey,
           });
           if (nextField !== null) {
-            setSkillField(nextField);
+            setMenuFilter(nextField);
             if (nextField.value !== field.value) {
               menuIndexForRef.current = openMenu;
               setMenuIndex(0);
@@ -1738,14 +1738,60 @@ export function FullscreenBridge(): React.ReactNode {
           }
           return true;
         }
-        const itemCount =
-          openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
-        const menuSelection =
-          menuIndexForRef.current === openMenu
-            ? menuIndexRef.current
-            : openMenu.kind === "agents"
-              ? (openMenu.initialIndex ?? 0)
-              : 0;
+        if (openMenu.kind === "agents") {
+          // Typing filters, so letters are query text here and only the arrows,
+          // enter and esc navigate. The index is into the filtered list.
+          const field = menuFilterRef.current;
+          const matches = filterAgents(openMenu.agents, field.value);
+          const selected =
+            menuIndexForRef.current === openMenu
+              ? menuIndexRef.current
+              : field.value === ""
+                ? (openMenu.initialIndex ?? 0)
+                : 0;
+          if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
+            const step = name === "pageup" || name === "pagedown" ? listRowsFor(viewport) : 1;
+            const direction = name === "up" || name === "pageup" ? -1 : 1;
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(0, Math.min(Math.max(0, matches.length - 1), selected + direction * step)),
+            );
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const choice = matches[selected]?.agent;
+            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
+            return true;
+          }
+          if (name === "escape") {
+            if (field.value !== "") {
+              setMenuFilter({ value: "", caret: 0 });
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(openMenu.initialIndex ?? 0);
+              return true;
+            }
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          const nextField = applyTextFieldKey(field, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextField !== null) {
+            setMenuFilter(nextField);
+            if (nextField.value !== field.value) {
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(0);
+            }
+          }
+          return true;
+        }
+        const itemCount = openMenu.options.length;
+        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
         if (name === "up" || name === "k") {
           menuIndexForRef.current = openMenu;
           setMenuIndex(Math.max(0, menuSelection - 1));
@@ -1757,14 +1803,9 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (name === "return" || name === "enter") {
-          if (openMenu.kind === "agents") {
-            const choice = openMenu.agents[menuSelection];
-            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
-          } else {
-            const choice = openMenu.options[menuSelection];
-            if (choice !== undefined) {
-              store.completePrompt({ kind: "select", value: choice.value });
-            }
+          const choice = openMenu.options[menuSelection];
+          if (choice !== undefined) {
+            store.completePrompt({ kind: "select", value: choice.value });
           }
           return true;
         }
@@ -2440,7 +2481,7 @@ export function FullscreenBridge(): React.ReactNode {
       setAgentCursor,
       inspectSubagent,
       sendToInspectedSubagent,
-      setSkillField,
+      setMenuFilter,
       setSkillDetail,
       setSkillDetailOffset,
       setMenuIndex,
@@ -2698,8 +2739,8 @@ export function FullscreenBridge(): React.ReactNode {
     menu?.kind === "skills" ? (
       <SkillBrowser
         skills={menu.skills}
-        query={skillField.value}
-        caret={skillField.caret}
+        query={menuFilter.value}
+        caret={menuFilter.caret}
         selected={menuIndex}
         detail={skillDetail}
         detailOffset={skillDetailOffset}
@@ -2718,6 +2759,8 @@ export function FullscreenBridge(): React.ReactNode {
         viewport={viewport}
         title={menu.title}
         action={menu.action}
+        query={menuFilter.value}
+        caret={menuFilter.caret}
       />
     ) : menu?.kind === "menu" ? (
       <Home
