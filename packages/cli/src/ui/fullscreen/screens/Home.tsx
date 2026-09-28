@@ -36,7 +36,7 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
-import { THEME } from "../../theme";
+import { groundPaint, THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
@@ -428,7 +428,7 @@ export function Home({ model, viewport }: HomeProps): ReactNode {
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       {rows.map((row) => (

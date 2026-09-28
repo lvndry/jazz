@@ -19,7 +19,6 @@ import {
   legibilityWarnings,
   parseThemeFile,
   TRANSPARENT,
-  xtermIndexToHex,
   type ThemeDefinition,
   type VariantColors,
 } from "./format";
@@ -207,21 +206,42 @@ function reportedHex(value: string | null | undefined): string | null {
 /** How far the dimmed accent steps from the accent toward the ground. */
 const ACCENT_DIM_STEP = 0.25;
 
+/** The ANSI slots the `system` theme reads its hues from. */
+const ANSI = {
+  red: 1,
+  green: 2,
+  yellow: 3,
+  blue: 4,
+  magenta: 5,
+  cyan: 6,
+  brightCyan: 14,
+} as const;
+
+/** Whether the terminal reported enough to build a theme from. */
+export function reportIsUsable(report: TerminalPaletteReport): boolean {
+  return (
+    reportedHex(report.defaultBackground) !== null ||
+    Object.values(ANSI).some((index) => reportedHex(report.palette[index]) !== null)
+  );
+}
+
 /**
  * The `system` theme: the terminal's own ANSI colours for every hue, its own foreground for
  * text, and a transparent ground, with the grey tiers derived from the real background. The
- * accent is ANSI cyan, the same role jazz's own accent plays.
+ * accent is ANSI cyan, the same role jazz's own accent plays. A slot the terminal did not report
+ * takes the house colour for that role, since xterm's stock values (a `#800000` red) are
+ * rarely what the terminal actually shows.
  */
 export function generateSystemTheme(
   report: TerminalPaletteReport,
   variant: ThemeVariant,
 ): ThemeDefinition {
-  const ansi = (index: number): string =>
-    reportedHex(report.palette[index]) ?? xtermIndexToHex(index);
   const house = houseTheme(variant);
+  const ansi = (index: number, fallback: string): string =>
+    reportedHex(report.palette[index]) ?? fallback;
   const background = reportedHex(report.defaultBackground) ?? house.background;
   const text = reportedHex(report.defaultForeground) ?? house.selected;
-  const cyan = ansi(6);
+  const cyan = ansi(ANSI.cyan, house.primary);
   const step = (amount: number): string => blendHex(background, text, amount);
   const colors: VariantColors = tiersOnBackground(
     {
@@ -241,12 +261,12 @@ export function generateSystemTheme(
       link: blendHex(cyan, background, ACCENT_DIM_STEP),
       reasoning: blendHex(cyan, background, ACCENT_DIM_STEP),
       info: step(TIER_STEPS.secondary),
-      success: ansi(2),
-      warning: ansi(3),
-      error: ansi(1),
-      syntaxStructure: ansi(5),
-      syntaxValue: ansi(4),
-      syntaxType: ansi(14),
+      success: ansi(ANSI.green, house.success),
+      warning: ansi(ANSI.yellow, house.warning),
+      error: ansi(ANSI.red, house.error),
+      syntaxStructure: ansi(ANSI.magenta, house.syntaxStructure),
+      syntaxValue: ansi(ANSI.blue, house.syntaxValue),
+      syntaxType: ansi(ANSI.brightCyan, house.syntaxType),
     },
     background,
     text,

@@ -17,6 +17,7 @@ import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import type { FooterModel, Viewport } from "./types";
 
 export interface FooterSegment {
@@ -130,6 +131,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
 }
 
 function FooterView({ model, viewport }: { model: FooterModel; viewport: Viewport }): ReactNode {
+  useThemeRevision();
   const segments = footerSegments(model, viewport);
   return (
     <box style={{ width: viewport.width, height: 1, flexShrink: 0 }}>

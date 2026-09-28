@@ -1,15 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
 import {
   decideFullscreen,
   guardOutput,
   installTerminalLifecycle,
   repaintAfterResize,
+  detectTerminalColors,
+  setTerminalBackgroundSequence,
+  syncTerminalGround,
+  type GroundRenderer,
+  type PaletteSource,
   transcriptTextForForeignWrite,
   type GuardedStream,
   type LifecycleRenderer,
 } from "./mount";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
+import { applyTheme, getThemeName, initializeTheme, setTerminalBackground, THEME } from "../theme";
+import { setSystemTheme } from "../themes/registry";
 import type { OutputEntry } from "../types";
 
 const ENVIRONMENT = { TERM: "xterm-256color" };
@@ -142,6 +149,25 @@ describe("installTerminalLifecycle", () => {
     // Without this the wizard's `process.exit(0)` would leave mouse reporting
     // on, and the shell would print every mouse move as `35;97;18M`.
     expect(calls.destroy).toBe(1);
+  });
+
+  test("re-applies the ground after the terminal is handed back from ^Z", () => {
+    const { listeners, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+    const order: string[] = [];
+    const tracked = {
+      ...renderer,
+      isDestroyed: false,
+      resume: () => {
+        calls.resume += 1;
+        order.push("resume");
+      },
+    } as unknown as LifecycleRenderer;
+
+    installTerminalLifecycle(tracked, runtime, () => order.push("ground"));
+    listeners.get("SIGCONT")?.();
+
+    expect(order).toEqual(["resume", "ground"]);
   });
 
   test("releases once, and stops listening afterwards", () => {
@@ -352,5 +378,129 @@ describe("repaintAfterResize", () => {
 
     expect(renderer.forceFullRepaintRequested).toBe("not a flag any more");
     expect(renderer.renders).toBe(0);
+  });
+});
+
+describe("syncTerminalGround", () => {
+  afterEach(() => {
+    initializeTheme({});
+  });
+
+  function stubGroundRenderer() {
+    const calls = {
+      backgrounds: [] as string[],
+      resets: 0,
+      renders: 0,
+      destroyed: false,
+      forceFullRepaintRequested: false,
+    };
+    const renderer = {
+      get isDestroyed() {
+        return calls.destroyed;
+      },
+      get forceFullRepaintRequested() {
+        return calls.forceFullRepaintRequested;
+      },
+      set forceFullRepaintRequested(value: boolean) {
+        calls.forceFullRepaintRequested = value;
+      },
+      setBackgroundColor: (color: string) => {
+        calls.backgrounds.push(color);
+      },
+      resetTerminalBgColor: () => {
+        calls.resets += 1;
+      },
+      requestRender: () => {
+        calls.renders += 1;
+      },
+    } as unknown as GroundRenderer;
+    return { calls, renderer };
+  }
+
+  test("paints every cell and the terminal's own background in painted mode", () => {
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const { calls, renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+
+    expect(calls.backgrounds).toEqual(["#0A0A0A"]);
+    expect(writes).toEqual(["\x1b]11;#0A0A0A\x07"]);
+    expect(calls.forceFullRepaintRequested).toBe(true);
+    ground.stop();
+  });
+
+  test("leaves the terminal's background alone, and resets it, when inheriting", () => {
+    initializeTheme({ configured: "jazz:dark" });
+    const { calls, renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+
+    expect(calls.backgrounds).toEqual(["transparent"]);
+    expect(calls.resets).toBe(1);
+    expect(writes).toEqual([]);
+    ground.stop();
+  });
+
+  test("follows a live theme switch until stopped", () => {
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const { calls, renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+    applyTheme("jazz:light");
+    ground.stop();
+    applyTheme("jazz:dark");
+
+    expect(calls.backgrounds).toEqual(["#0A0A0A", "#FFFFFF"]);
+    expect(writes.at(-1)).toBe(setTerminalBackgroundSequence("#FFFFFF"));
+  });
+
+  test("does nothing once the renderer is gone", () => {
+    initializeTheme({ canvas: "painted" });
+    const { calls, renderer } = stubGroundRenderer();
+    calls.destroyed = true;
+
+    syncTerminalGround(renderer, () => undefined).stop();
+
+    expect(calls.backgrounds).toEqual([]);
+  });
+});
+
+describe("detectTerminalColors", () => {
+  afterEach(() => {
+    setSystemTheme(null);
+    setTerminalBackground(null);
+    initializeTheme({});
+  });
+
+  test("builds the system theme from the terminal's answer", async () => {
+    initializeTheme({});
+    const palette = Array.from({ length: 16 }, () => null as string | null);
+    palette[6] = "#2aa198";
+    await detectTerminalColors({
+      getPalette: async () => ({
+        palette,
+        defaultForeground: "#839496",
+        defaultBackground: "#002b36",
+      }),
+    } as unknown as PaletteSource);
+
+    expect(getThemeName()).toBe("system");
+    expect(THEME.primary).toBe("#2AA198");
+    expect(THEME.canvas).toBe("#002B36");
+  });
+
+  test("keeps the current palette when the terminal never answers", async () => {
+    initializeTheme({});
+    const before = THEME.primary;
+    await detectTerminalColors({
+      getPalette: async () => {
+        throw new Error("timed out");
+      },
+    } as unknown as PaletteSource);
+
+    expect(THEME.primary).toBe(before);
   });
 });

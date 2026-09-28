@@ -13,6 +13,7 @@ import {
   houseDefinition,
   houseTheme,
   reloadUserThemes,
+  reportIsUsable,
   setSystemTheme,
   setUserThemesDirectory,
   SYSTEM_THEME,
@@ -399,6 +400,7 @@ export function getTerminalBackground(): string | null {
  * background. Safe to call with a partial report: missing colours fall back to xterm's.
  */
 export function applyTerminalPalette(report: TerminalPaletteReport): void {
+  if (!reportIsUsable(report)) return;
   const background = report.defaultBackground;
   const variant =
     background === null ? state.environmentVariant : variantForBackgroundColor(background);

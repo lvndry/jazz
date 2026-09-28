@@ -55,7 +55,7 @@ import {
   sourceLanguageFromPath,
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { getThemeVariant, THEME } from "../theme";
+import { getThemeRevision, THEME } from "../theme";
 import { linkAtColumn, openLink } from "./open-link";
 import {
   fitTerminalSegments,
@@ -64,6 +64,7 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
 } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import { measureFor, type Block, type Focus, type ToolReceiptBlock, type Viewport } from "./types";
 import { spaceReasoningSections } from "../../presentation/format-utils";
@@ -815,9 +816,9 @@ let lastTranscriptEpoch: string | undefined;
 let lastTranscriptRows: RenderRow[] | undefined;
 
 function wrapEpoch(width: number, glyphs: GlyphSet): string {
-  // Cached rows bake THEME colors at wrap time, so a variant switch must
+  // Cached rows bake THEME colors at wrap time, so a theme switch must
   // invalidate them the same way a resize does.
-  return `${String(width)}\0${getThemeVariant()}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
+  return `${String(width)}\0${String(getThemeRevision())}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
 }
 
 function sameRun(
@@ -1571,8 +1572,13 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   // Deriving rows re-parses every block's markdown, tables and fences. The
   // shell re-renders on each streaming delta and each keystroke, so without
   // this the cost of a frame grows with the length of the whole conversation
-  // rather than with what changed.
-  const rows = useMemo(() => transcriptRows(blocks, viewport), [blocks, viewport.width]);
+  // rather than with what changed. The rows bake colours, so a theme switch
+  // recomputes them.
+  const themeRevision = useThemeRevision();
+  const rows = useMemo(
+    () => transcriptRows(blocks, viewport),
+    [blocks, viewport.width, themeRevision],
+  );
   const page = pageWidth(viewport);
   const windowHeight =
     visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);

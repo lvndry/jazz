@@ -30,7 +30,12 @@ import {
   type ThemeColors,
 } from "./theme";
 import { contrastRatio, TRANSPARENT, type VariantColors } from "./themes/format";
-import { builtinThemes, generateSystemTheme, setSystemTheme } from "./themes/registry";
+import {
+  builtinThemes,
+  generateSystemTheme,
+  reportIsUsable,
+  setSystemTheme,
+} from "./themes/registry";
 
 /**
  * The rest of the suite runs with `chalk.level === 0`, which makes every
@@ -434,13 +439,24 @@ describe("system theme", () => {
     expect(THEME.canvas).toBe("#1D1F21");
   });
 
-  it("falls back to xterm's colours for anything the terminal did not report", () => {
+  it("takes the house colour for any slot the terminal did not report", () => {
     const colors = generateSystemTheme(
       { palette: [], defaultForeground: null, defaultBackground: null },
       "dark",
     ).variants.dark as VariantColors;
-    expect(colors.error).toBe("#800000");
+    expect(colors.error).toBe(PALETTES.dark.error);
+    expect(colors.primary).toBe(PALETTES.dark.primary);
     expect(colors.selected).toBe(PALETTES.dark.selected);
+  });
+
+  it("only counts a report that carries a background or an ANSI hue", () => {
+    expect(reportIsUsable({ palette: [], defaultForeground: null, defaultBackground: null })).toBe(
+      false,
+    );
+    expect(
+      reportIsUsable({ palette: [], defaultForeground: null, defaultBackground: "#000000" }),
+    ).toBe(true);
+    expect(reportIsUsable(report)).toBe(true);
   });
 });
 

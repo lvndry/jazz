@@ -30,7 +30,7 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
+import { groundPaint, THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
@@ -206,7 +206,7 @@ export function AgentPicker({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />

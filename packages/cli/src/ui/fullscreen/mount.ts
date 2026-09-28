@@ -17,6 +17,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
 import { store } from "../store";
+import { applyTerminalPalette, getCanvasMode, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
 
 /** Why the fullscreen interface declined to start, when it does. */
@@ -153,6 +154,7 @@ export interface LifecycleProcess {
 export function installTerminalLifecycle(
   renderer: LifecycleRenderer,
   runtime: LifecycleProcess = process,
+  afterResume: () => void = () => undefined,
 ): () => void {
   let released = false;
 
@@ -165,6 +167,7 @@ export function installTerminalLifecycle(
   const onContinue = (): void => {
     if (released || renderer.isDestroyed) return;
     renderer.resume();
+    afterResume();
     renderer.requestRender();
   };
   const onExit = (): void => {
@@ -309,16 +312,98 @@ export interface RepaintableRenderer {
  */
 export function repaintAfterResize(renderer: RepaintableRenderer): () => void {
   const onResize = (): void => {
-    const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
-    if (typeof internals.forceFullRepaintRequested !== "boolean") return;
-    internals.forceFullRepaintRequested = true;
-    renderer.requestRender();
+    forceFullRepaint(renderer);
   };
 
   renderer.on("resize", onResize);
   return () => {
     renderer.off("resize", onResize);
   };
+}
+
+function forceFullRepaint(renderer: Pick<CliRenderer, "requestRender">): void {
+  const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
+  if (typeof internals.forceFullRepaintRequested !== "boolean") return;
+  internals.forceFullRepaintRequested = true;
+  renderer.requestRender();
+}
+
+/** OSC 11: set the terminal's default background. OSC 111 resets it; OpenTUI sends that one. */
+export function setTerminalBackgroundSequence(hex: string): string {
+  return `\x1b]11;${hex}\x07`;
+}
+
+/** The renderer surface the ground sync drives, narrowed so tests can pass a stand-in. */
+export type GroundRenderer = Pick<
+  CliRenderer,
+  "setBackgroundColor" | "resetTerminalBgColor" | "requestRender" | "isDestroyed"
+>;
+
+export interface GroundSync {
+  /** Paint the current mode's ground now, as after a resume. */
+  readonly apply: () => void;
+  readonly stop: () => void;
+}
+
+/**
+ * Keep the renderer's clear colour and the terminal's own background in step with the theme.
+ *
+ * In `painted` mode every cell the tree leaves empty is cleared to the theme's background, and
+ * the terminal's default background is set to match, so the padding a terminal draws around its
+ * grid and any row the renderer has not reached yet agree with the frame. In `inherit` mode the
+ * clear colour is transparent and the terminal's background is reset to whatever the user
+ * configured. OpenTUI resets the terminal background on destroy and suspend, which covers exit,
+ * crash and ^Z; a resume calls `apply` to set it again.
+ *
+ * Either way a change forces a full repaint: every cell's background may have changed, and the
+ * renderer's diff would otherwise skip cells whose glyph did not.
+ */
+export function syncTerminalGround(
+  renderer: GroundRenderer,
+  write: (data: string) => void = (data) => {
+    process.stdout.write(data);
+  },
+): GroundSync {
+  const apply = (): void => {
+    if (renderer.isDestroyed) return;
+    if (getCanvasMode() === "painted") {
+      renderer.setBackgroundColor(THEME.background);
+      write(setTerminalBackgroundSequence(THEME.background));
+    } else {
+      renderer.setBackgroundColor("transparent");
+      renderer.resetTerminalBgColor();
+    }
+    forceFullRepaint(renderer);
+  };
+  const stop = onThemeChange(apply);
+  apply();
+  return { apply, stop };
+}
+
+/** How long the first frame waits for the terminal to report its colours. */
+const PALETTE_QUERY_TIMEOUT_MS = 100;
+
+/** The ANSI slots the `system` theme reads from. */
+const PALETTE_QUERY_SIZE = 16;
+
+export type PaletteSource = Pick<CliRenderer, "getPalette">;
+
+/**
+ * Ask the terminal for its background, foreground and ANSI colours (OSC 10, 11 and 4), and hand
+ * the answer to the theme: it picks the variant, derives the tiers in `inherit` mode, and builds
+ * the `system` theme. A terminal that does not answer within the timeout keeps the variant
+ * `COLORFGBG` suggested and the house palette.
+ */
+export async function detectTerminalColors(renderer: PaletteSource): Promise<void> {
+  try {
+    const colors = await renderer.getPalette({
+      timeout: PALETTE_QUERY_TIMEOUT_MS,
+      size: PALETTE_QUERY_SIZE,
+    });
+    applyTerminalPalette(colors);
+  } catch {
+    // No answer, or a renderer that cannot query: the environment's guess stands.
+  }
 }
 
 export async function mountFullscreen(): Promise<MountedRenderer> {
@@ -340,7 +425,9 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     clearOnShutdown: false,
   });
 
-  const release = installTerminalLifecycle(renderer);
+  await detectTerminalColors(renderer);
+  const ground = syncTerminalGround(renderer);
+  const release = installTerminalLifecycle(renderer, process, ground.apply);
   const stopGuard = guardOutput(renderer);
   const stopRepaint = repaintAfterResize(renderer);
 
@@ -348,6 +435,7 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
   return {
     renderer,
     release: () => {
+      ground.stop();
       stopRepaint();
       stopGuard();
       release();

@@ -15,6 +15,7 @@ import { memo, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import type { Connector, HeaderModel, Viewport } from "./types";
 
 /** Small enough to read as a gauge rather than as a progress bar. */
@@ -163,6 +164,7 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
 }
 
 function HeaderView({ model, viewport }: { model: HeaderModel; viewport: Viewport }): ReactNode {
+  useThemeRevision();
   const segments = headerSegments(model, viewport);
   return (
     <box style={{ width: viewport.width, height: 1, flexShrink: 0 }}>

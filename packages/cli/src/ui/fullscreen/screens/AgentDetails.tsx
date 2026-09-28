@@ -8,7 +8,7 @@
 
 import type { ReactNode } from "react";
 import type { ActiveAgentDetails } from "../../store";
-import { THEME } from "../../theme";
+import { groundPaint, THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 
@@ -72,7 +72,7 @@ export function AgentDetails({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />
