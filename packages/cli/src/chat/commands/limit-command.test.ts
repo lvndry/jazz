@@ -1,4 +1,9 @@
-import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  isTerminalReport,
+  report,
+  TerminalServiceTag,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { describe, expect, it, mock } from "bun:test";
@@ -53,11 +58,17 @@ function runLimit(
 }
 
 describe("handleSpecialCommand /limit", () => {
-  it("sets a direct usd limit", async () => {
-    const success = mock(() => Effect.void);
-    const result = await runLimit(["usd", "5"], baseContext(), { success });
+  it("sets a direct usd limit and reports it", async () => {
+    const logged: unknown[] = [];
+    const log = mock((message: unknown) => {
+      logged.push(message);
+      return Effect.succeed(undefined);
+    });
+    const result = await runLimit(["usd", "5"], baseContext(), { log });
     expect(result.newSessionLimits).toEqual({ maxCostUSD: 5 });
-    expect(success).toHaveBeenCalledWith(expect.stringContaining("Session usd limit set to $5.00"));
+    expect(logged).toContainEqual(
+      report("limit", [{ kind: "field", key: "usd", value: "$5.00" }], "For this session only."),
+    );
   });
 
   it("sets a direct turns limit", async () => {
@@ -122,13 +133,24 @@ describe("handleSpecialCommand /limit", () => {
   });
 
   it("prints status without prompting on a non-interactive terminal", async () => {
-    const info = mock(() => Effect.void);
+    const logged: unknown[] = [];
+    const log = mock((message: unknown) => {
+      logged.push(message);
+      return Effect.succeed(undefined);
+    });
     const result = await runLimit([], baseContext({ sessionLimits: { maxTurns: 10 } }), {
       isInteractive: false,
-      info,
+      log,
     });
     expect(result).toEqual({ shouldContinue: true });
-    expect(info).toHaveBeenCalled();
+    const status = logged.find(isTerminalReport);
+    expect(status?.rows[0]).toEqual({
+      kind: "field",
+      key: "turns",
+      value: "0 turns",
+      detail: "of 10 turns",
+    });
+    expect(status?.note).toContain("/limit clear");
   });
 
   it("opens the picker and applies the selected metric+value on an interactive terminal", async () => {

@@ -509,9 +509,11 @@ function handleNewCommand(
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
     yield* terminal.clear();
-    yield* terminal.info("Starting new conversation...");
-    yield* terminal.log(fmt.item("Conversation context cleared"));
-    yield* terminal.log(fmt.item("Fresh start with the agent"));
+    yield* terminal.log(
+      report("new", [
+        { kind: "text", text: "A fresh conversation. The agent starts with no history." },
+      ]),
+    );
 
     // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>
@@ -523,9 +525,8 @@ function handleNewCommand(
       agent.config.tools &&
       agent.config.tools.length > 0
     ) {
-      yield* terminal.log("");
       yield* terminal.warn(
-        `⚠️  The current model (${agent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+        `${agent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
       );
     }
 
@@ -562,11 +563,18 @@ function handleForkCommand(
       return { shouldContinue: true };
     }
 
-    yield* terminal.warn(
-      "Switched to a new forked branch — the original conversation is preserved.",
+    yield* terminal.log(
+      report(
+        "fork",
+        [
+          {
+            kind: "text",
+            text: "You're on a new branch with the full history. The original is unchanged.",
+          },
+        ],
+        "Return to the original with /resume.",
+      ),
     );
-    yield* terminal.log(fmt.item("The full history carried over; new turns continue on the fork."));
-    yield* terminal.log(fmt.item("Resume the original anytime with /resume."));
     yield* terminal.log(fmt.blank());
     return {
       shouldContinue: true,
@@ -928,39 +936,35 @@ function handleToolsCommand(
     // Resolve web_search provider info for annotation
     const webSearchProvider = yield* resolveWebSearchProviderLabel(agent);
 
-    yield* terminal.log(fmt.heading(`Tools Available to ${agent.name}`));
-
-    if (Object.keys(filteredToolsByCategory).length === 0) {
-      yield* terminal.warn("This agent has no tools configured.");
-    } else {
-      const sortedCategories = Object.keys(filteredToolsByCategory).sort();
-
-      for (const category of sortedCategories) {
-        const tools = filteredToolsByCategory[category];
-        if (tools && tools.length > 0) {
-          yield* terminal.log(fmt.section(category, tools.length, "tool"));
-          for (const tool of tools) {
-            if (tool === "web_search" && webSearchProvider) {
-              yield* terminal.log(fmt.itemWithDesc(tool, webSearchProvider));
-            } else {
-              yield* terminal.log(fmt.item(tool));
-            }
-          }
-          yield* terminal.log(fmt.blank());
-        }
-      }
-
-      const totalTools = Object.values(filteredToolsByCategory).reduce(
-        (sum, tools) => sum + (tools?.length || 0),
-        0,
-      );
-
-      yield* terminal.log(
-        fmt.footer(`Total: ${totalTools} tools across ${sortedCategories.length} categories`),
-      );
+    const sortedCategories = Object.keys(filteredToolsByCategory).sort();
+    if (sortedCategories.length === 0) {
+      yield* terminal.log(report("tools", [{ kind: "text", text: `${agent.name} has no tools.` }]));
+      return { shouldContinue: true };
     }
-
-    yield* terminal.log(fmt.blank());
+    const rows: ReportRow[] = [];
+    let totalTools = 0;
+    for (const category of sortedCategories) {
+      const tools = filteredToolsByCategory[category] ?? [];
+      totalTools += tools.length;
+      if (rows.length > 0) {
+        rows.push({ kind: "gap" });
+      }
+      rows.push({ kind: "group", label: category, count: String(tools.length) });
+      for (const tool of tools) {
+        rows.push(
+          tool === "web_search" && webSearchProvider
+            ? { kind: "item", name: tool, detail: webSearchProvider }
+            : { kind: "item", name: tool },
+        );
+      }
+    }
+    yield* terminal.log(
+      report(
+        "tools",
+        rows,
+        `${agent.name} has ${String(totalTools)} tools in ${String(sortedCategories.length)} groups.`,
+      ),
+    );
     return { shouldContinue: true };
   });
 }
@@ -1024,46 +1028,34 @@ function handleAgentsCommand(
     const agentService = yield* AgentServiceTag;
     const allAgentsUnsorted = yield* agentService.listAgents();
 
-    yield* terminal.log(fmt.heading("Available Agents"));
-
     if (allAgentsUnsorted.length === 0) {
-      yield* terminal.warn("No agents found.");
-      yield* terminal.info("Create one with: jazz agent create");
-    } else {
-      const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
-
-      for (const ag of allAgents) {
-        const isCurrent = ag.id === currentAgent.id;
-
-        if (isCurrent) {
-          yield* terminal.log(fmt.labeledItem(ag.name, "(current)"));
-        } else {
-          yield* terminal.log(fmt.labeledItemDim(ag.name));
-        }
-        yield* terminal.log(fmt.keyValue("ID", ag.id));
-        if (ag.description) {
-          const truncatedDesc =
-            ag.description.length > 80 ? ag.description.substring(0, 77) + "..." : ag.description;
-          yield* terminal.log(fmt.keyValue("Description", truncatedDesc));
-        }
-        yield* terminal.log(
-          fmt.keyValue("Model", `${ag.config.llmProvider}/${ag.config.llmModel}`),
-        );
-        yield* terminal.log(fmt.keyValue("Persona", ag.config.persona));
-        if (ag.config.reasoning) {
-          yield* terminal.log(
-            fmt.keyValue("Reasoning", reasoningSelectionToCliValue(ag.config.reasoning)),
-          );
-        }
-        yield* terminal.log(fmt.blank());
-      }
-
       yield* terminal.log(
-        fmt.footer(`Total: ${allAgents.length} agent${allAgents.length === 1 ? "" : "s"}`),
+        report(
+          "agents",
+          [{ kind: "text", text: "No agents yet." }],
+          "Create one with jazz agent create.",
+        ),
       );
+      return { shouldContinue: true };
     }
-
-    yield* terminal.log(fmt.blank());
+    const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
+    const rows: ReportRow[] = allAgents.map((listed) => {
+      const reasoning =
+        listed.config.reasoning === undefined
+          ? ""
+          : ` · reasoning ${reasoningSelectionToCliValue(listed.config.reasoning)}`;
+      const detail = `${listed.config.llmProvider}/${listed.config.llmModel} · ${listed.config.persona}${reasoning}`;
+      return listed.id === currentAgent.id
+        ? { kind: "item", name: listed.name, detail, marker: "current" }
+        : { kind: "item", name: listed.name, detail };
+    });
+    yield* terminal.log(
+      report(
+        "agents",
+        rows,
+        `${String(allAgents.length)} agent${allAgents.length === 1 ? "" : "s"}. Switch with /switch <name>.`,
+      ),
+    );
     return { shouldContinue: true };
   });
 }
@@ -1079,36 +1071,44 @@ function handlePeersCommand(
     const appConfig = yield* configService.appConfig;
     const peers = appConfig.peers ?? [];
 
-    yield* terminal.log(fmt.heading("Peers"));
-
     if (peers.length === 0) {
-      yield* terminal.warn("No peers configured.");
-      yield* terminal.info("Add one with an invite: jazz peers invite create/accept");
-    } else {
-      for (const peer of peers) {
-        yield* terminal.log(fmt.labeledItem(peer.name));
-        yield* terminal.log(fmt.keyValue("Endpoint", peer.url ?? "(none — cannot be asked)"));
-        yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
-        yield* terminal.log(
-          fmt.keyValue("Answers as", peer.persona ?? "(agent's default persona)"),
-        );
-        yield* terminal.log(
-          fmt.keyValue(
-            "Extra grants",
+      yield* terminal.log(
+        report(
+          "peers",
+          [{ kind: "text", text: "No peers yet." }],
+          "Add one with an invite: jazz peers invite create, then accept.",
+        ),
+      );
+      return { shouldContinue: true };
+    }
+    const rows: ReportRow[] = [];
+    for (const peer of peers) {
+      if (rows.length > 0) {
+        rows.push({ kind: "gap" });
+      }
+      rows.push(
+        { kind: "group", label: peer.name },
+        {
+          kind: "field",
+          key: "endpoint",
+          value: peer.url ?? "none, so it cannot be asked",
+          ...(peer.url === undefined ? { tone: "muted" as const } : {}),
+        },
+        { kind: "field", key: "may learn", value: describeTier(peer.disclosure) },
+        { kind: "field", key: "answers as", value: peer.persona ?? "the agent's default persona" },
+        {
+          kind: "field",
+          key: "also allowed",
+          value:
             peer.allow !== undefined && peer.allow.length > 0
               ? peer.allow.join(", ")
-              : "(none — read-only only)",
-          ),
-        );
-        yield* terminal.log(fmt.blank());
-      }
-
-      yield* terminal.log(
-        fmt.footer(`Total: ${peers.length} peer${peers.length === 1 ? "" : "s"}`),
+              : "nothing beyond reading",
+        },
       );
     }
-
-    yield* terminal.log(fmt.blank());
+    yield* terminal.log(
+      report("peers", rows, `${String(peers.length)} peer${peers.length === 1 ? "" : "s"}.`),
+    );
     return { shouldContinue: true };
   });
 }
@@ -1591,22 +1591,31 @@ function handleReasoningCommand(
         return { shouldContinue: true };
       }
       const value = reasoningSelectionToCliValue(selected);
-      yield* terminal.success(`Reasoning set to: ${value} (this session only)`);
-      yield* terminal.log("");
+      yield* terminal.log(
+        report("reasoning", [{ kind: "field", key: "now", value }], "For this session only."),
+      );
       return applyValue(value);
     }
 
     const adjustment = describeReasoningAdjustment(agent.config.reasoning, control);
     const current = reasoningSelectionToCliValue(agent.config.reasoning);
-    yield* terminal.log(fmt.heading("Reasoning Effort (this session)"));
     yield* terminal.log(
-      fmt.keyValueCompact("Current", adjustment ? `${current} (${adjustment})` : current),
+      report(
+        "reasoning",
+        [
+          {
+            kind: "field",
+            key: "now",
+            value: current,
+            ...(adjustment ? { detail: adjustment } : {}),
+          },
+          { kind: "field", key: "levels", value: supported.join(", ") },
+        ],
+        control.kind === "unknown"
+          ? `Jazz cannot confirm which of these ${modelLabel} accepts.`
+          : "Change it with /reasoning <level>, for this session only.",
+      ),
     );
-    yield* terminal.info(`Levels: ${supported.join(", ")}`);
-    if (control.kind === "unknown") {
-      yield* terminal.info(`Jazz cannot confirm which of these ${modelLabel} accepts.`);
-    }
-    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }
@@ -1637,7 +1646,13 @@ function handleModelCommand(
           return { shouldContinue: true } satisfies CommandResult;
         }
         const newAgent = { ...agent, config: { ...agent.config, llmModel: modelId } };
-        yield* terminal.success(`Model set to ${provider}/${modelId} (this session only)`);
+        yield* terminal.log(
+          report(
+            "model",
+            [{ kind: "field", key: "now", value: `${provider}/${modelId}` }],
+            "For this session only. jazz agent edit changes the agent's model.",
+          ),
+        );
         const modelMeta = yield* Effect.promise(() => getModelsDevMetadata(modelId, provider));
         if (modelMeta && !modelMeta.supportsTools && (agent.config.tools?.length ?? 0) > 0) {
           yield* terminal.warn(
@@ -1670,15 +1685,25 @@ function handleModelCommand(
     }
 
     if (models.length === 0) {
-      yield* terminal.log(fmt.keyValueCompact("Model", current));
-      yield* terminal.info(`Jazz could not list ${provider}'s models. Use /model <model-id>.`);
+      yield* terminal.log(
+        report(
+          "model",
+          [{ kind: "field", key: "now", value: current }],
+          `Jazz could not list ${provider}'s models. Use /model <model-id>.`,
+        ),
+      );
       yield* terminal.log("");
       return { shouldContinue: true };
     }
 
     if (!terminal.isInteractive) {
-      yield* terminal.log(fmt.keyValueCompact("Model", current));
-      yield* terminal.info(`Use /model <model-id>, e.g. /model ${models[0]?.id ?? ""}`);
+      yield* terminal.log(
+        report(
+          "model",
+          [{ kind: "field", key: "now", value: current }],
+          `Use /model <model-id>, for example /model ${models[0]?.id ?? ""}.`,
+        ),
+      );
       yield* terminal.log("");
       return { shouldContinue: true };
     }
@@ -1753,13 +1778,22 @@ function handleLimitCommand(
       const nextLimits: SessionLimits = { ...context.sessionLimits };
       if (value === null) {
         delete nextLimits[field];
-        yield* terminal.success(`Cleared the session ${metric} limit.`);
       } else {
         nextLimits[field] = value;
-        yield* terminal.success(
-          `Session ${metric} limit set to ${formatSessionLimitMetric(metric, value)} (this session only).`,
-        );
       }
+      yield* terminal.log(
+        report(
+          "limit",
+          [
+            {
+              kind: "field",
+              key: metric,
+              value: value === null ? "no limit" : formatSessionLimitMetric(metric, value),
+            },
+          ],
+          "For this session only.",
+        ),
+      );
       yield* terminal.log(fmt.blank());
 
       if (value !== null) {
@@ -1776,7 +1810,7 @@ function handleLimitCommand(
 
   return Effect.gen(function* () {
     if (args.length === 1 && args[0]?.toLowerCase() === "clear") {
-      yield* terminal.success("Cleared all session limits.");
+      yield* terminal.log(report("limit", [{ kind: "text", text: "No session limits." }]));
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true, newSessionLimits: {} };
     }
@@ -1807,25 +1841,31 @@ function handleLimitCommand(
 
     // No args: show current usage and limits.
     const usage = yield* currentUsage;
-    yield* terminal.log(fmt.heading("Session Limits"));
-    for (const metric of ["turns", "usd", "tokens"] as const) {
+    const limitRows: ReportRow[] = (["turns", "usd", "tokens"] as const).map((metric) => {
       const limitValue = context.sessionLimits[SESSION_LIMIT_FIELD[metric]];
       const used =
         metric === "turns" ? usage.turns : metric === "usd" ? usage.costUSD : usage.tokens;
-      yield* terminal.log(
-        fmt.keyValueCompact(
-          metric,
+      return {
+        kind: "field",
+        key: metric,
+        value: formatSessionLimitMetric(metric, used),
+        detail:
           limitValue === undefined
-            ? `${formatSessionLimitMetric(metric, used)} used, no limit set`
-            : `${formatSessionLimitMetric(metric, used)} used / ${formatSessionLimitMetric(metric, limitValue)} limit`,
-        ),
-      );
-    }
-    yield* terminal.log(fmt.blank());
+            ? "no limit"
+            : `of ${formatSessionLimitMetric(metric, limitValue)}`,
+      };
+    });
+    yield* terminal.log(
+      report(
+        "limit",
+        limitRows,
+        terminal.isInteractive
+          ? undefined
+          : "Set one with /limit turns|usd|tokens <value>, or remove them with /limit clear.",
+      ),
+    );
 
     if (!terminal.isInteractive) {
-      yield* terminal.info('Set one with "/limit turns|usd|tokens <value>", or "/limit clear".');
-      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
