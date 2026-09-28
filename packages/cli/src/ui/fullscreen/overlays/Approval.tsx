@@ -30,7 +30,13 @@ import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { getGlyphs } from "../../glyphs";
-import type { ApprovalDiff } from "../../models/approval";
+import {
+  approvalAccount,
+  approvalConsequence,
+  approvalTag,
+  approvalTitle,
+  type ApprovalDiff,
+} from "../../models/approval";
 import { THEME } from "../../theme";
 import { blendHex } from "../../themes/registry";
 import { highlightCodeLine, highlightFenceLines, type SyntaxSpan } from "../syntax-spans";
@@ -266,77 +272,6 @@ export function approvalBodyRows(
   }
 
   return rows;
-}
-
-/**
- * The card's title as a person would say it. Two-phase tools arrive as
- * `execute write file`; the `execute` is plumbing, and the reader wants the verb.
- */
-export function approvalTitle(action: string): string {
-  const words = oneLine(action.replace(/[_.]/g, " "))
-    .split(" ")
-    .filter((word) => word.length > 0);
-  const verb = words[0]?.toLowerCase() === "execute" && words.length > 1 ? words.slice(1) : words;
-  const title = verb.join(" ");
-  return title.length === 0 ? title : `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
-}
-
-/** The app tag is dropped when the title already opens with it (`Write file` · `write`). */
-export function approvalTag(title: string, app: string): string | undefined {
-  const firstWord = title.split(" ")[0]?.toLowerCase();
-  return firstWord === app.toLowerCase() ? undefined : app;
-}
-
-/** What the bridge names a call that touches no remote account; its "app" is a local tool. */
-const LOCAL_ACCOUNT = "this machine";
-
-/**
- * The account with the app it belongs to, `you@example.com (gmail)`, so the
- * card still says which service is in scope when the title row's right side is
- * taken by the consequence.
- */
-export function approvalAccount(account: string, app: string): string {
-  if (
-    account === LOCAL_ACCOUNT ||
-    app.length === 0 ||
-    account.toLowerCase().includes(app.toLowerCase())
-  ) {
-    return account;
-  }
-  return `${account} (${app})`;
-}
-
-/** Field values short enough to be words in a sentence are left alone. */
-const MIN_REPEATED_VALUE_CELLS = 12;
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * The consequence line, without values the fields above it already show. Tools
- * write their prose for surfaces that have no field list, so it tends to repeat
- * the path or command verbatim; on the card that is the same long string twice.
- */
-export function approvalConsequence(
-  consequence: string,
-  fields: readonly { readonly value: string }[],
-): string {
-  let prose = oneLine(consequence);
-  for (const field of fields) {
-    const value = oneLine(field.value);
-    if (displayWidth(value) < MIN_REPEATED_VALUE_CELLS || !prose.includes(value)) {
-      continue;
-    }
-    prose = prose.replace(new RegExp(`:?\\s*${escapeRegExp(value)}`, "g"), "");
-  }
-  prose = oneLine(prose)
-    .replace(/\s+([.,;:])/g, "$1")
-    .replace(/[:,;]$/, "");
-  if (prose.length > 0 && !/[.!?]$/.test(prose)) {
-    prose = `${prose}.`;
-  }
-  return prose;
 }
 
 /**

@@ -16,7 +16,6 @@
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,8 +89,8 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { approvalIntent, diffLanguage } from "../models/approval";
-import { approvalTitle } from "./overlays/Approval";
+import { approvalFacts, diffLanguage } from "../models/approval";
+import { approvalTitle } from "../models/approval";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
@@ -1103,45 +1102,24 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
  * single most important string on the screen, so it is looked for explicitly
  * rather than left to land somewhere in a list.
  */
-const ACCOUNT_KEYS = ["account", "calendar", "calendarId", "from", "sender", "mailbox", "channel"];
-
 function approvalFrom(
   pending: PendingApproval,
   armed: boolean,
   fieldOffset: number,
   expanded: boolean,
 ): ApprovalOverlay {
-  const entries = Object.entries(pending.args).filter(
-    ([, value]) => value !== undefined && value !== null && value !== "",
-  );
-  const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
-  const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
-  const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
-  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
-  const alwaysLabel = `always allow ${commandKey ?? pending.toolName}`;
-  const intent = approvalIntent({
-    toolName: pending.toolName,
-    args: pending.args,
-    ...(pending.riskLevel === undefined ? {} : { riskLevel: pending.riskLevel }),
-    ...(pending.impact === undefined ? {} : { impact: pending.impact }),
-    ...(pending.previewDiff === undefined ? {} : { previewDiff: pending.previewDiff }),
-  });
-
+  const facts = approvalFacts(pending);
+  const { intent } = facts;
   return {
     kind: "approval",
-    app,
-    action: pending.executeToolName.replace(/[_.]/g, " "),
-    account: accountEntry === undefined ? "this machine" : String(accountEntry[1]),
-    fields: entries
-      .filter(([key]) => key !== accountEntry?.[0] && !intent.consumedKeys.includes(key))
-      .map(([label, value]) => ({
-        label,
-        value: typeof value === "string" ? value : JSON.stringify(value),
-      })),
+    app: facts.app,
+    action: facts.title,
+    account: facts.account,
+    fields: facts.fields,
     consequence: pending.message,
     fieldOffset,
     expanded,
-    alwaysLabel,
+    alwaysLabel: facts.alwaysLabel,
     armed,
     ...(intent.headline === undefined ? {} : { headline: intent.headline }),
     acceptLabel: intent.accept,
@@ -1151,8 +1129,8 @@ function approvalFrom(
     ...(intent.diff === undefined
       ? {}
       : { diff: intent.diff, diffLanguage: diffLanguage(pending.args) }),
-    ...(pending.warning === undefined ? {} : { warning: pending.warning }),
-    ...(pending.editableArg === undefined ? {} : { editableArg: pending.editableArg }),
+    ...(facts.warning === undefined ? {} : { warning: facts.warning }),
+    ...(facts.editableArg === undefined ? {} : { editableArg: facts.editableArg }),
   };
 }
 

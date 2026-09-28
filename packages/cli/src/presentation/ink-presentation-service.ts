@@ -47,6 +47,8 @@ import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
+import { clipTerminalCells } from "@/cli/ui/fullscreen/terminal-cells";
+import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -1110,6 +1112,9 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
+/** Labels share a column so the approval's values line up and read as a record. */
+const APPROVAL_LABEL_COLUMN = 11;
+
 export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
@@ -1442,6 +1447,28 @@ export class InkPresentationService implements PresentationService {
 
     const isPicker = (request.options?.length ?? 0) > 0;
 
+    // The card's facts and words come from the shared approval model, the same function the
+    // fullscreen card is built from: same account, same fields, same consequence, same verbs.
+    const pendingApproval = {
+      toolName: request.toolName,
+      executeToolName: request.executeToolName,
+      message: request.message,
+      args: request.executeArgs,
+      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
+      ...(request.impact === undefined ? {} : { impact: request.impact }),
+      ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
+      ...(request.warning === undefined ? {} : { warning: request.warning }),
+      ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
+    };
+    const facts = approvalFacts(pendingApproval);
+    const factRow = (label: string, value: string, key: string) =>
+      React.createElement(
+        Box,
+        { key },
+        React.createElement(Text, { color: THEME.muted }, label.padEnd(APPROVAL_LABEL_COLUMN)),
+        React.createElement(Text, {}, clipTerminalCells(value.replace(/\s+/g, " "), 120)),
+      );
+    const diff = facts.intent.diff;
     const approvalCard = React.createElement(
       Box,
       {
@@ -1455,33 +1482,56 @@ export class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(
-          Text,
-          { color: THEME.warning, bold: true },
-          isPicker ? "Pick a model" : "Approval Required",
-        ),
-        isPicker
-          ? React.createElement(Text, { dimColor: true }, `  ${request.toolName}`)
-          : React.createElement(Text, {}, " for "),
-        !isPicker &&
-          React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
+        React.createElement(Text, { bold: true }, isPicker ? "Pick a model" : facts.title),
+        !isPicker && facts.consequence.length > 0
+          ? React.createElement(Text, { color: THEME.warning }, `  ${facts.consequence}`)
+          : null,
         pendingCount > 0
           ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
           : null,
       ),
-      React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { bold: true }, request.message),
-      ),
-      // Never let users approve a file edit blind: point at the diff.
-      request.previewDiff
-        ? React.createElement(
+      isPicker
+        ? React.createElement(Box, { marginTop: 1 }, React.createElement(Text, {}, request.message))
+        : React.createElement(
             Box,
-            { marginTop: 1 },
-            React.createElement(Text, { dimColor: true }, "Press Ctrl+O to view the diff"),
-          )
-        : null,
+            { flexDirection: "column", marginTop: 1 },
+            factRow("Account", approvalAccount(facts.account, facts.app), "account"),
+            ...facts.fields.map((field, index) => factRow(field.label, field.value, `f${index}`)),
+            ...(facts.intent.impact === undefined
+              ? []
+              : [factRow(facts.intent.impact.label, facts.intent.impact.value, "impact")]),
+            ...(facts.intent.command === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "command", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.muted }, "$ "),
+                    React.createElement(Text, {}, facts.intent.command.text),
+                  ),
+                ]),
+            ...(diff === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "diff", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.success }, `+${diff.added}`),
+                    React.createElement(Text, { color: THEME.error }, ` −${diff.removed}`),
+                    // Never let users approve a file edit blind: point at the diff.
+                    React.createElement(Text, { dimColor: true }, "  Ctrl+O to view the diff"),
+                  ),
+                ]),
+            ...(facts.warning === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "warning", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.warning }, facts.warning),
+                  ),
+                ]),
+          ),
     );
 
     store.printOutput({
@@ -1551,7 +1601,13 @@ export class InkPresentationService implements PresentationService {
       return;
     }
 
-    const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
+    const choices: Array<{ label: string; value: string }> = [
+      { label: `Yes, ${facts.intent.accept}`, value: "yes" },
+    ];
+    const editable = facts.editableArg;
+    if (editable !== undefined && typeof request.executeArgs[editable] === "string") {
+      choices.push({ label: `Edit the ${editable} first`, value: "edit" });
+    }
 
     if (approvalKey) {
       const truncatedKey = approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
@@ -1566,22 +1622,12 @@ export class InkPresentationService implements PresentationService {
       value: "always_tool",
     });
 
-    choices.push({ label: "No", value: "no" });
+    choices.push({ label: `No, ${facts.intent.reject}`, value: "no" });
 
     // Publish the request itself alongside the menu. The fullscreen approval
     // card needs the account, the resulting fields and the consequence, none of
     // which survive being flattened into a list of choices.
-    store.setApprovalRequest({
-      toolName: request.toolName,
-      executeToolName: request.executeToolName,
-      message: request.message,
-      args: request.executeArgs,
-      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
-      ...(request.impact === undefined ? {} : { impact: request.impact }),
-      ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
-      ...(request.warning === undefined ? {} : { warning: request.warning }),
-      ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
-    });
+    store.setApprovalRequest(pendingApproval);
 
     store.setPrompt({
       type: "select",

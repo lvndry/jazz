@@ -11,7 +11,10 @@
  */
 
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
+import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { sourceLanguageFromPath } from "../fullscreen/syntax-spans";
+import { terminalCellWidth } from "../fullscreen/terminal-cells";
+import type { PendingApproval } from "../store";
 
 export type ActionClass =
   "send" | "delete" | "run" | "edit" | "write" | "move" | "copy" | "create" | "act";
@@ -272,4 +275,154 @@ export function approvalIntent(input: ApprovalIntentInput): ApprovalIntent {
 export function diffLanguage(args: Readonly<Record<string, unknown>>): string {
   const path = stringArg(args, "path") ?? stringArg(args, "file") ?? stringArg(args, "filePath");
   return path === undefined ? "" : (sourceLanguageFromPath(path) ?? "");
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function displayWidth(text: string): number {
+  return terminalCellWidth(text);
+}
+
+/**
+ * The card's title as a person would say it. Two-phase tools arrive as
+ * `execute write file`; the `execute` is plumbing, and the reader wants the verb.
+ */
+export function approvalTitle(action: string): string {
+  const words = oneLine(action.replace(/[_.]/g, " "))
+    .split(" ")
+    .filter((word) => word.length > 0);
+  const verb = words[0]?.toLowerCase() === "execute" && words.length > 1 ? words.slice(1) : words;
+  const title = verb.join(" ");
+  return title.length === 0 ? title : `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+/** The app tag is dropped when the title already opens with it (`Write file` · `write`). */
+export function approvalTag(title: string, app: string): string | undefined {
+  const firstWord = title.split(" ")[0]?.toLowerCase();
+  return firstWord === app.toLowerCase() ? undefined : app;
+}
+
+/** What the bridge names a call that touches no remote account; its "app" is a local tool. */
+const LOCAL_ACCOUNT = "this machine";
+
+/**
+ * The account with the app it belongs to, `you@example.com (gmail)`, so the
+ * card still says which service is in scope when the title row's right side is
+ * taken by the consequence.
+ */
+export function approvalAccount(account: string, app: string): string {
+  if (
+    account === LOCAL_ACCOUNT ||
+    app.length === 0 ||
+    account.toLowerCase().includes(app.toLowerCase())
+  ) {
+    return account;
+  }
+  return `${account} (${app})`;
+}
+
+/** Field values short enough to be words in a sentence are left alone. */
+const MIN_REPEATED_VALUE_CELLS = 12;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The consequence line, without values the fields above it already show. Tools
+ * write their prose for surfaces that have no field list, so it tends to repeat
+ * the path or command verbatim; on the card that is the same long string twice.
+ */
+export function approvalConsequence(
+  consequence: string,
+  fields: readonly { readonly value: string }[],
+): string {
+  let prose = oneLine(consequence);
+  for (const field of fields) {
+    const value = oneLine(field.value);
+    if (displayWidth(value) < MIN_REPEATED_VALUE_CELLS || !prose.includes(value)) {
+      continue;
+    }
+    prose = prose.replace(new RegExp(`:?\\s*${escapeRegExp(value)}`, "g"), "");
+  }
+  prose = oneLine(prose)
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/[:,;]$/, "");
+  if (prose.length > 0 && !/[.!?]$/.test(prose)) {
+    prose = `${prose}.`;
+  }
+  return prose;
+}
+
+/** Titles for built-in tools whose names are shell verbs (`rm`, `mv`) rather than words. */
+const BUILT_IN_TITLES: Readonly<Record<string, string>> = {
+  rm: "Delete",
+  mv: "Move",
+  cp: "Copy",
+  mkdir: "Create folder",
+  execute_command: "Run a command",
+  write_file: "Write file",
+  edit_file: "Edit file",
+};
+
+/** The argument names that say which real account a call acts as. */
+const ACCOUNT_KEYS = ["account", "calendar", "calendarId", "from", "sender", "mailbox", "channel"];
+
+export interface ApprovalFact {
+  readonly label: string;
+  readonly value: string;
+}
+
+/**
+ * Everything an approval says, as facts: the one function both the fullscreen card and the
+ * Ink card are built from, so they name the same account, show the same fields in the same
+ * order, and put the same verbs on the controls.
+ */
+export interface ApprovalFacts {
+  readonly app: string;
+  readonly title: string;
+  readonly account: string;
+  readonly fields: readonly ApprovalFact[];
+  readonly intent: ApprovalIntent;
+  /** The consequence the card states: the headline when there is one, else the tool's prose without repeated values. */
+  readonly consequence: string;
+  readonly alwaysLabel: string;
+  readonly warning?: string;
+  readonly editableArg?: string;
+}
+
+export function approvalFacts(pending: PendingApproval): ApprovalFacts {
+  const entries = Object.entries(pending.args).filter(
+    ([, value]) => value !== undefined && value !== null && value !== "",
+  );
+  const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
+  const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
+  const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
+  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
+  const intent = approvalIntent({
+    toolName: pending.toolName,
+    args: pending.args,
+    ...(pending.riskLevel === undefined ? {} : { riskLevel: pending.riskLevel }),
+    ...(pending.impact === undefined ? {} : { impact: pending.impact }),
+    ...(pending.previewDiff === undefined ? {} : { previewDiff: pending.previewDiff }),
+  });
+  const fields = entries
+    .filter(([key]) => key !== accountEntry?.[0] && !intent.consumedKeys.includes(key))
+    .map(([label, value]) => ({
+      label,
+      value: typeof value === "string" ? value : JSON.stringify(value),
+    }));
+  return {
+    app,
+    title: BUILT_IN_TITLES[pending.toolName] ?? approvalTitle(pending.executeToolName),
+    account: accountEntry === undefined ? LOCAL_ACCOUNT : String(accountEntry[1]),
+    fields,
+    intent,
+    consequence: intent.headline ?? approvalConsequence(pending.message, fields),
+    alwaysLabel: `always allow ${commandKey ?? pending.toolName}`,
+    ...(pending.warning === undefined ? {} : { warning: pending.warning }),
+    ...(pending.editableArg === undefined ? {} : { editableArg: pending.editableArg }),
+  };
 }

@@ -14,13 +14,11 @@
 import { RGBA, TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { approvalConsequence, approvalTag, approvalTitle } from "../../models/approval";
 import { renderForTest } from "../test-helpers";
 import {
   approvalBodyRows,
-  approvalConsequence,
   approvalFieldNeedsExpand,
-  approvalTag,
-  approvalTitle,
   Approval,
   COLLAPSED_FIELD_CELLS,
   wrapProse,

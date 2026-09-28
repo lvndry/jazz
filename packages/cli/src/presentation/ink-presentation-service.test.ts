@@ -3,6 +3,7 @@ import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { renderToString } from "ink";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
@@ -1666,6 +1667,37 @@ describe("InkPresentationService approval rejection", () => {
       }),
     );
   }
+
+  test("the Ink card states the same facts and verbs as the fullscreen card", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const pending = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-rm",
+        toolName: "rm",
+        message: "About to delete: /tmp/old-exports",
+        executeToolName: "execute_rm",
+        executeArgs: { path: "/tmp/old-exports", recursive: true },
+        impact: "214 files, 1.3 GB",
+      }),
+    );
+    const prompt = await waitForPromptType("select");
+    const card = printed.find(
+      (entry) => typeof entry.message === "object" && entry.message !== null,
+    );
+    const text = renderToString((card?.message as unknown as { node: React.ReactElement }).node, {
+      columns: 100,
+    });
+    expect(text).toContain("Delete");
+    expect(text).toContain("can't be undone");
+    expect(text).toContain("removes");
+    expect(text).toContain("214 files, 1.3 GB");
+    const labels = (prompt.options?.choices ?? []).map((choice) => choice.label);
+    expect(labels[0]).toBe("Yes, delete");
+    expect(labels.at(-1)).toBe("No, don't delete");
+    prompt.resolve("no");
+    (await waitForPromptType("text")).resolve("");
+    await pending;
+  });
 
   test("runs the approver's rewrite of an editable argument, prefilled with the original", async () => {
     const pending = requestCommandApproval();
