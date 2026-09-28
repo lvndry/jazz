@@ -1,41 +1,39 @@
 /** @jsxImportSource @opentui/react */
 
 /**
- * The home screen.
+ * The home screen, composer first.
  *
- * `jazz` with no arguments starts here. It leads with what is waiting for you:
- * conversations where an agent is blocked on your answer, then the ones you
- * were last in, each reopened with its number key. Below them, every action is
- * one key, and one muted line says how the setup stands.
+ * It opens on the one thing most visits are for: a new conversation. The filled button names
+ * the agent it goes to, and the composer under it sends the first message in the same step.
+ * The recent agents sit below to re-target both, then whatever is waiting for you. Every word
+ * comes from the shared home model; this file only sets it in bands.
  *
- * With no agent yet it is the first-run screen instead: what jazz is, the three
- * steps setup takes, and anything already on the machine that shortens them.
+ * The block is anchored near the top with room around each section, and the footer holds the
+ * last row. When the terminal is short, waiting details go first, then waiting entries from the
+ * bottom, then agents other than the chosen one; the button, the composer and the footer stay.
  *
- * Height is a budget. The status line goes first when the terminal is short,
- * then conversations from the bottom of the list, then the greeting; the
- * actions and the footer are never dropped. Leftover height sits mostly below
- * the block, so a tall terminal holds the screen in its upper third.
- *
- * No keys are handled here: the screen renders its model and nothing else.
+ * No keys are handled here: the screen renders its props and nothing else.
  */
 
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import {
+  COMPOSER_PLACEHOLDER,
   FIRST_RUN_PITCH,
   FIRST_RUN_PROMISE,
   FIRST_RUN_SETUP_LEAD,
   FIRST_RUN_STEPS,
-  conversationTag,
+  agentsHint,
   detectionLines,
-  homeLead,
-  homeLegend,
-  type HomeConversation,
+  personaLabel,
+  targetAgent,
+  waitingTag,
+  type HomeAgent,
   type HomeModel,
-  type HomeStatus,
-  type LegendEntry,
+  type HomeWaiting,
 } from "../../models/home-view";
 import { groundPaint, THEME } from "../../theme";
+import { CaretValue } from "../overlays/TextPrompt";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
@@ -45,36 +43,50 @@ export type { HomeModel } from "../../models/home-view";
 /** The bar cell plus one space; text inside a band starts here. */
 const GUTTER = 2;
 
-/** Blank cells kept between a band's text and its right-aligned tag. */
+/** Blank cells kept between a row's text and its right-aligned tag. */
 const TAG_GAP = 2;
 
-/** Spaces between two actions on one legend row. */
-const ACTION_GAP = 4;
+/** Spaces between two keys in a legend. */
+const KEY_GAP = 4;
 
-/** The footer is anchored to the last viewport row and is never dropped. */
+/** The footer holds the last viewport row. */
 const FOOTER_ROWS = 1;
 
-/** Share of the leftover height placed above the block; the rest goes below it. */
-const TOP_SLACK_SHARE = 1 / 3;
+/** Blank rows above the wordmark on a terminal tall enough to spare them. */
+const TOP_MARGIN = 2;
+
+/** Terminals at least this tall get two blank rows between sections instead of one. */
+const ROOMY_HEIGHT = 40;
+
+/** Column widths for the agent table; a long name or model is cut to fit its column. */
+const NAME_COLUMN = 16;
+const MODEL_COLUMN = 22;
 
 export interface HomeProps {
   readonly model: HomeModel;
   readonly viewport: Viewport;
+  /** The agent a new conversation goes to. */
+  readonly selectedId: string | undefined;
+  /** What is typed in the composer, and where the caret is. */
+  readonly draft: { readonly value: string; readonly caret: number };
 }
 
 export interface Segment {
   readonly text: string;
   readonly fg: string;
+  readonly bg?: string;
   readonly bold?: boolean;
-  readonly italic?: boolean;
 }
 
-export interface HomeRow {
-  readonly key: string;
-  readonly segments: readonly Segment[];
-  /** Background for the whole band width, when the row is part of a band. */
-  readonly fill?: string;
-}
+export type HomeRow =
+  | {
+      readonly key: string;
+      readonly kind: "text";
+      readonly segments: readonly Segment[];
+      /** Background for the whole row width, when the row is part of a band. */
+      readonly fill?: string;
+    }
+  | { readonly key: string; readonly kind: "composer"; readonly agentName: string };
 
 function cells(text: string): number {
   return terminalCellWidth(text);
@@ -84,19 +96,20 @@ function clip(text: string, width: number): string {
   return clipTerminalCells(text, Math.max(0, width));
 }
 
-function segmentsWidth(segments: readonly Segment[]): number {
+function widthOf(segments: readonly Segment[]): number {
   return segments.reduce((total, segment) => total + cells(segment.text), 0);
 }
 
-function blank(key: string): HomeRow {
-  return { key, segments: [] };
+/** Cells kept free at the end of a table column, so neighbours never run together. */
+const COLUMN_GAP = 2;
+
+function pad(text: string, width: number): string {
+  const clipped = clip(text, width - COLUMN_GAP);
+  return clipped + " ".repeat(Math.max(0, width - cells(clipped)));
 }
 
-function indented(key: string, segments: readonly Segment[], width: number): HomeRow {
-  return {
-    key,
-    segments: clipSegments([{ text: " ".repeat(GUTTER), fg: THEME.muted }, ...segments], width),
-  };
+function blank(key: string): HomeRow {
+  return { key, kind: "text", segments: [] };
 }
 
 /** Cut a run of segments to `width` cells, dropping whatever starts past the edge. */
@@ -116,29 +129,31 @@ function clipSegments(segments: readonly Segment[], width: number): Segment[] {
 }
 
 /**
- * One band row: a bar (or a blank cell) in the gutter, content on the left, a tag flush right.
- * The tag gives way before the content does.
+ * One row: optional bar in the gutter, content on the left, a tag flush right. The tag gives way
+ * before the content does. `fill` paints the row as a band.
  */
-function bandRow(
+function row(
   key: string,
-  bar: string | null,
   left: readonly Segment[],
   right: readonly Segment[],
   width: number,
-  glyphs: GlyphSet,
+  options: { readonly bar?: string | undefined; readonly fill?: string | undefined } = {},
 ): HomeRow {
+  const glyphs = getGlyphs();
   const inner = width - GUTTER;
-  const rightWidth = segmentsWidth(right);
-  const showRight = rightWidth > 0 && segmentsWidth(left) + TAG_GAP + rightWidth <= inner;
-  const leftRoom = showRight ? inner - rightWidth - TAG_GAP : inner;
-  const clippedLeft = clipSegments(left, leftRoom);
-  const gap = Math.max(0, inner - segmentsWidth(clippedLeft) - (showRight ? rightWidth : 0));
+  const rightWidth = widthOf(right);
+  const showRight = rightWidth > 0 && widthOf(left) + TAG_GAP + rightWidth <= inner;
+  const clippedLeft = clipSegments(left, showRight ? inner - rightWidth - TAG_GAP : inner);
+  const gap = Math.max(0, inner - widthOf(clippedLeft) - (showRight ? rightWidth : 0));
   return {
     key,
-    fill: THEME.surface,
+    kind: "text",
+    ...(options.fill === undefined ? {} : { fill: options.fill }),
     segments: [
-      { text: bar === null ? " " : glyphs.bandBar, fg: bar ?? THEME.muted },
-      { text: " ", fg: THEME.muted },
+      {
+        text: options.bar === undefined ? "  " : `${glyphs.bandBar} `,
+        fg: options.bar ?? THEME.muted,
+      },
       ...clippedLeft,
       { text: " ".repeat(gap), fg: THEME.muted },
       ...(showRight ? right : []),
@@ -146,229 +161,238 @@ function bandRow(
   };
 }
 
-function identityRows(): HomeRow[] {
-  const glyphs = getGlyphs();
-  return [
-    {
-      key: "identity",
-      segments: [
-        { text: " ", fg: THEME.muted },
-        { text: glyphs.note, fg: THEME.primary },
-        { text: " jazz", fg: THEME.selected, bold: true },
-      ],
-    },
-  ];
+function wordmark(glyphs: GlyphSet): HomeRow {
+  return {
+    key: "wordmark",
+    kind: "text",
+    segments: [
+      { text: "  ", fg: THEME.muted },
+      { text: `${glyphs.note} `, fg: THEME.primary },
+      { text: "jazz", fg: THEME.selected, bold: true },
+    ],
+  };
 }
 
-function greetingRows(model: HomeModel, width: number): HomeRow[] {
-  if (model.greeting.length === 0) {
+function startRows(agent: HomeAgent | undefined, width: number): HomeRow[] {
+  if (agent === undefined) {
     return [];
   }
-  const lead = homeLead(model);
   return [
-    indented(
-      "greeting",
+    row(
+      "start",
       [
-        { text: model.greeting, fg: THEME.selected },
-        ...(lead.length > 0 ? [{ text: ` ${lead}`, fg: THEME.secondary }] : []),
+        { text: " + New conversation ", fg: THEME.canvas, bg: THEME.primary, bold: true },
+        { text: "  with ", fg: THEME.muted },
+        { text: agent.name, fg: THEME.selected, bold: true },
+        { text: `  ${agent.model}`, fg: THEME.muted },
       ],
+      [{ text: "enter", fg: THEME.selected, bold: true }],
       width,
     ),
   ];
 }
 
-function conversationRows(
-  conversations: readonly HomeConversation[],
-  width: number,
-  glyphs: GlyphSet,
-): HomeRow[][] {
-  return conversations.map((conversation) => {
-    const bar = conversation.waiting ? THEME.primary : null;
-    return [
-      bandRow(
-        `conversation:${conversation.value}:title`,
-        bar,
+function composerRows(agent: HomeAgent | undefined, width: number): HomeRow[] {
+  if (agent === undefined) {
+    return [];
+  }
+  const padRow = (key: string): HomeRow =>
+    row(key, [], [], width, { bar: THEME.primary, fill: THEME.surfaceStrong });
+  return [
+    padRow("composer:top"),
+    { key: "composer", kind: "composer", agentName: agent.name },
+    padRow("composer:bottom"),
+  ];
+}
+
+function agentRow(agent: HomeAgent, selected: boolean, width: number): HomeRow {
+  const cellsLeft: Segment[] = [
+    { text: selected ? "› " : "  ", fg: THEME.primary },
+    {
+      text: pad(agent.name, NAME_COLUMN),
+      fg: selected ? THEME.selected : THEME.secondary,
+      bold: selected,
+    },
+    { text: pad(agent.model, MODEL_COLUMN), fg: THEME.muted },
+    { text: personaLabel(agent.persona), fg: THEME.muted },
+  ];
+  return row(
+    `agent:${agent.id}`,
+    cellsLeft,
+    agent.lastUsed === undefined ? [] : [{ text: agent.lastUsed, fg: THEME.muted }],
+    width,
+    selected ? { fill: THEME.surfaceStrong } : {},
+  );
+}
+
+function heading(key: string, text: string, hint: string, width: number): HomeRow {
+  return row(
+    key,
+    [{ text, fg: THEME.secondary, bold: true }],
+    hint.length === 0 ? [] : [{ text: hint, fg: THEME.muted }],
+    width,
+  );
+}
+
+function waitingRows(entry: HomeWaiting, width: number, withDetail: boolean): HomeRow[] {
+  const band = { bar: THEME.primary, fill: THEME.surface };
+  const rows = [
+    row(
+      `waiting:${entry.value}`,
+      [
+        { text: `${entry.key}  `, fg: THEME.muted },
+        { text: entry.title, fg: THEME.selected, bold: true },
+        { text: `  ${entry.agent}`, fg: THEME.muted },
+      ],
+      [{ text: waitingTag(entry.reason, entry.age), fg: THEME.primary }],
+      width,
+      band,
+    ),
+  ];
+  if (withDetail && entry.detail !== undefined) {
+    const indent = " ".repeat(cells(`${entry.key}  `));
+    const room = width - GUTTER - cells(indent);
+    const detail = clip(entry.detail, room);
+    rows.push(
+      row(
+        `waiting:${entry.value}:detail`,
         [
-          { text: `${conversation.key}  `, fg: THEME.muted },
-          { text: conversation.title, fg: THEME.selected, bold: true },
-          { text: `  ${conversation.agent}`, fg: THEME.muted },
-        ],
-        [
-          {
-            text: conversationTag(conversation),
-            fg: conversation.waiting ? THEME.primary : THEME.muted,
-          },
-        ],
-        width,
-        glyphs,
-      ),
-      bandRow(
-        `conversation:${conversation.value}:detail`,
-        bar,
-        [
-          { text: " ".repeat(cells(`${conversation.key}  `)), fg: THEME.muted },
-          {
-            text: conversation.detail,
-            fg: conversation.waiting ? THEME.secondary : THEME.muted,
-          },
+          { text: indent, fg: THEME.muted },
+          { text: detail, fg: THEME.secondary },
         ],
         [],
         width,
-        glyphs,
+        band,
       ),
-    ];
-  });
-}
-
-function legendSegments(entry: LegendEntry): Segment[] {
-  return [
-    { text: entry.key, fg: THEME.selected, bold: true },
-    { text: ` ${entry.label}`, fg: THEME.secondary },
-  ];
-}
-
-function joinEntries(entries: readonly LegendEntry[]): Segment[] {
-  return entries.flatMap((entry, index) => [
-    ...(index > 0 ? [{ text: " ".repeat(ACTION_GAP), fg: THEME.muted }] : []),
-    ...legendSegments(entry),
-  ]);
-}
-
-/**
- * The legend: enter and the number keys lead on a row of their own; the rest flow onto as many
- * rows as the width needs.
- */
-function actionRows(model: HomeModel, width: number): HomeRow[] {
-  const inner = width - GUTTER;
-  const legend = homeLegend(model);
-  const rows: HomeRow[] = [];
-  if (legend.primary.length > 0) {
-    rows.push(indented("actions:primary", joinEntries(legend.primary), width));
+    );
   }
-  let line: LegendEntry[] = [];
-  for (const entry of legend.rest) {
-    const candidate = [...line, entry];
-    if (line.length > 0 && segmentsWidth(joinEntries(candidate)) > inner) {
-      rows.push(indented(`actions:${String(rows.length)}`, joinEntries(line), width));
-      line = [entry];
-    } else {
-      line = candidate;
-    }
-  }
-  if (line.length > 0)
-    rows.push(indented(`actions:${String(rows.length)}`, joinEntries(line), width));
   return rows;
 }
 
-function statusRows(status: readonly HomeStatus[], width: number, glyphs: GlyphSet): HomeRow[] {
-  if (status.length === 0) {
-    return [];
-  }
-  const segments: Segment[] = [];
-  status.forEach((part, index) => {
-    if (index > 0) segments.push({ text: ` ${glyphs.bullet} `, fg: THEME.muted });
-    segments.push({ text: part.text, fg: part.tone === "warning" ? THEME.warning : THEME.muted });
-    if (part.fixKey !== undefined) {
-      segments.push({ text: `  ${part.fixKey}`, fg: THEME.selected, bold: true });
-    }
-  });
-  return [indented("status", segments, width)];
-}
-
-function firstRunRows(model: HomeModel, width: number, glyphs: GlyphSet): HomeRow[] {
-  const detected = detectionLines(model);
-  const steps: Segment[] = [];
-  FIRST_RUN_STEPS.forEach((step, index) => {
-    if (index > 0) steps.push({ text: " ".repeat(ACTION_GAP), fg: THEME.muted });
-    steps.push(
-      { text: String(index + 1), fg: THEME.primary, bold: true },
-      { text: ` ${step}`, fg: THEME.selected },
-    );
-  });
+function firstRunRows(model: HomeModel, width: number): HomeRow[] {
+  const steps: Segment[] = FIRST_RUN_STEPS.flatMap((step, index) => [
+    ...(index > 0 ? [{ text: " ".repeat(KEY_GAP), fg: THEME.muted }] : []),
+    { text: String(index + 1), fg: THEME.primary, bold: true },
+    { text: ` ${step}`, fg: THEME.selected },
+  ]);
   const rows: HomeRow[] = [
     blank("gap:pitch"),
-    indented("pitch", [{ text: FIRST_RUN_PITCH, fg: THEME.selected }], width),
-    indented("promise", [{ text: FIRST_RUN_PROMISE, fg: THEME.secondary }], width),
+    row("pitch", [{ text: FIRST_RUN_PITCH, fg: THEME.selected }], [], width),
+    row("promise", [{ text: FIRST_RUN_PROMISE, fg: THEME.secondary }], [], width),
     blank("gap:steps"),
-    indented("setup-lead", [{ text: FIRST_RUN_SETUP_LEAD, fg: THEME.muted }], width),
-    indented("setup-steps", steps, width),
+    row("setup-lead", [{ text: FIRST_RUN_SETUP_LEAD, fg: THEME.muted }], [], width),
+    row("setup-steps", steps, [], width),
   ];
+  const detected = detectionLines(model);
   if (detected.length > 0) {
-    rows.push(blank("gap:detected"));
-    rows.push(bandRow("detected:top", THEME.success, [], [], width, glyphs));
-    detected.forEach((detection, index) => {
+    const band = { bar: THEME.success, fill: THEME.surface };
+    rows.push(blank("gap:detected"), row("detected:top", [], [], width, band));
+    detected.forEach((line, index) => {
       rows.push(
-        bandRow(
+        row(
           `detected:${String(index)}`,
-          THEME.success,
           [
-            { text: `${detection.lead} `, fg: THEME.secondary },
-            { text: detection.label, fg: THEME.selected, bold: true },
-            { text: ` ${detection.detail}`, fg: THEME.secondary },
+            { text: `${line.lead} `, fg: THEME.secondary },
+            { text: line.label, fg: THEME.selected, bold: true },
+            { text: ` ${line.detail}`, fg: THEME.secondary },
           ],
           [],
           width,
-          glyphs,
+          band,
         ),
       );
     });
-    rows.push(bandRow("detected:bottom", THEME.success, [], [], width, glyphs));
+    rows.push(row("detected:bottom", [], [], width, band));
   }
+  rows.push(
+    blank("gap:keys"),
+    row(
+      "first-run-keys",
+      model.keys.flatMap((entry, index) => [
+        ...(index > 0 ? [{ text: " ".repeat(KEY_GAP), fg: THEME.muted }] : []),
+        { text: entry.key, fg: THEME.selected, bold: true },
+        { text: ` ${entry.label}`, fg: THEME.secondary },
+      ]),
+      [],
+      width,
+    ),
+  );
   return rows;
 }
 
+/** The width the block is set to: the prose measure plus the gutter, never past the window. */
+export function homeWidth(viewport: Viewport): number {
+  return Math.min(viewport.width, measureFor(pageWidth(viewport)).prose + GUTTER);
+}
+
 /**
- * The screen above the footer, as rows. Pure: a model and a viewport, nothing else, which is
- * what lets a test assert the design rather than the markup.
+ * The screen above the footer, as rows. Pure: the props and nothing else, which is what lets a
+ * test assert the design rather than the markup.
  */
-export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
+export function homeRows(
+  model: HomeModel,
+  viewport: Viewport,
+  selectedId: string | undefined,
+): HomeRow[] {
   const glyphs = getGlyphs();
-  const width = measureFor(pageWidth(viewport)).prose + GUTTER;
+  const width = homeWidth(viewport);
   const budget = Math.max(1, viewport.height - FOOTER_ROWS);
-  const actions = actionRows(model, width);
-  const identity = identityRows();
+  const gapRows = viewport.height >= ROOMY_HEIGHT ? 2 : 1;
+  const gap = (key: string): HomeRow[] =>
+    Array.from({ length: gapRows }, (_, index) => blank(`${key}:${String(index)}`));
 
   if (model.firstRun !== undefined) {
-    const rows = [
-      ...identity,
-      ...firstRunRows(model, width, glyphs),
-      blank("gap:actions"),
-      ...actions,
-    ];
-    // The pitch is what the screen is for, and the actions are how you act on it; when the
-    // terminal cannot hold both, the actions win and the pitch is cut from the top.
+    const rows = [...gap("top"), wordmark(glyphs), ...firstRunRows(model, width)];
     return rows.length <= budget ? rows : rows.slice(rows.length - budget);
   }
 
-  const greeting = greetingRows(model, width);
-  const conversations = conversationRows(model.conversations, width, glyphs);
-  const status = statusRows(model.status, width, glyphs);
-  let shownConversations = conversations.length;
-  let showStatus = status.length > 0;
-  let showGreeting = greeting.length > 0;
+  const target = targetAgent(model, selectedId);
+  let shownAgents = model.agents.length;
+  let shownWaiting = model.waiting.length;
+  let details = true;
+  let topMargin = Math.min(TOP_MARGIN, gapRows + 1);
 
   const build = (): HomeRow[] => {
-    const rows: HomeRow[] = [...identity];
-    if (showGreeting) rows.push(blank("gap:greeting"), ...greeting);
-    const shown = conversations.slice(0, shownConversations);
-    if (shown.length > 0) rows.push(blank("gap:conversations"));
-    shown.forEach((entry, index) => {
-      if (index > 0) rows.push(blank(`gap:conversation:${String(index)}`));
-      rows.push(...entry);
-    });
-    rows.push(blank("gap:actions"), ...actions);
-    if (showStatus) rows.push(blank("gap:status"), ...status);
+    const rows: HomeRow[] = [
+      ...Array.from({ length: topMargin }, (_, index) => blank(`top:${String(index)}`)),
+      wordmark(glyphs),
+      ...gap("start"),
+      ...startRows(target, width),
+      blank("gap:composer"),
+      ...composerRows(target, width),
+    ];
+    // The chosen agent always stays in view, whatever else has to give way.
+    const agents = model.agents.filter(
+      (agent, index) => index < shownAgents || agent.id === target?.id,
+    );
+    if (agents.length > 0) {
+      rows.push(
+        ...gap("agents"),
+        heading("agents:heading", "Start with another agent", agentsHint(model), width),
+        ...agents.map((agent) => agentRow(agent, agent.id === target?.id, width)),
+      );
+    }
+    const waiting = model.waiting.slice(0, shownWaiting);
+    if (waiting.length > 0) {
+      rows.push(
+        ...gap("waiting"),
+        heading("waiting:heading", "Waiting for you", String(model.waiting.length), width),
+        ...waiting.flatMap((entry) => waitingRows(entry, width, details)),
+      );
+    }
     return rows;
   };
 
   let rows = build();
   while (rows.length > budget) {
-    if (showStatus) {
-      showStatus = false;
-    } else if (shownConversations > 0) {
-      shownConversations -= 1;
-    } else if (showGreeting) {
-      showGreeting = false;
+    if (topMargin > 0) {
+      topMargin -= 1;
+    } else if (details && shownWaiting > 0) {
+      details = false;
+    } else if (shownWaiting > 0) {
+      shownWaiting -= 1;
+    } else if (shownAgents > 1) {
+      shownAgents -= 1;
     } else {
       return rows.slice(0, budget);
     }
@@ -377,68 +401,136 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
   return rows;
 }
 
-function Row({ row, width }: { row: HomeRow; width: number }): ReactNode {
-  if (row.segments.length === 0) return <box style={{ height: 1, flexShrink: 0 }} />;
+function SegmentsText({ segments }: { segments: readonly Segment[] }): ReactNode {
   return (
-    <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-      <box
-        style={{
-          width,
-          height: 1,
-          flexShrink: 0,
-          ...(row.fill === undefined ? {} : { backgroundColor: row.fill }),
-        }}
-      >
-        <text style={{ wrapMode: "none", truncate: true }}>
-          {row.segments.map((segment, index) => {
-            const style = {
-              fg: segment.fg,
-              ...(segment.italic === true ? { italic: true } : {}),
-            };
-            const key = `${String(index)}:${segment.text}`;
-            return segment.bold === true ? (
-              <b
-                key={key}
-                style={style}
-              >
-                {segment.text}
-              </b>
-            ) : (
-              <span
-                key={key}
-                style={style}
-              >
-                {segment.text}
-              </span>
-            );
-          })}
-        </text>
-      </box>
+    <text style={{ wrapMode: "none", truncate: true }}>
+      {segments.map((segment, index) => {
+        const style = {
+          fg: segment.fg,
+          ...(segment.bg === undefined ? {} : { bg: segment.bg }),
+        };
+        const key = `${String(index)}:${segment.text}`;
+        return segment.bold === true ? (
+          <b
+            key={key}
+            style={style}
+          >
+            {segment.text}
+          </b>
+        ) : (
+          <span
+            key={key}
+            style={style}
+          >
+            {segment.text}
+          </span>
+        );
+      })}
+    </text>
+  );
+}
+
+function Composer({
+  width,
+  agentName,
+  draft,
+}: {
+  width: number;
+  agentName: string;
+  draft: HomeProps["draft"];
+}): ReactNode {
+  const glyphs = getGlyphs();
+  const hint = `enter sends to ${agentName}`;
+  const room = width - GUTTER - TAG_GAP - cells(hint) - 1;
+  const showHint = room >= cells(COMPOSER_PLACEHOLDER) / 2;
+  return (
+    <box
+      style={{
+        width,
+        height: 1,
+        flexShrink: 0,
+        flexDirection: "row",
+        backgroundColor: THEME.surfaceStrong,
+      }}
+    >
+      <text
+        style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}
+      >{`${glyphs.bandBar} `}</text>
+      <CaretValue
+        value={draft.value}
+        caret={draft.caret}
+        width={showHint ? room : width - GUTTER - 1}
+        placeholder={COMPOSER_PLACEHOLDER}
+      />
+      <box style={{ flexGrow: 1 }} />
+      {showHint ? <text style={{ fg: THEME.muted, flexShrink: 0 }}>{`${hint} `}</text> : null}
     </box>
   );
 }
 
-/** Blank rows above the block, a third of what the terminal has left over. */
-export function homeTopSlack(rowCount: number, viewport: Viewport): number {
-  const slack = viewport.height - FOOTER_ROWS - rowCount;
-  return Math.max(0, Math.floor(slack * TOP_SLACK_SHARE));
+function Row({
+  row,
+  width,
+  draft,
+}: {
+  row: HomeRow;
+  width: number;
+  draft: HomeProps["draft"];
+}): ReactNode {
+  if (row.kind === "composer") {
+    return (
+      <Composer
+        width={width}
+        agentName={row.agentName}
+        draft={draft}
+      />
+    );
+  }
+  if (row.segments.length === 0) {
+    return <box style={{ height: 1, flexShrink: 0 }} />;
+  }
+  return (
+    <box
+      style={{
+        width,
+        height: 1,
+        flexShrink: 0,
+        ...(row.fill === undefined ? {} : { backgroundColor: row.fill }),
+      }}
+    >
+      <SegmentsText segments={row.segments} />
+    </box>
+  );
 }
 
-/** The footer: the version on the left, the working directory flush right. */
-export function homeFooterText(
+/** The footer: the single keys on the left, a readiness warning and its fix key on the right. */
+export function homeFooterSegments(
   model: HomeModel,
-  viewport: Viewport,
-): { left: string; right: string } {
-  const left = ` jazz ${model.version}`;
-  const room = viewport.width - cells(left) - TAG_GAP;
-  return { left, right: room > 0 ? clip(model.cwd, room) : "" };
+  width: number,
+): { left: Segment[]; right: Segment[] } {
+  const left: Segment[] =
+    model.firstRun !== undefined
+      ? []
+      : model.keys.flatMap((entry, index) => [
+          { text: index === 0 ? "  " : " ".repeat(KEY_GAP), fg: THEME.muted },
+          { text: entry.key, fg: THEME.selected, bold: true },
+          { text: ` ${entry.label}`, fg: THEME.muted },
+        ]);
+  const right: Segment[] =
+    model.warning === undefined
+      ? []
+      : [
+          { text: model.warning.text, fg: THEME.warning },
+          { text: `  ${model.warning.fixKey}`, fg: THEME.selected, bold: true },
+          { text: " ", fg: THEME.muted },
+        ];
+  return widthOf(left) + TAG_GAP + widthOf(right) <= width ? { left, right } : { left, right: [] };
 }
 
-export function Home({ model, viewport }: HomeProps): ReactNode {
-  const rows = homeRows(model, viewport);
-  const topSlack = homeTopSlack(rows.length, viewport);
-  const width = measureFor(pageWidth(viewport)).prose + GUTTER;
-  const footer = homeFooterText(model, viewport);
+export function Home({ model, viewport, selectedId, draft }: HomeProps): ReactNode {
+  const rows = homeRows(model, viewport, selectedId);
+  const width = homeWidth(viewport);
+  const footer = homeFooterSegments(model, viewport.width);
   return (
     <box
       style={{
@@ -448,24 +540,19 @@ export function Home({ model, viewport }: HomeProps): ReactNode {
         backgroundColor: groundPaint(),
       }}
     >
-      {topSlack > 0 ? <box style={{ height: topSlack, flexShrink: 0 }} /> : null}
-      {rows.map((row) => (
+      {rows.map((entry) => (
         <Row
-          key={row.key}
-          row={row}
-          width={Math.min(width, viewport.width)}
+          key={entry.key}
+          row={entry}
+          width={width}
+          draft={draft}
         />
       ))}
       <box style={{ flexGrow: 1 }} />
       <box style={{ height: FOOTER_ROWS, flexShrink: 0, flexDirection: "row" }}>
-        <text style={{ wrapMode: "none", truncate: true }}>
-          <span style={{ fg: THEME.muted }}>{footer.left}</span>
-        </text>
+        <SegmentsText segments={footer.left} />
         <box style={{ flexGrow: 1 }} />
-        <text style={{ wrapMode: "none", truncate: true }}>
-          <span style={{ fg: THEME.muted }}>{footer.right}</span>
-        </text>
-        <box style={{ width: 1, flexShrink: 0 }} />
+        <SegmentsText segments={footer.right} />
       </box>
     </box>
   );

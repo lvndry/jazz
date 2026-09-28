@@ -123,6 +123,7 @@ export class ChatServiceImpl implements ChatService {
       stream?: boolean;
       initialHistory?: ChatMessage[];
       initialUiTranscript?: readonly ConversationUiEntry[];
+      initialMessage?: string;
       maxIterations?: number;
       ephemeral?: boolean;
     },
@@ -346,6 +347,12 @@ export class ChatServiceImpl implements ChatService {
       /** A mistyped command, put back in the composer at the next prompt. */
       let draftToRestore: string | undefined;
 
+      /** The message the session was opened with, sent as its first turn. */
+      let firstMessage =
+        options?.initialMessage !== undefined && options.initialMessage.trim().length > 0
+          ? options.initialMessage
+          : undefined;
+
       // The goal this chat is working toward, and whether its next turn is due. A goal turn is
       // an ordinary turn whose prompt comes from the goal instead of the user.
       let attendedGoalId: string | undefined;
@@ -364,7 +371,14 @@ export class ChatServiceImpl implements ChatService {
 
         // What the user typed meanwhile goes first; the goal picks up again after it.
         let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
-        if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
+        if (firstMessage !== undefined) {
+          // Typed on home before the session existed: it goes exactly as a typed message would,
+          // echoed into the transcript and recallable with ↑.
+          userMessage = firstMessage;
+          firstMessage = undefined;
+          store.pushInputHistory(userMessage);
+          yield* terminal.user(userMessage);
+        } else if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
           goalContinues = false;
           const goalId = attendedGoalId;
           goalTurn = yield* goalLayers(claimChatGoalTurn(goalId)).pipe(

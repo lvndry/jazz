@@ -177,17 +177,12 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
   if (menu.kind === "home") {
     return (
       <InkHome
-        model={{
-          version: packageJson.version,
-          cwd: process.cwd(),
-          greeting: menu.greeting,
-          conversations: menu.conversations,
-          actions: menu.actions,
-          status: menu.status,
-          ...(menu.firstRun === undefined ? {} : { firstRun: menu.firstRun }),
-        }}
-        onSelect={(value) => store.completePrompt({ kind: "select", value })}
-        onExit={() => store.completePrompt({ kind: "exit" })}
+        // One mount per showing: a refresh keeps what is typed, a new showing starts fresh.
+        key={menu.shownAt}
+        model={{ ...menu, version: packageJson.version }}
+        onAnswer={(value, text) =>
+          store.completePrompt({ kind: "select", value, ...(text === undefined ? {} : { text }) })
+        }
       />
     );
   }

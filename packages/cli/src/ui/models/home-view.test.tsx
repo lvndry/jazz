@@ -1,119 +1,216 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
 import {
-  conversationTag,
-  detectionLines,
-  homeLead,
-  homeLegend,
-  statusText,
+  homeIntent,
+  homeSentences,
+  orderRecentAgents,
+  readableTitle,
+  stepTarget,
+  targetAgent,
+  waitingEntries,
+  waitingTag,
   type HomeModel,
 } from "./home-view";
-import { InkHome, inkHomeOptions } from "../InkHome";
+import { buildHome } from "../../commands/home-surface";
+import { InkHome } from "../InkHome";
 
 const HOME: HomeModel = {
   version: "0.14.2",
-  cwd: "~/work",
-  greeting: "Good morning.",
-  conversations: [
+  shownAt: 1,
+  agents: [
+    { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "now" },
+    { id: "luna", name: "luna", model: "gpt-5.6-luna", persona: "default", lastUsed: "2h ago" },
+    { id: "terra", name: "coder-terra", model: "gpt-5.6-sol", persona: "coder" },
+  ],
+  agentCount: 31,
+  targetAgentId: "sol",
+  waiting: [
     {
       key: "1",
-      value: "open:a1:c1",
-      title: "Wedding planning",
-      agent: "Basil",
-      detail: "goal venue waiting for your answer",
-      age: "9m ago",
-      waiting: true,
-    },
-    {
-      key: "2",
-      value: "open:a2:c2",
-      title: "Weekly review",
-      agent: "Cass",
-      detail: "14 messages",
+      value: "open:luna:c1",
+      title: "Wedding venue",
+      agent: "luna",
+      reason: "question",
       age: "1d ago",
-      waiting: false,
+      detail: "Which venue should I confirm with Dana?",
     },
   ],
-  actions: [
-    { key: "enter", label: "new conversation with Basil", value: "new-conversation" },
+  keys: [
     { key: "n", label: "new agent", value: "create-agent" },
+    { key: "r", label: "resume", value: "resume-conversation" },
     { key: "q", label: "quit", value: "exit" },
-  ],
-  status: [
-    { text: "4 agents" },
-    { text: "no model provider has a key", tone: "warning", fixKey: "s" },
   ],
 };
 
-describe("home view model", () => {
-  it("leads with the count of waiting conversations", () => {
-    expect(homeLead(HOME)).toBe("1 conversation is waiting for you.");
-    expect(homeLead({ ...HOME, conversations: HOME.conversations.slice(1) })).toBe(
-      "Pick up where you left off, or start something new.",
+describe("targeting", () => {
+  it("starts on the chosen agent and falls back to the first offered", () => {
+    expect(targetAgent(HOME, "luna")?.name).toBe("luna");
+    expect(targetAgent(HOME, "gone")?.name).toBe("sol");
+  });
+
+  it("moves with the arrows and stops at either end", () => {
+    expect(stepTarget(HOME, "sol", 1)).toBe("luna");
+    expect(stepTarget(HOME, "sol", -1)).toBe("sol");
+    expect(stepTarget(HOME, "terra", 1)).toBe("terra");
+  });
+
+  it("offers the last-used agent first, then by recent use, then by name", () => {
+    const ordered = orderRecentAgents(
+      [
+        { id: "a", name: "zed", model: "m", persona: "default" },
+        { id: "b", name: "amy", model: "m", persona: "default" },
+        { id: "c", name: "old", model: "m", persona: "default", lastUsedMs: 10 },
+        { id: "d", name: "new", model: "m", persona: "default", lastUsedMs: 20 },
+        { id: "e", name: "pinned", model: "m", persona: "default", lastUsedMs: 1 },
+      ],
+      "e",
     );
-    expect(homeLead({ ...HOME, conversations: [] })).toBe("");
+    expect(ordered.map((agent) => agent.name)).toEqual(["pinned", "new", "old", "amy", "zed"]);
   });
 
-  it("tags a waiting conversation and leaves the others with their age", () => {
-    expect(conversationTag(HOME.conversations[0]!)).toBe("waiting · 9m ago");
-    expect(conversationTag(HOME.conversations[1]!)).toBe("1d ago");
-  });
-
-  it("puts enter and the number keys first in the legend", () => {
-    expect(homeLegend(HOME)).toEqual({
-      primary: [
-        { key: "enter", label: "new conversation with Basil" },
-        { key: "1–2", label: "open one" },
-      ],
-      rest: [
-        { key: "n", label: "new agent" },
-        { key: "q", label: "quit" },
-      ],
+  it("puts an agent picked from the full list first, keeping five", () => {
+    const agents = ["a", "b", "c", "d", "e", "f"].map((id, index) => ({
+      id,
+      name: id,
+      model: "m",
+      persona: "default",
+      lastUsedMs: 100 - index,
+    }));
+    const home = buildHome({
+      shownAt: 1,
+      agents,
+      lastUsedAgentId: "a",
+      lastUsedWords: new Map(),
+      targetAgentId: "f",
+      waiting: [],
+      providerCount: 1,
     });
-  });
-
-  it("reads first-run detections as one sentence, and the status with its fix key", () => {
-    expect(
-      detectionLines({
-        ...HOME,
-        firstRun: {
-          detected: [
-            { label: "OPENAI_API_KEY", detail: "in your environment" },
-            { label: "Ollama", detail: "running" },
-          ],
-        },
-      }).map((line) => line.lead),
-    ).toEqual(["Found", "and"]);
-    expect(statusText(HOME.status, " · ")).toBe(
-      "4 agents · no model provider has a key (s to fix)",
-    );
+    expect(home.agents.map((agent) => agent.id)).toEqual(["f", "a", "b", "c", "d"]);
+    expect(home.targetAgentId).toBe("f");
   });
 });
 
-describe("Ink home", () => {
-  it("lists conversations, then actions, each with the key the fullscreen legend uses", () => {
-    expect(inkHomeOptions(HOME).map((option) => option.value)).toEqual([
-      "open:a1:c1",
-      "open:a2:c2",
-      "new-conversation",
-      "create-agent",
-      "exit",
-    ]);
-    expect(inkHomeOptions(HOME)[0]?.label).toBe("1  Wedding planning · Basil · waiting · 9m ago");
+describe("keys", () => {
+  it("enter starts a conversation with the target and hands over what was typed", () => {
+    expect(homeIntent(HOME, "luna", "plan my week", { name: "return" })).toEqual({
+      kind: "answer",
+      value: "start:luna",
+      text: "plan my week",
+    });
+    expect(homeIntent(HOME, undefined, "", { name: "return" })).toEqual({
+      kind: "answer",
+      value: "start:sol",
+      text: "",
+    });
   });
 
-  it("reads the same content as the fullscreen screen", () => {
+  it("tab opens every agent and keeps the draft", () => {
+    expect(homeIntent(HOME, "sol", "hi", { name: "tab" })).toEqual({
+      kind: "answer",
+      value: "pick-agent",
+      text: "hi",
+    });
+  });
+
+  it("single keys act only while the composer is empty", () => {
+    expect(homeIntent(HOME, "sol", "", { name: "n", sequence: "n" })).toEqual({
+      kind: "answer",
+      value: "create-agent",
+    });
+    expect(homeIntent(HOME, "sol", "", { name: "1", sequence: "1" })).toEqual({
+      kind: "answer",
+      value: "open:luna:c1",
+    });
+    expect(homeIntent(HOME, "sol", "k", { name: "n", sequence: "n" })).toEqual({ kind: "type" });
+    expect(homeIntent(HOME, "sol", "", { name: "x", sequence: "x" })).toEqual({ kind: "type" });
+  });
+
+  it("esc empties the composer and never leaves home", () => {
+    expect(homeIntent(HOME, "sol", "draft", { name: "escape" })).toEqual({ kind: "clear" });
+    expect(homeIntent(HOME, "sol", "", { name: "escape" })).toEqual({ kind: "clear" });
+  });
+});
+
+describe("readableTitle", () => {
+  it("prefers a work name in words, and never shows an id", () => {
+    expect(readableTitle({ workName: "organize-downloads", agentName: "sol" })).toBe(
+      "Organize downloads",
+    );
+    expect(
+      readableTitle({ workName: "13c7d914", objective: "Tidy the inbox.", agentName: "sol" }),
+    ).toBe("Tidy the inbox");
+  });
+
+  it("names URLs, drops the slash command and the word a cut title broke", () => {
+    expect(
+      readableTitle({
+        conversationTitle: "/goal https://github.com/lvndry/jazz/pull/660 m…",
+        agentName: "sol",
+      }),
+    ).toBe("Pull request #660 in lvndry/jazz");
+    expect(
+      readableTitle({ conversationTitle: "check https://www.example.com/a", agentName: "x" }),
+    ).toBe("Check example.com");
+  });
+
+  it("falls back to the agent rather than 'untitled conversation'", () => {
+    expect(readableTitle({ conversationTitle: "untitled conversation", agentName: "luna" })).toBe(
+      "A conversation with luna",
+    );
+  });
+
+  it("keeps a long title to one line, ending on a word", () => {
+    const title = readableTitle({
+      objective:
+        "Make PR 660 production-ready for a one-way, irreversible migration of every stored record",
+      agentName: "sol",
+    });
+    expect(title.length).toBeLessThanOrEqual(48);
+    expect(title.endsWith("…")).toBe(true);
+    expect(title).not.toMatch(/[,\s]…$/);
+  });
+});
+
+describe("waiting", () => {
+  it("numbers the entries and words what each needs", () => {
+    const [entry] = waitingEntries([
+      {
+        agentId: "luna",
+        agentName: "luna",
+        conversationId: "c1",
+        workName: "wedding-venue",
+        reason: "question",
+        age: "1d ago",
+        detail: "Which  venue\\nshould I confirm?",
+      },
+    ]);
+    expect(entry).toMatchObject({ key: "1", value: "open:luna:c1", title: "Wedding venue" });
+    expect(waitingTag("question", "1d ago")).toBe("asked 1d ago");
+    expect(waitingTag("review", "1d ago")).toBe("needs review · 1d");
+  });
+});
+
+describe("Ink reading", () => {
+  it("reads home as complete sentences", () => {
+    const sentences = homeSentences(HOME, "sol");
+    expect(sentences.start).toBe("New conversation with sol (gpt-5.6-sol)");
+    expect(sentences.agents[1]?.text).toBe("luna, gpt-5.6-luna, everyday, used 2h ago");
+    expect(sentences.agents[2]?.text).toBe("coder-terra, gpt-5.6-sol, coder, not used yet");
+    expect(sentences.waiting[0]).toBe("1  Wedding venue, luna, asked you 1d ago");
+  });
+
+  it("renders the same content on the Ink path", () => {
     const text = renderToString(
       <InkHome
         model={HOME}
-        onSelect={() => undefined}
-        onExit={() => undefined}
+        onAnswer={() => undefined}
       />,
       { columns: 100 },
     );
-    expect(text).toContain("Good morning. 1 conversation is waiting for you.");
-    expect(text).toContain("Wedding planning · Basil · waiting · 9m ago");
-    expect(text).toContain("new conversation with Basil");
-    expect(text).toContain("no model provider has a key (s to fix)");
+    expect(text).toContain("› New conversation with sol (gpt-5.6-sol)");
+    expect(text).toContain("Or type your first message:");
+    expect(text).toContain("Your agents, 31");
+    expect(text).toContain("Waiting for you, 1");
+    expect(text).toContain("n new agent · r resume · q quit");
   });
 });

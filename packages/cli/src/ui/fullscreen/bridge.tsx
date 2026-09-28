@@ -94,6 +94,7 @@ import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screen
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { MenuScreen } from "./screens/Menu";
+import { homeIntent } from "../models/home-view";
 import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
@@ -1191,6 +1192,10 @@ export function FullscreenBridge(): React.ReactNode {
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
   const [menuFilter, menuFilterRef, setMenuFilter] = useSynchronizedState({ value: "", caret: 0 });
+  /** The agent home's button and composer go to; ↑↓ and the agent picker move it. */
+  const [homeAgentId, homeAgentIdRef, setHomeAgentId] = useSynchronizedState<string | undefined>(
+    undefined,
+  );
   const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
     null,
   );
@@ -1271,12 +1276,27 @@ export function FullscreenBridge(): React.ReactNode {
     setApprovalExpanded(false);
   }, [approval, setApprovalArmedState]);
 
+  // Home is refreshed in place once its history loads; only a new showing of it (a new
+  // `shownAt`) resets the chosen agent and the composer, so a refresh never eats typing.
+  const menuIdentity: unknown = menu?.kind === "home" ? `home:${String(menu.shownAt)}` : menu;
   useEffect(() => {
-    setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
-    setMenuFilter({ value: "", caret: 0 });
+    const opened = menuRef.current;
+    setMenuIndex(opened?.kind === "agents" ? (opened.initialIndex ?? 0) : 0);
+    const draft = opened?.kind === "home" ? (opened.draft ?? "") : "";
+    setMenuFilter({ value: draft, caret: [...draft].length });
+    setHomeAgentId(
+      opened?.kind === "home" ? (opened.targetAgentId ?? opened.agents[0]?.id) : undefined,
+    );
     setSkillDetail(null);
     setSkillDetailOffset(0);
-  }, [menu, setMenuIndex, setMenuFilter, setSkillDetail, setSkillDetailOffset]);
+  }, [
+    menuIdentity,
+    setMenuIndex,
+    setMenuFilter,
+    setHomeAgentId,
+    setSkillDetail,
+    setSkillDetailOffset,
+  ]);
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
@@ -1555,6 +1575,12 @@ export function FullscreenBridge(): React.ReactNode {
         const flat = flattenPaste(pasted);
         setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         setMenuIndex(0);
+        return true;
+      }
+      if (menuRef.current?.kind === "home" && menuRef.current.firstRun === undefined) {
+        // A pasted first message stays one line, since enter sends it.
+        const flat = flattenPaste(pasted);
+        setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         return true;
       }
       if (menuRef.current !== null || approvalRef.current !== null) return true;
@@ -1869,12 +1895,44 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (openMenu.kind === "home") {
-          const pressed = name === "return" || name === "enter" ? "enter" : (sequence ?? "");
-          const target =
-            openMenu.actions.find((action) => action.key === pressed) ??
-            openMenu.conversations.find((conversation) => conversation.key === pressed);
-          if (target !== undefined && !ctrl && !meta) {
-            store.completePrompt({ kind: "select", value: target.value });
+          const draft = menuFilterRef.current;
+          const intent = homeIntent(
+            { ...openMenu, version: packageJson.version },
+            homeAgentIdRef.current,
+            draft.value,
+            { name, sequence, ctrl, meta },
+          );
+          switch (intent.kind) {
+            case "move":
+              setHomeAgentId(intent.agentId);
+              break;
+            case "answer":
+              store.completePrompt({
+                kind: "select",
+                value: intent.value,
+                ...(intent.text === undefined ? {} : { text: intent.text }),
+              });
+              break;
+            case "clear":
+              setMenuFilter({ value: "", caret: 0 });
+              break;
+            case "type": {
+              if (openMenu.firstRun !== undefined) {
+                break;
+              }
+              const next = applyTextFieldKey(draft, {
+                name,
+                sequence,
+                ctrl,
+                meta,
+                option,
+                super: superKey,
+              });
+              if (next !== null) {
+                setMenuFilter(next);
+              }
+              break;
+            }
           }
           return true;
         }
@@ -2865,16 +2923,10 @@ export function FullscreenBridge(): React.ReactNode {
       />
     ) : menu?.kind === "home" ? (
       <Home
-        model={{
-          version: packageJson.version,
-          cwd: compactWorkingDirectory(workingDirectory),
-          greeting: menu.greeting,
-          conversations: menu.conversations,
-          actions: menu.actions,
-          status: menu.status,
-          ...(menu.firstRun === undefined ? {} : { firstRun: menu.firstRun }),
-        }}
+        model={{ ...menu, version: packageJson.version }}
         viewport={viewport}
+        selectedId={homeAgentId}
+        draft={menuFilter}
       />
     ) : menu?.kind === "menu" ? (
       <MenuScreen

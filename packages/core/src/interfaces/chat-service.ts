@@ -52,6 +52,8 @@ export interface ChatService {
     options?: {
       stream?: boolean;
       initialHistory?: ChatMessage[];
+      /** Sent as the session's first turn, as if typed at the first prompt. */
+      initialMessage?: string;
       maxIterations?: number;
       /**
        * Skip persistence for this session entirely: no conversation history
