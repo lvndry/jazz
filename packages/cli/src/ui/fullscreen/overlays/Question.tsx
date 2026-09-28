@@ -26,6 +26,7 @@
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { stepperSegments, type QuestionStep } from "./stepper";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
@@ -68,12 +69,18 @@ const FILTER_PLACEHOLDER = "Type to filter";
 
 export type QuestionMode = "select" | "checkbox";
 
+/** How a choice's tag reads: its readiness, a consequence, or plain information. */
+export type QuestionTagTone = "success" | "warning" | "accent" | "muted";
+
 export interface QuestionChoice {
   readonly label: string;
   /** Stable identity, used for the checked set and for the resolved answer. */
   readonly value: string;
   readonly description?: string;
   readonly disabled?: boolean;
+  /** A short state flush right on the row: "key saved", "asks first". */
+  readonly tag?: string;
+  readonly tagTone?: QuestionTagTone;
 }
 
 export interface QuestionModel {
@@ -97,6 +104,21 @@ export interface QuestionModel {
   readonly filterCaret?: number;
   /** When set, typing filters the list and an empty match is not a custom row. */
   readonly filterable?: boolean;
+  /** Shown as a stepper row above the question. */
+  readonly step?: QuestionStep;
+}
+
+function tagColor(tone: QuestionTagTone | undefined): string {
+  switch (tone) {
+    case "success":
+      return THEME.success;
+    case "warning":
+      return THEME.warning;
+    case "accent":
+      return THEME.primary;
+    default:
+      return THEME.muted;
+  }
 }
 
 function displayWidth(text: string): number {
@@ -240,7 +262,16 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
   // Labels keep the majority of the row: the label is the answer, the
   // description is only the reason for it.
   const markColumn = GUTTER + NUMBER_COLUMN + (checkbox ? CHECKBOX_COLUMN : 0);
-  const bodyWidth = Math.max(4, inner - markColumn);
+  // Tags take a column of their own on the right, as wide as the widest tag, so they line up.
+  const widestTag = model.choices.reduce(
+    (widest, choice) => Math.max(widest, displayWidth(choice.tag ?? "")),
+    0,
+  );
+  const tagColumn = widestTag > 0 ? Math.min(widestTag, Math.floor(inner / 3)) : 0;
+  const bodyWidth = Math.max(
+    4,
+    inner - markColumn - (tagColumn > 0 ? tagColumn + DESCRIPTION_GAP : 0),
+  );
   const described = model.choices.some((choice) => (choice.description ?? "").length > 0);
   const longestLabel = model.choices.reduce(
     (widest, choice) => Math.max(widest, displayWidth(oneLine(choice.label))),
@@ -260,7 +291,9 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
   const heights = layouts.map((layout) => layout.rows);
 
   const filterRows = filterable ? 1 : 0;
-  const fixedRows = FIXED_CARD_ROWS + message.length + filterRows;
+  // The stepper row and the blank that separates it from the question.
+  const stepRows = model.step === undefined ? 0 : 2;
+  const fixedRows = FIXED_CARD_ROWS + message.length + filterRows + stepRows;
   const pageStart = pickerWindowStart(selected, items.length, PICKER_WINDOW_SIZE);
   const pageCount = Math.min(PICKER_WINDOW_SIZE, items.length);
   const pageHeights = heights.slice(pageStart, pageStart + pageCount);
@@ -308,6 +341,7 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
     selected,
     labelWidth,
     descriptionWidth,
+    tagColumn,
     items,
     layouts,
     heights,
@@ -335,6 +369,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     selected,
     labelWidth,
     descriptionWidth,
+    tagColumn,
     items,
     layouts,
     heights,
@@ -347,6 +382,10 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     left,
     top,
   } = questionLayout(model, viewport);
+  const stepper =
+    model.step === undefined
+      ? null
+      : stepperSegments(model.step, Math.max(4, inner - GUTTER), glyphs.success);
 
   const hints: readonly Hint[] = checkbox
     ? [
@@ -398,6 +437,33 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           paddingBottom: 1,
         }}
       >
+        {stepper === null ? null : (
+          <>
+            <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+              <text style={{ width: GUTTER, flexShrink: 0 }}>{" ".repeat(GUTTER)}</text>
+              <text style={{ wrapMode: "none", truncate: true }}>
+                {stepper.map((part, index) =>
+                  part.bold === true ? (
+                    <b
+                      key={`step-${String(index)}`}
+                      style={{ fg: part.fg }}
+                    >
+                      {part.text}
+                    </b>
+                  ) : (
+                    <span
+                      key={`step-${String(index)}`}
+                      style={{ fg: part.fg }}
+                    >
+                      {part.text}
+                    </span>
+                  ),
+                )}
+              </text>
+            </box>
+            <box style={{ height: 1, flexShrink: 0 }} />
+          </>
+        )}
         {message.map((line, index) => (
           <box
             key={`message-${String(index)}`}
@@ -525,8 +591,27 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                           )}
                         </text>
                         {descriptionWidth > 0 ? (
-                          <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                          <text
+                            style={{
+                              fg: THEME.muted,
+                              width: descriptionWidth + DESCRIPTION_GAP,
+                              flexShrink: 0,
+                            }}
+                          >
                             {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
+                          </text>
+                        ) : null}
+                        {tagColumn > 0 ? (
+                          <text
+                            style={{
+                              fg: tagColor(choice.tagTone),
+                              width: tagColumn + DESCRIPTION_GAP,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {row === 0 && (choice.tag ?? "").length > 0
+                              ? `${" ".repeat(DESCRIPTION_GAP + Math.max(0, tagColumn - displayWidth(clip(choice.tag ?? "", tagColumn))))}${clip(choice.tag ?? "", tagColumn)}`
+                              : ""}
                           </text>
                         ) : null}
                       </box>

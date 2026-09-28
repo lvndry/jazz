@@ -5,6 +5,8 @@
 
 import {
   TerminalServiceTag,
+  type PromptChoice,
+  type PromptStep,
   type TerminalOutput,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
@@ -96,8 +98,7 @@ function closePromptCancelled(message: string): void {
   });
 }
 
-type PromptChoiceInput<T> =
-  string | { name: string; value: T; description?: string; disabled?: boolean };
+type PromptChoiceInput<T> = string | PromptChoice<T>;
 
 function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T>[] {
   return choices.map((choice) =>
@@ -108,6 +109,8 @@ function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T
           value: choice.value,
           ...(choice.description === undefined ? {} : { description: choice.description }),
           ...(choice.disabled === true ? { disabled: true } : {}),
+          ...(choice.tag === undefined ? {} : { tag: choice.tag }),
+          ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
         },
   );
 }
@@ -291,6 +294,7 @@ export class InkTerminalService implements TerminalService {
       keys?: readonly string[];
       placeholder?: string;
       secret?: boolean;
+      step?: PromptStep;
     },
   ): Effect.Effect<string | undefined, never> {
     return Effect.async<string | undefined>((resume) => {
@@ -312,6 +316,7 @@ export class InkTerminalService implements TerminalService {
           commandSuggestions?: boolean;
           placeholder?: string;
           secret?: boolean;
+          step?: PromptStep;
         };
         resolve: (val: unknown) => void;
         reject?: () => void;
@@ -329,6 +334,7 @@ export class InkTerminalService implements TerminalService {
                 ...(placeholder ? { placeholder } : {}),
                 ...(isSecret ? { secret: true } : {}),
                 ...(options.keys ? { keys: options.keys } : {}),
+                ...(options.step === undefined ? {} : { step: options.step }),
               },
             }
           : {}),
@@ -414,6 +420,7 @@ export class InkTerminalService implements TerminalService {
       choices: readonly PromptChoiceInput<T>[];
       default?: T;
       customAnswer?: (text: string) => T;
+      step?: PromptStep;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T | undefined>((resume) => {
@@ -425,6 +432,7 @@ export class InkTerminalService implements TerminalService {
         options: {
           choices,
           ...(options.default === undefined ? {} : { defaultSelected: options.default }),
+          ...(options.step === undefined ? {} : { step: options.step }),
           ...(customAnswer === undefined
             ? {}
             : {
@@ -473,6 +481,7 @@ export class InkTerminalService implements TerminalService {
     options: {
       choices: readonly PromptChoiceInput<T>[];
       placeholder?: string;
+      step?: PromptStep;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T | undefined>((resume) => {
@@ -480,7 +489,11 @@ export class InkTerminalService implements TerminalService {
       store.setPrompt({
         type: "search",
         message,
-        options: { choices, placeholder: options.placeholder },
+        options: {
+          choices,
+          placeholder: options.placeholder,
+          ...(options.step === undefined ? {} : { step: options.step }),
+        },
         resolve: (val: unknown) => {
           const choice = choices.find((c) => c.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
@@ -499,6 +512,7 @@ export class InkTerminalService implements TerminalService {
     options: {
       choices: readonly PromptChoiceInput<T>[];
       default?: readonly T[];
+      step?: PromptStep;
     },
   ): Effect.Effect<readonly T[] | undefined, never> {
     return Effect.async<readonly T[] | undefined>((resume) => {
@@ -506,7 +520,11 @@ export class InkTerminalService implements TerminalService {
       store.setPrompt({
         type: "checkbox",
         message,
-        options: { choices, defaultSelected: options.default },
+        options: {
+          choices,
+          defaultSelected: options.default,
+          ...(options.step === undefined ? {} : { step: options.step }),
+        },
         resolve: (val: unknown) => {
           const selectedValues = val as readonly T[];
           const selectedLabels = selectedValues

@@ -18,9 +18,10 @@ import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import type { Agent } from "@jazz/core/types/index";
+import type { Agent, AppConfig } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
@@ -32,24 +33,22 @@ import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
+import { environmentKeyDetections, ollamaOrigin, probeOllamaModels } from "./home-detection";
+import {
+  buildHome,
+  homeActions,
+  homeConversations,
+  homeStatus,
+  parseOpenConversationValue,
+  type HomeConversationSource,
+} from "./home-surface";
 import { sessionOpenLine } from "./session-open";
-import { homeEnvironmentFacts, homeRequirements } from "../ui/fullscreen/home-readiness";
-import { store, type ActiveAgentChoice } from "../ui/store";
-import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
+import { configuredProviderNames } from "../ui/fullscreen/home-readiness";
+import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**
  * Wizard menu option identifiers
  */
-type MenuAction =
-  | "resume-conversation"
-  | "new-conversation"
-  | "create-agent"
-  | "edit-agent"
-  | "list-agents"
-  | "config"
-  | "delete-agent"
-  | "exit";
-
 /**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
  */
@@ -76,71 +75,25 @@ function wizardSession() {
     let shouldExit = false;
 
     while (!shouldExit) {
-      // Get all agents for the menu
       const agents = yield* agentService.listAgents();
 
-      // Get last used agent ID from runtime state (used to pre-select agents in pickers)
+      // Last used agent, from runtime state: it is the agent enter starts a conversation with.
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
+      const defaultAgent = sortAgents(agents, lastUsedAgentId)[0];
+      const appConfig = yield* configService.appConfig;
+      const providerCount = configuredProviderNames(appConfig).length;
 
-      // Check if any agent has saved conversation history
-      let hasConversationHistory = false;
-      for (const agent of agents) {
-        const history = yield* loadHistory(agent.id).pipe(
-          Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
-        );
-        if (history.conversations.length > 0) {
-          hasConversationHistory = true;
-          break;
-        }
-      }
-
-      // Build menu options dynamically
-      const menuOptions: WizardMenuOption[] = [];
-
-      if (agents.length > 0) {
-        menuOptions.push({
-          label: "New conversation",
-          value: "new-conversation",
-        });
-      }
-
-      if (hasConversationHistory) {
-        const waiting = yield* waitingConversations();
-        menuOptions.push({
-          label:
-            waiting.size === 0
-              ? "Resume conversation"
-              : `Resume conversation (${String(waiting.size)} waiting for you)`,
-          value: "resume-conversation",
-        });
-      }
-
-      menuOptions.push({ label: "Create agent", value: "create-agent" });
-
-      if (agents.length > 0) {
-        menuOptions.push(
-          { label: "List agents", value: "list-agents" },
-          { label: "Edit agent", value: "edit-agent" },
-          { label: "Delete agent", value: "delete-agent" },
-          { label: "Update configuration", value: "config" },
-        );
-      } else {
-        // Even if no agents, allow configuration
-        menuOptions.push({ label: "Update configuration", value: "config" });
-      }
-
-      menuOptions.push({ label: "Exit", value: "exit" });
-
-      const requirements = homeRequirements({
-        agentCount: agents.length,
+      const selection = yield* showHome({
+        agents,
+        defaultAgent,
+        providerCount,
+        firstRunDetections:
+          agents.length === 0 ? firstRunDetections(appConfig) : Effect.succeed(undefined),
       });
-      const environment = homeEnvironmentFacts();
-
-      const selection = yield* showWizardMenu(menuOptions, requirements, environment);
 
       // Handle the selected action
       switch (selection) {
@@ -151,10 +104,20 @@ function wizardSession() {
         }
 
         case "new-conversation": {
-          const selectedAgent =
-            agents.length === 1
-              ? agents[0]
-              : yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "start");
+          if (defaultAgent !== undefined) {
+            yield* startChatWithAgent(defaultAgent);
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "pick-agent": {
+          const selectedAgent = yield* selectAgent(
+            agents,
+            lastUsedAgentId,
+            "pick an agent",
+            "start",
+          );
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent);
             yield* terminal.clear();
@@ -162,12 +125,15 @@ function wizardSession() {
           break;
         }
 
-        case "create-agent": {
+        case "create-agent":
+        case "create-agent:ollama": {
           // Track agent count before creation to detect if agent was actually created
           const agentCountBefore = agents.length;
 
           // Run create agent flow and start chat with newly created agent
-          const creationResult = yield* createAgentCommand().pipe(Effect.either);
+          const creationResult = yield* createAgentCommand(
+            selection === "create-agent:ollama" ? { initialProvider: "ollama" } : {},
+          ).pipe(Effect.either);
 
           if (creationResult._tag === "Left") {
             // Creation failed
@@ -313,9 +279,23 @@ function wizardSession() {
         }
 
         case "exit":
-        default:
           shouldExit = true;
           break;
+
+        default: {
+          const opened = parseOpenConversationValue(selection);
+          const agent =
+            opened === null
+              ? undefined
+              : agents.find((candidate) => candidate.id === opened.agentId);
+          if (opened === null || agent === undefined) {
+            shouldExit = true;
+            break;
+          }
+          yield* openConversation(agent, opened.conversationId);
+          yield* terminal.clear();
+          break;
+        }
       }
     }
 
@@ -324,28 +304,131 @@ function wizardSession() {
   }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
+/** Everything the home loop needs to know about the agents before it shows the screen. */
+interface HomeContext {
+  readonly agents: readonly Agent[];
+  readonly defaultAgent: Agent | undefined;
+  readonly providerCount: number;
+  /** Only computed on first run, where a key in the environment or a local Ollama is a fast path. */
+  readonly firstRunDetections: Effect.Effect<FirstRunDetections | undefined, never, never>;
+}
+
+interface FirstRunDetections {
+  readonly detected: readonly ActiveHomeDetection[];
+  readonly ollamaModels: number | undefined;
+}
+
+/** A key exported in the environment, and a local Ollama if one answers quickly. */
+function firstRunDetections(
+  appConfig: AppConfig,
+): Effect.Effect<FirstRunDetections | undefined, never, never> {
+  return Effect.promise(async () => {
+    const ollamaConfig: unknown = (appConfig.llm as Record<string, unknown> | undefined)?.[
+      "ollama"
+    ];
+    const baseUrl =
+      isRecord(ollamaConfig) && typeof ollamaConfig["base_url"] === "string"
+        ? ollamaConfig["base_url"]
+        : undefined;
+    const ollamaModels = await probeOllamaModels(ollamaOrigin(baseUrl));
+    const detected: ActiveHomeDetection[] = environmentKeyDetections();
+    if (ollamaModels !== undefined && ollamaModels > 0) {
+      detected.push({
+        label: "Ollama",
+        detail: `running on this machine with ${String(ollamaModels)} ${ollamaModels === 1 ? "model" : "models"}`,
+      });
+    }
+    return { detected, ollamaModels };
+  });
+}
+
+/** Saved conversations across every agent, as the home screen lists them. */
+function conversationSources(agents: readonly Agent[]) {
+  return Effect.gen(function* () {
+    const sources: HomeConversationSource[] = [];
+    for (const agent of agents) {
+      const history = yield* loadHistory(agent.id).pipe(
+        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      );
+      for (const conversation of history.conversations) {
+        sources.push({
+          agentId: agent.id,
+          agentName: agent.name,
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          startedAt: conversation.startedAt,
+          endedAt: conversation.endedAt,
+          messageCount: conversation.messageCount,
+        });
+      }
+    }
+    return sources;
+  });
+}
+
 /**
- * Show the wizard menu and return the selected action
+ * Show home and return what was picked.
+ *
+ * The screen goes up as soon as the agent list is known, then fills in the conversations once
+ * the history has loaded. Every action is addressed by key, and each key the first frame shows
+ * is still there in the second, so a key pressed while the history loads does what the screen
+ * said it would.
  */
-function showWizardMenu(
-  options: WizardMenuOption[],
-  requirements: ReturnType<typeof homeRequirements>,
-  environment: ReturnType<typeof homeEnvironmentFacts>,
-): Effect.Effect<MenuAction, never, never> {
-  return Effect.async<MenuAction>((resume) => {
-    const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
+function showHome(context: HomeContext) {
+  return Effect.gen(function* () {
+    const now = new Date();
+    const firstRun = context.agents.length === 0;
+    const status = homeStatus({
+      agentCount: context.agents.length,
+      providerCount: context.providerCount,
+    });
+    const actionsFor = (hasHistory: boolean, ollamaModels?: number) =>
+      homeActions({
+        agentCount: context.agents.length,
+        defaultAgentName: context.defaultAgent?.name,
+        hasHistory,
+        ...(ollamaModels === undefined ? {} : { ollamaModels }),
+      });
+
+    let answer: ((value: string) => void) | undefined;
+    const answered = new Promise<string>((resolve) => {
+      answer = resolve;
+    });
+    // Before the history loads, resume is offered whenever there are agents, so the key stays
+    // put when the conversations arrive; resuming with nothing saved says so plainly.
     store.setActiveMenu(
-      {
-        kind: "menu",
-        options,
-        requirements,
-        environment,
-        tip,
-      },
-      (result) => {
-        resume(Effect.succeed(result.kind === "exit" ? "exit" : (result.value as MenuAction)));
-      },
+      buildHome({ now, conversations: [], actions: actionsFor(!firstRun), status, firstRun }),
+      (result) => answer?.(result.kind === "exit" ? "exit" : result.value),
     );
+
+    if (firstRun) {
+      const detections = yield* context.firstRunDetections;
+      store.refreshActiveMenu(
+        buildHome({
+          now,
+          conversations: [],
+          actions: actionsFor(false, detections?.ollamaModels),
+          status,
+          ...(detections === undefined ? {} : { detected: detections.detected }),
+          firstRun,
+        }),
+      );
+    } else {
+      const sources = yield* conversationSources(context.agents);
+      const waiting =
+        sources.length === 0 ? new Map<string, string>() : yield* waitingConversations();
+      store.refreshActiveMenu(
+        buildHome({
+          now,
+          conversations: homeConversations(sources, waiting, now.getTime()),
+          actions: actionsFor(true),
+          status,
+          firstRun,
+        }),
+      );
+    }
+
+    return yield* Effect.promise(() => answered);
   });
 }
 
@@ -583,11 +666,18 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     const selected = entries[Number(selectedIdx)];
     if (!selected) return;
 
-    // Read on demand: the picker above needs titles and dates, not transcripts, so the
-    // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
+    yield* openConversation(selected.agent, selected.conversationId);
+  });
+}
 
-    yield* startChatWithAgent(selected.agent, {
+/**
+ * Continue one saved conversation. Its messages are read here, on demand: pickers need titles
+ * and dates, not transcripts, so the chosen conversation is the only one ever loaded.
+ */
+function openConversation(agent: Agent, conversationId: string) {
+  return Effect.gen(function* () {
+    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    yield* startChatWithAgent(agent, {
       initialHistory: conversation?.messages ?? [],
       ...(conversation?.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }

@@ -766,43 +766,101 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
-  it("draws live home readiness rows instead of an empty setup list", async () => {
+  it("draws the home surface the wizard publishes", async () => {
     const text = await frame(() => {
       store.setActiveMenu({
-        kind: "menu",
-        requirements: [
+        kind: "home",
+        greeting: "Good morning.",
+        conversations: [
           {
-            label: "agents",
-            ready: false,
-            detail: "none yet",
-            remedy: "create your first one below",
+            key: "1",
+            value: "open:a1:c1",
+            title: "Wedding planning",
+            agent: "Basil",
+            detail: "goal venue waiting for your answer",
+            age: "9m ago",
+            waiting: true,
           },
         ],
-        options: [{ label: "Create agent", value: "create-agent" }],
+        actions: [
+          { key: "enter", label: "new conversation with Basil", value: "new-conversation" },
+          { key: "q", label: "quit", value: "exit" },
+        ],
+        status: [{ text: "4 agents" }],
       });
     });
-    expect(text).toContain("agents");
-    expect(text).toContain("create your first one below");
-    expect(text).toContain("Press enter on");
+    expect(text).toContain("Wedding planning");
+    expect(text).toContain("enter new conversation with Basil");
+    expect(text).toContain("4 agents");
     store.setActiveMenu(null);
   });
 
-  it("draws the environment report the wizard publishes", async () => {
-    const text = await frame(() => {
-      store.setActiveMenu({
-        kind: "menu",
-        options: [{ label: "Exit", value: "exit" }],
-        environment: [
-          { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
-          { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
-          { label: "cwd", detail: "/Users/lvndry/github/jazz" },
-          { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
+  it("routes home keys by key, so a refresh that adds conversations cannot move enter", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    const answers: string[] = [];
+    const actions = [
+      { key: "enter", label: "new conversation", value: "new-conversation" },
+      { key: "r", label: "resume", value: "resume-conversation" },
+    ];
+    updateForTest(() => {
+      store.setActiveMenu(
+        { kind: "home", greeting: "", conversations: [], actions, status: [] },
+        (result) => answers.push(result.kind === "select" ? result.value : "exit"),
+      );
+      // The history lands after the screen went up and puts conversations ahead of the actions.
+      store.refreshActiveMenu({
+        kind: "home",
+        greeting: "",
+        conversations: [
+          {
+            key: "1",
+            value: "open:a1:c1",
+            title: "Wedding planning",
+            agent: "Basil",
+            detail: "14 messages",
+            age: "1d ago",
+            waiting: false,
+          },
         ],
+        actions,
+        status: [],
       });
     });
-    expect(text).toContain("darwin 24.6.0 (arm64)");
-    expect(text).not.toContain("/bin/zsh");
+    await flush();
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    expect(answers).toEqual(["new-conversation"]);
+
+    updateForTest(() => {
+      store.setActiveMenu(
+        { kind: "home", greeting: "", conversations: [], actions, status: [] },
+        (result) => answers.push(result.kind === "select" ? result.value : "exit"),
+      );
+    });
+    await flush();
+    await mockInput.pressKey("x");
+    await settleKeypress(flush);
+    expect(answers).toEqual(["new-conversation"]);
+    await mockInput.pressKey("r");
+    await settleKeypress(flush);
+    expect(answers).toEqual(["new-conversation", "resume-conversation"]);
+    renderer.destroy();
+  });
+
+  it("drops a refresh for a menu that was already answered", () => {
     store.setActiveMenu(null);
+    store.refreshActiveMenu({
+      kind: "home",
+      greeting: "",
+      conversations: [],
+      actions: [],
+      status: [],
+    });
+    expect(store.getActiveMenuSnapshot()).toBeNull();
   });
 
   it("draws the agent picker with the title that says why the list is open", async () => {

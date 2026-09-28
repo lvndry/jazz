@@ -179,8 +179,19 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
           label: `${agent.name} (${agent.model})`,
           value: agent.id,
         }))
-      : menu.options;
-  const title = menu.title;
+      : menu.kind === "home"
+        ? [
+            ...menu.conversations.map((conversation) => ({
+              label: `${conversation.waiting ? "Waiting: " : "Continue: "}${conversation.title} (${conversation.agent})`,
+              value: conversation.value,
+            })),
+            ...menu.actions.map((action) => ({
+              label: action.label.charAt(0).toUpperCase() + action.label.slice(1),
+              value: action.value,
+            })),
+          ]
+        : menu.options;
+  const title = menu.kind === "home" ? undefined : menu.title;
 
   return (
     <WizardHome

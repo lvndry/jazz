@@ -42,6 +42,25 @@ export function ink(node: unknown): TerminalInkNode {
   return { _tag: "ink", node };
 }
 
+/** Where a prompt sits in a multi-step flow: every step's label, and which one this is. */
+export interface PromptStep {
+  readonly labels: readonly string[];
+  readonly index: number;
+}
+
+/** How a choice's tag reads: its readiness, a consequence, or plain information. */
+export type PromptTagTone = "success" | "warning" | "accent" | "muted";
+
+/** A choice in a list prompt. `tag` is a short state shown flush right, such as "key saved". */
+export interface PromptChoice<T> {
+  readonly name: string;
+  readonly value: T;
+  readonly description?: string;
+  readonly disabled?: boolean;
+  readonly tag?: string;
+  readonly tagTone?: PromptTagTone;
+}
+
 /**
  * Terminal service interface for consistent CLI output and user interaction
  *
@@ -138,6 +157,8 @@ export interface TerminalService {
       placeholder?: string;
       /** When true, mask the live input and the echoed value (e.g. for API keys). Secret prompts are always Esc-cancellable. */
       secret?: boolean;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<string | undefined, never>;
 
@@ -162,11 +183,11 @@ export interface TerminalService {
   readonly select: <T = string>(
     message: string,
     options: {
-      choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
-      )[];
+      choices: readonly (string | PromptChoice<T>)[];
       default?: T;
       customAnswer?: (text: string) => T;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<T | undefined, never>;
 
@@ -186,9 +207,11 @@ export interface TerminalService {
   readonly search: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | PromptChoice<T>)[];
       /** Optional placeholder text to show when search query is empty. */
       placeholder?: string;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<T | undefined, never>;
 
@@ -199,8 +222,10 @@ export interface TerminalService {
   readonly checkbox: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | PromptChoice<T>)[];
       default?: readonly T[];
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<readonly T[] | undefined, never>;
 

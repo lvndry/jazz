@@ -117,7 +117,12 @@ interface AIAgentCreationAnswers {
 /**
  * Interactive AI agent creation command
  */
-export function createAgentCommand(): Effect.Effect<
+export function createAgentCommand(
+  options: {
+    /** Skip the provider step and start from this provider, as home's Ollama fast path does. */
+    readonly initialProvider?: ProviderName;
+  } = {},
+): Effect.Effect<
   void,
   | StorageError
   | AgentAlreadyExistsError
@@ -176,6 +181,7 @@ export function createAgentCommand(): Effect.Effect<
           categoryIdToDisplayName,
           terminal,
           new Set(mcpServerData.displayNameToServerName.keys()),
+          options.initialProvider,
         ),
       catch: (error) =>
         new ValidationError({
@@ -487,10 +493,12 @@ export async function promptForAgentInfo(
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
   mcpCategoryDisplayNames: ReadonlySet<string>,
+  initialProvider?: ProviderName,
 ): Promise<AIAgentCreationAnswers | null> {
-  // Initialize state machine
   const state: WizardState = { step: "provider" };
   state.allProviders = await Effect.runPromise(llmService.listProviders());
+  // A provider chosen before the wizard opened (home's Ollama fast path) is picked on step one.
+  let pendingProvider = initialProvider;
 
   // Show navigation hint
   await Effect.runPromise(
@@ -505,22 +513,25 @@ export async function promptForAgentInfo(
       // STEP 1: Provider Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "provider": {
-        const result = await Effect.runPromise(
-          terminal.search<ProviderName>("Which LLM provider would you like to use?", {
-            choices: sortProvidersForPicker(
-              state.allProviders,
-              (provider) => provider.name,
-              (provider) => provider.displayName,
-            ).map((provider) => ({
-              name: provider.displayName ?? provider.name,
-              value: provider.name,
-            })),
-            placeholder: "Search providers...",
-          }),
-        );
+        const preselected = pendingProvider;
+        pendingProvider = undefined;
+        const result =
+          preselected ??
+          (await Effect.runPromise(
+            terminal.search<ProviderName>("Which LLM provider would you like to use?", {
+              choices: sortProvidersForPicker(
+                state.allProviders,
+                (provider) => provider.name,
+                (provider) => provider.displayName,
+              ).map((provider) => ({
+                name: provider.displayName ?? provider.name,
+                value: provider.name,
+              })),
+              placeholder: "Search providers...",
+            }),
+          ));
 
         if (result === undefined) {
-          // ESC pressed on first step - return null to indicate cancellation
           return null;
         }
 

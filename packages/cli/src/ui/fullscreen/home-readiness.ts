@@ -1,17 +1,8 @@
-/**
- * Derives the fullscreen Home screen's "readiness" facts and requirements
- * (configured LLM providers, agent count) from config and env.
- */
+/** Which model providers have a credential, from config, a ChatGPT sign-in, or the environment. */
 
 import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/index";
 import { isChatGPTSignedIn } from "@jazz/core/utils/provider-model";
-import { systemInfo } from "@jazz/core/utils/system-info";
-import type { HomeFact, HomeRequirement } from "./screens/Home";
-
-export interface HomeReadinessInput {
-  readonly agentCount: number;
-}
 
 export function configuredProviderNames(config: AppConfig): string[] {
   const names: string[] = [];
@@ -33,33 +24,4 @@ export function configuredProviderNames(config: AppConfig): string[] {
     }
   }
   return names;
-}
-
-export function homeRequirements(input: HomeReadinessInput): readonly HomeRequirement[] {
-  const agentReady = input.agentCount > 0;
-  const agentDetail = input.agentCount === 0 ? "none yet" : String(input.agentCount);
-
-  return [
-    {
-      label: "agents",
-      ready: agentReady,
-      detail: agentDetail,
-      ...(agentReady ? {} : { remedy: "create your first one below" }),
-    },
-  ];
-}
-
-/**
- * The machine facts every agent is grounded with, condensed to the four rows
- * the home screen shows. Same source as the system prompt's `Environment:`
- * block, so what the wizard reports is exactly what agents are told.
- */
-export function homeEnvironmentFacts(): readonly HomeFact[] {
-  const info = systemInfo();
-  return [
-    { label: "date", detail: info.currentDate },
-    { label: "os", detail: `${info.osInfo} · ${info.shell} · ${info.username}` },
-    { label: "cwd", detail: info.cwd },
-    { label: "hardware", detail: info.hardware },
-  ];
 }

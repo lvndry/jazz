@@ -83,11 +83,13 @@ import { TODO_WINDOW_ROWS } from "./LiveZone";
 import { hostForModel } from "../local-model-hosts";
 import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
-import type { QuestionChoice, QuestionModel } from "./overlays/Question";
+import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
+import type { QuestionStep } from "./overlays/stepper";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { MenuScreen } from "./screens/Menu";
 import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
@@ -391,6 +393,8 @@ function choiceModel(
     readonly label: string;
     readonly description?: string;
     readonly disabled?: boolean;
+    readonly tag?: string;
+    readonly tagTone?: QuestionTagTone;
   }[],
   originalIndices?: readonly number[],
 ): QuestionChoice[] {
@@ -399,7 +403,25 @@ function choiceModel(
     value: `choice-${String(originalIndices?.[index] ?? index)}`,
     ...(choice.description === undefined ? {} : { description: choice.description }),
     ...(choice.disabled === true ? { disabled: true } : {}),
+    ...(choice.tag === undefined ? {} : { tag: choice.tag }),
+    ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
   }));
+}
+
+/** `{ step }` when the prompt was opened as part of a multi-step flow, else nothing. */
+function stepField(prompt: PromptState): { readonly step?: QuestionStep } {
+  const step = promptStep(prompt);
+  return step === undefined ? {} : { step };
+}
+
+/** The multi-step position a prompt was opened with, when it is well-formed. */
+function promptStep(prompt: PromptState): QuestionStep | undefined {
+  const step: unknown = prompt.options?.["step"];
+  if (typeof step !== "object" || step === null) return undefined;
+  const { labels, index } = step as { labels?: unknown; index?: unknown };
+  if (!Array.isArray(labels) || typeof index !== "number") return undefined;
+  const names = labels.filter((label): label is string => typeof label === "string");
+  return index >= 0 && index < names.length ? { labels: names, index } : undefined;
 }
 
 function validatePrompt(prompt: PromptState, value: string): string | null {
@@ -433,6 +455,7 @@ function overlayFromPrompt(
         message: prompt.message,
         value: editor.value,
         caret: editor.caret,
+        ...stepField(prompt),
         ...(prompt.type === "password" || prompt.options?.["secret"] === true
           ? { masked: true }
           : {}),
@@ -511,6 +534,7 @@ function overlayFromPrompt(
         ...(prompt.type === "checkbox"
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
+        ...stepField(prompt),
       };
     }
     case "questionnaire": {
@@ -1807,6 +1831,16 @@ export function FullscreenBridge(): React.ReactNode {
           }
           return true;
         }
+        if (openMenu.kind === "home") {
+          const pressed = name === "return" || name === "enter" ? "enter" : (sequence ?? "");
+          const target =
+            openMenu.actions.find((action) => action.key === pressed) ??
+            openMenu.conversations.find((conversation) => conversation.key === pressed);
+          if (target !== undefined && !ctrl && !meta) {
+            store.completePrompt({ kind: "select", value: target.value });
+          }
+          return true;
+        }
         const itemCount = openMenu.options.length;
         const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
         if (name === "up" || name === "k") {
@@ -2782,17 +2816,24 @@ export function FullscreenBridge(): React.ReactNode {
         query={menuFilter.value}
         caret={menuFilter.caret}
       />
-    ) : menu?.kind === "menu" ? (
+    ) : menu?.kind === "home" ? (
       <Home
         model={{
           version: packageJson.version,
-          tagline: "One agent. Every surface. Your rules.",
-          requirements: menu.requirements ?? [],
-          ...(menu.environment === undefined ? {} : { environment: menu.environment }),
-          choices: menu.options.map((option) => ({ label: option.label, value: option.value })),
-          selected: menuIndex,
-          ...(menu.tip === undefined ? {} : { tip: menu.tip }),
+          cwd: compactWorkingDirectory(workingDirectory),
+          greeting: menu.greeting,
+          conversations: menu.conversations,
+          actions: menu.actions,
+          status: menu.status,
+          ...(menu.firstRun === undefined ? {} : { firstRun: menu.firstRun }),
         }}
+        viewport={viewport}
+      />
+    ) : menu?.kind === "menu" ? (
+      <MenuScreen
+        title={menu.title ?? "menu"}
+        choices={menu.options}
+        selected={menuIndex}
         viewport={viewport}
       />
     ) : undefined;

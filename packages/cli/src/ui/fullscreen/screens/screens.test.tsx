@@ -30,7 +30,6 @@ import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
-import { compactWorkingDirectory } from "../working-directory";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };
@@ -53,42 +52,60 @@ function safeCharacter(codePoint: number): boolean {
 
 const FIRST_RUN: HomeModel = {
   version: "0.14.2",
-  tagline: "your everyday agentic CLI",
-  requirements: [
-    { label: "agent", ready: false, detail: "none yet", remedy: "create your first one below" },
+  cwd: "~/work",
+  greeting: "",
+  conversations: [],
+  actions: [
+    { key: "enter", label: "start setup", value: "create-agent" },
+    { key: "o", label: "use Ollama, no key needed", value: "create-agent:ollama" },
+    { key: "s", label: "settings", value: "config" },
+    { key: "q", label: "quit", value: "exit" },
   ],
-  choices: [
-    { label: "Create agent", value: "create-agent", hint: "about a minute" },
-    { label: "Update configuration", value: "config" },
-    { label: "Exit", value: "exit" },
-  ],
-  selected: 0,
-  tip: "Type '/help' in chat to see every command and keyboard shortcut",
+  status: [],
+  firstRun: {
+    detected: [
+      { label: "OPENAI_API_KEY", detail: "in your environment" },
+      { label: "Ollama", detail: "running on this machine with 3 models" },
+    ],
+  },
 };
 
 const SETTLED: HomeModel = {
   version: "0.14.2",
-  tagline: "your everyday agentic CLI",
-  requirements: [{ label: "agent", ready: true, detail: "4" }],
-  choices: [
-    { label: "Resume: Basil", value: "continue", hint: "12 minutes ago" },
-    { label: "New conversation", value: "new-conversation" },
-    { label: "Resume conversation", value: "resume-conversation" },
-    { label: "Create agent", value: "create-agent" },
-    { label: "List agents", value: "list-agents" },
-    { label: "Exit", value: "exit" },
+  cwd: "~/work",
+  greeting: "Good morning.",
+  conversations: [
+    {
+      key: "1",
+      value: "open:a1:c1",
+      title: "Wedding planning",
+      agent: "Basil",
+      detail: "goal venue waiting for your answer",
+      age: "9m ago",
+      waiting: true,
+    },
+    {
+      key: "2",
+      value: "open:a2:c2",
+      title: "Weekly review",
+      agent: "Cass",
+      detail: "14 messages",
+      age: "1d ago",
+      waiting: false,
+    },
   ],
-  selected: 1,
-  tip: "Local models via Ollama are supported for offline privacy",
-};
-
-const GROUNDED: HomeModel = {
-  ...SETTLED,
-  environment: [
-    { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
-    { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
-    { label: "cwd", detail: "/Users/lvndry/github/jazz" },
-    { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
+  actions: [
+    { key: "enter", label: "new conversation with Basil", value: "new-conversation" },
+    { key: "a", label: "another agent", value: "pick-agent" },
+    { key: "n", label: "new agent", value: "create-agent" },
+    { key: "r", label: "resume", value: "resume-conversation" },
+    { key: "l", label: "agents", value: "list-agents" },
+    { key: "s", label: "settings", value: "config" },
+    { key: "q", label: "quit", value: "exit" },
+  ],
+  status: [
+    { text: "4 agents" },
+    { text: "no model provider has a key", tone: "warning", fixKey: "s" },
   ],
 };
 
@@ -228,112 +245,7 @@ function expectNothingOverflows(drawn: Drawn, viewport: Viewport): void {
 }
 
 describe("home screen", () => {
-  it("fills the viewport exactly, narrow and wide", async () => {
-    for (const viewport of [WIDE, NARROW, HUGE]) {
-      const drawn = await draw(
-        <Home
-          model={FIRST_RUN}
-          viewport={viewport}
-        />,
-        viewport,
-      );
-      expectFillsViewport(drawn, viewport);
-      expectNothingOverflows(drawn, viewport);
-    }
-  });
-
-  it("uses the extra columns on a very wide terminal", async () => {
-    const drawn = await draw(
-      <Home
-        model={FIRST_RUN}
-        viewport={HUGE}
-      />,
-      HUGE,
-    );
-    expectFillsViewport(drawn, HUGE);
-    expectNothingOverflows(drawn, HUGE);
-    expect(drawn.rows.some((row) => row.trimEnd().length > 92)).toBe(true);
-  });
-
-  it("says what to do when nothing at all is configured", async () => {
-    const drawn = await draw(
-      <Home
-        model={FIRST_RUN}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-
-    // The identity, so you know what you are looking at.
-    // The ornament caps the wordmark row: exactly as wide, no wider.
-    const wordmarkRow = drawn.rows.find((row) => row.includes("jazz")) ?? "";
-    const ornamentRow = drawn.rows.find((row) => row.includes("▄▀▀▄")) ?? "";
-    expect(ornamentRow.trimEnd().length).toBe(wordmarkRow.trimEnd().length);
-    expect(drawn.text).toContain("jazz");
-    expect(drawn.text).toContain("0.14.2");
-    expect(drawn.text).toContain("your everyday agentic CLI");
-
-    // The unmet requirement, named — carrying the remedy rather than only the
-    // complaint.
-    expect(drawn.text).toContain("agent");
-    expect(drawn.text).toContain("create your first one below");
-
-    // And the key to press, naming the thing it is on.
-    expect(drawn.text).toContain("Press enter on");
-    expect(drawn.text).toContain("Create agent");
-    expect(drawn.text).toContain("enter");
-  });
-
-  it("spends the accent on the remedy, not on the complaint", async () => {
-    const drawn = await draw(
-      <Home
-        model={FIRST_RUN}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-
-    // The one thing on an unconfigured row that you would act on.
-    const remedy = allSpans(drawn.frame).find((span) =>
-      span.text.startsWith("create your first one below"),
-    );
-    expect(remedy).toBeDefined();
-    expect(hexOf(remedy as CapturedSpan)).toBe(THEME.primary.toUpperCase());
-
-    // A fresh install has nothing wrong with it: no amber, no red anywhere.
-    for (const span of allSpans(drawn.frame)) {
-      if (span.text.trim().length === 0) continue;
-      expect(hexOf(span)).not.toBe(THEME.error.toUpperCase());
-      expect(hexOf(span)).not.toBe(THEME.warning.toUpperCase());
-    }
-  });
-
-  it("marks a met requirement with a glyph as well as a colour", async () => {
-    const previous = process.env["JAZZ_UI_GLYPHS"];
-    process.env["JAZZ_UI_GLYPHS"] = "unicode";
-    try {
-      const glyphs = getGlyphs();
-      const drawn = await draw(
-        <Home
-          model={SETTLED}
-          viewport={WIDE}
-        />,
-        WIDE,
-      );
-      const ready = drawn.rows.filter((row) => row.startsWith(glyphs.active));
-      const pending = drawn.rows.filter((row) => row.startsWith(glyphs.pending));
-      expect(ready).toHaveLength(1);
-      expect(pending).toHaveLength(0);
-      // The distinction survives a monochrome terminal.
-      expect(glyphs.active).not.toBe(glyphs.pending);
-      expect(hexOf(spanWithText(drawn.frame, glyphs.active))).toBe(THEME.success.toUpperCase());
-    } finally {
-      if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-      else process.env["JAZZ_UI_GLYPHS"] = previous;
-    }
-  });
-
-  it("marks the selected choice by weight and a rail, never by a background", async () => {
+  it("leads with what is waiting for you, ahead of what you were last in", async () => {
     const drawn = await draw(
       <Home
         model={SETTLED}
@@ -341,123 +253,123 @@ describe("home screen", () => {
       />,
       WIDE,
     );
-
-    expect(spanWithText(drawn.frame, "New conversation").attributes & TextAttributes.BOLD).not.toBe(
-      0,
-    );
-    expect(spanWithText(drawn.frame, "Resume conversation").attributes & TextAttributes.BOLD).toBe(
-      0,
-    );
-
-    const rails = allSpans(drawn.frame).filter(
-      (span) => span.text === getGlyphs().rail && hexOf(span) === THEME.primary.toUpperCase(),
-    );
-    expect(rails).toHaveLength(1);
-
-    // One ground for the whole screen: nothing is picked out by a wash.
-    const grounds = new Set(allSpans(drawn.frame).map((span) => span.bg.toInts().join(",")));
-    expect(grounds.size).toBe(1);
+    const waiting = drawn.rows.findIndex((row) => row.includes("Wedding planning"));
+    const recent = drawn.rows.findIndex((row) => row.includes("Weekly review"));
+    const actions = drawn.rows.findIndex((row) => row.includes("new conversation with Basil"));
+    expect(waiting).toBeGreaterThan(-1);
+    expect(waiting).toBeLessThan(recent);
+    expect(recent).toBeLessThan(actions);
+    expect(drawn.text).toContain("1 conversation is waiting for you.");
+    expect(drawn.text).toContain("waiting · 9m ago");
+    expect(drawn.text).toContain("goal venue waiting for your answer");
   });
 
-  it("is calm enough to sit in front of", async () => {
-    const previous = process.env["JAZZ_UI_GLYPHS"];
-    process.env["JAZZ_UI_GLYPHS"] = "unicode";
-    try {
-      for (const model of [FIRST_RUN, SETTLED]) {
-        const drawn = await draw(
-          <Home
-            model={model}
-            viewport={WIDE}
-          />,
-          WIDE,
-        );
-        expect(inkDensity(drawn.rows)).toBeLessThanOrEqual(0.22);
-        expect(breathingShare(drawn.rows)).toBeGreaterThanOrEqual(0.4);
-      }
-    } finally {
-      if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-      else process.env["JAZZ_UI_GLYPHS"] = previous;
-    }
-  });
-
-  it("gives up decoration before it gives up the menu on a short terminal", () => {
-    const short: Viewport = { width: 100, height: 12 };
-    const rows = homeRows(SETTLED, short);
-    expect(rows.length).toBeLessThanOrEqual(short.height - 1);
-    // The tip is the first thing to go; every choice is still reachable.
-    const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).not.toContain("Ollama");
-    expect(text).toContain("New conversation");
-  });
-
-  it("reports where the agents run as one muted line, without marks", async () => {
+  it("marks the waiting conversation with the accent bar and leaves the other unbarred", async () => {
+    const glyphs = getGlyphs();
     const drawn = await draw(
       <Home
-        model={GROUNDED}
+        model={SETTLED}
         viewport={WIDE}
       />,
       WIDE,
     );
-
-    // One muted line, directory first: where you are and what runs it.
-    const cwd = compactWorkingDirectory("/Users/lvndry/github/jazz");
-    const line = drawn.rows.find((row) => row.includes(cwd)) ?? "";
-    expect(line).toContain(`${cwd} ${getGlyphs().bullet} darwin 24.6.0 (arm64)`);
-    expect(line).not.toContain("/bin/zsh");
-    const lineSpan = allSpans(drawn.frame).find((span) => span.text.includes("darwin 24.6.0"));
-    expect(lineSpan === undefined ? undefined : hexOf(lineSpan)).toBe(THEME.muted.toUpperCase());
-    expect(drawn.text).not.toContain("environment");
-    expect(drawn.text).not.toContain("Wednesday, August 26, 2026");
-    expect(drawn.text).not.toContain("Apple M4 Pro");
+    const barred = drawn.rows.filter((row) => row.startsWith(glyphs.bandBar));
+    expect(barred).toHaveLength(2);
+    expect(barred.every((row) => !row.includes("Weekly review"))).toBe(true);
+    expect(hexOf(spanWithText(drawn.frame, glyphs.bandBar))).toBe(THEME.primary.toUpperCase());
   });
 
-  it("gives up the environment report before guidance and setup", () => {
-    const short: Viewport = { width: 100, height: 14 };
-    const rows = homeRows(GROUNDED, short);
-    const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).not.toContain("darwin 24.6.0");
-    expect(rows.length).toBeLessThanOrEqual(short.height - 1);
-  });
-
-  it("keeps the selection on screen when the menu is longer than the space left", () => {
-    const short: Viewport = { width: 100, height: 12 };
-    const long: HomeModel = {
-      ...SETTLED,
-      choices: Array.from({ length: 20 }, (_unused, index) => ({
-        label: `Option ${String(index)}`,
-        value: `option-${String(index)}`,
-      })),
-      selected: 17,
-    };
-    const rows = homeRows(long, short);
-    const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).toContain("Option 17");
-    expect(rows.length).toBeLessThanOrEqual(short.height - 1);
-  });
-
-  it("draws nothing outside the ranges the target fonts cover", async () => {
-    const previous = process.env["JAZZ_UI_GLYPHS"];
-    for (const mode of ["unicode", "ascii"]) {
-      process.env["JAZZ_UI_GLYPHS"] = mode;
-      try {
-        for (const model of [FIRST_RUN, SETTLED]) {
-          const drawn = await draw(
-            <Home
-              model={model}
-              viewport={WIDE}
-            />,
-            WIDE,
-          );
-          const offenders = [...new Set([...drawn.text])]
-            .filter((character) => character !== "\n")
-            .filter((character) => !safeCharacter(character.codePointAt(0) ?? 0));
-          expect(offenders).toEqual([]);
-        }
-      } finally {
-        if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-        else process.env["JAZZ_UI_GLYPHS"] = previous;
-      }
+  it("offers every action as a single key, with the number keys for conversations", async () => {
+    const drawn = await draw(
+      <Home
+        model={SETTLED}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(drawn.text).toContain("enter new conversation with Basil");
+    expect(drawn.text).toContain("1–2 open one");
+    for (const label of ["a another agent", "n new agent", "r resume", "s settings", "q quit"]) {
+      expect(drawn.text).toContain(label);
     }
+    expect(spanWithText(drawn.frame, "enter").attributes & TextAttributes.BOLD).toBeTruthy();
+  });
+
+  it("says how the setup stands on one line, with the fix key beside a warning", async () => {
+    const drawn = await draw(
+      <Home
+        model={SETTLED}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const status = drawn.rows.filter((row) => row.includes("4 agents"));
+    expect(status).toHaveLength(1);
+    expect(status[0]).toContain("no model provider has a key  s");
+    expect(hexOf(spanWithText(drawn.frame, "no model provider has a key"))).toBe(
+      THEME.warning.toUpperCase(),
+    );
+  });
+
+  it("carries no tagline, environment report or CRUD menu", async () => {
+    const drawn = await draw(
+      <Home
+        model={SETTLED}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    for (const gone of [
+      "what would you like to do?",
+      "Edit agent",
+      "Delete agent",
+      "darwin",
+      "setup",
+    ]) {
+      expect(drawn.text).not.toContain(gone);
+    }
+    expect(drawn.rows.at(-1)).toContain("jazz 0.14.2");
+    expect(drawn.rows.at(-1)).toContain("~/work");
+  });
+
+  it("gives up the status line, then conversations, before it gives up an action", () => {
+    const short: Viewport = { width: 100, height: 11 };
+    const rows = homeRows(SETTLED, short);
+    const text = rows.map((row) => row.segments.map((segment) => segment.text).join("")).join("\n");
+    expect(rows.length).toBeLessThanOrEqual(short.height - 1);
+    expect(text).not.toContain("4 agents");
+    expect(text).toContain("q quit");
+    expect(text).toContain("new conversation with Basil");
+  });
+
+  it("introduces jazz on first run and names what it already found", async () => {
+    const drawn = await draw(
+      <Home
+        model={FIRST_RUN}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(drawn.text).toContain("One agent for your email, calendar, files and the web.");
+    expect(drawn.text).toContain("1 pick a model");
+    expect(drawn.text).toContain("3 say hello");
+    expect(drawn.text).toContain("Found OPENAI_API_KEY in your environment");
+    expect(drawn.text).toContain("and Ollama running on this machine with 3 models");
+    expect(drawn.text).toContain("enter start setup");
+    expect(drawn.text).toContain("o use Ollama, no key needed");
+  });
+
+  it("keeps a right margin and never paints outside its bands", async () => {
+    const drawn = await draw(
+      <Home
+        model={SETTLED}
+        viewport={HUGE}
+      />,
+      HUGE,
+    );
+    expectNothingOverflows(drawn, HUGE);
+    expect(inkDensity(drawn.rows)).toBeLessThan(0.2);
+    expect(breathingShare(drawn.rows)).toBeGreaterThan(0.4);
   });
 });
 
@@ -759,7 +671,7 @@ describe("both screens in ascii glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("still marks identity, readiness and selection with ASCII alone", async () => {
+  it("still marks identity, waiting conversations and selection with ASCII alone", async () => {
     const glyphs = getGlyphs();
     const home = await draw(
       <Home
@@ -768,19 +680,8 @@ describe("both screens in ascii glyph mode", () => {
       />,
       WIDE,
     );
-    expect(home.text).toContain(`${glyphs.note}  jazz`);
-    // ASCII spends `*` on the mark, the ready state and the bullet, so readiness
-    // is asserted from the side that stays unambiguous: what is NOT ready.
-    expect(glyphs.active).not.toBe(glyphs.pending);
-    const firstRun = await draw(
-      <Home
-        model={FIRST_RUN}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    expect(firstRun.rows.filter((row) => row.startsWith(glyphs.pending))).toHaveLength(1);
-    expect(home.rows.filter((row) => row.startsWith(glyphs.rail))).toHaveLength(1);
+    expect(home.text).toContain(`${glyphs.note} jazz`);
+    expect(home.rows.filter((row) => row.startsWith(glyphs.bandBar))).toHaveLength(2);
 
     const picker = await draw(
       <AgentPicker
