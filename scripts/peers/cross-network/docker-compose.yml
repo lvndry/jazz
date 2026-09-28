@@ -29,8 +29,8 @@ services:
       - bob_data:/data
     environment:
       JAZZ_HOME: /data
-      # Any non-loopback bind requires a daemon token (packages/adapters/src/daemon/
-      # server.ts's refuseReason) — a throwaway value, since it only gates the operator
+      # Any non-loopback bind requires a daemon token (packages/daemon/src/server.ts's
+      # refuseReason) — a throwaway value, since it only gates the operator
       # routes (/runs, /health), never /peer/ask or /peer-invites/*.
       JAZZ_DAEMON_TOKEN: demo-daemon-token-not-a-real-secret
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY to run this demo}

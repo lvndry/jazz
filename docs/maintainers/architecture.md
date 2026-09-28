@@ -24,12 +24,17 @@ package importing from one it doesn't declare a reference to.
 - **`packages/plugin-sdk/`** is the zero-runtime-dependency public TypeScript contract for plugin
   authors. Core structurally implements that plain-JavaScript ABI without exposing Effect values.
 - **`packages/adapters/`** implements adapters for model providers, configuration, storage,
-  files, MCP, the daemon, telemetry, notifications, peers, and webhooks.
+  files, MCP, telemetry, notifications, peers, and webhooks, plus the goal and loop cycle
+  runners and run-ownership primitives that the CLI and the daemon both use.
   - Adapters provide Layers that satisfy the tags declared in `core/interfaces`.
   - Depends on `core` only.
+- **`packages/daemon/`** is the daemon application: the authenticated HTTP server, the
+  trigger/goal/loop/job ticks, attention gating, and OS service install.
+  - Depends on `core` and `adapters`; nothing below it imports it (an eslint rule and
+    `scripts/package-layering.test.ts` enforce that).
 - **`packages/cli/`** contains user-facing command implementations, Ink/OpenTUI presentation,
   and the terminal-rendering `TerminalService` implementation.
-  - Depends on `core` only.
+  - Depends on `core`, `adapters`, `daemon`, `bot-shared`, and the bridge packages it launches.
 - **`packages/runtime/`** is the composition root: wires core, adapters, and cli into the
   Effect Layer graph that becomes the `jazz` binary.
   - Depends on `core`, `adapters`, and `cli`.
@@ -43,15 +48,18 @@ flowchart TB
     CLI["<b>packages/cli/</b><br/>commands · Ink TUI · presentation · TerminalService"]
     CORE["<b>packages/core/</b><br/>agent loop · tools · context · types<br/><b>interfaces = ports</b><br/><i>imports nothing outward</i>"]
     ADP["<b>packages/adapters/</b><br/>llm · storage · mcp · history<br/>logger · telemetry · notification"]
+    DMN["<b>packages/daemon/</b><br/>HTTP server · ticks · attention · service install"]
     RT["<b>packages/runtime/</b><br/>composition root · jazz binary"]
 
     CLI -->|"calls"| CORE
     ADP -->|"implements ports"| CORE
+    DMN -->|"runs on"| ADP
+    CLI -->|"jazz daemon"| DMN
     RT -.->|"merges Layers at startup"| CLI
     RT -.->|"merges Layers at startup"| ADP
     RT -.->|"merges Layers at startup"| CORE
 
-    NO["core/ → adapters/ or cli/<br/><b>never</b> (except in tests)"]
+    NO["core/ → adapters/ or cli/<br/><b>never</b> (except in tests)<br/>adapters/ → daemon/ <b>never</b>"]
 
     classDef core fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     classDef forbidden fill:#c1443c,stroke:#7d2b26,color:#ffffff
@@ -124,7 +132,11 @@ packages/
 │   ├── llm/                      # LLM provider adapters
 │   ├── mcp/                      # MCP client + OAuth
 │   ├── peers/                    # ask_peer ledger/token adapters
+│   ├── goals/, loops/            # Goal/loop actions and cycle runners
+│   ├── runs/                     # Run ownership: in-flight set, resume-owned-run
 │   └── storage/                  # Persistence (JSON file storage)
+│
+├── daemon/src/                   # @jazz/daemon: HTTP server, ticks, attention, service install
 │
 ├── runtime/src/                  # @jazz/runtime: composition root
 │   ├── entry.ts                  # Binary entrypoint

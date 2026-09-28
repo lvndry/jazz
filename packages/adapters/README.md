@@ -8,7 +8,8 @@ Infrastructure implementations for the service contracts in `@jazz/core`. This p
 - configuration loading and keyring-backed secrets;
 - filesystem, conversation, run, memory, and workspace persistence;
 - MCP clients and trust metadata;
-- daemon HTTP handling, job queues, reminders, peers, and webhooks;
+- job queues, reminders, peers, and webhooks;
+- goal and loop cycle runners and run ownership, shared by the CLI and `@jazz/daemon`;
 - telemetry and desktop notifications.
 
 `@jazz/core` defines each service interface and `Context` tag. An adapter implements that contract as an Effect `Layer`; `@jazz/runtime` composes it into the application.
@@ -18,7 +19,8 @@ Infrastructure implementations for the service contracts in `@jazz/core`. This p
 - `src/llm/`: AI SDK providers, model catalog, attachments, and reasoning normalization
 - `src/storage/` and `src/history/`: file-backed state and conversations
 - `src/mcp/`: MCP connection, OAuth, elicitation, and server lifecycle
-- `src/daemon/`: authenticated HTTP server and unattended run handling
+- `src/goals/`, `src/loops/`: goal and loop actions and their cycle runners
+- `src/runs/`: which process owns a run, and answering a parked run through its owner
 - `src/peers/` and `src/webhooks/`: remote agent and fixed-prompt boundaries
 - `src/telemetry/`: local and OTLP sinks
 - `src/config.ts`: global/project configuration merge and secret routing
@@ -55,7 +57,7 @@ The full walkthrough, including error types and wiring into `createAppLayer`, is
 
 ## Rules that are not style
 
-- **Never import from `@jazz/cli` or `@jazz/runtime`.** Dependencies point inward. An adapter
+- **Never import from `@jazz/daemon`, `@jazz/cli` or `@jazz/runtime`.** Dependencies point inward. An adapter
   that needs to ask the user something takes a service that can, rather than reaching for a
   terminal.
 - **Secrets go through the keyring path**, never into `config.json` and never into a log line.

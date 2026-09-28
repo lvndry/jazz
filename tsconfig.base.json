@@ -10,6 +10,7 @@
     "paths": {
       "@/core/*": ["./packages/core/src/*"],
       "@/adapters/*": ["./packages/adapters/src/*"],
+      "@/daemon/*": ["./packages/daemon/src/*"],
       "@/cli/*": ["./packages/cli/src/*"],
       "@/runtime/*": ["./packages/runtime/src/*"],
       "@/bot-shared/*": ["./packages/bot-shared/src/*"],
