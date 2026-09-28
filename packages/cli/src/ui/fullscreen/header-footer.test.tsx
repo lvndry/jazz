@@ -103,9 +103,9 @@ describe("Header", () => {
     );
 
     expect(terminalCellWidth(row)).toBe(80);
-    // Right-aligned: the meter's percentage is the last thing on the row.
+    // Right-aligned: the meter's percentage is the last thing on the row, one cell in.
     expect(row.trimEnd()).toEndWith("%");
-    expect(terminalCellWidth(row.trimEnd())).toBe(80);
+    expect(terminalCellWidth(row.trimEnd())).toBe(79);
     // One row, never two.
     expect((rows[1] ?? "").trim()).toBe("");
   });
@@ -187,11 +187,10 @@ describe("Header", () => {
     expect(colorOf(broken.spans, "notion renew")).toBe(THEME.warning.toUpperCase());
   });
 
-  it("draws the meter as a heavy run over a hairline track, with one cell for any use", async () => {
+  it("draws the meter as one heavy line lit in the accent, with one cell for any use", async () => {
     const glyphs = getGlyphs();
     expect(meterFilledCells(0)).toBe(0);
     expect(meterFilledCells(2)).toBe(1);
-    expect(meterFilledCells(100)).toBe(8);
 
     const { row } = await render(
       <Header
@@ -200,8 +199,9 @@ describe("Header", () => {
       />,
       80,
     );
-    expect(row).toContain(`${glyphs.ruleHeavy}${glyphs.boxH.repeat(7)} 2%`);
+    expect(row).toContain(`${glyphs.ruleHeavy.repeat(10)} 2%`);
     expect(row).not.toContain(glyphs.gridEmpty);
+    expect(meterFilledCells(100)).toBe(10);
   });
 
   it("steps the meter to warning past 80% and error past 92%", async () => {
@@ -214,7 +214,7 @@ describe("Header", () => {
       />,
       80,
     );
-    expect(colorOf(calm.spans, filled)).toBe(THEME.secondary.toUpperCase());
+    expect(colorOf(calm.spans, filled)).toBe(THEME.primary.toUpperCase());
 
     const warning = await render(
       <Header

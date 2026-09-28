@@ -107,6 +107,7 @@ export interface GlyphSet {
   /** Jazz's mark — the swing quadrant */ readonly note: string;
   /** Speaker rail drawn down the left of transcript lines */ readonly rail: string;
   /** Subordinate rail, one level deeper (reasoning, delegated lanes) */ readonly railDeep: string;
+  /** Heavy bar down the left edge of a band (composer, cards, menus) */ readonly bandBar: string;
 
   // ─── Activity indicator (multi-cell, expresses parallel work) ────────
   /**
@@ -188,6 +189,7 @@ const ASCII: GlyphSet = {
   note: "*",
   rail: "|",
   railDeep: ":",
+  bandBar: "|",
 
   lanePeriods: [3, 4, 5, 7, 11],
   laneBurst: [".", "o", "O"],
@@ -270,6 +272,7 @@ const UNICODE: GlyphSet = {
   note: "▞",
   rail: "▎",
   railDeep: "▏",
+  bandBar: "┃",
 
   lanePeriods: [3, 4, 5, 7, 11],
   laneBurst: ["▖", "▚", "▘"],
