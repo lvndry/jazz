@@ -18,7 +18,11 @@ import {
   PresentationServiceTag,
   type PresentationService,
 } from "@jazz/core/interfaces/presentation";
-import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  isTerminalReport,
+  TerminalServiceTag,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import {
   SkillServiceTag,
@@ -30,6 +34,8 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import { reasoningChoicesFor } from "@/cli/helpers/reasoning";
+import { getGlyphs } from "@/cli/ui/glyphs";
+import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
@@ -98,6 +104,11 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** What a terminal would print for one logged message, a command report included. */
+function outputText(message: unknown): string {
+  return isTerminalReport(message) ? reportPlainText(message, getGlyphs()) : String(message);
+}
+
 describe("handleSpecialCommand /skills", () => {
   const context: CommandContext = {
     agent: testAgent,
@@ -155,7 +166,7 @@ describe("handleSpecialCommand /skills", () => {
         isInteractive: false,
         log: (message: string) =>
           Effect.sync(() => {
-            lines.push(message);
+            lines.push(outputText(message));
             return undefined;
           }),
       } as unknown as TerminalService),
@@ -695,7 +706,7 @@ describe("handleSpecialCommand /tools", () => {
     const logged: string[] = [];
     const mockTerminal: Partial<TerminalService> = {
       log: mock((message: string) => {
-        logged.push(message);
+        logged.push(outputText(message));
         return Effect.succeed(undefined);
       }) as TerminalService["log"],
       warn: mock(() => Effect.void),
@@ -827,7 +838,7 @@ describe("handleSpecialCommand /peers", () => {
     const logged: string[] = [];
     const mockTerminal: Partial<TerminalService> = {
       log: mock((message: string) => {
-        logged.push(message);
+        logged.push(outputText(message));
         return Effect.succeed(undefined);
       }) as TerminalService["log"],
       warn: mock(() => Effect.void),
@@ -870,20 +881,20 @@ describe("handleSpecialCommand /peers", () => {
     expect(output).toContain("http://100.101.102.103:4747/peer/ask");
     expect(output).toContain("alice");
     // alice has no url — shown as an explicit placeholder, not omitted.
-    expect(output).toContain("none — cannot be asked");
+    expect(output).toContain("none, so it cannot be asked");
     // carol has no disclosure — still shown, via describeTier's own "none" default.
-    expect(output.slice(output.indexOf("carol"))).toContain("They may learn");
+    expect(output.slice(output.indexOf("carol"))).toContain("may learn");
   });
 
   test("tells you how to add one when none are configured", async () => {
     const infoMessages: string[] = [];
     const mockTerminal: Partial<TerminalService> = {
-      log: mock(() => Effect.succeed(undefined)),
+      log: mock((message: unknown) => {
+        infoMessages.push(outputText(message));
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
       warn: mock(() => Effect.void),
-      info: mock((message: string) => {
-        infoMessages.push(message);
-        return Effect.void;
-      }) as TerminalService["info"],
+      info: mock(() => Effect.void),
     };
 
     const mockAgentConfigService: Partial<AgentConfigService> = {
