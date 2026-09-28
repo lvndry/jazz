@@ -66,6 +66,10 @@ silently yields an error string.
 stdout is exactly one single-line object. Always one line, always one object: on success
 _and_ on failure.
 
+An invalid configuration file or a missing `--config` path also returns this failure
+envelope with `code: "failed"` and `costUSD: 0`, even before the agent starts. Recovery
+instructions stay on stderr. `jazz workflow run --json` follows the same rule.
+
 ```jsonc
 // success
 {

@@ -80,7 +80,7 @@ const mockAgentService = {
   listAgents: mock(() => Effect.succeed([mockAgent])),
 } as unknown as AgentService;
 
-/** No notify channels and no spend ceilings: the run is neither refused nor reported. */
+/** No notify targets and no spend caps: the run is neither refused nor reported. */
 const mockAgentConfig = { appConfig: Effect.succeed({}) } as unknown as AgentConfigService;
 
 const testLayer = Layer.mergeAll(

@@ -4,6 +4,8 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
+import { testConfigLayer } from "@/core/agent/test-config";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
@@ -38,7 +40,11 @@ export function createFsTestLayer(cwd: string) {
   };
 
   const shellLayer = Layer.succeed(FileSystemContextServiceTag, mockFileSystemContextService);
-  return Layer.mergeAll(Layer.provide(shellLayer, NodeFileSystem.layer), NodeFileSystem.layer);
+  return Layer.mergeAll(
+    Layer.provide(shellLayer, NodeFileSystem.layer),
+    NodeFileSystem.layer,
+    testConfigLayer(),
+  );
 }
 
 /** Default test context passed to tool.execute(). */
@@ -51,7 +57,7 @@ export function testContext(): ToolExecutionContext {
 
 /** Run a tool and return the result. */
 export function runTool(
-  tool: Tool<FileSystem.FileSystem | FileSystemContextService>,
+  tool: Tool<FileSystem.FileSystem | FileSystemContextService | AgentConfigService>,
   args: Record<string, unknown>,
   cwd: string,
 ): Promise<ToolExecutionResult> {

@@ -1,9 +1,8 @@
 /**
- * Implements `NotificationService`: native macOS notifications via `terminal-notifier` (or an
- * AppleScript fallback), silently a no-op on other platforms.
+ * Implements `NotificationService`: the desktop notification shown when an agent finishes, sent
+ * through the one desktop sender (`desktop-notifier.ts`) unless a plugin handles notifications.
  */
 
-import { spawn } from "node:child_process";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
@@ -12,95 +11,21 @@ import {
 } from "@jazz/core/interfaces/notification";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { Effect, Layer, Option } from "effect";
-import { getTerminalBundleId } from "./terminal-bundle-id";
-import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
+import { isDesktopNotifierAvailable, sendDesktopNotification } from "./desktop-notifier";
 
-/**
- * Launch a notifier without letting it hold the process open. `terminal-notifier -activate`
- * stays alive until the notification is clicked, so a ref'd child (or its stdio pipes)
- * would keep a headless run from exiting once its work is done.
- */
-export function launchDetached(
-  command: string,
-  args: readonly string[],
-  callback: (error: Error | null) => void,
-): void {
-  const child = spawn(command, args, { stdio: "ignore" });
-  child.once("error", (error) => callback(error));
-  child.once("exit", (code, signal) => {
-    if (code === 0 || signal !== null) {
-      callback(null);
-      return;
-    }
-    callback(new Error(`${command} exited with code ${code}`));
-  });
-  child.unref();
-}
+let reportedFailure = false;
 
-function escapeForAppleScript(str: string): string {
-  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function sendAppleScriptNotification(
-  title: string,
-  message: string,
-  subtitle: string | undefined,
-  sound: boolean,
-  callback: (error: Error | null) => void,
-): void {
-  const soundPart = sound ? ' sound name "Blow"' : "";
-  const subtitlePart = subtitle ? ` subtitle "${escapeForAppleScript(subtitle)}"` : "";
-  const script = `display notification "${escapeForAppleScript(message)}" with title "${escapeForAppleScript(title)}"${subtitlePart}${soundPart}`;
-  launchDetached("osascript", ["-e", script], callback);
-}
-
-function sendNativeNotification(
-  title: string,
-  message: string,
-  subtitle?: string,
-  sound?: boolean,
-): void {
-  const callback = (error: Error | null) => {
-    if (error) {
-      console.error(`[Notification] Failed to send native notification: ${error.message}`);
-    }
-  };
-
-  if (process.platform === "darwin") {
-    const bundleId = getTerminalBundleId();
-    const terminalNotifier = resolveTerminalNotifierBinary();
-
-    if (terminalNotifier && bundleId) {
-      const args = ["-title", title, "-message", message, "-activate", bundleId];
-      if (subtitle) {
-        args.push("-subtitle", subtitle);
-      }
-      if (sound) {
-        args.push("-sound", "Blow");
-      }
-      launchDetached(terminalNotifier, args, (error) => {
-        if (error) {
-          console.error(`[Notification] Failed to send via terminal-notifier: ${error.message}`);
-          sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
-        }
-      });
-      return;
-    }
-
-    sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
+/** Report the first failed desktop notification of this process; later ones are the same. */
+function reportFailureOnce(error: string): void {
+  if (reportedFailure) {
     return;
   }
-
-  if (process.platform === "linux") {
-    const args: string[] = [];
-    if (sound) args.push("--urgency=normal");
-    args.push(title, message);
-    launchDetached("notify-send", args, callback);
-    return;
-  }
+  reportedFailure = true;
+  console.error(`[Notification] Could not show a desktop notification: ${error}`);
 }
 
 export class NotificationServiceImpl implements NotificationService {
+  /** Returns at once; the notifier launches on a background fiber so a run never waits on it. */
   notify(message: string, options?: NotificationOptions): Effect.Effect<void, never> {
     return Effect.gen(this, function* () {
       const configService = yield* Effect.serviceOption(AgentConfigServiceTag);
@@ -124,8 +49,22 @@ export class NotificationServiceImpl implements NotificationService {
       const title = options?.title ?? "🎷 Jazz";
       const sound = options?.sound ?? notificationsConfig?.sound ?? true;
 
-      sendNativeNotification(title, message, options?.subtitle, sound);
+      yield* sendDesktopNotification({
+        title,
+        message,
+        ...(options?.subtitle !== undefined ? { subtitle: options.subtitle } : {}),
+        sound,
+      }).pipe(
+        Effect.tap((outcome) =>
+          outcome.delivered ? Effect.void : Effect.sync(() => reportFailureOnce(outcome.error)),
+        ),
+        Effect.forkDaemon,
+      );
     });
+  }
+
+  desktopAvailable(): boolean {
+    return isDesktopNotifierAvailable();
   }
 }
 

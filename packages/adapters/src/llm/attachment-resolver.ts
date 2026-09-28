@@ -33,6 +33,7 @@ import { createOpenAI, openai } from "@ai-sdk/openai";
 import { isLocalServerProvider } from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
+import { llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import {
   type MessageAttachment,
   rejectAttachmentReason,
@@ -43,7 +44,6 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { uploadFile } from "ai";
-import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 
 /**
  * A resolved payload for one attachment: inline bytes, an uploaded provider reference, or a

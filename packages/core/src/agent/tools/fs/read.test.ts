@@ -262,3 +262,90 @@ describe("read_file with sinceByte", () => {
     expect(result.error).toContain("Drop sinceInode");
   });
 });
+
+/**
+ * Redaction runs over the whole file (or, for `sinceByte`, the lines around the offset) before
+ * any slicing, so no range, offset or cap can cut a secret into a piece nothing recognizes.
+ */
+describe("read_file redacts before it slices", () => {
+  const tool = createReadFileTool();
+  const secretsDir = join(tmpdir(), `jazz-read-redact-${String(process.pid)}`);
+  const envPath = join(secretsDir, ".env");
+  const knownVariable = "JAZZ_READ_TEST_API_KEY";
+  const knownValue = "k9-known-value-0123456789abcdef";
+  const privateKey = [
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "MIIEowIBAAKCAQEAkeybodyfirstline",
+    "a2V5Ym9keXNlY29uZGxpbmU=",
+    "-----END RSA PRIVATE KEY-----",
+  ].join("\n");
+
+  beforeAll(() => {
+    mkdirSync(secretsDir, { recursive: true });
+    process.env[knownVariable] = knownValue;
+  });
+
+  afterAll(() => {
+    rmSync(secretsDir, { recursive: true, force: true });
+    delete process.env[knownVariable];
+  });
+
+  function read(args: Record<string, unknown>) {
+    return runTool(tool, { path: envPath, ...args }, secretsDir);
+  }
+
+  it("redacts a whole line when sinceByte lands inside its value", async () => {
+    writeFileSync(envPath, "DB_PASSWORD=hunter2hunter2\nDEBUG=1\n");
+    const result = await read({ sinceByte: "DB_PASSWORD=".length });
+    const content = (result.result as { content: string }).content;
+    expect(content).not.toContain("hunter2");
+    expect(content).toBe("DB_PASSWORD=[redacted:DB_PASSWORD]\nDEBUG=1\n");
+  });
+
+  it("redacts a known value when sinceByte lands one character into it", async () => {
+    writeFileSync(envPath, `note: ${knownValue}\n`);
+    const result = await read({ sinceByte: "note: ".length + 1 });
+    const content = (result.result as { content: string }).content;
+    expect(content).not.toContain(knownValue.slice(1));
+    expect(content).toContain(`[redacted:${knownVariable}]`);
+  });
+
+  it("recognizes a private key from a line range that stops before its end", async () => {
+    writeFileSync(envPath, `${privateKey}\nafter\n`);
+    const result = await read({ startLine: 1, endLine: 3 });
+    const data = result.result as { content: string; returnedLines: number };
+    expect(data.returnedLines).toBe(3);
+    expect(data.content).not.toContain("keybody");
+    expect(data.content).not.toContain("a2V5Ym9ke");
+    expect(data.content).toContain("[redacted:private-key]");
+  });
+
+  it("recognizes a private key that began before the sinceByte offset", async () => {
+    writeFileSync(envPath, `${privateKey}\nafter\n`);
+    const result = await read({ sinceByte: privateKey.indexOf("a2V5") });
+    const content = (result.result as { content: string }).content;
+    expect(content).not.toContain("a2V5Ym9ke");
+    expect(content).toContain("after");
+  });
+
+  it("caps a long secret line without splitting its value, and resumes after it", async () => {
+    const value = "tok9Qz7Lw2".repeat(20);
+    writeFileSync(envPath, `API_TOKEN=${value}\nnext\n`);
+    const first = await read({ sinceByte: 0, maxBytes: 12 });
+    const firstData = first.result as { content: string; nextByte: number; truncated: boolean };
+    expect(firstData.truncated).toBe(true);
+    expect(firstData.content).not.toContain("tok9");
+    expect(firstData.nextByte).toBe(`API_TOKEN=${value}\n`.length);
+
+    const second = await read({ sinceByte: firstData.nextByte });
+    expect((second.result as { content: string }).content).toBe("next\n");
+  });
+
+  it("keeps line numbers and the snapshot of the file as it is on disk", async () => {
+    writeFileSync(envPath, `${privateKey}\nafter\n`);
+    const result = await read({});
+    const data = result.result as { content: string; totalLines: number };
+    expect(data.totalLines).toBe(6);
+    expect(data.content).toContain("5|after");
+  });
+});

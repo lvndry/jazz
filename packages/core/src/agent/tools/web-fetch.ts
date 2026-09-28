@@ -1,6 +1,7 @@
 import { Defuddle } from "defuddle/node";
 import { Effect } from "effect";
 import { z } from "zod";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { toError } from "@/core/utils/errors";
@@ -62,15 +63,17 @@ const webFetchSchema = z
 
 type WebFetchArgs = z.infer<typeof webFetchSchema>;
 
-export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService, WebFetchArgs>> {
-  return defineTool<LoggerService, WebFetchArgs>({
+export function createWebFetchTool(): ReturnType<
+  typeof defineTool<LoggerService | AgentConfigService, WebFetchArgs>
+> {
+  return defineTool<LoggerService | AgentConfigService, WebFetchArgs>({
     name: "web_fetch",
     disclosure: "public",
     // A GET is still a send: the model writes the URL, so anything it knows can ride out in
     // the path or query string, and the reply comes back for it to read.
     egress: true,
     description:
-      "Fetch a known public URL's main content as markdown. JavaScript does not run. Private and local hosts need the agent's network.allowPrivateHosts.",
+      "Fetch a known URL's main content as markdown. JavaScript does not run. A host on this machine or the local network is reached after the user approves it.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
@@ -103,11 +106,12 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS);
+        const egressPolicy = yield* egressPolicyForContext(context);
         const fetched = yield* Effect.tryPromise({
           try: async () => {
             const { response, url } = await fetchWithUserAgentFallback(args.url, {
               signal: controller.signal,
-              policy: egressPolicyForContext(context),
+              policy: egressPolicy,
             });
             if (!response.ok) {
               await response.body?.cancel().catch(() => undefined);

@@ -70,7 +70,6 @@ import {
   keyringDelete,
   keyringSet,
 } from "@jazz/adapters/secrets/keyring";
-import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
@@ -80,6 +79,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
+import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/core/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/config";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";

@@ -6,14 +6,14 @@
  * keyring, and the keyring holds each one otherwise.
  */
 
-import { Effect } from "effect";
-import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
 import {
   webhookSecretEnvVar,
   webhookSecretPath,
   webhookTokenEnvVar,
   webhookTokenPath,
-} from "@/adapters/secrets/registry";
+} from "@jazz/core/secrets/registry";
+import { Effect } from "effect";
+import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
 
 function resolveCredential(envVar: string, keyringPath: string) {
   return Effect.gen(function* () {

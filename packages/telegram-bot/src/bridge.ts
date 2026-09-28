@@ -120,7 +120,7 @@ export interface BridgeConfig {
   readonly jazzHome: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
-  /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
+  /** Per-day spend cap in USD across all chats; 0 disables it. */
   readonly dailyCostCapUsd: number;
   /** Reverse-geocoder base URL for shared locations; empty string disables it. */
   readonly geocodeUrl: string;

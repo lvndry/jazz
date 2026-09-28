@@ -1,11 +1,13 @@
-/** Content-search regressions include ambiguous filenames and credential-like delimiter text. */
+/** Content-search regressions include ambiguous filenames and delimiter-like text in matched lines. */
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createGrepTool } from "./grep";
-import { createReadFileTool } from "./read";
 import { runTool } from "./test-helpers";
+
+/** These tests start a Bun process that loads the tool, which takes seconds on a busy machine. */
+const SUBPROCESS_TEST_TIMEOUT_MS = 30_000;
 
 describe("grep tool", () => {
   const testDir = join(tmpdir(), `jazz-grep-test-${Date.now()}`);
@@ -248,26 +250,23 @@ describe("grep tool", () => {
 describe("grep filename framing", () => {
   for (const backend of ["ripgrep", "grep"] as const) {
     it.skipIf(backend === "ripgrep" && Bun.which("rg") === null)(
-      `keeps protected content out of all output modes with ${backend}`,
+      `attributes every match to its own file in all output modes with ${backend}`,
       () => {
         const root = mkdtempSync(join(tmpdir(), "jazz-grep-framing-"));
         try {
           const workspace = join(root, "workspace");
-          const home = join(root, "home");
           mkdirSync(workspace);
-          const protectedPath = join(workspace, "backup:42:odd\nname.txt");
-          const ordinaryPath = join(workspace, "ordinary:19:odd\nname.txt");
+          const firstPath = join(workspace, "backup:42:odd\nname.txt");
+          const secondPath = join(workspace, "ordinary:19:odd\nname.txt");
           writeFileSync(
-            protectedPath,
-            "before:12:PRIVATE_CONTEXT\nTOKEN=prefix:123:PRIVATE_VALUE\nafter-13-PRIVATE_CONTEXT\n",
+            firstPath,
+            "before:12:first\nMARKER=prefix:123:first-value\nafter-13-first\n",
           );
           writeFileSync(
-            ordinaryPath,
-            "before:12:public\nTOKEN=prefix:123:public-value\nafter-13-public\n",
+            secondPath,
+            "before:12:second\nMARKER=prefix:123:second-value\nafter-13-second\n",
           );
-          symlinkSync(protectedPath, join(workspace, "alias.txt"));
-          const binaryPath = join(workspace, "binary-backup");
-          writeFileSync(binaryPath, "TOKEN=PRIVATE_BINARY\0tail\n");
+          writeFileSync(join(workspace, "binary-file"), "MARKER=BINARY_VALUE\0tail\n");
           const bin = join(root, "bin");
           mkdirSync(bin);
           const grep = Bun.which("grep");
@@ -287,24 +286,20 @@ describe("grep filename framing", () => {
               `
           import { createGrepTool } from ${JSON.stringify(import.meta.dir + "/grep.ts")};
           import { runTool } from ${JSON.stringify(import.meta.dir + "/test-helpers.ts")};
-          import { registerProtectedFileRoots } from ${JSON.stringify(import.meta.dir + "/../../../utils/protected-files.ts")};
-          await registerProtectedFileRoots([${JSON.stringify(protectedPath)}, ${JSON.stringify(binaryPath)}]);
           const results = [];
           for (const outputMode of ["content", "files", "count"]) {
             results.push(await runTool(createGrepTool(), {
-              path: ${JSON.stringify(workspace)}, pattern: "TOKEN", contextLines: 1, outputMode
+              path: ${JSON.stringify(workspace)}, pattern: "MARKER", contextLines: 1, outputMode
             }, ${JSON.stringify(workspace)}));
           }
           console.log(JSON.stringify(results));
         `,
             ],
-            env: { ...process.env, JAZZ_HOME: home, PATH: bin },
+            env: { ...process.env, JAZZ_HOME: join(root, "home"), PATH: bin },
           });
           expect(child.exitCode).toBe(0);
           const output = child.stdout.toString();
-          expect(output).not.toContain("PRIVATE_VALUE");
-          expect(output).not.toContain("PRIVATE_CONTEXT");
-          expect(output).not.toContain("PRIVATE_BINARY");
+          expect(output).not.toContain("BINARY_VALUE");
           const results = JSON.parse(output) as Array<{
             success: boolean;
             result: Record<string, unknown>;
@@ -312,44 +307,119 @@ describe("grep filename framing", () => {
           expect(
             results.every((result) => result.success && result.result["backend"] === backend),
           ).toBe(true);
-          expect(results[0]?.result["matches"]).toEqual([
+          const byFile = <T extends { file: string }>(entries: T[]): T[] =>
+            [...entries].sort((left, right) => left.file.localeCompare(right.file));
+          expect(
+            byFile(
+              results[0]?.result["matches"] as Array<Record<string, unknown> & { file: string }>,
+            ),
+          ).toEqual([
             {
-              file: ordinaryPath,
+              file: firstPath,
               line: 2,
-              text: "TOKEN=prefix:123:public-value",
-              contextBefore: [{ line: 1, text: "before:12:public" }],
-              contextAfter: [{ line: 3, text: "after-13-public" }],
+              text: "MARKER=prefix:123:first-value",
+              contextBefore: [{ line: 1, text: "before:12:first" }],
+              contextAfter: [{ line: 3, text: "after-13-first" }],
+            },
+            {
+              file: secondPath,
+              line: 2,
+              text: "MARKER=prefix:123:second-value",
+              contextBefore: [{ line: 1, text: "before:12:second" }],
+              contextAfter: [{ line: 3, text: "after-13-second" }],
             },
           ]);
-          expect(results[1]?.result["files"]).toEqual([ordinaryPath]);
-          expect(results[2]?.result["counts"]).toEqual([{ file: ordinaryPath, count: 1 }]);
+          expect([...(results[1]?.result["files"] as string[])].sort()).toEqual([
+            firstPath,
+            secondPath,
+          ]);
+          expect(
+            byFile(
+              results[2]?.result["counts"] as Array<Record<string, unknown> & { file: string }>,
+            ),
+          ).toEqual([
+            { file: firstPath, count: 1 },
+            { file: secondPath, count: 1 },
+          ]);
         } finally {
           rmSync(root, { recursive: true, force: true });
         }
       },
+      SUBPROCESS_TEST_TIMEOUT_MS,
     );
   }
 });
 
-describe("internal transfer staging", () => {
-  it.each(["stage", "previous"])("omits nested ordinary files under %s paths", async (kind) => {
-    const root = mkdtempSync(join(tmpdir(), "jazz-grep-staging-"));
-    try {
-      const nested = join(root, `.jazz-${kind}-destination-id`, "nested");
-      mkdirSync(nested, { recursive: true });
-      const file = join(nested, "ordinary.txt");
-      writeFileSync(file, "TOKEN=staging-private");
-      const read = await runTool(createReadFileTool(), { path: file }, root);
-      expect(read.result).toMatchObject({ protected: true, contentOmitted: true });
-      const search = await runTool(
-        createGrepTool(),
-        { path: root, pattern: "TOKEN", filePattern: "**/*" },
-        root,
-      );
-      expect(JSON.stringify(search)).not.toContain("staging-private");
-      expect(search.success).toBe(true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
+describe("grep over secret values", () => {
+  for (const backend of ["ripgrep", "grep"] as const) {
+    it.skipIf(backend === "ripgrep" && Bun.which("rg") === null)(
+      `matches the redacted text, so a value cannot be probed, with ${backend}`,
+      () => {
+        const root = mkdtempSync(join(tmpdir(), "jazz-grep-oracle-"));
+        try {
+          const workspace = join(root, "workspace");
+          mkdirSync(workspace);
+          writeFileSync(
+            join(workspace, ".env"),
+            "DEBUG=1\nDB_PASSWORD=hunter2hunter2\nDB_HOST=localhost\n",
+          );
+          const bin = join(root, "bin");
+          mkdirSync(bin);
+          symlinkSync(Bun.which("grep")!, join(bin, "grep"));
+          if (backend === "grep") {
+            writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+          } else {
+            symlinkSync(Bun.which("rg")!, join(bin, "rg"));
+          }
+          const searches = [
+            { pattern: "re:^DB_PASSWORD=h", outputMode: "count" },
+            { pattern: "re:^DB_PASSWORD=[a-m]", outputMode: "files" },
+            { pattern: "hunter2", outputMode: "content" },
+            { pattern: "DB_", outputMode: "count" },
+            { pattern: "DB_", outputMode: "content" },
+          ];
+          const child = Bun.spawnSync({
+            cmd: [
+              process.execPath,
+              "-e",
+              `
+          import { createGrepTool } from ${JSON.stringify(import.meta.dir + "/grep.ts")};
+          import { runTool } from ${JSON.stringify(import.meta.dir + "/test-helpers.ts")};
+          const results = [];
+          for (const search of ${JSON.stringify(searches)}) {
+            results.push(await runTool(createGrepTool(), {
+              path: ${JSON.stringify(join(workspace, ".env"))}, ...search
+            }, ${JSON.stringify(workspace)}));
+          }
+          console.log(JSON.stringify(results));
+        `,
+            ],
+            env: { ...process.env, JAZZ_HOME: join(root, "home"), PATH: bin },
+          });
+          expect(child.exitCode).toBe(0);
+          const output = child.stdout.toString();
+          expect(output).not.toContain("hunter2hunter2");
+          const results = JSON.parse(output) as Array<{ result: Record<string, unknown> }>;
+          const [probeCount, probeFiles, valueSearch, nameCount, nameContent] = results.map(
+            (entry) => entry.result,
+          );
+          expect(probeCount?.["counts"]).toEqual([]);
+          expect(probeFiles?.["files"]).toEqual([]);
+          expect(valueSearch?.["matches"]).toEqual([]);
+          expect(nameCount?.["counts"]).toEqual([{ file: join(workspace, ".env"), count: 2 }]);
+          expect(
+            (nameContent?.["matches"] as Array<{ line: number; text: string }>).map(
+              (match) => [match.line, match.text] as const,
+            ),
+          ).toEqual([
+            [2, "DB_PASSWORD=[redacted:DB_PASSWORD]"],
+            [3, "DB_HOST=localhost"],
+          ]);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      },
+      SUBPROCESS_TEST_TIMEOUT_MS,
+    );
+  }
 });

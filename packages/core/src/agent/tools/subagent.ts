@@ -17,6 +17,8 @@ import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
 import type {
+  EgressTaint,
+  UntrustedProvenance,
   RemainingRunBudget,
   ToolExecutionContext,
   ToolExecutionResult,
@@ -65,6 +67,28 @@ function subagentStopReason(
     return "time budget";
   }
   return undefined;
+}
+
+/**
+ * The parent's taint as a child run sees it: shared state, plus a record of whether the child
+ * itself read external content, so its answer can be delivered as external content too.
+ */
+function childEgressTaint(parent: EgressTaint): {
+  readonly taint: EgressTaint;
+  readonly childReadExternal: () => boolean;
+} {
+  let readExternal = false;
+  return {
+    taint: {
+      isTainted: parent.isTainted,
+      sources: parent.sources,
+      mark: (source) => {
+        readExternal = true;
+        parent.mark(source);
+      },
+    },
+    childReadExternal: () => readExternal,
+  };
 }
 
 /**
@@ -316,6 +340,12 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       });
     }
 
+    const childTaint =
+      context.egressTaint === undefined ? undefined : childEgressTaint(context.egressTaint);
+    const externalProvenance = (): { untrusted?: UntrustedProvenance } =>
+      childTaint?.childReadExternal() === true
+        ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
+        : {};
     let childSpend: RunSpendReport | undefined;
     const response = yield* AgentRunner.runRecursive({
       agent: subAgent,
@@ -390,6 +420,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { sharedCostExhausted: context.subagents.costExhausted }
         : {}),
       ...childRunAuthority(context),
+      ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
       subagentDepth: currentDepth + 1,
       ...(context.onAutoApproveCommand
         ? { onAutoApproveCommand: context.onAutoApproveCommand }
@@ -496,6 +527,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           success: false,
           result: { rawSummary: fullResult, validationErrors: structured.errors },
           error: `Sub-agent structured result failed validation: ${structured.errors.join("; ")}`,
+          ...externalProvenance(),
         };
       }
 
@@ -520,7 +552,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         subagentId: subAgent.id,
         durationMs,
       });
-      return { success: true, result: structured.value };
+      return { success: true, result: structured.value, ...externalProvenance() };
     }
 
     yield* logger.info("Sub-agent completed", {
@@ -532,6 +564,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
     return {
       success: true,
       result: result || "Sub-agent completed but returned no content.",
+      ...externalProvenance(),
     };
   });
 }
@@ -737,7 +770,13 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           if (supervisor === undefined) {
             return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
           }
-          return { success: true, result: { subagents: supervisor.list() } };
+          const subagents = supervisor.list();
+          const untrusted = subagents.find((child) => child.untrusted !== undefined)?.untrusted;
+          return {
+            success: true,
+            result: { subagents },
+            ...(untrusted !== undefined ? { untrusted } : {}),
+          };
         }),
       createSummary: (result) =>
         result.success ? "Listed sub-agents" : `list_subagents failed: ${result.error}`,
@@ -775,7 +814,14 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             args.until ?? "all",
             (args.timeoutSeconds ?? DEFAULT_WAIT_SECONDS) * 1000,
           );
-          return { success: true, result: outcome };
+          const untrusted = outcome.subagents.find(
+            (child) => child.untrusted !== undefined,
+          )?.untrusted;
+          return {
+            success: true,
+            result: outcome,
+            ...(untrusted !== undefined ? { untrusted } : {}),
+          };
         }),
       createSummary: (result) =>
         result.success ? "Waited for sub-agents" : `wait_subagents failed: ${result.error}`,

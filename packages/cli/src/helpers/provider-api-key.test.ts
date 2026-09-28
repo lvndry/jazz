@@ -1,3 +1,5 @@
+/** Interactive key setup saves usable restricted keys without losing invalid-key recovery. */
+import { checkApiKey } from "@jazz/adapters/llm/api-key-check";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import type { AppConfig } from "@jazz/core/types/config";
@@ -30,6 +32,25 @@ function setup(answers: readonly (string | undefined)[], config: Partial<AppConf
 }
 
 describe("ensureProviderApiKey", () => {
+  it("saves a key when model listing is forbidden and explains the permission uncertainty", async () => {
+    const { terminal, configService, saved, errors } = setup(["sk-restricted"]);
+    const forbidden = (async () => new Response("{}", { status: 403 })) as unknown as typeof fetch;
+    const result = await ensureProviderApiKey({
+      configService,
+      terminal,
+      provider: "openai",
+      displayName: "OpenAI",
+      required: true,
+      checkKey: (provider, key) => checkApiKey(provider, key, forbidden),
+    });
+
+    expect(result).toBe("saved");
+    expect(saved).toEqual([{ key: "llm.openai.api_key", value: "sk-restricted" }]);
+    expect(terminal.ask).toHaveBeenCalledTimes(1);
+    expect(terminal.warn).toHaveBeenCalledWith(expect.stringContaining("403"));
+    expect(errors).toEqual([]);
+  });
+
   it("asks again when the provider rejects the pasted key, and saves the one it accepts", async () => {
     const { terminal, configService, saved, errors } = setup(["sk-wrong", "  sk-right\n"]);
     const checkKey = mock(async (_provider: string, apiKey: string) =>

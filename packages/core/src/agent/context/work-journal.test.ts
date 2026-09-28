@@ -129,6 +129,26 @@ describe("work state lifecycle", () => {
     expect(remaining[remaining.length - 1]?.summary).toContain("record 19");
   });
 
+  it("moves a pruned entry's egress taint onto the oldest kept entry", async () => {
+    await runEffect(
+      appendJournalEntry("agent-1", "conv-1", {
+        ...entry("record 0 " + "x".repeat(500)),
+        egressTainted: true,
+      }),
+    );
+    for (let index = 1; index < 20; index++) {
+      await runEffect(
+        appendJournalEntry("agent-1", "conv-1", entry(`record ${index} ` + "x".repeat(500))),
+      );
+    }
+
+    await runEffect(pruneJournal("agent-1", "conv-1", 2_000));
+
+    const remaining = await runEffect(readJournal("agent-1", "conv-1"));
+    expect(remaining.some((kept) => kept.summary.startsWith("record 0 "))).toBe(false);
+    expect(remaining[0]?.egressTainted).toBe(true);
+  });
+
   it("leaves the journal alone while it is under the cap", async () => {
     await runEffect(appendJournalEntry("agent-1", "conv-1", entry("small")));
     expect(await runEffect(pruneJournal("agent-1", "conv-1"))).toBe(0);

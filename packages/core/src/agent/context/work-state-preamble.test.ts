@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { appendJournalEntry } from "./work-journal";
 import { buildWorkStatePreamble } from "./work-state-preamble";
+import { createEgressTaint } from "../execution/egress-taint";
 
 const modelHint = { provider: "openai", modelId: "gpt-4o" };
 const runEffect = <A>(effect: Effect.Effect<A, never, never>): Promise<A> =>
@@ -85,6 +86,29 @@ describe("work state preamble", () => {
     expect(preamble?.content).toContain("record 9");
     expect(preamble?.content).not.toContain("record 0 ");
     expect(preamble?.content).toContain("omitted to stay within budget");
+  });
+
+  it("flags the preamble when a record read external content, even one omitted for budget", async () => {
+    await runEffect(
+      appendJournalEntry("agent-1", "conv-1", {
+        ...entry("old record " + "detail ".repeat(400), "2026-08-15T09:00:00.000Z"),
+        egressTainted: true,
+      }),
+    );
+    await runEffect(
+      appendJournalEntry(
+        "agent-1",
+        "conv-1",
+        entry("newest record " + "detail ".repeat(400), "2026-08-15T10:00:00.000Z"),
+      ),
+    );
+
+    const preamble = await runEffect(
+      buildWorkStatePreamble("agent-1", "conv-1", { modelHint, tokenBudget: 500 }),
+    );
+
+    expect(preamble?.content).not.toContain("old record");
+    expect(createEgressTaint(preamble === undefined ? [] : [preamble]).isTainted()).toBe(true);
   });
 
   it("keeps at least the most recent record even when it alone exceeds the budget", async () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+  missingNamedListEntry,
+  namedListEntryOf,
   checkConfigWrite,
   formatConfigIssues,
   parseConfigFile,
@@ -669,10 +671,10 @@ describe("parseConfigInput", () => {
     });
   });
 
-  it("names a URL setting's expected value in words", () => {
-    expect(parseConfigInput("daemon.notify.ntfyUrl", "not a url")).toMatchObject({
+  it("names a numeric setting's expected value in words", () => {
+    expect(parseConfigInput("daemon.dailyCostUSD", "-1")).toMatchObject({
       ok: false,
-      expected: "an https URL",
+      expected: "a number greater than 0",
     });
   });
 
@@ -714,6 +716,25 @@ describe("checkConfigWrite", () => {
     });
   });
 
+  it("accepts private hosts as hostnames, wildcards, addresses and CIDR blocks", () => {
+    expect(
+      checkConfigWrite("network.allowPrivateHosts", [
+        "homeassistant.local",
+        "*.lan",
+        "192.168.1.10",
+        "10.0.0.0/8",
+        "::1",
+      ]),
+    ).toEqual({ ok: true });
+  });
+
+  it("refuses a private host that is a URL, and more than 64 of them", () => {
+    expect(checkConfigWrite("network.allowPrivateHosts", ["http://nas.lan"]).ok).toBe(false);
+    const entries = Array.from({ length: 65 }, (_unused, index) => `host-${String(index)}.lan`);
+    expect(checkConfigWrite("network.allowPrivateHosts", entries).ok).toBe(false);
+    expect(checkConfigWrite("network", { allowPrivate: ["nas.lan"] }).ok).toBe(false);
+  });
+
   it("refuses a path that is not a setting", () => {
     expect(checkConfigWrite("wizard.lastUsedAgentId", "a")).toEqual({
       ok: false,
@@ -744,5 +765,49 @@ describe("checkConfigWrite", () => {
       ok: false,
       problem: '"mcpServers.__proto__" is not a setting',
     });
+  });
+});
+
+describe("namedListEntryOf", () => {
+  it("names the list entry a path goes through, from the schema", () => {
+    expect(namedListEntryOf("notify.targets.phone.botToken")).toEqual({
+      listPath: ["notify", "targets"],
+      entryName: "phone",
+    });
+    expect(namedListEntryOf("webhooks.mira.token")).toEqual({
+      listPath: ["webhooks"],
+      entryName: "mira",
+    });
+    expect(namedListEntryOf("peers.sam.token")).toEqual({ listPath: ["peers"], entryName: "sam" });
+  });
+
+  it("is undefined for a path through no list", () => {
+    expect(namedListEntryOf("llm.openai.api_key")).toBeUndefined();
+    expect(namedListEntryOf("notify.targets")).toBeUndefined();
+  });
+});
+
+describe("missingNamedListEntry", () => {
+  it("reports an entry the config does not have, whether or not the list exists", () => {
+    expect(missingNamedListEntry({}, "notify.targets.phone.botToken")).toEqual({
+      listPath: ["notify", "targets"],
+      entryName: "phone",
+    });
+    expect(
+      missingNamedListEntry(
+        { notify: { targets: [{ name: "desk", kind: "desktop" }] } },
+        "notify.targets.phone.botToken",
+      ),
+    ).toBeDefined();
+  });
+
+  it("is undefined when the entry exists or the path goes through no list", () => {
+    expect(
+      missingNamedListEntry(
+        { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } },
+        "notify.targets.phone.botToken",
+      ),
+    ).toBeUndefined();
+    expect(missingNamedListEntry({}, "llm.openai.api_key")).toBeUndefined();
   });
 });

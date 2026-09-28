@@ -1,4 +1,3 @@
-/** Path and metadata discovery, including protected files; never returns file contents. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import glob from "fast-glob";
@@ -7,7 +6,6 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
-import { loadSecretPathRules, secretPathReason } from "@/core/utils/secret-paths";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
@@ -538,7 +536,6 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         const searchPaths: string[] = [];
 
-        const secretRules = loadSecretPathRules();
         if (args.path) {
           const start = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
           searchPaths.push(start);
@@ -611,7 +608,6 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             path,
             name,
             type,
-            ...(secretPathReason(path, secretRules) !== undefined ? { protected: true } : {}),
           }));
 
           return {
@@ -629,7 +625,6 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
           path,
           name,
           type,
-          ...(secretPathReason(path, secretRules) !== undefined ? { protected: true } : {}),
         }));
 
         return {

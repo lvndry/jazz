@@ -30,6 +30,7 @@ import {
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
 import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
+import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
@@ -61,6 +62,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
+import { redactSecretText } from "@jazz/core/secrets/redaction";
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
@@ -473,6 +475,7 @@ function handleShellCommand(
       combinedOutput || `(command exited with code ${result.exitCode}; no output)`,
     );
 
+    const outputForAgent = redactSecretText(combinedOutput, yield* toolKnownSecrets());
     return {
       shouldContinue: true,
       messageForAgent: [
@@ -484,7 +487,7 @@ function handleShellCommand(
         "",
         `Exit code: ${result.exitCode}`,
         "",
-        combinedOutput ? `Command output:\n${combinedOutput}` : "Command output: (none)",
+        outputForAgent ? `Command output:\n${outputForAgent}` : "Command output: (none)",
         "",
         "Use this command result as context for your response. Do not claim to have run the command yourself.",
       ].join("\n"),

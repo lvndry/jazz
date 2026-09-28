@@ -19,6 +19,9 @@ export interface NotificationService {
    * @param options - Optional configuration (title, subtitle, sound)
    */
   readonly notify: (message: string, options?: NotificationOptions) => Effect.Effect<void, never>;
+
+  /** Whether this host has a desktop notifier (terminal-notifier, notify-send) to show one. */
+  readonly desktopAvailable: () => boolean;
 }
 
 export const NotificationServiceTag =

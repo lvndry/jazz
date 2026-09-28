@@ -56,6 +56,15 @@ list.
 | `JAZZ_DAEMON_TICK_MS`         | How often the daemon checks for due work, in milliseconds. Defaults to 5000.                                                          |
 | `JAZZ_DISABLE_CATCH_UP`       | `1` skips the prompt to run workflows missed while the machine was off, and the failed-runs notice.                                   |
 
+`JAZZ_NOTIFY_<NAME>_<FIELD>` supplies a notify target secret, taking precedence over the
+keyring: for example, `JAZZ_NOTIFY_PHONE_BOT_TOKEN`, `JAZZ_NOTIFY_TEAM_WEBHOOK_URL`, or
+`JAZZ_NOTIFY_OPS_SECRET`. Target names and field names become uppercase with underscores.
+See [Notifications](./notifications.md).
+
+`JAZZ_SPEND_LEDGER=parent` tells a child process that its caller records its spend. The child
+skips its own ledger recording and cap checks; chat bridges set this to avoid counting
+a run twice. Leave it unset for standalone runs.
+
 ## Model provider keys and servers
 
 A provider key in the environment is used when no key is saved for that provider. See
@@ -148,6 +157,15 @@ The bridges read these when they start each run. Each bridge's README has the fu
 [iMessage on your Mac](../../packages/imessage-bot/README.md),
 [iMessage through Photon](../../packages/photon-bot/README.md) and
 [WhatsApp](../../packages/whatsapp-bot/README.md).
+
+Bridge controls:
+
+| Variable                       | Effect                                                                                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS` | Maximum active runs across a bridge process. Positive integer; defaults to 4.                                                                                                      |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES` | Maximum messages waiting behind a conversation’s active run. Positive integer; defaults to 5.                                                                                      |
+| `JAZZ_BRIDGE_HEALTH_PORT`      | Optional health HTTP port for iMessage, Photon and WhatsApp. Disabled when unset. Telegram and Discord use their existing HTTP servers.                                            |
+| `JAZZ_APPROVALS_HOME`          | Jazz home whose parked runs Telegram or Discord operators may approve or reject. Unset disables these chat commands. Runs as the bridge process, outside the conversation sandbox. |
 
 Shared by every bridge:
 

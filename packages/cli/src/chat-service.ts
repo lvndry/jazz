@@ -17,6 +17,7 @@ import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
@@ -50,12 +51,13 @@ import {
   type SkillService,
 } from "@jazz/core/skills/skill-service";
 import {
-  type CeilingCheck,
-  ceilingWindowKey,
-  checkSpendCeilings,
-  describeCeilingCheck,
-} from "@jazz/core/spend/ceilings";
+  type CapCheck,
+  capWindowKey,
+  checkSpendCaps,
+  describeCapCheck,
+} from "@jazz/core/spend/caps";
 import { localDayKey, localMonthKey } from "@jazz/core/spend/ledger";
+import type { DaemonConfig } from "@jazz/core/types/config";
 import {
   GenerationInterruptedError,
   LLMAuthenticationError,
@@ -65,7 +67,6 @@ import {
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
 import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
-import type { SpendConfig } from "@jazz/core/types/spend";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
@@ -115,6 +116,24 @@ import {
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
  */
+/**
+ * Most messages kept between chat turns. The agent's own ContextWindowManager handles per-turn
+ * trimming with tool-call integrity; this outer cap only stops the between-turn array from
+ * growing without limit.
+ */
+export const MAX_CHAT_HISTORY_MESSAGES = 2000;
+
+/** The newest `limit` messages, still marked as having read external content if any dropped one was. */
+export function capChatHistory(
+  history: readonly ChatMessage[],
+  limit: number = MAX_CHAT_HISTORY_MESSAGES,
+): ChatMessage[] {
+  if (history.length <= limit) {
+    return [...history];
+  }
+  return carryEgressTaint(history.slice(0, -limit), history.slice(-limit));
+}
+
 export class ChatServiceImpl implements ChatService {
   startChatSession(
     agent: Agent,
@@ -250,8 +269,8 @@ export class ChatServiceImpl implements ChatService {
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
-      /** Ceilings already warned about this session, by window, so each warns once. */
-      const warnedSpendCeilings = new Set<string>();
+      /** Spend caps already warned about this session, by window, so each warns once. */
+      const warnedSpendCaps = new Set<string>();
       let sessionLimits: SessionLimits = {};
       let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
@@ -305,7 +324,7 @@ export class ChatServiceImpl implements ChatService {
         // automatically — at the next tool-phase boundary if a run is still going, or as the
         // opening line of the next turn otherwise.
         onDetachedToolComplete: (summary: string) => {
-          store.appendToQueue(`[Background task finished]\n${summary}`);
+          store.appendToQueue(detachedResultMessage(summary));
         },
       });
 
@@ -328,12 +347,6 @@ export class ChatServiceImpl implements ChatService {
           store.showModeToast(message);
         }
       });
-
-      // Bound conversation history to prevent unbounded memory growth.
-      // The agent's own ContextWindowManager (50K tokens) handles per-turn
-      // trimming with tool-call integrity; this outer cap is a simple safety
-      // net so the between-turn array doesn't grow without limit.
-      const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
       // True after a turn ended in a caught error. Decides whether queued
       // text auto-flushes (clean-finish path) or seeds the next prompt for
@@ -705,11 +718,11 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
-        yield* warnWhenSpendCeilingReached(
+        yield* warnWhenSpendCapReached(
           terminal,
-          (yield* configService.appConfig).spend,
-          agent.id,
-          warnedSpendCeilings,
+          (yield* configService.appConfig).daemon,
+          { agentId: agent.id, agentName: agent.name },
+          warnedSpendCaps,
         );
         sessionTurnCount += 1;
 
@@ -864,7 +877,7 @@ export class ChatServiceImpl implements ChatService {
 
             // Trim if history exceeds the outer safety cap
             if (conversationHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
-              conversationHistory = conversationHistory.slice(-MAX_CHAT_HISTORY_MESSAGES);
+              conversationHistory = capChatHistory(conversationHistory);
               loggedMessageCount = conversationHistory.length;
             }
           } else if (response.content) {
@@ -1024,30 +1037,31 @@ export function createChatServiceLayer(): Layer.Layer<
 }
 
 /**
- * Chat is attended, so a reached spend ceiling does not stop it: the person is told once per
- * ceiling and window, and decides. Unattended runs refuse instead (see `run-accounting.ts`).
+ * Chat never counts toward the `daemon` spend caps and is never stopped by them, but the person
+ * is told once per cap and window when one covering this agent is reached: the unattended work
+ * it covers refuses to start until then (see `run-accounting.ts`).
  */
-function warnWhenSpendCeilingReached(
+function warnWhenSpendCapReached(
   terminal: TerminalService,
-  spend: SpendConfig | undefined,
-  agentId: string,
+  caps: DaemonConfig | undefined,
+  agent: { readonly agentId: string; readonly agentName: string },
   warned: Set<string>,
 ) {
   return Effect.gen(function* () {
     const now = Date.now();
-    const check = yield* checkSpendCeilings(spend, { agentId, source: "chat" }, now).pipe(
-      Effect.catchAll(() => Effect.succeed<CeilingCheck>({ kind: "clear" })),
+    const check = yield* checkSpendCaps(caps, { ...agent, source: "chat" }, { now }).pipe(
+      Effect.catchAll(() => Effect.succeed<CapCheck>({ kind: "clear" })),
     );
     if (check.kind === "clear") {
       return;
     }
-    const key = ceilingWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
+    const key = capWindowKey(check, { day: localDayKey(now), monthKey: localMonthKey(now) });
     if (warned.has(key)) {
       return;
     }
     warned.add(key);
     yield* terminal.warn(
-      `${describeCeilingCheck(check)} Chat continues; unattended runs under this ceiling refuse to start.`,
+      `${describeCapCheck(check)} Chat is not capped; the unattended work it covers waits.`,
     );
   });
 }

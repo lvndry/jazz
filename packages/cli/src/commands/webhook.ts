@@ -15,13 +15,13 @@ import {
   keyringDelete,
   keyringSet,
 } from "@jazz/adapters/secrets/keyring";
+import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
   webhookSecretEnvVar,
   webhookSecretPath,
   webhookTokenEnvVar,
   webhookTokenPath,
-} from "@jazz/adapters/secrets/registry";
-import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+} from "@jazz/core/secrets/registry";
 import { Effect } from "effect";
 
 /** Matches the daemon token: 192 bits. */

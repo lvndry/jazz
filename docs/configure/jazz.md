@@ -112,9 +112,7 @@ Jazz keeps on disk and how each part is bounded.
 
 `output.mode` accepts `rendered`, `hybrid`, `raw`, or `quiet`. `JAZZ_OUTPUT_MODE` and `--output` override it. The other output fields control whether reasoning and tool execution are shown and whether completed reasoning collapses.
 
-`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications. `notifications.channels` binds [notify channels](./notifications.md) (Telegram, Discord, a signed webhook, the desktop) for unattended results, reminders, parked approvals and failures.
-
-`spend` sets machine-wide [day and month spend ceilings](../concepts/budgets.md#day-and-month-ceilings), overall, per agent and for goals. All are unlimited until set.
+`notifications.enabled` and `notifications.sound` control desktop completion and approval notifications; `enabled: false` also drops desktop [notify targets](./notifications.md).
 
 ## Scheduling
 
@@ -145,30 +143,64 @@ Both take the same per-door limits:
 
 Two entries in one list whose names differ only in case or punctuation (`a.b` and `A_b`) read the same credential environment variable, so the second is refused when the config loads.
 
-## Daemon limits and notifications
+## Spend caps and notifications
 
 ```json
 {
   "daemon": {
     "dailyCostUSD": 3,
     "dailyTokens": 2000000,
-    "notify": {
-      "desktop": true,
-      "ntfyUrl": "https://ntfy.sh/my-private-jazz-topic",
-      "webhookUrl": "https://example.com/jazz-hook"
-    }
+    "monthlyCostUSD": 40,
+    "goals": { "dailyCostUSD": 1, "monthlyCostUSD": 15 },
+    "agents": { "inbox": { "dailyCostUSD": 0.5 } }
+  },
+  "notify": {
+    "targets": [
+      { "name": "desktop", "kind": "desktop" },
+      { "name": "phone", "kind": "ntfy", "url": "https://ntfy.sh/my-private-jazz-topic" },
+      { "name": "ops", "kind": "webhook", "url": "https://example.com/jazz-hook" }
+    ]
   }
 }
 ```
 
-`dailyCostUSD` and `dailyTokens` cap what unattended runs may spend per day, across all of them.
-Reaching one pauses `jazz daemon` until local midnight; `jazz daemon resume` lifts it for the rest
-of the day. Your chat turns never count. `notify` says where the daemon tells you something needs
-you or that it paused: `desktop` (on unless set to `false`, and off when `notifications.enabled`
-is `false`), an ntfy topic URL for a phone push, and a URL that gets each notification as a JSON
-POST with `type` (`waiting` or `paused`), `title`, `body`, and the item or pause. Pick an ntfy
-topic name nobody can guess: anyone who knows it can read what you are sent. See
-[Daemon](../concepts/daemon.md#when-it-needs-you).
+The `daemon` caps bound what unattended runs (the daemon's work, `jazz run`, workflows, webhooks, peers, goals, loops and triggers) may spend, counted from the machine-wide spend ledger. Your chat turns never count. Every cap is unset, meaning unlimited, until you set it. Reaching `dailyCostUSD` or `dailyTokens` pauses `jazz daemon` until local midnight (`jazz daemon resume` lifts it for the rest of the day), and any reached cap refuses the unattended runs it covers before they start. A daily dollar cap with an unpriced unattended run today counts as reached. `goals` covers goal cycles and loop runs; `agents.<agent>` covers one agent, keyed by its name or id. See [daily and monthly caps](../concepts/budgets.md#daily-and-monthly-caps).
+
+`notify.targets` is where Jazz tells you something needs you, that the daemon paused, that unattended work failed or hit a cap, a reminder a desktop could not show, and a workflow's result. Unset, it is one desktop target. Kinds are `desktop`, `ntfy`, `webhook`, `telegram` and `discord`; secrets live in the keyring. Pick an ntfy topic name nobody can guess: anyone who knows it can read what you are sent. See [Notifications](./notifications.md).
+
+## Private network hosts
+
+The URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, and pages rendered by
+`create_pdf` and `create_composition`) reach public internet hosts directly. A URL that reaches
+this machine or your local network (loopback, private, link-local including the cloud metadata
+address `169.254.169.254`, CGNAT and other non-public addresses) stops for your approval first,
+like any gated call: a prompt in chat, a parked run when you are away, a decline when nobody can
+answer. Approving adds the address to `network.allowPrivateHosts`, so the next request to it goes
+through without asking. A `high-risk` or yolo run reaches it without asking and leaves the list
+as it is.
+
+`network.allowPrivateHosts` applies to every agent and is read from the global config file only;
+a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Update configuration** >
+**Private Network Hosts**, or in the file, at most 64 entries:
+
+```json
+{
+  "network": { "allowPrivateHosts": ["homeassistant.local", "*.lan", "192.168.1.10", "10.0.0.0/8"] }
+}
+```
+
+| Entry                 | Allows                                         |
+| --------------------- | ---------------------------------------------- |
+| `homeassistant.local` | that hostname, whatever address it resolves to |
+| `*.lan`               | every name ending in `.lan`                    |
+| `192.168.1.10`, `::1` | that address, reached by IP or by any hostname |
+| `192.168.1.0/24`      | every address in the block                     |
+
+Use a hostname entry for a name you control, and an address or block entry for a device with a
+fixed address. Approvals add the address the request reached. A redirect or a page subresource
+that lands on an unlisted private address is refused rather than asked about; the model can
+request that URL directly, which asks you. See
+[secrets and egress](../security/secrets-and-egress.md#network-egress) for what the guard checks.
 
 ## MCP overrides
 

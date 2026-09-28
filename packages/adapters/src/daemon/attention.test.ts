@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testGoal } from "@jazz/core/agent/goal/test-fixtures";
@@ -11,13 +11,23 @@ import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import {
+  MAX_OUTBOX_ITEMS_PER_TARGET,
+  OUTBOX_FILE_KIND,
+  outboxDirectory,
+  outboxFilePath,
+} from "@jazz/core/notify/outbox";
+import { recordSpend, spendDirectory } from "@jazz/core/spend/ledger";
+import { guardRunStart } from "@jazz/core/spend/run-accounting";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
+import { writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
   announceWaiting,
   daemonGate,
+  daemonStatusSnapshot,
   listWaiting,
   pauseDaemon,
   resumeDaemon,
@@ -72,6 +82,24 @@ function record(runId: string, state: RunState, extra: Partial<RunRecord> = {}):
     state,
     ...extra,
   };
+}
+
+/** One run in the spend ledger, as `AgentRunner.run` records it. */
+function spent(options: { unattended: boolean; costUSD?: number; tokens?: number }) {
+  return Effect.runPromise(
+    recordSpend({
+      agentId: "agent-1",
+      source: options.unattended ? "workflow" : "chat",
+      costUSD: options.costUSD ?? 0,
+      costKnown: true,
+      tokens: options.tokens ?? 1,
+      unattended: options.unattended,
+    }),
+  );
+}
+
+function webhookTarget(port: number | undefined): AppConfig["notify"] {
+  return { targets: [{ name: "hook", kind: "webhook", url: `http://127.0.0.1:${String(port)}/` }] };
 }
 
 function parkedOn(toolName: string, expiresInMs = 60_000): RunState {
@@ -178,24 +206,12 @@ describe("listWaiting", () => {
 });
 
 describe("daemonGate", () => {
-  it("pauses itself at the daily cap, counting only unattended runs, and a resume lifts it for the day", async () => {
+  it("pauses itself at the daily cap, counting only unattended runs in the ledger, and a resume lifts it for the day", async () => {
     const test = harness({ daemon: { dailyCostUSD: 1 } } as AppConfig);
-    await test.run(
-      test.runs.save(
-        record("chat-turn", { kind: "completed", content: "" }, { costUSD: 5, totalTokens: 1 }),
-      ),
-    );
+    await spent({ unattended: false, costUSD: 5 });
     expect((await test.run(daemonGate())).kind).toBe("open");
 
-    await test.run(
-      test.runs.save(
-        record(
-          "night-run",
-          { kind: "completed", content: "" },
-          { unattended: true, costUSD: 1.2, totalTokens: 1 },
-        ),
-      ),
-    );
+    await spent({ unattended: true, costUSD: 1.2 });
     const gate = await test.run(daemonGate());
     expect(gate).toMatchObject({ kind: "paused", pause: { kind: "daily-cap", limit: "cost" } });
     expect((await test.run(readDaemonState())).paused?.kind).toBe("daily-cap");
@@ -222,18 +238,17 @@ describe("daemonGate", () => {
     ) as Layer.Layer<never>;
     const run = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)) as Effect.Effect<A, unknown>);
-    await run(
-      runs.save(
-        record(
-          "night-run",
-          { kind: "completed", content: "" },
-          { unattended: true, totalTokens: 50 },
-        ),
-      ),
-    );
+    await spent({ unattended: true, tokens: 50 });
     expect((await run(daemonGate())).kind).toBe("open");
     current = { ...current, daemon: { dailyTokens: 10 } };
     expect((await run(daemonGate())).kind).toBe("paused");
+  });
+
+  it("does not read the spend ledger when no machine daily cap is set", async () => {
+    const test = harness({ daemon: { monthlyCostUSD: 1 } } as AppConfig);
+
+    expect((await test.run(daemonGate())).kind).toBe("open");
+    expect(existsSync(spendDirectory(jazzHome))).toBe(false);
   });
 
   it("stays paused after the user pauses it, until they resume", async () => {
@@ -245,8 +260,80 @@ describe("daemonGate", () => {
   });
 });
 
+describe("resumeDaemon", () => {
+  const config = { daemon: { dailyCostUSD: 1 } } as AppConfig;
+  const workflowRun = {
+    agentId: "agent-1",
+    origin: { source: "workflow" },
+    internal: false,
+    unattended: true,
+    appConfig: config,
+    freeLocalModel: false,
+  } as const;
+
+  it("lifts a reached machine daily cap for the day with no daemon ever having paused", async () => {
+    const test = harness(config);
+    await spent({ unattended: true, costUSD: 2 });
+    const refused = await Effect.runPromise(
+      Effect.either(guardRunStart({ ...workflowRun, home: jazzHome })),
+    );
+    expect(refused._tag).toBe("Left");
+
+    const state = await test.run(resumeDaemon());
+
+    expect(state.capLiftedUntil).toBeDefined();
+    expect((await Effect.runPromise(guardRunStart({ ...workflowRun, home: jazzHome }))).kind).toBe(
+      "clear",
+    );
+  });
+
+  it("lifts nothing when no machine daily cap is reached", async () => {
+    const test = harness(config);
+    await spent({ unattended: true, costUSD: 0.5 });
+
+    expect((await test.run(resumeDaemon())).capLiftedUntil).toBeUndefined();
+  });
+
+  it("never lifts the monthly cap", async () => {
+    const test = harness({ daemon: { dailyCostUSD: 1, monthlyCostUSD: 1 } } as AppConfig);
+    await spent({ unattended: true, costUSD: 2 });
+
+    await test.run(resumeDaemon());
+    const check = await Effect.runPromise(
+      Effect.either(
+        guardRunStart({
+          ...workflowRun,
+          appConfig: { daemon: { dailyCostUSD: 1, monthlyCostUSD: 1 } } as AppConfig,
+          home: jazzHome,
+        }),
+      ),
+    );
+
+    expect(check._tag === "Left" && check.left.message).toContain("monthly cap");
+  });
+});
+
+describe("daemonStatusSnapshot", () => {
+  it("lists every cap once, with a lifted daily cap marked until when", async () => {
+    const test = harness({ daemon: { dailyCostUSD: 1, dailyTokens: 1_000 } } as AppConfig);
+    await spent({ unattended: true, costUSD: 2 });
+    await test.run(resumeDaemon());
+
+    const status = await test.run(daemonStatusSnapshot());
+
+    expect("dailyCaps" in status).toBe(false);
+    expect(status.caps.map((cap) => cap.key)).toEqual([
+      "daemon.dailyCostUSD",
+      "daemon.dailyTokens",
+    ]);
+    expect(status.caps[0]).toMatchObject({ reached: true });
+    expect(status.caps[0]?.liftedUntil).toBeDefined();
+    expect(status.capLiftedToday).toBe(true);
+  });
+});
+
 describe("announceWaiting", () => {
-  it("posts each new item once to the webhook, with how to answer it", async () => {
+  it("posts each new item once to the webhook target, with how to answer it", async () => {
     const received: { title: string; body: string; type: string }[] = [];
     const server = Bun.serve({
       port: 0,
@@ -256,11 +343,7 @@ describe("announceWaiting", () => {
       },
     });
     try {
-      const test = harness({
-        daemon: {
-          notify: { desktop: false, webhookUrl: `http://127.0.0.1:${String(server.port)}/` },
-        },
-      } as AppConfig);
+      const test = harness({ notify: webhookTarget(server.port) } as AppConfig);
       await test.run(test.runs.save(record("run-a", parkedOn("execute_command"))));
 
       await test.run(announceWaiting());
@@ -291,24 +374,54 @@ describe("announceWaiting", () => {
     });
     try {
       const test = harness({
-        daemon: {
-          dailyTokens: 10,
-          notify: { desktop: false, webhookUrl: `http://127.0.0.1:${String(server.port)}/` },
-        },
+        daemon: { dailyTokens: 10 },
+        notify: webhookTarget(server.port),
       } as AppConfig);
-      await test.run(
-        test.runs.save(
-          record(
-            "night-run",
-            { kind: "completed", content: "" },
-            { unattended: true, totalTokens: 50 },
-          ),
-        ),
-      );
+      await spent({ unattended: true, tokens: 50 });
       await test.run(daemonGate());
       await test.run(announceWaiting());
       await test.run(announceWaiting());
       expect(received.map((event) => event.type)).toEqual(["paused"]);
+    } finally {
+      await server.stop(true);
+    }
+  });
+
+  it("leaves an item unannounced while its target cannot take it, and announces it later", async () => {
+    const received: { type: string }[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        received.push((await request.json()) as { type: string });
+        return new Response("ok");
+      },
+    });
+    const hookOutbox = outboxFilePath(outboxDirectory(jazzHome), "hook");
+    const unrelated = { kind: "reminder" as const, agentId: "a", text: "t", fireAt: 0 };
+    try {
+      const test = harness({ notify: webhookTarget(server.port) } as AppConfig);
+      await test.run(test.runs.save(record("run-a", parkedOn("execute_command"))));
+      await Effect.runPromise(
+        writeStateFile(
+          hookOutbox,
+          OUTBOX_FILE_KIND,
+          Array.from({ length: MAX_OUTBOX_ITEMS_PER_TARGET }, (_, index) => ({
+            id: `old-${index}`,
+            fireAt: Date.now() + 60_000,
+            event: unrelated,
+          })),
+        ),
+      );
+
+      const whileFull = await test.run(announceWaiting());
+      const stateWhileFull = await test.run(readDaemonState());
+      await Effect.runPromise(writeStateFile(hookOutbox, OUTBOX_FILE_KIND, []));
+      const afterwards = await test.run(announceWaiting());
+
+      expect(whileFull).toEqual([]);
+      expect(Object.keys(stateWhileFull.notified)).toEqual([]);
+      expect(afterwards.map((item) => item.runId)).toEqual(["run-a"]);
+      expect(received.map((event) => event.type)).toEqual(["waiting"]);
     } finally {
       await server.stop(true);
     }

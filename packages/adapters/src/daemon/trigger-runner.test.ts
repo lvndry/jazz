@@ -77,7 +77,7 @@ describe("runTick", () => {
 });
 
 describe("runTick while paused", () => {
-  it("delivers reminders but claims no wake triggers, workflows or jobs", async () => {
+  it("delivers reminders and notifications but claims no wake triggers, workflows or jobs", async () => {
     const started: string[] = [];
     const work = tickWork({
       claimWorkflows: Effect.sync(() => {
@@ -93,13 +93,14 @@ describe("runTick while paused", () => {
       deliverReminder: () => Effect.sync(() => void started.push("reminder")),
       drainJobBatches: Effect.sync(() => void started.push("jobs")),
       drainDetachedJobs: Effect.sync(() => void started.push("detached")),
+      drainNotifications: Effect.sync(() => void started.push("notifications")),
     });
     await Effect.runPromise(
       runTick({ runWorkflows: true, startNew: false }, work).pipe(
         Effect.zipRight(Effect.sleep("20 millis")),
       ),
     );
-    expect(started).toEqual(["reminder"]);
+    expect(started.sort()).toEqual(["notifications", "reminder"]);
   });
 });
 

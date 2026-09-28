@@ -1,3 +1,4 @@
+/** Provider key probes distinguish invalid credentials from endpoint permissions. */
 import { describe, expect, it } from "bun:test";
 import { checkApiKey } from "./api-key-check";
 
@@ -10,9 +11,10 @@ describe("checkApiKey", () => {
     expect(await checkApiKey("openai", "sk-good", answering(200))).toBe("accepted");
   });
 
-  it("rejects a key the provider answers 401 or 403 for", async () => {
+  it("rejects an unauthenticated key but leaves endpoint permissions to the real request", async () => {
     expect(await checkApiKey("anthropic", "sk-bad", answering(401))).toBe("rejected");
-    expect(await checkApiKey("groq", "sk-bad", answering(403))).toBe("rejected");
+    expect(await checkApiKey("openai", "sk-restricted", answering(403))).toBe("permission-denied");
+    expect(await checkApiKey("groq", "sk-restricted", answering(403))).toBe("permission-denied");
   });
 
   it("leaves the key unchecked on other statuses, network errors, and unknown providers", async () => {

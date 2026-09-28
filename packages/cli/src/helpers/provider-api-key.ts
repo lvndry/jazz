@@ -1,3 +1,8 @@
+/**
+ * Interactive provider credential setup. Prompt, trim and check keys before saving them,
+ * retry invalid credentials, and explain permission-limited checks without blocking setup.
+ * ChatGPT credentials use the subscription sign-in flow instead of an API key prompt.
+ */
 import { checkApiKey, type ApiKeyCheck } from "@jazz/adapters/llm/api-key-check";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
@@ -98,7 +103,7 @@ export async function ensureProviderApiKey(options: {
     if (verdict === "rejected") {
       await Effect.runPromise(
         options.terminal.error(
-          `${options.displayName} rejected this key (401/403). Check that it was copied whole and is still active, then paste it again, or press Esc to go back.`,
+          `${options.displayName} rejected this key (401). Check that it was copied whole and is still active, then paste it again, or press Esc to go back.`,
         ),
       );
       continue;
@@ -107,6 +112,11 @@ export async function ensureProviderApiKey(options: {
     await Effect.runPromise(options.configService.set(`llm.${options.provider}.api_key`, apiKey));
     await Effect.runPromise(
       Effect.gen(function* () {
+        if (verdict === "permission-denied") {
+          yield* options.terminal.warn(
+            `${options.displayName} denied the key check (403). A restricted key may still allow inference. The key is saved; your first model request will check that access.`,
+          );
+        }
         yield* options.terminal.success(
           verdict === "accepted"
             ? `API key saved; ${options.displayName} accepted it.`

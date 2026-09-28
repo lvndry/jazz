@@ -15,7 +15,11 @@
  */
 
 import { Deferred, Duration, Effect, Exit, Fiber, Scope } from "effect";
-import type { ToolExecutionResult, ToolProgressEvent } from "@/core/types/tools";
+import type {
+  ToolExecutionResult,
+  ToolProgressEvent,
+  UntrustedProvenance,
+} from "@/core/types/tools";
 
 /** Sub-agents one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
 export const MAX_LIVE_SUBAGENTS = 4;
@@ -35,6 +39,8 @@ export interface SubagentSnapshot {
   readonly liveCostUSD?: number;
   /** Its answer once it finished, or what a failed one returned alongside its error. */
   readonly result?: unknown;
+  /** Provenance retained when a child read external content. */
+  readonly untrusted?: UntrustedProvenance;
   readonly error?: string;
   /** Messages from the parent it finished before reading: that guidance never reached it. */
   readonly undeliveredMessages?: readonly string[];
@@ -167,6 +173,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       ...(entry.result?.result !== undefined && entry.result.result !== null
         ? { result: entry.result.result }
         : {}),
+      ...(entry.result?.untrusted !== undefined ? { untrusted: entry.result.untrusted } : {}),
       ...(entry.result !== undefined && !entry.result.success
         ? { error: entry.result.error ?? "The sub-agent failed." }
         : {}),

@@ -6,6 +6,9 @@
  * character split across `data` events survives intact.
  */
 
+import { redactLines } from "@/core/secrets/redacted-lines";
+import type { KnownSecret } from "@/core/secrets/redaction";
+
 export interface CappedOutput {
   readonly chunks: readonly Buffer[];
   readonly bytes: number;
@@ -112,6 +115,51 @@ export function formatCappedStream(
   capBytes: number = DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
 ): string {
   const { text, truncated } = decodeCappedText(output, { trim: "all" });
+  if (!truncated) {
+    return text;
+  }
+  return `${text}\n${spawnOutputTruncationNotice(streamName, capBytes)}`;
+}
+
+/**
+ * Output collected past a stream's cap before redacting it, so a secret that crosses the cap (a
+ * private key block, a `NAME=value` line) is recognized with its end in view. A 4096-bit RSA
+ * private key block is about 3.3 KB.
+ */
+export const REDACTION_LOOKAHEAD_BYTES = 16 * 1024;
+
+/**
+ * Decode output collected up to `capBytes + REDACTION_LOOKAHEAD_BYTES`, redact it whole, and
+ * keep the lines that began within the first `capBytes` of the original. A line crossing the cap
+ * keeps its prefix, unless it holds a secret; then it is left out. A truncated result ends with
+ * the model-visible notice.
+ */
+export function formatRedactedCappedStream(
+  output: CappedOutput,
+  streamName: "stdout" | "stderr",
+  capBytes: number,
+  known: readonly KnownSecret[],
+): string {
+  const lines = decodeCapped(output).split("\n");
+  const view = redactLines(lines, known);
+  const kept: string[] = [];
+  let usedBytes = 0;
+  let truncated = output.truncated;
+  for (const [index, line] of lines.entries()) {
+    const lineBytes = Buffer.byteLength(line) + (index < lines.length - 1 ? 1 : 0);
+    if (usedBytes + lineBytes <= capBytes) {
+      kept.push(view.lines[index] ?? "");
+      usedBytes += lineBytes;
+      continue;
+    }
+    truncated = true;
+    const remainingBytes = capBytes - usedBytes;
+    if (remainingBytes > 0 && !view.secretLineIndexes.has(index)) {
+      kept.push(Buffer.from(line).subarray(0, remainingBytes).toString("utf8"));
+    }
+    break;
+  }
+  const text = kept.join("\n").trim();
   if (!truncated) {
     return text;
   }

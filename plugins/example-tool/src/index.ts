@@ -33,7 +33,7 @@ const plugin: JazzPluginModule = {
     api.lifecycle.register({
       event: "run-complete",
       handler: (event) => {
-        void event.data?.["summary"]; // e.g. Bun.spawn(["osascript","-e", ...]) to notify
+        void event.data?.["summary"]; // e.g. Bun.spawn(["terminal-notifier", "-message", ...]) to notify
         return Promise.resolve();
       },
     });

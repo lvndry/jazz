@@ -5,12 +5,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { commitDetach, prepareDetach } from "@jazz/core/agent/detach/ownership";
+import { createEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
   applyDetachResult,
   createDetachSnapshot,
   importDetachSnapshot,
+  withHandedOffEgressTaint,
   withoutRemoteMemorySources,
   withRemoteTurnsInUiTranscript,
 } from "./snapshot";
@@ -355,6 +357,45 @@ describe("resumed transcript after reclaim", () => {
       messages: [{ role: "assistant", content: "compacted summary" }],
     };
     expect(withRemoteTurnsInUiTranscript(base, returned).uiTranscript).toBeUndefined();
+  });
+});
+
+describe("egress taint in a returned transcript", () => {
+  const handedOff: Conversation = {
+    agentId: "agent",
+    conversationId: "conversation",
+    title: "",
+    startedAt: "2026-09-26T00:00:00.000Z",
+    endedAt: null,
+    messages: [
+      { role: "user", content: "read the page" },
+      { role: "tool", tool_call_id: "fetch", content: "[cleared]", egressTainted: true },
+    ],
+  };
+
+  test("stays marked when the remote returns the transcript without flags", () => {
+    const returned: Conversation = {
+      ...handedOff,
+      messages: [
+        { role: "user", content: "read the page" },
+        { role: "tool", tool_call_id: "fetch", content: "[cleared]" },
+        { role: "assistant", content: "done" },
+      ],
+    };
+
+    expect(createEgressTaint(returned.messages).isTainted()).toBe(false);
+    expect(
+      createEgressTaint(withHandedOffEgressTaint(handedOff, returned).messages).isTainted(),
+    ).toBe(true);
+  });
+
+  test("leaves a clean handoff's result alone", () => {
+    const clean: Conversation = { ...handedOff, messages: [{ role: "user", content: "hi" }] };
+    const returned: Conversation = {
+      ...clean,
+      messages: [...clean.messages, { role: "assistant", content: "hello" }],
+    };
+    expect(withHandedOffEgressTaint(clean, returned).messages).toBe(returned.messages);
   });
 });
 

@@ -11,6 +11,7 @@
  *   `read: <file contents>` from the tool result.
  * - `[e2e:shell command=<command>]`: calls `execute_command` with the command, then answers
  *   `ran: <tool result>`.
+ * - `[e2e:fetch url=<url>]`: calls `web_fetch` on the URL, then answers `ran: <tool result>`.
  *
  * A request without tools is a side call (Jazz's command-risk classifier, or a summary);
  * it is answered `high-risk`, so an unallowlisted command never auto-approves by accident.
@@ -76,6 +77,9 @@ export function scriptTurn(request: ChatRequest): ScriptedTurn {
   }
   if (scenario === "read") {
     return { content: "", toolCall: { name: "read_file", arguments: { path: argument } } };
+  }
+  if (scenario === "fetch") {
+    return { content: "", toolCall: { name: "web_fetch", arguments: { url: argument } } };
   }
   if (scenario === "shell") {
     return {

@@ -49,6 +49,7 @@ import type { MemoryDelivery } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput, WorkspaceFileActivity } from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { EgressTaint } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -56,6 +57,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
+import { messageCarriesEgressTaint, recordEgressTaint } from "./egress-taint";
 import { stoppedToolCallResult, ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
@@ -76,7 +78,10 @@ import {
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
-import { closeUnansweredToolCalls } from "../context/unanswered-tool-calls";
+import {
+  closeUnansweredToolCalls,
+  type UnansweredToolCallAnswer,
+} from "../context/unanswered-tool-calls";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -681,7 +686,7 @@ function notifyStoppedBatch(state: LoopState, options: LoopDeps["options"]): voi
 function stoppedCallAnswer(
   batch: ActiveToolBatch | undefined,
   reason: string,
-): (toolCall: { readonly id: string; readonly name: string }) => string {
+): (toolCall: { readonly id: string; readonly name: string }) => UnansweredToolCallAnswer {
   return (toolCall) => {
     if (batch === undefined) {
       return `Tool execution stopped (${reason}) before this tool returned a result.`;
@@ -690,7 +695,14 @@ function stoppedCallAnswer(
     const status = batch.ledger.statusOf(canonicalId);
     const outcome = batch.ledger.outcomeOf(canonicalId);
     if (status === "completed" && outcome !== undefined) {
-      return formatToolResultForContext(toolCall.name, outcome.result);
+      const formatted = formatToolResultForContext(toolCall.name, outcome.result);
+      if (outcome.untrusted === undefined) {
+        return formatted;
+      }
+      return {
+        content: frameUntrusted(formatted, outcome.untrusted),
+        ...(outcome.untrusted.kind === "external" ? { egressTainted: true as const } : {}),
+      };
     }
     return stoppedToolCallResult(status === "completed" ? "interrupted" : status, reason);
   };
@@ -767,7 +779,8 @@ function reportRunSpend(deps: LoopDeps): Effect.Effect<void> {
 /**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
  * the caller reverts to the history it passed in and the turn's work is lost. Dangling tool
- * calls are closed on the copy so it stays valid to send.
+ * calls are closed on the copy so it stays valid to send, and the run's live egress taint is
+ * recorded on it so the next turn starts marked.
  *
  * Parking is skipped: its transcript rides the signal, and its unanswered tool call must
  * stay unanswered to resume.
@@ -776,6 +789,7 @@ function reportFailedTurn(
   error: unknown,
   state: LoopState,
   options: LoopDeps["options"],
+  egressTaint: EgressTaint | undefined,
 ): Effect.Effect<void> {
   const onFailedTurn = options.onFailedTurn;
   if (onFailedTurn === undefined || options.internal === true || isRunParkRequested(error)) {
@@ -786,7 +800,7 @@ function reportFailedTurn(
       currentMessages: [...state.currentMessages],
     };
     closeDanglingToolCalls(transcript, stoppedCallAnswer(state.activeToolBatch, "the run failed"));
-    onFailedTurn(transcript.currentMessages);
+    onFailedTurn(recordEgressTaint(transcript.currentMessages, egressTaint));
   });
 }
 
@@ -1132,6 +1146,7 @@ function handleToolPhase(
             content: formattedResult,
             tool_call_id: toolCall.id,
             ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
+            ...(provenance?.kind === "external" ? { egressTainted: true as const } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
@@ -1288,6 +1303,9 @@ function recoverFromContextOverflow(
       runRecursive,
       contextWindowMaxTokens,
       mayExtractMemories(options),
+      undefined,
+      undefined,
+      deps.context.egressTaint,
     ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (compacted !== undefined && compacted.tokensAfter < compacted.tokensBefore) {
       state.currentMessages = compacted.messages;
@@ -1354,7 +1372,11 @@ function runIteration(
     }
     const queuedMessage = options.checkQueuedMessage?.();
     if (queuedMessage) {
-      state.currentMessages.push({ role: "user", content: queuedMessage });
+      const queued: ChatMessage = { role: "user", content: queuedMessage };
+      state.currentMessages.push(queued);
+      if (messageCarriesEgressTaint(queued)) {
+        deps.context.egressTaint?.mark("a background task's output");
+      }
     }
 
     if (!options.internal && strategy.shouldShowReasoning) {
@@ -1453,6 +1475,7 @@ function runIteration(
       runRecursive,
       contextWindowMaxTokens,
       allowMemoryExtraction,
+      deps.context.egressTaint,
     ).pipe(Effect.map(Option.some));
     // A summarizer call is a model call of its own; Esc has to reach it like any other.
     const interruptSignal = strategy.getInterruptSignal?.();
@@ -2020,7 +2043,11 @@ export function executeAgentLoop(
             "",
             0,
             deps,
-          ).pipe(Effect.tapError((error) => reportFailedTurn(error, state, options)));
+          ).pipe(
+            Effect.tapError((error) =>
+              reportFailedTurn(error, state, options, deps.context.egressTaint),
+            ),
+          );
           if (pendingPhase === "interrupted") {
             finished = true;
             interrupted = true;
@@ -2035,7 +2062,9 @@ export function executeAgentLoop(
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             const iteration = runIteration(state, i, deps).pipe(
-              Effect.tapError((error) => reportFailedTurn(error, state, options)),
+              Effect.tapError((error) =>
+                reportFailedTurn(error, state, options, deps.context.egressTaint),
+              ),
             );
             const remainingMs = remainingRunBudget(deps).maxDurationMs;
             // The deadline interrupts the iteration wherever it is (a model call, a tool

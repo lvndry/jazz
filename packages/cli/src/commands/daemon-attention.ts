@@ -50,12 +50,18 @@ export function readDaemonAttention() {
 export function formatDaemonAttention(
   status: Effect.Effect.Success<ReturnType<typeof daemonStatusSnapshot>>,
 ): string {
-  const { spendToday, dailyCaps } = status;
+  const { spendToday } = status;
+  const machineDailyLimit = (measure: "cost" | "tokens") =>
+    status.caps.find(
+      (cap) => cap.scope.kind === "machine" && cap.period === "day" && cap.measure === measure,
+    )?.limit;
+  const costLimit = machineDailyLimit("cost");
+  const tokenLimit = machineDailyLimit("tokens");
   const cost =
     spendToday.costUSD !== undefined
-      ? `$${spendToday.costUSD.toFixed(2)}${dailyCaps.costUSD !== undefined ? ` of $${dailyCaps.costUSD.toFixed(2)}` : ""}`
+      ? `$${spendToday.costUSD.toFixed(2)}${costLimit !== undefined ? ` of $${costLimit.toFixed(2)}` : ""}`
       : "cost unknown";
-  const tokens = `${formatCompactCount(spendToday.totalTokens)}${dailyCaps.tokens !== undefined ? ` of ${formatCompactCount(dailyCaps.tokens)}` : ""} tokens`;
+  const tokens = `${formatCompactCount(spendToday.totalTokens)}${tokenLimit !== undefined ? ` of ${formatCompactCount(tokenLimit)}` : ""} tokens`;
   const lines = [
     `Background work: ${status.pauseReason ?? "running"}`,
     `Today: ${String(spendToday.runs)} unattended ${spendToday.runs === 1 ? "run" : "runs"} · ${tokens} · ${cost}`,
@@ -97,7 +103,7 @@ export function resumeDaemonCommand(options: { readonly json: boolean }) {
         options.json,
         { ok: true, paused: false },
         state.capLiftedUntil !== undefined && Date.parse(state.capLiftedUntil) > Date.now()
-          ? `Background work resumed; the daily cap is lifted until ${new Date(state.capLiftedUntil).toLocaleString()}.`
+          ? `Background work resumed; the machine daily caps are lifted until ${new Date(state.capLiftedUntil).toLocaleString()}.`
           : "Background work resumed.",
       ),
     ),

@@ -13,7 +13,7 @@
  * - in `docs/`, from inline code spans and shell lines in fenced blocks.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import type { Command } from "commander";
@@ -30,34 +30,30 @@ const SOURCE_ROOTS = ["packages", "plugins"].flatMap((parent) =>
     .filter((root) => existsSync(path.join(REPO_ROOT, root)) && !NOT_CLI_SOURCE.has(root)),
 );
 const DOCS_ROOT = "docs";
-/** Planning notes under docs/ that are not published and may name future commands. */
-const UNPUBLISHED_DOCS = ["docs/superpowers"];
 
+/**
+ * The repository's files under `root` with one of `extensions`, tests excluded: tracked and
+ * untracked files alike, minus whatever `.gitignore` excludes, so local notes and build output
+ * on disk never count.
+ */
 function filesUnder(root: string, extensions: readonly string[]): string[] {
-  const absoluteRoot = path.join(REPO_ROOT, root);
-  const found: string[] = [];
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory)) {
-      const full = path.join(directory, entry);
-      const relative = path.relative(REPO_ROOT, full);
-      if (
-        entry === "node_modules" ||
-        UNPUBLISHED_DOCS.some((prefix) => relative.startsWith(prefix))
-      ) {
-        continue;
-      }
-      if (statSync(full).isDirectory()) {
-        visit(full);
-      } else if (
-        extensions.some((extension) => entry.endsWith(extension)) &&
-        !/\.test\.tsx?$/.test(entry)
-      ) {
-        found.push(full);
-      }
-    }
-  };
-  visit(absoluteRoot);
-  return found;
+  const listing = Bun.spawnSync(
+    ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", root],
+    { cwd: REPO_ROOT },
+  );
+  if (listing.exitCode !== 0) {
+    throw new Error(`git ls-files failed: ${listing.stderr.toString()}`);
+  }
+  return listing.stdout
+    .toString()
+    .split("\0")
+    .filter(
+      (relative) =>
+        extensions.some((extension) => relative.endsWith(extension)) &&
+        !/\.test\.tsx?$/.test(relative) &&
+        existsSync(path.join(REPO_ROOT, relative)),
+    )
+    .map((relative) => path.join(REPO_ROOT, relative));
 }
 
 /** The command words of one suggestion: `jazz agent show <id> --json` gives `agent show`. */
@@ -162,11 +158,13 @@ describe("suggested jazz commands", () => {
 
   it("resolves every command suggested in source strings", () => {
     const files = SOURCE_ROOTS.flatMap((root) => filesUnder(root, [".ts", ".tsx"]));
+    expect(files.length).toBeGreaterThan(0);
     expect(unresolved(sourceSuggestions, files)).toEqual([]);
   });
 
   it("resolves every command shown in the docs", () => {
     const files = [...filesUnder(DOCS_ROOT, [".md"]), path.join(REPO_ROOT, "README.md")];
+    expect(files.length).toBeGreaterThan(1);
     expect(unresolved(docSuggestions, files)).toEqual([]);
   });
 

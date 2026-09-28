@@ -100,7 +100,7 @@ export interface TurnConfig {
   readonly approvalPolicy: string;
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
-  /** Spend ceiling in USD per day across all conversations; 0 disables it. */
+  /** Spend cap in USD per day across all conversations; 0 disables it. */
   readonly dailyCostCapUsd: number;
   readonly showReasoning: boolean;
   /**
@@ -376,6 +376,13 @@ export interface TurnRunner {
    * "1" through, or their approval waits for a timeout.
    */
   awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean;
+  /**
+   * Answer the sender's waiting prompt with `message`, for a message the bridge admits only
+   * because that prompt waits on its sender. Resolves true when the message answered it: a
+   * matching choice for an approval or a choice question, or any text for a free-text question.
+   * Resolves false otherwise, and the bridge drops the message.
+   */
+  tryAnswerPending(message: InboundMessage): Promise<boolean>;
   /** Deliver a message the bridge originated, e.g. a reminder. */
   send(chatId: ChatId, body: RichText): Promise<void>;
   /** Whether a run is in flight, for a bridge that wants to show it. */
@@ -1011,6 +1018,18 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     awaitsReplyFrom(chatId: ChatId, senderId: SenderId): boolean {
       const state = stateFor(chatId);
       return state.run !== undefined && state.pending.size > 0 && state.requester === senderId;
+    },
+
+    async tryAnswerPending(message: InboundMessage): Promise<boolean> {
+      if (stopping) {
+        return false;
+      }
+      try {
+        return await resolveTypedReply(message);
+      } catch (error) {
+        console.error(`Answering a prompt in ${message.chatId} failed: ${String(error)}`);
+        return false;
+      }
     },
 
     async handle(message: InboundMessage): Promise<void> {

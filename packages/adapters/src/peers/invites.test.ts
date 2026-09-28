@@ -2,12 +2,12 @@ import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/config";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { KeyringBackend } from "@/adapters/secrets/keyring";
-import { peerTokenPath } from "@/adapters/secrets/registry";
 import {
   acceptInviteOnInviterSide,
   createInvite,

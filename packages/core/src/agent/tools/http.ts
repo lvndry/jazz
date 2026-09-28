@@ -6,7 +6,9 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { isSecretName, redactionPlaceholder } from "@/core/secrets/secret-names";
 import type { ToolExecutionContext, ToolExecutionResult, ToolRiskLevel } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -157,15 +159,6 @@ const HttpRequestSchema = z
 
 type HttpRequestArgs = z.infer<typeof HttpRequestSchema>;
 
-const SENSITIVE_HEADER_PATTERNS = [
-  /authorization/i,
-  /cookie/i,
-  /token/i,
-  /secret/i,
-  /api[-_]?key/i,
-  /credential/i,
-] as const;
-
 const DEFAULT_TIMEOUT_MS = 15_000; // 15 seconds
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576; // 1MB
 
@@ -180,10 +173,7 @@ function sanitizeHeaders(
   const sanitized: Record<string, string> = {};
 
   for (const [name, value] of entries) {
-    const redacted = SENSITIVE_HEADER_PATTERNS.some((pattern) => pattern.test(name))
-      ? "<redacted>"
-      : value;
-    sanitized[name] = redacted;
+    sanitized[name] = isSecretName(name) ? redactionPlaceholder(name) : value;
   }
 
   return sanitized;
@@ -346,8 +336,8 @@ export function httpRequestRiskLevel(args: Record<string, unknown>): ToolRiskLev
     : "high-risk";
 }
 
-export function createHttpRequestTool(): Tool<never> {
-  return defineTool<never, HttpRequestArgs>({
+export function createHttpRequestTool(): Tool<AgentConfigService> {
+  return defineTool<AgentConfigService, HttpRequestArgs>({
     name: "http_request",
     disclosure: "private",
     // The model picks the address, the method, the headers and the body. Nothing in this
@@ -355,7 +345,7 @@ export function createHttpRequestTool(): Tool<never> {
     // tool from a disclosure tier alone.
     egress: true,
     description:
-      "Call an HTTP API on a public host, or on a private host listed in the agent's network.allowPrivateHosts. JSON responses are parsed, media comes back as base64, anything else as text. To read an article, use web_fetch.",
+      "Call an HTTP API. A host on this machine or the local network is reached after the user approves it. JSON responses are parsed, media comes back as base64, anything else as text. To read an article, use web_fetch.",
     tags: ["http", "network", "api"],
     riskLevel: "high-risk",
     resolveRiskLevel: httpRequestRiskLevel,
@@ -432,10 +422,11 @@ export function createHttpRequestTool(): Tool<never> {
         }, timeoutMs);
         const start = Date.now();
 
+        const egressPolicy = yield* egressPolicyForContext(context);
         const exchange = yield* Effect.tryPromise({
           try: async () => {
             const guarded = await guardedFetch(urlInstance.toString(), {
-              ...egressPolicyForContext(context),
+              ...egressPolicy,
               method,
               headers: requestHeaders,
               body: preparedBody.initBody ?? null,

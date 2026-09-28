@@ -9,6 +9,7 @@ import {
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
@@ -26,10 +27,14 @@ import {
 } from "./base-tool";
 import {
   bindCappedStdio,
+  type CappedOutput,
   DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
   formatCappedStream,
+  formatRedactedCappedStream,
+  REDACTION_LOOKAHEAD_BYTES,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /**
  * Patterns that block obviously dangerous shell commands before execution.
@@ -535,6 +540,11 @@ export function runShellCommand(input: {
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly interactive?: boolean;
+  /**
+   * Secrets to redact from stdout and stderr before they are capped, for output a model reads.
+   * Shape-recognized secrets are redacted too.
+   */
+  readonly redact?: readonly KnownSecret[];
 }): Effect.Effect<ShellCommandOutput, Error> {
   return Effect.async((resume) => {
     let settled = false;
@@ -575,7 +585,18 @@ export function runShellCommand(input: {
       return;
     }
 
-    const snapshot = bindCappedStdio(child.stdout, child.stderr, EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+    const redact = input.redact;
+    const snapshot = bindCappedStdio(
+      child.stdout,
+      child.stderr,
+      redact === undefined
+        ? EXECUTE_COMMAND_OUTPUT_CAP_BYTES
+        : EXECUTE_COMMAND_OUTPUT_CAP_BYTES + REDACTION_LOOKAHEAD_BYTES,
+    );
+    const formatStream = (output: CappedOutput, streamName: "stdout" | "stderr"): string =>
+      redact === undefined
+        ? formatCappedStream(output, streamName, EXECUTE_COMMAND_OUTPUT_CAP_BYTES)
+        : formatRedactedCappedStream(output, streamName, EXECUTE_COMMAND_OUTPUT_CAP_BYTES, redact);
 
     // A killed command keeps whatever it printed first. Failing here without reading
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
@@ -586,14 +607,10 @@ export function runShellCommand(input: {
       }
       const collected = snapshot();
       const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
-      const stderr = formatCappedStream(
-        collected.stderr,
-        "stderr",
-        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
-      );
+      const stderr = formatStream(collected.stderr, "stderr");
       finish(
         Effect.succeed({
-          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stdout: formatStream(collected.stdout, "stdout"),
           stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
           exitCode: TIMEOUT_EXIT_CODE,
         }),
@@ -612,8 +629,8 @@ export function runShellCommand(input: {
       const collected = snapshot();
       finish(
         Effect.succeed({
-          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
-          stderr: formatCappedStream(collected.stderr, "stderr", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stdout: formatStream(collected.stdout, "stdout"),
+          stderr: formatStream(collected.stderr, "stderr"),
           // A signal death reports a null code, and calling that 0 reads as success.
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
         }),
@@ -764,6 +781,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             workingDir,
             timeoutMs: timeout,
             env: sanitizedEnv,
+            redact: yield* toolKnownSecrets(),
           }).pipe(
             Effect.catchAll((error: unknown) =>
               Effect.succeed({

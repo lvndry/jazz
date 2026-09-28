@@ -24,6 +24,7 @@ import {
 } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { addPrivateHost, applyPrivateHosts, removePrivateHost } from "./private-hosts";
 import {
   applySpendLimit,
   describeSpendLimit,
@@ -46,6 +47,7 @@ type ConfigMenuAction =
   | "logging"
   | "notifications"
   | "spend-limits"
+  | "private-hosts"
   | "back";
 
 /**
@@ -64,6 +66,7 @@ export function configWizardCommand() {
         { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
         { label: "Spend Limits", value: "spend-limits" },
+        { label: "Private Network Hosts", value: "private-hosts" },
         { label: "Back to Main Menu", value: "back" },
       ];
 
@@ -96,6 +99,10 @@ export function configWizardCommand() {
         }
         case "spend-limits": {
           yield* configureSpendLimits();
+          break;
+        }
+        case "private-hosts": {
+          yield* configurePrivateHosts();
           break;
         }
         case "back": {
@@ -567,8 +574,8 @@ function configureNotifications() {
 }
 
 /**
- * Day and month spend ceilings for goals and for every run, all unlimited until set. A reached
- * ceiling stops unattended runs from starting; chat only warns.
+ * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), unlimited
+ * until set. A reached cap stops the unattended work it covers from starting; chat never counts.
  */
 function configureSpendLimits() {
   return Effect.gen(function* () {
@@ -576,13 +583,13 @@ function configureSpendLimits() {
     const configService = yield* AgentConfigServiceTag;
 
     while (true) {
-      const spend = (yield* configService.appConfig).spend;
+      const caps = (yield* configService.appConfig).daemon;
       const selection = yield* terminal.select<string>(
-        "Spend limits (a reached limit stops scheduled and background runs; chat only warns):",
+        "Spend limits (a reached limit stops unattended work until it clears; chat is never capped):",
         {
           choices: [
             ...SPEND_LIMIT_SETTINGS.map((setting) => ({
-              name: `${setting.label} (${describeSpendLimit(setting.read(spend))})`,
+              name: `${setting.label} (${describeSpendLimit(setting.read(caps))})`,
               value: setting.key,
             })),
             { name: "Back", value: "back" },
@@ -594,7 +601,7 @@ function configureSpendLimits() {
         break;
       }
 
-      const current = setting.read(spend);
+      const current = setting.read(caps);
       const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
         simple: true,
         cancellable: true,
@@ -616,6 +623,61 @@ function configureSpendLimits() {
       yield* terminal.success(
         `${setting.label}: ${parsed.kind === "limit" ? describeSpendLimit(parsed.dollars) : "unlimited"}.`,
       );
+      yield* terminal.log("");
+    }
+  });
+}
+
+function configurePrivateHosts() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const hosts = (yield* configService.appConfig).network?.allowPrivateHosts ?? [];
+      const selection = yield* terminal.select<string>(
+        "Private network hosts agents reach without asking (any other local address asks first, and approving adds it here):",
+        {
+          choices: [
+            ...hosts.map((host) => ({ name: `${host} (remove)`, value: `remove:${host}` })),
+            { name: "Add a host", value: "add" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      if (selection === undefined || selection === "back") {
+        break;
+      }
+
+      if (selection === "add") {
+        const raw = yield* terminal.ask(
+          "Host (homeassistant.local, *.lan, 192.168.1.10 or 192.168.1.0/24):",
+          {
+            simple: true,
+            cancellable: true,
+            validate: (input) => {
+              const result = addPrivateHost(hosts, input);
+              return result.kind === "invalid" ? result.message : true;
+            },
+          },
+        );
+        if (raw === undefined) {
+          continue;
+        }
+        const result = addPrivateHost(hosts, raw);
+        if (result.kind === "invalid") {
+          yield* terminal.warn(result.message);
+          continue;
+        }
+        yield* applyPrivateHosts(configService, result.hosts);
+        yield* terminal.success(`Agents can now reach ${raw.trim()} without asking.`);
+        yield* terminal.log("");
+        continue;
+      }
+
+      const host = selection.slice("remove:".length);
+      yield* applyPrivateHosts(configService, removePrivateHost(hosts, host));
+      yield* terminal.success(`Removed ${host}. Reaching it asks for approval again.`);
       yield* terminal.log("");
     }
   });

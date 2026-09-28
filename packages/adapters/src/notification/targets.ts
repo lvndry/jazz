@@ -1,26 +1,25 @@
 /**
- * @fileoverview Sending one notification to one notify channel: Telegram, Discord, a signed
- * webhook, or the desktop.
+ * @fileoverview Sending one notification to one `notify` target: the desktop, an ntfy topic, a
+ * webhook (HMAC-signed when it has a secret), Telegram, or Discord.
  *
  * Every send returns a `DeliveryOutcome` and never throws, so the outbox can settle it: a
  * network error, a timeout, a 429 or a 5xx is retryable; any other refusal (a wrong token, a
- * chat the bot cannot post in, a missing secret) is not, and stays visible in
- * `jazz notify outbox` with its reason. Error text never includes a URL or header, since both
- * can carry the channel's token.
+ * chat the bot cannot post in, a missing secret, a host with no desktop session) is not, and
+ * stays visible in `jazz notify outbox` with its reason. Error text never includes a URL or
+ * header, since both can carry the target's token.
  *
- * Secrets resolve in this order: the channel's environment variable
- * (`JAZZ_NOTIFY_<CHANNEL>_<FIELD>`), the value in config.json (only present when the host has
- * no keyring), then the keyring.
+ * Secrets come from the target's environment variable (`JAZZ_NOTIFY_<NAME>_<FIELD>`), then the
+ * keyring (`notify.targets.<name>.<field>`); config.json never holds them.
  */
 
 import { createHmac } from "node:crypto";
 import { type NotifyEvent, renderNotification } from "@jazz/core/notify/events";
-import type { NotifyChannelConfig } from "@jazz/core/types/notify";
+import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/core/secrets/registry";
+import type { NotifyTarget } from "@jazz/core/types/notify";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
-import { notifyChannelSecretEnvVar, notifyChannelSecretPath } from "@/adapters/secrets/registry";
+import { sendDesktopNotification } from "./desktop-notifier";
 
 /** A send that has not answered in this long is abandoned and retried later. */
 export const NOTIFY_SEND_TIMEOUT_MS = 15_000;
@@ -45,33 +44,40 @@ export const WEBHOOK_EVENT_HEADER = "X-Jazz-Event";
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/** Reads one keyring entry by its config path. */
+export type KeyringReader = (secretPath: string) => Effect.Effect<string | undefined, never>;
+
 export interface SendContext {
   /** The outbox item's id; a webhook receiver dedupes on it. */
   readonly deliveryId: string;
   readonly fetch?: FetchLike;
   readonly env?: NodeJS.ProcessEnv;
   readonly now?: number;
+  readonly readKeyring?: KeyringReader;
 }
 
-/** A channel secret from the environment, config.json, or the keyring, in that order. */
-export function resolveChannelSecret(
-  channelName: string,
+const readSystemKeyring: KeyringReader = (secretPath) =>
+  Effect.flatMap(detectKeyringBackend(), (backend) => keyringGet(backend, secretPath));
+
+/** A target's secret from its environment variable, then the keyring. */
+export function resolveTargetSecret(
+  targetName: string,
   field: string,
-  configured: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
+  readKeyring: KeyringReader = readSystemKeyring,
 ): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {
-    const fromEnv = env[notifyChannelSecretEnvVar(channelName, field)]?.trim();
+    const fromEnv = env[notifyTargetSecretEnvVar(targetName, field)]?.trim();
     if (fromEnv !== undefined && fromEnv.length > 0) {
       return fromEnv;
     }
-    if (configured !== undefined && configured.trim().length > 0) {
-      return configured.trim();
-    }
-    const backend = yield* detectKeyringBackend();
-    const stored = yield* keyringGet(backend, notifyChannelSecretPath(channelName, field));
+    const stored = yield* readKeyring(notifyTargetSecretPath(targetName, field));
     return stored?.trim() || undefined;
   });
+}
+
+function secretHint(targetName: string, field: string): string {
+  return `set it with \`jazz config set ${notifyTargetSecretPath(targetName, field)}\` (kept in the keyring) or ${notifyTargetSecretEnvVar(targetName, field)}`;
 }
 
 /** Split `text` into parts of at most `limit` characters, preferring line breaks. */
@@ -106,9 +112,9 @@ function retryLater(error: string): DeliveryOutcome {
   return { delivered: false, error, retryable: true };
 }
 
-/** 429 and 5xx are the channel's problem and worth retrying; any other refusal is ours. */
-function outcomeOfStatus(channelLabel: string, status: number, detail: string): DeliveryOutcome {
-  const message = `${channelLabel} answered HTTP ${status}${detail.length > 0 ? `: ${detail}` : ""}`;
+/** 429 and 5xx are the service's problem and worth retrying; any other refusal is ours. */
+function outcomeOfStatus(serviceLabel: string, status: number, detail: string): DeliveryOutcome {
+  const message = `${serviceLabel} answered HTTP ${status}${detail.length > 0 ? `: ${detail}` : ""}`;
   return status === 429 || status >= 500 ? retryLater(message) : refused(message);
 }
 
@@ -126,7 +132,7 @@ async function refusalDetail(response: Response): Promise<string> {
 
 function post(
   context: SendContext,
-  channelLabel: string,
+  serviceLabel: string,
   url: string,
   body: string,
   headers: Record<string, string>,
@@ -145,13 +151,13 @@ function post(
         await response.body?.cancel().catch(() => undefined);
         return { delivered: true };
       }
-      return outcomeOfStatus(channelLabel, response.status, await refusalDetail(response));
+      return outcomeOfStatus(serviceLabel, response.status, await refusalDetail(response));
     } catch (error) {
       const name = error instanceof Error ? error.name : "";
       return retryLater(
         name === "TimeoutError"
-          ? `${channelLabel} did not answer within ${NOTIFY_SEND_TIMEOUT_MS / 1000}s`
-          : `${channelLabel} could not be reached (${name || "network error"})`,
+          ? `${serviceLabel} did not answer within ${NOTIFY_SEND_TIMEOUT_MS / 1000}s`
+          : `${serviceLabel} could not be reached (${name || "network error"})`,
       );
     }
   });
@@ -180,43 +186,73 @@ function chatText(event: NotifyEvent, approveFromChat: boolean | undefined): str
   return `${rendered.title}\n\n${rendered.body}`;
 }
 
-/** Send one event to one channel. */
-export function sendToChannel(
-  channelName: string,
-  channel: NotifyChannelConfig,
+/**
+ * The JSON body every webhook target receives: the delivery id (the same on a retry), the event
+ * kind, the rendered text, and the event itself.
+ */
+export function webhookBody(deliveryId: string, event: NotifyEvent): string {
+  const rendered = renderNotification(event);
+  return JSON.stringify({
+    id: deliveryId,
+    type: event.kind,
+    title: rendered.title,
+    body: rendered.body,
+    event,
+  });
+}
+
+/** Send one event to one target. */
+export function sendToTarget(
+  target: NotifyTarget,
   event: NotifyEvent,
   context: SendContext,
 ): Effect.Effect<DeliveryOutcome, never> {
   return Effect.gen(function* () {
     const env = context.env ?? process.env;
-    switch (channel.type) {
+    const readKeyring = context.readKeyring ?? readSystemKeyring;
+    const secretOf = (field: string) => resolveTargetSecret(target.name, field, env, readKeyring);
+    const name = target.name;
+    switch (target.kind) {
       case "desktop": {
         const rendered = renderNotification(event);
-        const shown = yield* sendDesktopNotification(rendered.title, rendered.body);
-        return shown
-          ? ({ delivered: true } as const)
-          : retryLater("No desktop notification could be shown on this host.");
+        return yield* sendDesktopNotification({ title: rendered.title, message: rendered.body });
+      }
+      case "ntfy": {
+        const rendered = renderNotification(event);
+        return yield* post(context, "ntfy", target.url, rendered.body, {
+          "content-type": "text/plain; charset=utf-8",
+          Title: rendered.title,
+          Tags: "jazz",
+        });
+      }
+      case "webhook": {
+        const secret = yield* secretOf("secret");
+        const body = webhookBody(context.deliveryId, event);
+        const timestamp = String(Math.floor((context.now ?? Date.now()) / 1000));
+        return yield* post(context, "The webhook", target.url, body, {
+          [WEBHOOK_EVENT_HEADER]: event.kind,
+          [WEBHOOK_DELIVERY_HEADER]: context.deliveryId,
+          [WEBHOOK_TIMESTAMP_HEADER]: timestamp,
+          ...(secret !== undefined
+            ? { [WEBHOOK_SIGNATURE_HEADER]: signWebhookBody(secret, timestamp, body) }
+            : {}),
+        });
       }
       case "telegram": {
-        const token = yield* resolveChannelSecret(channelName, "botToken", channel.botToken, env);
+        const token = yield* secretOf("botToken");
         if (token === undefined) {
-          return refused(
-            `No bot token for "${channelName}": set it with \`jazz config set ${notifyChannelSecretPath(channelName, "botToken")}\`.`,
-          );
+          return refused(`No bot token for "${name}": ${secretHint(name, "botToken")}.`);
         }
-        if (channel.chatId === undefined) {
-          return refused(`"${channelName}" has no chatId.`);
-        }
-        const url = `${channel.apiBaseUrl ?? DEFAULT_TELEGRAM_API}/bot${token}/sendMessage`;
+        const url = `${target.apiBaseUrl ?? DEFAULT_TELEGRAM_API}/bot${token}/sendMessage`;
         return yield* sendParts(
-          splitMessage(chatText(event, channel.approveFromChat), TELEGRAM_MESSAGE_LIMIT),
+          splitMessage(chatText(event, target.approveFromChat), TELEGRAM_MESSAGE_LIMIT),
           (part) =>
             post(
               context,
               "Telegram",
               url,
               JSON.stringify({
-                chat_id: channel.chatId,
+                chat_id: target.chatId,
                 text: part,
                 link_preview_options: { is_disabled: true },
               }),
@@ -225,15 +261,10 @@ export function sendToChannel(
         );
       }
       case "discord": {
-        const text = splitMessage(chatText(event, channel.approveFromChat), DISCORD_MESSAGE_LIMIT);
-        const botToken = yield* resolveChannelSecret(
-          channelName,
-          "botToken",
-          channel.botToken,
-          env,
-        );
-        if (botToken !== undefined && channel.channelId !== undefined) {
-          const url = `${channel.apiBaseUrl ?? DEFAULT_DISCORD_API}/channels/${channel.channelId}/messages`;
+        const text = splitMessage(chatText(event, target.approveFromChat), DISCORD_MESSAGE_LIMIT);
+        const botToken = yield* secretOf("botToken");
+        if (botToken !== undefined && target.channelId !== undefined) {
+          const url = `${target.apiBaseUrl ?? DEFAULT_DISCORD_API}/channels/${target.channelId}/messages`;
           return yield* sendParts(text, (part) =>
             post(
               context,
@@ -244,15 +275,10 @@ export function sendToChannel(
             ),
           );
         }
-        const webhookUrl = yield* resolveChannelSecret(
-          channelName,
-          "webhookUrl",
-          channel.webhookUrl,
-          env,
-        );
+        const webhookUrl = yield* secretOf("webhookUrl");
         if (webhookUrl === undefined) {
           return refused(
-            `"${channelName}" needs a webhookUrl, or a botToken with a channelId: set it with \`jazz config set ${notifyChannelSecretPath(channelName, "webhookUrl")}\`.`,
+            `"${name}" needs a webhookUrl, or a botToken with a channelId: ${secretHint(name, "webhookUrl")}.`,
           );
         }
         return yield* sendParts(text, (part) =>
@@ -264,32 +290,6 @@ export function sendToChannel(
             {},
           ),
         );
-      }
-      case "webhook": {
-        if (channel.url === undefined) {
-          return refused(`"${channelName}" has no url.`);
-        }
-        const secret = yield* resolveChannelSecret(channelName, "secret", channel.secret, env);
-        if (secret === undefined) {
-          return refused(
-            `"${channelName}" has no signing secret: set it with \`jazz config set ${notifyChannelSecretPath(channelName, "secret")}\`.`,
-          );
-        }
-        const rendered = renderNotification(event);
-        const timestamp = String(Math.floor((context.now ?? Date.now()) / 1000));
-        const body = JSON.stringify({
-          id: context.deliveryId,
-          type: event.kind,
-          title: rendered.title,
-          text: rendered.body,
-          event,
-        });
-        return yield* post(context, "The webhook", channel.url, body, {
-          [WEBHOOK_EVENT_HEADER]: event.kind,
-          [WEBHOOK_DELIVERY_HEADER]: context.deliveryId,
-          [WEBHOOK_TIMESTAMP_HEADER]: timestamp,
-          [WEBHOOK_SIGNATURE_HEADER]: signWebhookBody(secret, timestamp, body),
-        });
       }
     }
   });

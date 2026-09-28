@@ -3,6 +3,7 @@ import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
+import { carryEgressTaint } from "../execution/egress-taint";
 
 /**
  * The compaction ladder's thresholds and `ContextWindowManager`, which decides
@@ -283,7 +284,12 @@ export class ContextWindowManager {
     finalIndices.sort((a, b) => a - b);
 
     // Step 6: Rebuild messages array
-    const keptMessages: ChatMessage[] = finalIndices.map((i) => messages[i] as ChatMessage);
+    const finalIndexSet = new Set(finalIndices);
+    const droppedMessages = messages.filter((_message, index) => !finalIndexSet.has(index));
+    const keptMessages: ChatMessage[] = carryEgressTaint(
+      droppedMessages,
+      finalIndices.map((index) => messages[index] as ChatMessage),
+    );
 
     // Structural guarantee: finalIndices always contains 0,
     // and messages is ConversationMessages, so messages[0] exists.

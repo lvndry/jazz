@@ -35,7 +35,8 @@ export interface WorkStatePreambleOptions {
 
 /**
  * Returns a single message summarizing prior sessions, or `undefined` when there is
- * nothing recorded — in which case resume behaves exactly as it did before.
+ * nothing recorded — in which case resume behaves exactly as it did before. The message
+ * carries `egressTainted` when any record, shown or omitted, does.
  */
 export function buildWorkStatePreamble(
   agentId: string,
@@ -66,8 +67,10 @@ export function buildWorkStatePreamble(
       const omittedNote =
         omitted > 0 ? `\n\n(${omitted} earlier record(s) omitted to stay within budget.)` : "";
 
+      const egressTainted = entries.some((entry) => entry.egressTainted === true);
       return {
         role: "assistant",
+        ...(egressTainted ? { egressTainted: true as const } : {}),
         content:
           WORK_STATE_PREAMBLE_HEADING +
           "History before this point was compacted away. These are the records written at " +

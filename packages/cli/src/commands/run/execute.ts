@@ -617,7 +617,7 @@ export function runAgentOnceCommand(
         stoppedToolCalls !== undefined ? { stoppedToolCalls } : {},
       ),
     ),
-    // A run that parked, failed or hit a spend ceiling may have queued a notification.
+    // A run that parked, failed or hit a spend cap may have queued a notification.
     Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.

@@ -13,7 +13,13 @@ import {
 } from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import { KEYRING_SERVICE_NAME } from "./registry";
+
+/**
+ * Base Keychain/libsecret service name. Each Jazz home stores its secrets under
+ * `jazz.<home hash>` (see `keyringServiceName` in `keyring.ts`); the bare name holds only entries
+ * written before secrets were scoped per home, until the default home adopts them.
+ */
+export const KEYRING_SERVICE_NAME = "jazz";
 
 /**
  * Which secret store `keyringGet`/`keyringSet`/`keyringDelete` use.

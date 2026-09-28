@@ -341,8 +341,8 @@ export function runDueLoops(options: { readonly startNew?: boolean } = {}) {
         yield* writeLoop(loop, stopped, "stop it at a limit it reached");
         continue;
       }
-      // A spend ceiling holds the run back without stopping the loop: it runs again on the
-      // first tick after the ceiling clears, and the notify channel hears about it once.
+      // A spend cap holds the run back without stopping the loop: it runs again on the
+      // first tick after the cap clears, and the notify targets hear about it once.
       const spendBlock = yield* nextCycleBlockedBySpend({
         agentId: loop.agentId,
         origin: { source: "loop", name: loop.name },

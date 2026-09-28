@@ -13,9 +13,12 @@ import type {
   PresentationService,
 } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
-import type { ToolExecutionResult } from "@/core/types/tools";
+import type { ChatMessage } from "@/core/types/message";
+import type { ToolExecutionResult, UntrustedProvenance } from "@/core/types/tools";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { AgentRunner } from "../agent-runner";
 import { createSubagentTools } from "./subagent";
+import { createEgressTaint } from "../execution/egress-taint";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunnerOptions } from "../types";
 
@@ -107,9 +110,18 @@ function runSpawnArgs(
       }
       const waited = yield* supervisor.wait([agentId], "all", 60_000);
       const child = waited.subagents[0];
+      for (const name of ["list_subagents", "wait_subagents"]) {
+        const tool = createSubagentTools().find((candidate) => candidate.name === name)!;
+        const result = yield* tool.execute(
+          {},
+          { agentId: parentAgent.id, subagents: supervisor },
+        ) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>;
+        expect(result.untrusted).toEqual(child?.untrusted);
+      }
       return {
         success: child?.status === "completed",
         result: child?.result ?? null,
+        ...(child?.untrusted !== undefined ? { untrusted: child.untrusted } : {}),
         ...(child?.error !== undefined ? { error: child.error } : {}),
       };
     }).pipe(Effect.provide(testLayer)) as Effect.Effect<unknown, unknown, never>,
@@ -302,6 +314,61 @@ describe("spawn_subagent auto-approve inheritance", () => {
       expect(captured?.autoApprovedCommands).toEqual(["git status"]);
       expect(captured?.autoApprovedTools).toEqual(["read_file"]);
       expect(captured?.ephemeralRegionId).toBe("eph-test");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent egress taint", () => {
+  function childResult(readExternal: boolean) {
+    return spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      if (readExternal) {
+        options.egressTaint?.mark("web_fetch https://attacker.example");
+      }
+      return Effect.succeed({
+        content: "the page says hello",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+  }
+
+  it("delivers the answer as external content when the child read external content", async () => {
+    const spy = childResult(true);
+    try {
+      const parentTaint = createEgressTaint();
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, { egressTaint: parentTaint })) as {
+        result: unknown;
+        untrusted?: UntrustedProvenance;
+      };
+
+      expect(parentTaint.isTainted()).toBe(true);
+      expect(result.untrusted?.kind).toBe("external");
+      const delivered: ChatMessage = {
+        role: "tool",
+        name: "spawn_subagent",
+        tool_call_id: "spawn",
+        content: frameUntrusted(String(result.result), result.untrusted!),
+      };
+      expect(createEgressTaint([delivered]).isTainted()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("delivers a plain answer when the child read nothing external", async () => {
+    const spy = childResult(false);
+    try {
+      const parentTaint = createEgressTaint();
+      parentTaint.mark("web_fetch https://earlier.example");
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, { egressTaint: parentTaint })) as {
+        untrusted?: UntrustedProvenance;
+      };
+
+      expect(result.untrusted).toBeUndefined();
     } finally {
       spy.mockRestore();
     }

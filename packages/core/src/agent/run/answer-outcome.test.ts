@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { judgeAnswer } from "./answer-outcome";
+import { isRetryableAnswerFailure, judgeAnswer, ranTools } from "./answer-outcome";
 
 describe("judgeAnswer", () => {
   it("accepts a normal answer", () => {
@@ -70,5 +70,27 @@ describe("judgeAnswer", () => {
           .kind,
       ).toBe("answered");
     }
+  });
+});
+
+describe("isRetryableAnswerFailure", () => {
+  it("retries empty and unanswered runs, never a content filter", () => {
+    expect(isRetryableAnswerFailure("empty_response")).toBe(true);
+    expect(isRetryableAnswerFailure("no_answer")).toBe(true);
+    expect(isRetryableAnswerFailure("content_filtered")).toBe(false);
+  });
+});
+
+describe("ranTools", () => {
+  it("is true only when the run called a tool", () => {
+    expect(ranTools({})).toBe(false);
+    expect(ranTools({ toolCalls: [] })).toBe(false);
+    expect(
+      ranTools({
+        toolCalls: [
+          { id: "call-1", type: "function", function: { name: "send_email", arguments: "{}" } },
+        ],
+      }),
+    ).toBe(true);
   });
 });

@@ -1,9 +1,15 @@
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { getConfigCommand, listConfigCommand, setConfigCommand } from "./config";
+import {
+  getConfigCommand,
+  listConfigCommand,
+  setConfigCommand,
+  unknownAgentCapWarning,
+} from "./config";
 
 /**
  * `jazz config set` receives every value as a shell string, but most of
@@ -13,8 +19,12 @@ import { getConfigCommand, listConfigCommand, setConfigCommand } from "./config"
  */
 
 let writes: { key: string; value: unknown }[] = [];
+let currentAppConfig: Record<string, unknown> = {};
 
 const mockConfigService = {
+  get appConfig() {
+    return Effect.sync(() => currentAppConfig);
+  },
   set: mock((key: string, value: unknown) => {
     writes.push({ key, value });
     return Effect.void;
@@ -59,11 +69,28 @@ function failure(exit: Exit.Exit<void, ConfigurationValidationError>) {
 
 beforeEach(() => {
   writes = [];
+  currentAppConfig = {};
   askAnswer.value = "";
   ask.mockClear();
 });
 
 describe("jazz config set", () => {
+  it("refuses a notify target secret when no target by that name is configured", async () => {
+    const exit = await set("notify.targets.phone.botToken", "123:SECRET");
+
+    expect(writes).toEqual([]);
+    expect(failure(exit)?.suggestion).toContain("jazz notify add phone");
+  });
+
+  it("stores a notify target secret once the target exists", async () => {
+    currentAppConfig = { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } };
+
+    const exit = await set("notify.targets.phone.botToken", "123:SECRET");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "notify.targets.phone.botToken", value: "123:SECRET" }]);
+  });
+
   it("stores a numeric setting as a number, not the string it arrived as", async () => {
     const exit = await set("llm.streamIdleTimeoutMs", "600000");
 
@@ -130,6 +157,7 @@ describe("jazz config set", () => {
   });
 
   it("passes a secret through trimmed, including ones stored under a list", async () => {
+    currentAppConfig = { webhooks: [{ name: "deploy", agentId: "a", promptTemplate: "x" }] };
     const exit = await set("webhooks.deploy.token", " s3cret\n");
 
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -191,6 +219,38 @@ describe("jazz config set", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     expect(ask).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
+  });
+});
+
+describe("jazz config set on an agent's spend cap", () => {
+  const agents = [{ id: "k3x9", name: "inbox" }];
+
+  it("warns when the key names no agent, by name or id", () => {
+    expect(unknownAgentCapWarning("daemon.agents.typo.dailyCostUSD", agents)).toContain(
+      'No agent is named "typo" or has that id',
+    );
+    expect(unknownAgentCapWarning("daemon.agents.inbox.dailyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.agents.k3x9.monthlyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.dailyCostUSD", agents)).toBeUndefined();
+    expect(unknownAgentCapWarning("daemon.agents.typo.dailyCostUSD", [])).toBeUndefined();
+  });
+
+  it("writes the cap and warns through the terminal when the agent is unknown", async () => {
+    const warn = mockTerminal.warn as ReturnType<typeof mock>;
+    warn.mockClear();
+    const agentService = {
+      listAgents: () => Effect.succeed([{ id: "k3x9", name: "inbox" }]),
+    } as unknown as AgentService;
+
+    const exit = await Effect.runPromiseExit(
+      setConfigCommand("daemon.agents.typo.dailyCostUSD", "1").pipe(
+        Effect.provide(Layer.merge(testLayer, Layer.succeed(AgentServiceTag, agentService))),
+      ) as Effect.Effect<void, ConfigurationValidationError, never>,
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "daemon.agents.typo.dailyCostUSD", value: 1 }]);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -276,7 +336,7 @@ describe("jazz config show and get", () => {
 
     expect(shown).not.toContain("sk-live-key");
     expect(shown).not.toContain("sk-signoz");
-    expect(shown).toContain("<redacted>");
+    expect(shown).toContain("[redacted:llm.openai.api_key]");
     expect(shown).toContain('"level": "info"');
   });
 

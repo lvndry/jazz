@@ -48,6 +48,7 @@ import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
+import { llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import type { Agent, AgentConfig } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
@@ -101,7 +102,6 @@ import {
   type KeyringDependency,
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
-import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { claimDelivery, type DeliveryClaim } from "@/adapters/webhooks/deliveries";
 import { resolveWebhookSecret } from "@/adapters/webhooks/token";
 import {
@@ -437,7 +437,7 @@ export function makeHandler(
       ),
     ),
   );
-  // Resuming restarts background work and, after a pause at the daily cap, lifts the cap for the
+  // Resuming restarts background work and, when a machine daily cap is reached, lifts it for the
   // rest of the day, so it is a grant. Pausing only stops work starting, like a rejection, so the
   // daemon token is enough for that safety brake.
   app.post("/daemon/resume", (context) => {

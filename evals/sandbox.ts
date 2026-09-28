@@ -28,13 +28,13 @@ import { stubStateDirectory } from "./stubs/state";
 import { resolveLocalProviderBaseUrl } from "../packages/adapters/src/llm/models";
 import { detectKeyringBackend, keyringGet } from "../packages/adapters/src/secrets/keyring";
 import {
-  LLM_PROVIDER_ENV_VARS,
-  llmProviderApiKeyFromEnv,
-} from "../packages/adapters/src/secrets/registry";
-import {
   LOCAL_SERVER_PROVIDERS,
   type LocalServerProvider,
 } from "../packages/core/src/constants/local-providers";
+import {
+  LLM_PROVIDER_ENV_VARS,
+  llmProviderApiKeyFromEnv,
+} from "../packages/core/src/secrets/registry";
 import type { LLMConfig } from "../packages/core/src/types/config";
 
 const STUB_IMPL = join(import.meta.dir, "stubs", "impl.ts");
@@ -55,6 +55,7 @@ export const DEFAULT_STUBS = [
   "at",
   "osascript",
   "notify-send",
+  "terminal-notifier",
 ] as const;
 
 /** The user's real home, captured before any sample environment is applied. */
@@ -230,6 +231,7 @@ export function createSandbox(
       JAZZ_EVAL_OS_SANDBOX: "1",
       [NETWORK_PORTS_ENV]: networkPorts.join(","),
       JAZZ_SCHEDULER: "in-process",
+      JAZZ_TERMINAL_NOTIFIER: join(stubBin, "terminal-notifier"),
       JAZZ_DISABLE_KEYRING: "1",
       ...credentials,
       CI: "1",
