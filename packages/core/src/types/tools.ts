@@ -5,6 +5,7 @@
  */
 import type { Effect } from "effect";
 import type z from "zod";
+import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
@@ -415,6 +416,8 @@ export interface ToolExecutionContext {
    * a tool call.
    */
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
+  /** The sub-agents of the run executing this tool; set by the agent loop for every run. */
+  readonly subagents?: SubagentSupervisor;
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**

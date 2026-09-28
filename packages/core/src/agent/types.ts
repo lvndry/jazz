@@ -281,6 +281,20 @@ export interface AgentRunnerOptions {
    */
   readonly checkQueuedMessage?: () => string | undefined;
   /**
+   * Awaited at the start of each iteration, before `checkQueuedMessage` and the LLM call.
+   * `spawn_subagent` sets it on a child so the parent can pause it there; a paused child makes
+   * no model call until this returns.
+   */
+  readonly beforeStep?: () => Effect.Effect<void>;
+  /**
+   * Checked with the run's own caps between iterations: true stops the run as cost-capped.
+   * `spawn_subagent` sets it on a child to the parent's pool, so children running at once share
+   * one cost cap instead of each spending the parent's whole remainder.
+   */
+  readonly sharedCostExhausted?: () => boolean;
+  /** Told the run's cost so far after each iteration, so a parent can count a child's live spend. */
+  readonly onIterationSpend?: (costUSD: number | undefined) => void;
+  /**
    * Callback invoked when a tool call the user detached with Ctrl+B (see
    * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a
    * human-readable summary of the outcome. The default CLI wiring appends it to the

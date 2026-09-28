@@ -186,6 +186,23 @@ the telemetry records.
 
 📄 [`agent-loop.ts:221`](../../packages/core/src/agent/execution/agent-loop.ts#L221)
 
+### Background sub-agents live inside their parent's run
+
+**Decision.** A sub-agent started with `background: true` is a fiber in a scope the parent's run
+owns. Closing the run, however it ends, cancels every child still going. An answer the parent
+gives while children run, or before it read their results, waits for them and goes back to the
+model once.
+
+**Alternatives rejected.** Running background children as daemon jobs that wake the parent
+later, the way `enqueue_batch` does. That needs the parent's budget, approvals, egress state and
+cancellation carried across processes, and a way to resume a parent that already answered.
+Goals and loops already cover work that outlives a turn.
+
+**Cost accepted.** A background child cannot survive a park, a detach, or the end of the turn.
+Steering reaches a child only between its steps; only cancel is immediate.
+
+📄 [`supervisor.ts`](../../packages/core/src/agent/subagents/supervisor.ts)
+
 ---
 
 ## Running anywhere

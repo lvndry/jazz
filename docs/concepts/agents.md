@@ -194,6 +194,35 @@ The bounds, none of them optional:
 - **Cost rolls up.** The child's spend is added to the parent's, and an unpriced child makes the
   parent report its own total as incomplete rather than confidently wrong.
 
+### Background sub-agents
+
+By default the parent waits while a child works. With `background: true`, `spawn_subagent`
+returns an `agentId` at once and the child runs while the parent keeps working, at most four at a
+time. The parent then manages its children with three tools:
+
+| Tool             | What it does                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `list_subagents` | Each child's status (running, paused, waiting on an approval, done), activity and spend so far |
+| `wait_subagents` | Waits until any or all of them finish, and returns their results in one call                   |
+| `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                |
+
+Guidance and pauses take effect before the child's next model call; a paused child spends
+nothing. Cancelling stops it at once, with the tools and processes it started. A child finishing
+is announced to the parent on its next step, so the parent does not have to keep checking.
+
+Background children belong to the run that started them:
+
+- **They never outlive the turn.** If the parent answers while children are still going, Jazz
+  cancels the paused ones, waits for the rest, and gives the parent one more step to read their
+  results. Work that should continue after the turn is a [goal](../features/goals-and-loops.md).
+- **They share one budget.** Every child reports its spend after each step, and the parent's
+  `maxCostUSD` counts it, so children running together stop at the parent's cap instead of each
+  spending the whole remainder.
+- **Their approvals name them.** In chat, a child's approval prompt starts with its name. In an
+  unattended run, a child's gated call is declined, as for any sub-agent, and the child reports
+  that to the parent.
+- **They stop when the run parks or detaches.** A resumed run starts with no children.
+
 A subagent is not a [peer](./agent-to-agent.md). A subagent is yours, on your machine, inside
 your trust boundary. A peer belongs to somebody else and is bounded by a disclosure tier because
 of it.

@@ -32,6 +32,11 @@ Releases before this file existed are described in their
 
 ### Added
 
+- **Steerable background sub-agents.** `spawn_subagent` takes `background: true` to return an
+  `agentId` at once while the child works. The parent can then `list_subagents`, `wait_subagents`
+  for any or all of them, and `steer_subagent` to message, pause, resume or cancel one. Children
+  never outlive the turn; an answer given before their results were read waits for them and
+  goes back to the model once. Sub-agents running together now share the parent's `maxCostUSD`.
 - `bun run test:e2e`: `jazz run --json` against a scripted model server, covering a tool
   call, an approval park (exit 2) and `jazz runs approve`.
 - Release binaries and `SHA256SUMS` carry signed build provenance
