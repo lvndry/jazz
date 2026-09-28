@@ -544,10 +544,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const durationMs = Date.now() - this.reasoningStartedAt;
     const seconds = (durationMs / 1000).toFixed(1);
     const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
+    // A provider that reasons without returning the text leaves Ctrl+R nothing to expand.
+    const expandHint = this.reasoningFullText.trim().length > 0 ? " · ctrl+r to expand" : "";
     const line = chalk.dim(
-      chalk.italic(
-        `${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment} · ctrl+r to expand`,
-      ),
+      chalk.italic(`${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment}${expandHint}`),
     );
 
     store.collapseEphemeral(this.reasoningRegionId, {

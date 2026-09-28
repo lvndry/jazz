@@ -475,6 +475,26 @@ describe("InkStreamingRenderer", () => {
       }
     });
 
+    test("reasoning that returned no text does not offer Ctrl+R", () => {
+      const originalCollapse = store.collapseEphemeral;
+      const lines: string[] = [];
+      store.collapseEphemeral = (id, summary) => {
+        if (summary.line !== undefined) lines.push(summary.line);
+        originalCollapse(id, summary);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+        Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("Reasoning");
+        expect(lines[0]).not.toContain("ctrl+r");
+      } finally {
+        store.collapseEphemeral = originalCollapse;
+      }
+    });
+
     test("when collapseReasoning is false, thinking settles as full text without Ctrl+R", async () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",
