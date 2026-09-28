@@ -593,18 +593,24 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
       continue;
     }
 
-    const fence = /^\s*```(.*)$/.exec(line);
+    const fence = /^(\s*)```(.*)$/.exec(line);
     if (fence !== null) {
+      // A fence opened inside a list item is indented with it; the body loses
+      // that same indentation, as CommonMark reads it, so code starts on the
+      // band's edge instead of floating inside it.
+      const opener = (fence[1] ?? "").length;
       const body: string[] = [];
       index += 1;
       while (index < lines.length && !/^\s*```/.test(lines[index] ?? "")) {
-        body.push(lines[index] ?? "");
+        const bodyLine = lines[index] ?? "";
+        const leading = bodyLine.length - bodyLine.trimStart().length;
+        body.push(bodyLine.slice(Math.min(opener, leading)));
         index += 1;
       }
       index += 1;
       items.push({
         kind: "fence",
-        language: (fence[1] ?? "").trim().split(/\s+/)[0] ?? "",
+        language: (fence[2] ?? "").trim().split(/\s+/)[0] ?? "",
         lines: body,
       });
       continue;

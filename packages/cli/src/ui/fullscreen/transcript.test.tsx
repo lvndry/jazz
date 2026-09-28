@@ -1429,6 +1429,15 @@ describe("code fences", () => {
     expect(band[0]?.contentWidth).toBe(PROSE_MEASURE + 11);
   });
 
+  it("strips a list item's indentation from a fence opened inside it", () => {
+    const nested =
+      "1. Install:\n\n   ```bash\n   curl -fsSL https://example.com | bash\n     indented\n   ```";
+    const rows = transcriptRows(agent(nested), WIDE);
+    const texts = rows.filter((row) => row.backgroundColor !== undefined).map(contentText);
+    expect(texts).toContain("curl -fsSL https://example.com | bash");
+    expect(texts).toContain("  indented");
+  });
+
   it("does not colour a URL in a shell fence as a comment", () => {
     const rows = transcriptRows(agent(markdown), WIDE);
     const curl = rows.find((row) => contentText(row).startsWith("curl"));
