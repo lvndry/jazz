@@ -14,7 +14,7 @@
  * query that matches nothing does not move anything the reader is looking at.
  */
 
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
@@ -106,10 +106,43 @@ function markLine(hit: SearchHit, width: number): MarkedLine {
   };
 }
 
-function countLabel(total: number): string {
+function countLabel(total: number, conversations: number): string {
   if (total === 0) return "no matches";
-  if (total === 1) return "1 match";
-  return `${String(total)} matches`;
+  const matches = total === 1 ? "1 match" : `${String(total)} matches`;
+  return `${matches} in ${String(conversations)} ${conversations === 1 ? "conversation" : "conversations"}`;
+}
+
+/** One row of the result list: a conversation's heading, or one matched line beneath it. */
+export type SearchResultRow =
+  | { readonly kind: "conversation"; readonly hit: SearchHit; readonly selected: boolean }
+  | { readonly kind: "line"; readonly hit: SearchHit; readonly index: number };
+
+/**
+ * Hits grouped under the conversation they came from, in rank order: a run of hits from
+ * one conversation shares a heading, so the title and date are read once rather than per
+ * line. Grouping never reorders; a conversation that ranks twice appears twice.
+ */
+export function searchResultRows(hits: readonly SearchHit[], selected: number): SearchResultRow[] {
+  const rows: SearchResultRow[] = [];
+  let groupStart = 0;
+  hits.forEach((hit, index) => {
+    if (index === 0 || hits[index - 1]?.conversationId !== hit.conversationId) {
+      groupStart = index;
+      let groupEnd = index;
+      while (hits[groupEnd + 1]?.conversationId === hit.conversationId) groupEnd += 1;
+      rows.push({
+        kind: "conversation",
+        hit,
+        selected: selected >= groupStart && selected <= groupEnd,
+      });
+    }
+    rows.push({ kind: "line", hit, index });
+  });
+  return rows;
+}
+
+function conversationCount(hits: readonly SearchHit[]): number {
+  return new Set(hits.map((hit) => hit.conversationId)).size;
 }
 
 export interface SearchProps {
@@ -135,21 +168,22 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
   const { width, inner, height, cardHeight, listRows, left, top } = searchLayout(viewport);
 
   const scopeLabel = model.scope === "conversation" ? "this conversation" : "all conversations";
-  const pillWidth = displayWidth(scopeLabel) + 4;
-  const queryWidth = Math.max(4, inner - pillWidth - 3);
+  const count = countLabel(model.hits.length, conversationCount(model.hits));
+  const queryWidth = Math.max(4, inner - displayWidth(count) - 3);
   const lineWidth = Math.max(4, inner - LINE_INDENT);
   const selected = Math.max(0, Math.min(model.selected, model.hits.length - 1));
+  const resultRows = searchResultRows(model.hits, selected);
+  const selectedRow = resultRows.findIndex((row) => row.kind === "line" && row.index === selected);
 
   const list = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
     const box = list.current;
     if (box === null) return;
-    const target = selected * HIT_ROWS;
+    // Bring the conversation heading into view with its line when there is room.
+    const target = Math.max(0, selectedRow - 1);
     if (target < box.scrollTop) box.scrollTop = target;
-    else if (target + HIT_ROWS > box.scrollTop + listRows) {
-      box.scrollTop = target + HIT_ROWS - listRows;
-    }
-  }, [selected, listRows]);
+    else if (selectedRow + 1 > box.scrollTop + listRows) box.scrollTop = selectedRow + 1 - listRows;
+  }, [selectedRow, listRows]);
 
   return (
     <box
@@ -168,8 +202,6 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          // The band's padding rows stand where the old frame's top and bottom
-          // edges were, so every row count below is unchanged.
           ...bandStyle(glyphs, THEME.surface, THEME.border),
           paddingTop: 1,
           paddingBottom: 1,
@@ -183,16 +215,10 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
             width={queryWidth}
           />
           <box style={{ flexGrow: 1 }} />
-          <text style={{ flexShrink: 0 }}>
-            <span style={{ fg: THEME.muted }}>{"[ "}</span>
-            <span style={{ fg: THEME.primary }}>{scopeLabel}</span>
-            <span style={{ fg: THEME.muted }}>{" ]"}</span>
-          </text>
+          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{count}</text>
         </box>
 
-        <text style={{ fg: THEME.border, height: 1, flexShrink: 0 }}>
-          {glyphs.divider.repeat(inner)}
-        </text>
+        <box style={{ height: 1, flexShrink: 0 }} />
 
         {model.hits.length === 0 ? (
           <box style={{ height: listRows, flexShrink: 0, flexDirection: "column" }}>
@@ -203,62 +229,77 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
         ) : (
           <scrollbox
             style={{ height: listRows, flexShrink: 0 }}
-            scrollbarOptions={{ visible: model.hits.length * HIT_ROWS > listRows }}
+            scrollbarOptions={{ visible: resultRows.length > listRows }}
             ref={(instance: ScrollBoxRenderable | null) => {
               list.current = instance;
             }}
           >
-            {model.hits.map((hit, index) => {
-              const isSelected = index === selected;
-              const marked = markLine(hit, lineWidth);
-              // Selection is the title's weight and colour; which session the
-              // hit came from is the marker beside it. One channel each.
-              const titleColor = isSelected ? THEME.selected : THEME.secondary;
-              return (
-                <box
-                  key={`${hit.conversationId}-${String(index)}`}
-                  style={{ height: HIT_ROWS, flexShrink: 0, flexDirection: "column" }}
-                >
-                  <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-                    <text style={{ fg: THEME.primary, flexShrink: 0 }}>
-                      {isSelected ? glyphs.rail : " "}
-                    </text>
+            {resultRows.map((row, rowIndex) => {
+              if (row.kind === "conversation") {
+                const { hit } = row;
+                // Selection is the title's weight; which session the hit came from is the
+                // marker beside it. One channel each.
+                const title = clip(oneLine(hit.conversationTitle), inner - LINE_INDENT - 12);
+                return (
+                  <box
+                    key={`title-${String(rowIndex)}`}
+                    style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                  >
+                    <text style={{ flexShrink: 0 }}> </text>
                     <text style={{ fg: hit.current ? THEME.primary : THEME.muted, flexShrink: 0 }}>
                       {`${hit.current ? glyphs.active : glyphs.pending} `}
                     </text>
                     <text style={{ flexGrow: 1 }}>
-                      {isSelected ? (
-                        <b style={{ fg: titleColor }}>
-                          {clip(oneLine(hit.conversationTitle), inner - LINE_INDENT - 12)}
-                        </b>
+                      {row.selected ? (
+                        <b style={{ fg: THEME.selected }}>{title}</b>
                       ) : (
-                        <span style={{ fg: titleColor }}>
-                          {clip(oneLine(hit.conversationTitle), inner - LINE_INDENT - 12)}
-                        </span>
+                        <span style={{ fg: THEME.secondary }}>{title}</span>
                       )}
                     </text>
                     <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(hit.when, 11)}</text>
                   </box>
-                  <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-                    <text style={{ width: LINE_INDENT, flexShrink: 0 }}> </text>
-                    <text style={{ fg: THEME.secondary }}>
-                      <span style={{ fg: THEME.secondary }}>{marked.before}</span>
-                      <u style={{ fg: THEME.selected }}>{marked.match}</u>
-                      <span style={{ fg: THEME.secondary }}>{marked.after}</span>
-                    </text>
-                  </box>
+                );
+              }
+              const isSelected = row.index === selected;
+              const marked = markLine(row.hit, lineWidth);
+              const lineColor = isSelected ? THEME.secondary : THEME.muted;
+              return (
+                <box
+                  key={`line-${String(rowIndex)}`}
+                  style={{
+                    height: 1,
+                    flexShrink: 0,
+                    flexDirection: "row",
+                    // The selected line lifts to the element plane, like every list's selection.
+                    ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
+                  }}
+                >
+                  <text style={{ fg: THEME.primary, flexShrink: 0 }}>
+                    {isSelected ? glyphs.rail : " "}
+                  </text>
+                  <text style={{ width: LINE_INDENT - 1, flexShrink: 0 }}> </text>
+                  <text>
+                    <span style={{ fg: lineColor }}>{marked.before}</span>
+                    <span
+                      style={{
+                        fg: THEME.selected,
+                        attributes: TextAttributes.BOLD | TextAttributes.UNDERLINE,
+                      }}
+                    >
+                      {marked.match}
+                    </span>
+                    <span style={{ fg: lineColor }}>{marked.after}</span>
+                  </text>
                 </box>
               );
             })}
           </scrollbox>
         )}
 
-        <text style={{ fg: THEME.border, height: 1, flexShrink: 0 }}>
-          {glyphs.divider.repeat(inner)}
-        </text>
+        <box style={{ height: 1, flexShrink: 0 }} />
 
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{countLabel(model.hits.length)}</text>
+          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{`searching ${scopeLabel}`}</text>
           <box style={{ flexGrow: 1 }} />
           {model.hits.length > 0 ? (
             <text style={{ fg: THEME.muted, flexShrink: 0 }}>
@@ -273,7 +314,6 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
           height: HINT_ROWS,
           flexShrink: 0,
           flexDirection: "row",
-          backgroundColor: THEME.canvas,
           paddingLeft: CARD_PAD + 1,
           paddingRight: CARD_PAD + 1,
         }}

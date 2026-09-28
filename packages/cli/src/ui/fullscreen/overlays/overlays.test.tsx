@@ -25,7 +25,7 @@ import {
   COLLAPSED_FIELD_CELLS,
   wrapProse,
 } from "./Approval";
-import { Search } from "./Search";
+import { Search, searchResultRows } from "./Search";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import {
@@ -681,6 +681,53 @@ describe("search overlay", () => {
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 1]).toContain("insert");
     narrow.renderer.destroy();
+  });
+
+  it("groups a run of hits under one conversation heading, in rank order", async () => {
+    const hit = (conversationId: string, title: string, line: string) => ({
+      agentId: "agent-1",
+      conversationId,
+      conversationTitle: title,
+      when: "today",
+      line,
+      matchStart: line.indexOf("venue"),
+      matchLength: 5,
+      current: false,
+    });
+    const hits = [
+      hit("wedding", "Wedding planning", "confirm the venue with Dana"),
+      hit("wedding", "Wedding planning", "the venue holds 80"),
+      hit("trip", "Lisbon trip", "the venue is walking distance"),
+    ];
+    const grouped = searchResultRows(hits, 1);
+    expect(grouped.map((row) => row.kind)).toEqual([
+      "conversation",
+      "line",
+      "line",
+      "conversation",
+      "line",
+    ]);
+    expect(grouped[0]).toMatchObject({ kind: "conversation", selected: true });
+    expect(grouped[3]).toMatchObject({ kind: "conversation", selected: false });
+
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Search
+        model={{ ...SEARCH, query: "venue", hits, selected: 1 }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame.split("Wedding planning")).toHaveLength(2);
+    expect(frame).toContain("3 matches in 2 conversations");
+    const matches = allSpans(captureSpans()).filter(
+      (span) => (span.attributes & TextAttributes.UNDERLINE) !== 0,
+    );
+    expect(matches).toHaveLength(3);
+    for (const span of matches) {
+      expect(span.attributes & TextAttributes.BOLD).not.toBe(0);
+    }
+    renderer.destroy();
   });
 
   it("keeps a long line's match on screen", async () => {
