@@ -45,6 +45,8 @@ import type {
   SchedulerMode,
   StorageConfig,
   TelemetryConfig,
+  UiCanvasMode,
+  UiConfig,
   VllmProviderConfig,
   WebSearchConfig,
 } from "@/core/types/config";
@@ -463,6 +465,14 @@ const schedulerShape = {
   mode: exhaustiveEnum<SchedulerMode>()(["auto", "in-process"]).exactOptional(),
 } satisfies SchemaShape<SchedulerConfig>;
 
+const uiShape = {
+  theme: described(
+    z.string().regex(/^[a-z0-9][a-z0-9-]*(:(dark|light))?$/),
+    "a theme name, optionally with :dark or :light",
+  ).exactOptional(),
+  canvas: exhaustiveEnum<UiCanvasMode>()(["inherit", "painted"]).exactOptional(),
+} satisfies SchemaShape<UiConfig>;
+
 const mcpOverrideShape = {
   enabled: flag.exactOptional(),
   trusted: flag.exactOptional(),
@@ -591,6 +601,7 @@ const configFileShape = {
     } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
     .exactOptional(),
   spend: z.strictObject(spendShape).exactOptional(),
+  ui: z.strictObject(uiShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */
