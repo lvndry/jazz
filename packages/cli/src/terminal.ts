@@ -25,7 +25,7 @@ import { maskSecret } from "@/cli/ui/mask-secret";
 import { reportAnsiText } from "@/cli/ui/report-ansi";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
-import { CHALK_THEME } from "@/cli/ui/theme";
+import { CHALK_THEME, PADDING_BUDGET } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
 
 // Singleton guard to prevent accidental double instantiation
@@ -233,7 +233,7 @@ export class InkTerminalService implements TerminalService {
       const entry: OutputEntry = isTerminalReport(message)
         ? {
             type: "log",
-            message: reportAnsiText(message),
+            message: reportAnsiText(message, getTerminalWidth() - PADDING_BUDGET),
             timestamp: new Date(),
             meta: { report: message, plainText: reportPlainText(message, getGlyphs()) },
           }

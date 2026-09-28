@@ -212,11 +212,95 @@ export function reportLines(report: TerminalReport, glyphs: GlyphSet): ReportLin
   );
 }
 
-/** The report as plain text, for pipes, logs, persisted history and bots. */
-export function reportPlainText(report: TerminalReport, glyphs: GlyphSet): string {
-  return reportLines(report, glyphs)
-    .map((line) =>
-      `${" ".repeat(line.indent)}${line.segments.map((segment) => segment.text).join("")}`.trimEnd(),
-    )
-    .join("\n");
+/**
+ * Break one line's segments into rows at most `width` cells wide, at spaces where it can and
+ * mid-word only when a word alone is wider than the row. Roles carry over to every piece.
+ */
+function wrapSegments(segments: readonly ReportSegment[], width: number): ReportSegment[][] {
+  const rows: ReportSegment[][] = [[]];
+  let used = 0;
+  const push = (text: string, role: ReportRole): void => {
+    const row = rows[rows.length - 1] as ReportSegment[];
+    const last = row.at(-1);
+    if (last !== undefined && last.role === role) {
+      row[row.length - 1] = { text: last.text + text, role };
+    } else {
+      row.push({ text, role });
+    }
+    used += [...text].length;
+  };
+  const breakRow = (): void => {
+    const row = rows[rows.length - 1] as ReportSegment[];
+    const last = row.at(-1);
+    if (last !== undefined) {
+      row[row.length - 1] = { ...last, text: last.text.trimEnd() };
+    }
+    rows.push([]);
+    used = 0;
+  };
+  for (const segment of segments) {
+    for (const piece of segment.text.split(/(?<= )/)) {
+      let rest = piece;
+      while ([...rest].length > 0) {
+        const room = width - used;
+        const length = [...rest].length;
+        if (length <= room || [...rest.trimEnd()].length <= room) {
+          push(rest, segment.role);
+          break;
+        }
+        if (used > 0 && length <= width) {
+          breakRow();
+          continue;
+        }
+        const head = [...rest].slice(0, Math.max(1, room)).join("");
+        push(head, segment.role);
+        rest = [...rest].slice([...head].length).join("");
+        breakRow();
+      }
+    }
+  }
+  return rows;
+}
+
+function textOf(
+  report: TerminalReport,
+  glyphs: GlyphSet,
+  width: number | undefined,
+  paint: (segment: ReportSegment) => string,
+): string {
+  const lines = reportLines(report, glyphs);
+  const labelColumn = [...(lines[0]?.segments[0]?.text ?? "")].length;
+  const out: string[] = [];
+  lines.forEach((line, index) => {
+    const head = index === 0 ? line.segments.slice(0, 1) : [];
+    const body = index === 0 ? line.segments.slice(1) : line.segments;
+    const indent = index === 0 ? 0 : line.indent;
+    const rows =
+      width === undefined || width <= labelColumn
+        ? [body]
+        : wrapSegments(body, Math.max(1, width - labelColumn));
+    rows.forEach((row, rowIndex) => {
+      const lead =
+        rowIndex === 0
+          ? `${" ".repeat(indent)}${head.map(paint).join("")}`
+          : " ".repeat(labelColumn);
+      out.push(`${lead}${row.map(paint).join("")}`.trimEnd());
+    });
+  });
+  return out.join("\n");
+}
+
+/** The report as plain text for pipes, logs, persisted history and bots, wrapped when `width` is given. */
+export function reportPlainText(report: TerminalReport, glyphs: GlyphSet, width?: number): string {
+  return textOf(report, glyphs, width, (segment) => segment.text);
+}
+
+/** The report as text with each segment styled by `paint`, wrapped when `width` is given. */
+export function reportStyledText(
+  report: TerminalReport,
+  glyphs: GlyphSet,
+  paint: (role: ReportRole, text: string) => string,
+  width?: number,
+): string {
+  return textOf(report, glyphs, width, (segment) => paint(segment.role, segment.text));
 }

@@ -11,6 +11,7 @@
  * `setSkillCommands`, `setMcpPromptCommands` and `setPluginCommands`. Built-ins
  * win every name collision, including against aliases.
  */
+import { report, type TerminalReport } from "@jazz/core/interfaces/terminal";
 import { closestMatch } from "@jazz/core/utils/string";
 import type { BuiltinCommandType } from "./types";
 
@@ -258,22 +259,25 @@ export function commandSignature(command: ChatCommandInfo): string {
 }
 
 /**
- * The lines `/help <command>` prints for a command's forms: each form padded
- * to one column, then its meaning, then the closing note.
+ * What `/help <command>` says about a built-in, and what a command prints when it is run
+ * without the arguments it needs: every form with its meaning, and the closing note.
  */
-export function commandFormLines(command: BuiltinChatCommand): readonly string[] {
-  const forms = command.forms ?? [];
-  const width = Math.max(0, ...forms.map((entry) => entry.form.length));
-  return [
-    ...forms.map((entry) => `${entry.form.padEnd(width)}  ${entry.meaning}`),
-    ...(command.note === undefined ? [] : ["", command.note]),
-  ];
+export function commandUsage(command: BuiltinChatCommand): TerminalReport {
+  return report(
+    `/${command.name}`,
+    (command.forms ?? []).map((entry) => ({
+      kind: "item",
+      name: entry.form,
+      detail: entry.meaning,
+    })),
+    command.note,
+  );
 }
 
-/** The help lines for one built-in command by name, for handlers that print their own usage. */
-export function builtinFormLines(name: string): readonly string[] {
+/** The usage report for one built-in command by name, for handlers that print their own usage. */
+export function builtinUsage(name: string): TerminalReport | undefined {
   const command = findBuiltinCommand(name);
-  return command === undefined ? [] : commandFormLines(command);
+  return command === undefined ? undefined : commandUsage(command);
 }
 
 /** Names a registered skill, MCP prompt, or plugin command may not take. */

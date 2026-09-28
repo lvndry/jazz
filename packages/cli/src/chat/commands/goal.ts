@@ -31,7 +31,7 @@ import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeGoalNow, describePlan, goalHandle } from "@/cli/goals/describe-goal";
-import { builtinFormLines } from "./constants";
+import { builtinUsage } from "./constants";
 import type { CommandContext, CommandResult } from "./types";
 
 /** Words of the objective a goal is named after. */
@@ -358,7 +358,7 @@ export function handleGoalCommand(
           const terminal = yield* TerminalServiceTag;
           const goal = yield* openGoal(context.conversationId);
           if (goal === undefined) {
-            yield* Effect.forEach(builtinFormLines("goal"), (line) => terminal.log(line));
+            yield* terminal.log(builtinUsage("goal") ?? "");
             return;
           }
           yield* terminal.log(yield* describeGoalNow(goal, "chat"));
@@ -366,9 +366,7 @@ export function handleGoalCommand(
       );
     case "help":
       return done(
-        Effect.flatMap(TerminalServiceTag, (terminal) =>
-          Effect.forEach(builtinFormLines("goal"), (line) => terminal.log(line)),
-        ),
+        Effect.flatMap(TerminalServiceTag, (terminal) => terminal.log(builtinUsage("goal") ?? "")),
       );
     case "list":
       return done(

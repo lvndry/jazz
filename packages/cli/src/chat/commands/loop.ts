@@ -25,7 +25,7 @@ import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeLoopNow } from "@/cli/loops/describe-loop";
-import { builtinFormLines } from "./constants";
+import { builtinUsage } from "./constants";
 import type { CommandContext } from "./types";
 
 /** Fields a cron expression takes, read after `/loop cron`. */
@@ -188,9 +188,7 @@ export function handleLoopCommand(context: CommandContext, args: readonly string
     case undefined:
     case "help":
       return done(
-        Effect.flatMap(TerminalServiceTag, (terminal) =>
-          Effect.forEach(builtinFormLines("loop"), (line) => terminal.log(line)),
-        ),
+        Effect.flatMap(TerminalServiceTag, (terminal) => terminal.log(builtinUsage("loop") ?? "")),
       );
     case "list":
       return done(

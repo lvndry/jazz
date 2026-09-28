@@ -109,20 +109,14 @@ import {
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
 import { store } from "@/cli/ui/store";
-import {
-  applyTheme,
-  listThemes,
-  PADDING_BUDGET,
-  themeWarnings,
-  type ThemeListing,
-} from "@/cli/ui/theme";
+import { applyTheme, listThemes, themeWarnings, type ThemeListing } from "@/cli/ui/theme";
 import { pickThemeInteractively } from "@/cli/ui/theme-picker-prompt";
 import { getUserThemesDirectory } from "@/cli/ui/themes/registry";
 import * as fmt from "@/cli/utils/list-format";
 import { truncate } from "@/cli/utils/string-utils";
 import {
   CHAT_COMMANDS,
-  commandFormLines,
+  commandUsage,
   commandSignature,
   findBuiltinCommand,
   findCommand,
@@ -766,23 +760,11 @@ function handleThemeCommand(
   });
 }
 
-/** Width of the command column in /help. */
-const HELP_COMMAND_COLUMN = 34;
-/** The row indent `fmt.commandRow` adds. */
-const HELP_ROW_INDENT = 3;
-/** Width assumed when the terminal does not report one. */
-const DEFAULT_TERMINAL_COLUMNS = 80;
+/** Longest command form /help shows in full; `/help <command>` has every form. */
+const HELP_LABEL_MAX = 32;
 
-/**
- * One /help row that fits the terminal: a label longer than the command column
- * is cut to it (the full form is under `/help <command>`), and the description
- * is cut to what is left of the line.
- */
-function helpRow(label: string, description: string, terminalColumns: number): string {
-  const lineWidth = Math.max(HELP_COMMAND_COLUMN + 10, terminalColumns - PADDING_BUDGET);
-  const fittedLabel = truncate(label, HELP_COMMAND_COLUMN - 2);
-  const descriptionWidth = lineWidth - HELP_ROW_INDENT - HELP_COMMAND_COLUMN;
-  return fmt.commandRow(fittedLabel, truncate(description, descriptionWidth), HELP_COMMAND_COLUMN);
+function helpItem(label: string, description: string): ReportRow {
+  return { kind: "item", name: truncate(label, HELP_LABEL_MAX), detail: description };
 }
 
 /**
@@ -796,7 +778,6 @@ function handleHelpCommand(
   args: string[],
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
     const requested = args[0]?.toLowerCase().replace(/^\//, "");
     if (requested !== undefined) {
       const command = findCommand(requested);
@@ -809,66 +790,71 @@ function handleHelpCommand(
         );
         return { shouldContinue: true };
       }
-      yield* terminal.log(fmt.heading(`/${command.name}`));
-      yield* terminal.log(fmt.keyValueCompact("Usage", commandSignature(command)));
-      yield* terminal.log(fmt.keyValueCompact("Description", command.description));
-      if (command.aliases !== undefined && command.aliases.length > 0) {
-        yield* terminal.log(
-          fmt.keyValueCompact("Also", command.aliases.map((alias) => `/${alias}`).join(", ")),
-        );
-      }
-      if (command.source !== undefined) {
-        yield* terminal.log(fmt.keyValueCompact("From", COMMAND_SOURCE_LABEL[command.source]));
-      }
       const builtin = findBuiltinCommand(command.name);
-      const formLines = builtin === undefined ? [] : commandFormLines(builtin);
-      if (formLines.length > 0) {
-        yield* terminal.log(fmt.blank());
-        yield* Effect.forEach(formLines, (line) => terminal.log(line));
-      }
-      yield* terminal.log(fmt.blank());
+      const usage = builtin === undefined ? undefined : commandUsage(builtin);
+      yield* terminal.log(
+        report(
+          `/${command.name}`,
+          [
+            { kind: "field", key: "usage", value: commandSignature(command) },
+            { kind: "field", key: "does", value: command.description },
+            ...(command.aliases !== undefined && command.aliases.length > 0
+              ? [
+                  {
+                    kind: "field",
+                    key: "also",
+                    value: command.aliases.map((alias) => `/${alias}`).join(", "),
+                  } as const,
+                ]
+              : []),
+            ...(command.source === undefined
+              ? []
+              : [
+                  {
+                    kind: "field",
+                    key: "from",
+                    value: COMMAND_SOURCE_LABEL[command.source],
+                  } as const,
+                ]),
+            ...(usage === undefined || usage.rows.length === 0
+              ? []
+              : [{ kind: "gap" } as const, ...usage.rows]),
+          ],
+          usage?.note,
+        ),
+      );
       return { shouldContinue: true };
     }
 
-    const commandRows = (entries: readonly ChatCommandInfo[]): string =>
-      entries
-        .map((command) => helpRow(commandSignature(command), command.description, terminalColumns))
-        .join("\n");
-
-    yield* terminal.log(fmt.heading("Available Commands"));
-    yield* terminal.log(commandRows(CHAT_COMMANDS));
-    yield* terminal.log(
-      helpRow(
-        SHELL_ESCAPE_FORM,
-        "Run a shell command and give its output to the agent",
-        terminalColumns,
-      ),
-    );
-
     const registered = registeredCommands();
     const sections: readonly (readonly [string, readonly ChatCommandInfo[]])[] = [
-      ["Skills", registered.skills],
-      ["MCP Prompts", registered.mcpPrompts],
-      ["Plugin Commands", registered.plugins],
+      ["skills", registered.skills],
+      ["mcp prompts", registered.mcpPrompts],
+      ["plugin commands", registered.plugins],
+    ];
+    const rows: ReportRow[] = [
+      { kind: "group", label: "commands" },
+      ...CHAT_COMMANDS.map((command) => helpItem(commandSignature(command), command.description)),
+      helpItem(SHELL_ESCAPE_FORM, "Run a shell command and give its output to the agent"),
     ];
     for (const [title, entries] of sections) {
       if (entries.length === 0) {
         continue;
       }
-      yield* terminal.log(fmt.blank());
-      yield* terminal.log(fmt.heading(title));
-      yield* terminal.log(commandRows(entries));
+      rows.push(
+        { kind: "gap" },
+        { kind: "group", label: title },
+        ...entries.map((command) => helpItem(commandSignature(command), command.description)),
+      );
     }
-
-    yield* terminal.log(fmt.blank());
-    yield* terminal.log(fmt.heading("Keyboard Shortcuts"));
-    yield* terminal.log(
-      KEYMAPS[activeKeymapMode()]
-        .map((binding) => helpRow(bindingLabel(binding), binding.action, terminalColumns))
-        .join("\n"),
+    rows.push(
+      { kind: "gap" },
+      { kind: "group", label: "keys" },
+      ...KEYMAPS[activeKeymapMode()].map((binding) =>
+        helpItem(bindingLabel(binding), binding.action),
+      ),
     );
-    yield* terminal.log(fmt.footer("Run /help <command> for details on a specific command."));
-    yield* terminal.log(fmt.blank());
+    yield* terminal.log(report("help", rows, "Run /help <command> for every form of one command."));
     return { shouldContinue: true };
   });
 }
@@ -3081,23 +3067,6 @@ function switchChatMode(
 // ============================================================================
 
 /**
- * Symbols for context visualization. Resolved per call so the glyph mode
- * (unicode block shades vs portable ASCII) is honored at render time.
- */
-function contextSymbols(): { used: string; free: string; buffer: string } {
-  const glyphs = getGlyphs();
-  return {
-    used: glyphs.gridFilled,
-    free: glyphs.gridEmpty,
-    buffer: glyphs.gridReserved,
-  };
-}
-
-/** Grid dimensions for visualization (10x10 = 100 cells) */
-const GRID_SIZE = 10;
-const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
-
-/**
  * Space reserved for autocompact: whatever sits above the ratio at which compaction
  * actually fires, so the grid and the runtime agree on where the ceiling is.
  */
@@ -3218,45 +3187,6 @@ function calculateContextUsage(
     autocompactBuffer,
     contextWindow,
   };
-}
-
-/**
- * Generate the visual context grid
- */
-function generateContextGrid(usage: ContextUsageBreakdown): string[] {
-  const { totalUsed, freeSpace, autocompactBuffer, contextWindow } = usage;
-
-  // Calculate cell allocations
-  const usedCells = Math.round((totalUsed / contextWindow) * TOTAL_CELLS);
-  const freeCells = Math.round((freeSpace / contextWindow) * TOTAL_CELLS);
-  const bufferCells = Math.round((autocompactBuffer / contextWindow) * TOTAL_CELLS);
-
-  // Ensure we fill exactly 100 cells
-  const adjusted = usedCells + freeCells + bufferCells;
-  let adjustedFreeCells = freeCells;
-  if (adjusted !== TOTAL_CELLS) {
-    adjustedFreeCells = TOTAL_CELLS - usedCells - bufferCells;
-  }
-
-  // Build the grid string
-  const symbols = contextSymbols();
-  const cells: string[] = [];
-  for (let i = 0; i < usedCells; i++) cells.push(symbols.used);
-  for (let i = 0; i < Math.max(0, adjustedFreeCells); i++) cells.push(symbols.free);
-  for (let i = 0; i < bufferCells; i++) cells.push(symbols.buffer);
-
-  // Pad or trim to exactly 100 cells
-  while (cells.length < TOTAL_CELLS) cells.push(symbols.free);
-  cells.length = TOTAL_CELLS;
-
-  // Format into rows
-  const rows: string[] = [];
-  for (let row = 0; row < GRID_SIZE; row++) {
-    const rowCells = cells.slice(row * GRID_SIZE, (row + 1) * GRID_SIZE);
-    rows.push(rowCells.join(" "));
-  }
-
-  return rows;
 }
 
 /**
@@ -3446,55 +3376,36 @@ function handleContextCommand(
       freeSpace: Math.max(0, usage.freeSpace - toolDefinitionTokens),
     };
 
-    // Calculate percentages
-    const usagePercent = Math.round((adjustedUsage.totalUsed / contextWindow) * 100);
-    const systemPercent = ((adjustedUsage.systemPromptTokens / contextWindow) * 100).toFixed(1);
-    const toolsPercent = ((adjustedUsage.toolsTokens / contextWindow) * 100).toFixed(1);
-    const skillsPercent = ((adjustedUsage.skillsTokens / contextWindow) * 100).toFixed(1);
-    const messagesPercent = ((adjustedUsage.messagesTokens / contextWindow) * 100).toFixed(1);
-    const freePercent = ((adjustedUsage.freeSpace / contextWindow) * 100).toFixed(1);
-    const bufferPercent = ((adjustedUsage.autocompactBuffer / contextWindow) * 100).toFixed(1);
-
-    // Generate visual grid
-    const gridRows = generateContextGrid(adjustedUsage);
-    const symbols = contextSymbols();
-
-    // Display header
-    yield* terminal.log(fmt.heading("Context Usage"));
-
-    // Display model info and total usage on first row
-    const modelDisplay = `${provider}/${modelId}`;
     const modelMaxTokens = effectiveContextWindow.modelMaxTokens;
-    const runtimeWindowNote = effectiveContextWindow.cappedByAgent
-      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatCompactCount(modelMaxTokens)}` : ""}`
+    const windowNote = effectiveContextWindow.cappedByAgent
+      ? `the agent caps the window${modelMaxTokens !== undefined ? `; the model allows ${formatCompactCount(modelMaxTokens)}` : ""}`
       : modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
-        ? ` · runtime window, model max ${formatCompactCount(modelMaxTokens)}`
-        : "";
-    const usageDisplay = `${formatCompactCount(adjustedUsage.totalUsed)}/${formatCompactCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
+        ? `the runtime serves a smaller window; the model allows ${formatCompactCount(modelMaxTokens)}`
+        : undefined;
+    const compactPercent = Math.round(compactThresholdRatio * 100);
+    const count = (tokens: number): string => formatCompactCount(tokens);
 
-    yield* terminal.log(`   ${gridRows[0]}   ${modelDisplay} · ${usageDisplay}`);
-    yield* terminal.log(`   ${gridRows[1]}`);
-    yield* terminal.log(`   ${gridRows[2]}   Estimated usage by category`);
     yield* terminal.log(
-      `   ${gridRows[3]}   ${symbols.used} System prompt: ${formatCompactCount(adjustedUsage.systemPromptTokens)} tokens (${systemPercent}%)`,
+      report(
+        "context",
+        [
+          {
+            kind: "meter",
+            used: adjustedUsage.totalUsed,
+            total: contextWindow,
+            caption: `${count(adjustedUsage.totalUsed)} of ${count(contextWindow)}`,
+          },
+          { kind: "field", key: "model", value: `${provider}/${modelId}` },
+          { kind: "gap" },
+          { kind: "field", key: "system", value: count(adjustedUsage.systemPromptTokens) },
+          { kind: "field", key: "tools", value: count(adjustedUsage.toolsTokens) },
+          { kind: "field", key: "skills", value: count(adjustedUsage.skillsTokens) },
+          { kind: "field", key: "turns", value: count(adjustedUsage.messagesTokens) },
+          { kind: "field", key: "free", value: count(adjustedUsage.freeSpace) },
+        ],
+        `Compacts at ${String(compactPercent)}%.${windowNote === undefined ? "" : ` ${windowNote.charAt(0).toUpperCase()}${windowNote.slice(1)}.`}`,
+      ),
     );
-    yield* terminal.log(
-      `   ${gridRows[4]}   ${symbols.used} System tools: ${formatCompactCount(adjustedUsage.toolsTokens)} tokens (${toolsPercent}%)`,
-    );
-    yield* terminal.log(
-      `   ${gridRows[5]}   ${symbols.used} Skills: ${formatCompactCount(adjustedUsage.skillsTokens)} tokens (${skillsPercent}%)`,
-    );
-    yield* terminal.log(
-      `   ${gridRows[6]}   ${symbols.used} Messages: ${formatCompactCount(adjustedUsage.messagesTokens)} tokens (${messagesPercent}%)`,
-    );
-    yield* terminal.log(
-      `   ${gridRows[7]}   ${symbols.free} Free space: ${formatCompactCount(adjustedUsage.freeSpace)} (${freePercent}%)`,
-    );
-    yield* terminal.log(
-      `   ${gridRows[8]}   ${symbols.buffer} Autocompact buffer: ${formatCompactCount(adjustedUsage.autocompactBuffer)} tokens (${bufferPercent}%)`,
-    );
-    yield* terminal.log(`   ${gridRows[9]}`);
-    yield* terminal.log("");
 
     return { shouldContinue: true };
   });
@@ -3519,55 +3430,56 @@ function handleCostCommand(
   sessionUsage: { promptTokens: number; completionTokens: number },
 ): Effect.Effect<CommandResult, never, never> {
   return Effect.gen(function* () {
-    yield* terminal.log(fmt.heading("Conversation Cost"));
-
     const { promptTokens, completionTokens } = sessionUsage;
     const totalTokens = promptTokens + completionTokens;
-
-    yield* terminal.log(
-      fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
-    );
-    yield* terminal.log(fmt.keyValueCompact("Input tokens", promptTokens.toLocaleString()));
-    yield* terminal.log(fmt.keyValueCompact("Output tokens", completionTokens.toLocaleString()));
-    yield* terminal.log(fmt.keyValueCompact("Total tokens", totalTokens.toLocaleString()));
+    const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
 
     if (totalTokens === 0) {
-      yield* terminal.log(fmt.blank());
-      yield* terminal.info("No tokens used yet in this conversation.");
-      yield* terminal.log(fmt.blank());
+      yield* terminal.log(
+        report("cost", [{ kind: "field", key: "model", value: model }], "No tokens used yet."),
+      );
       return { shouldContinue: true };
     }
 
     const meta = yield* Effect.promise(() =>
       getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
     );
-
+    const priced =
+      meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined;
     const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;
     const outputPricePerMillion = meta?.outputPricePerMillion ?? 0;
-
-    yield* terminal.log(fmt.blank());
-    yield* terminal.log(fmt.section("Pricing", undefined, undefined));
-    yield* terminal.log(fmt.keyValue("Input", `$${inputPricePerMillion.toFixed(2)}/1M tokens`));
-    yield* terminal.log(fmt.keyValue("Output", `$${outputPricePerMillion.toFixed(2)}/1M tokens`));
-
     const inputCost = (promptTokens / 1_000_000) * inputPricePerMillion;
     const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
-    const totalCost = inputCost + outputCost;
 
-    yield* terminal.log(fmt.blank());
-    yield* terminal.log(fmt.section("Estimated Cost"));
-    yield* terminal.log(fmt.keyValue("Input", formatUsd(inputCost)));
-    yield* terminal.log(fmt.keyValue("Output", formatUsd(outputCost)));
-    yield* terminal.log(fmt.keyValue("Total", formatUsd(totalCost)));
-
-    if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
-      yield* terminal.log(fmt.blank());
-      yield* terminal.warn(
-        "Pricing not available for this model on models.dev; total shown as $0.00.",
-      );
-    }
-
-    yield* terminal.log(fmt.blank());
+    const tokenRows: ReportRow[] = [
+      {
+        kind: "field",
+        key: "input",
+        value: promptTokens.toLocaleString(),
+        ...(priced ? { detail: formatUsd(inputCost) } : {}),
+      },
+      {
+        kind: "field",
+        key: "output",
+        value: completionTokens.toLocaleString(),
+        ...(priced ? { detail: formatUsd(outputCost) } : {}),
+      },
+      {
+        kind: "field",
+        key: "total",
+        value: totalTokens.toLocaleString(),
+        ...(priced ? { detail: formatUsd(inputCost + outputCost) } : {}),
+      },
+    ];
+    yield* terminal.log(
+      report(
+        "cost",
+        [{ kind: "field", key: "model", value: model }, { kind: "gap" }, ...tokenRows],
+        priced
+          ? `Priced at $${inputPricePerMillion.toFixed(2)} in and $${outputPricePerMillion.toFixed(2)} out per million tokens.`
+          : "models.dev has no pricing for this model, so no cost is shown.",
+      ),
+    );
     return { shouldContinue: true };
   });
 }

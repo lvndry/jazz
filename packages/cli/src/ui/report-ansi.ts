@@ -1,7 +1,7 @@
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import chalk from "chalk";
 import { getGlyphs } from "./glyphs";
-import { reportLines, type ReportRole } from "./report-layout";
+import { reportStyledText, type ReportRole } from "./report-layout";
 import { THEME } from "./theme";
 
 function paint(role: ReportRole, text: string): string {
@@ -29,12 +29,10 @@ function paint(role: ReportRole, text: string): string {
   }
 }
 
-/** A report styled for a scrollback terminal, with the same columns every renderer uses. */
-export function reportAnsiText(report: TerminalReport): string {
-  return reportLines(report, getGlyphs())
-    .map(
-      (line) =>
-        `${" ".repeat(line.indent)}${line.segments.map((segment) => paint(segment.role, segment.text)).join("")}`,
-    )
-    .join("\n");
+/**
+ * A report styled for a scrollback terminal, with the same columns every renderer uses,
+ * wrapped under its value column when `width` is given.
+ */
+export function reportAnsiText(report: TerminalReport, width?: number): string {
+  return reportStyledText(report, getGlyphs(), paint, width);
 }

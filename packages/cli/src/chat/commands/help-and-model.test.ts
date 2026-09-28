@@ -1,10 +1,16 @@
 import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
-import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  isTerminalReport,
+  TerminalServiceTag,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ModelInfo } from "@jazz/core/types/llm";
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
+import { reportPlainText } from "@/cli/ui/report-layout";
 import { setSkillCommands } from "./constants";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -35,7 +41,11 @@ const MODELS = [
 function recordingTerminal(overrides: Partial<TerminalService> = {}) {
   const lines: string[] = [];
   const record = (message: unknown) => {
-    lines.push(String(message));
+    lines.push(
+      isTerminalReport(message)
+        ? reportPlainText(message, getGlyphs(), process.stdout.columns || undefined)
+        : String(message),
+    );
     return Effect.succeed(undefined);
   };
   const terminal = {
@@ -107,7 +117,7 @@ describe("/help", () => {
     await run({ type: "help", args: [] }, terminal);
 
     const output = plain(lines);
-    expect(output).toContain("Skills");
+    expect(output).toContain("skills");
     expect(output).toContain("/deep-research");
     expect(output).toContain("Ctrl+F");
   });
