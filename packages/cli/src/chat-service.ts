@@ -75,6 +75,7 @@ import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
+import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -204,9 +205,11 @@ export class ChatServiceImpl implements ChatService {
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
       const llmService = yield* LLMServiceTag;
+      const reasoning = reasoningEffortLabel(agent.config.reasoning);
       store.resetRunStats({
         provider: agent.config.llmProvider,
         model: agent.config.llmModel,
+        ...(reasoning === undefined ? {} : { reasoning }),
         localModelHosts: resolveLocalModelHosts(llmService, appConfig.llm),
       });
 
@@ -584,6 +587,7 @@ export class ChatServiceImpl implements ChatService {
               store.updateRunStats({
                 provider: agent.config.llmProvider,
                 model: agent.config.llmModel,
+                reasoning: reasoningEffortLabel(agent.config.reasoning),
               });
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;

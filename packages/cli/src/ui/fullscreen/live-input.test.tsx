@@ -412,7 +412,7 @@ describe("live zone", () => {
     const model = live({ todoList: todos, reservedRows: LIVE_ZONE_MAX_ROWS });
     const { height, frame } = await bandHeight(model, { width: WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
-    expect(frame).toContain("todo 1/13");
+    expect(frame).toContain("1 of 13");
     expect(frame).toContain("active");
     // Windowed: not every item fits the band even at its raised cap, so an
     // overflow line appears.

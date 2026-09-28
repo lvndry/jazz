@@ -244,25 +244,37 @@ function atTokenStart(line: string, index: number): boolean {
   return index === 0 || /[\s([{;|&]/.test(line[index - 1] ?? "");
 }
 
-export function looksLikeUnifiedDiff(language: string, lines: readonly string[]): boolean {
+/** What a unified diff has shown of itself so far: a header line, and how many +/- lines. */
+export interface DiffEvidence {
+  readonly header: boolean;
+  readonly markers: number;
+}
+
+const NO_DIFF_EVIDENCE: DiffEvidence = { header: false, markers: 0 };
+
+function addDiffEvidence(evidence: DiffEvidence, line: string): DiffEvidence {
+  const header =
+    evidence.header ||
+    line.startsWith("diff --git ") ||
+    line.startsWith("+++ ") ||
+    line.startsWith("--- ") ||
+    line.startsWith("@@");
+  const marker = /^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---");
+  return { header, markers: evidence.markers + (marker ? 1 : 0) };
+}
+
+function isDiffLanguage(language: string): boolean {
   const name = fenceLanguage(language);
-  if (name === "diff" || name === "patch") return true;
-  let markers = 0;
-  let header = false;
-  for (const line of lines) {
-    if (
-      line.startsWith("diff --git ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("@@")
-    ) {
-      header = true;
-    }
-    if (/^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---")) {
-      markers += 1;
-    }
-  }
-  return header && markers >= 2;
+  return name === "diff" || name === "patch";
+}
+
+function evidenceIsDiff(evidence: DiffEvidence): boolean {
+  return evidence.header && evidence.markers >= 2;
+}
+
+export function looksLikeUnifiedDiff(language: string, lines: readonly string[]): boolean {
+  if (isDiffLanguage(language)) return true;
+  return evidenceIsDiff(lines.reduce(addDiffEvidence, NO_DIFF_EVIDENCE));
 }
 
 export function highlightDiffLine(line: string): readonly SyntaxSpan[] {
@@ -310,7 +322,7 @@ function pushSpan(spans: SyntaxSpan[], text: string, fg: string): void {
 
 type StringQuote = '"' | "'" | "`";
 
-type LexerMode =
+export type LexerMode =
   | { readonly kind: "code" }
   | { readonly kind: "blockComment" }
   | { readonly kind: "string"; readonly quote: StringQuote };
@@ -487,6 +499,72 @@ export function highlightFenceLines(
   });
 }
 
+/**
+ * A fence highlight that can be resumed as the fence grows. Every line but the
+ * last is settled: its spans and the lexer mode after it are kept, so a
+ * streaming fence costs its newest lines rather than its whole body. The last
+ * line may still be growing, so it is painted fresh each time.
+ */
+export interface FenceHighlight {
+  readonly language: string;
+  /** Spans for every line of the fence, in the scheme `looksLikeUnifiedDiff` picks for all of them. */
+  readonly spans: readonly (readonly SyntaxSpan[])[];
+  readonly settledCode: readonly (readonly SyntaxSpan[])[];
+  /** Diff spans for the settled lines, filled once the fence turns out to be a diff. */
+  readonly settledDiff: readonly (readonly SyntaxSpan[])[];
+  readonly modeAfterSettled: LexerMode;
+  readonly evidence: DiffEvidence;
+}
+
+/**
+ * Extend `previous` to `lines`, which must begin with every line `previous`
+ * settled, unchanged. Anything else (a different language, fewer lines) starts
+ * over. The result's `spans` equal `highlightFenceLines(language, lines)`.
+ */
+export function continueFenceHighlight(
+  previous: FenceHighlight | undefined,
+  language: string,
+  lines: readonly string[],
+): FenceHighlight {
+  const resumable =
+    previous !== undefined &&
+    previous.language === language &&
+    lines.length > previous.settledCode.length;
+  const rules = lexicalRules(language);
+  const explicitLanguage = fenceLanguage(language) !== "";
+  const settledCode = resumable ? previous.settledCode.slice() : [];
+  let mode = resumable ? previous.modeAfterSettled : CODE_MODE;
+  let evidence = resumable ? previous.evidence : NO_DIFF_EVIDENCE;
+  const settledCount = Math.max(0, lines.length - 1);
+  for (let index = settledCode.length; index < settledCount; index += 1) {
+    const line = lines[index] ?? "";
+    const painted = paintCodeLine(line, mode, rules, explicitLanguage);
+    mode = painted.mode;
+    evidence = addDiffEvidence(evidence, line);
+    settledCode.push(painted.spans);
+  }
+
+  const last = lines.length > 0 ? (lines[lines.length - 1] ?? "") : undefined;
+  const diff =
+    isDiffLanguage(language) ||
+    evidenceIsDiff(last === undefined ? evidence : addDiffEvidence(evidence, last));
+  const settledDiff = resumable && diff ? previous.settledDiff.slice() : [];
+  if (diff) {
+    for (let index = settledDiff.length; index < settledCount; index += 1) {
+      settledDiff.push(highlightDiffLine(lines[index] ?? ""));
+    }
+  }
+  const settled = diff ? settledDiff : settledCode;
+  const spans =
+    last === undefined
+      ? settled
+      : [
+          ...settled,
+          diff ? highlightDiffLine(last) : paintCodeLine(last, mode, rules, explicitLanguage).spans,
+        ];
+  return { language, spans, settledCode, settledDiff, modeAfterSettled: mode, evidence };
+}
+
 const SOURCE_EXTENSIONS = new Set([
   "bash",
   "c",
@@ -536,9 +614,12 @@ export function sourceLanguageFromPath(path: string): string | undefined {
   return SOURCE_EXTENSIONS.has(ext) ? ext : undefined;
 }
 
-/** `file: src/app.py  import os…` — the path compactToolArguments puts first. */
+/**
+ * The path in `src/app.py  import os…` or `README.md 1–300`: the first word,
+ * which compactToolArguments makes the path for every tool that acts on a file.
+ */
 export function pathFromFileArgsPreview(args: string): string | undefined {
-  const match = /^file:\s+(\S+)/.exec(args.trim());
+  const match = /^(\S+)/.exec(args.trim());
   return match?.[1];
 }
 

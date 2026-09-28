@@ -48,10 +48,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  continueFenceHighlight,
   highlightCodeLine,
   highlightFenceLines,
   pathFromFileArgsPreview,
   sourceLanguageFromPath,
+  type FenceHighlight,
+  type SyntaxSpan,
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
@@ -64,6 +67,7 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
 } from "./terminal-cells";
+import { foldedThoughtLine, formatPreciseDuration, thoughtLabel } from "../turn-thought";
 import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import {
@@ -234,14 +238,6 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${String(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1_000);
-  return `${String(minutes)}m ${String(seconds)}s`;
-}
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
@@ -724,9 +720,17 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
  * keep every column. Flooring a proportional scale (and a min of 3) used to
  * overflow the row, after which `fitTerminalSegments` ate the last cells.
  */
+/**
+ * A column is never squeezed below its longest word while another column can
+ * give, so "Friday" does not break into "Frid / ay". A word longer than this
+ * does not get to hold the whole table hostage for its own width.
+ */
+const TABLE_WORD_FLOOR_CAP = 16;
+
 function tableColumnLayout(
   natural: readonly number[],
   width: number,
+  longestWord: readonly number[] = [],
 ): { readonly sizes: readonly number[]; readonly gap: number } {
   const columns = natural.length;
   if (columns === 0) return { sizes: [], gap: 0 };
@@ -741,18 +745,29 @@ function tableColumnLayout(
 
   const total = natural.reduce((sum, size) => sum + size, 0);
   const floor = available < columns * 3 ? 1 : 3;
-  const sizes = natural.map((size) => {
+  const wordFloor = natural.map((size, index) =>
+    Math.min(size, TABLE_WORD_FLOOR_CAP, longestWord[index] ?? 1),
+  );
+  const sizes = natural.map((size, index) => {
     if (total <= available) return Math.max(size, 1);
-    return Math.max(floor, Math.floor((size / total) * available));
+    return Math.max(floor, wordFloor[index] ?? 1, Math.floor((size / total) * available));
   });
 
+  // Take from the widest column that is still above its longest word; only
+  // when every column is down to its words does a word have to break.
+  const widestAbove = (limit: (index: number) => number): number => {
+    let widest = -1;
+    for (let index = 0; index < sizes.length; index += 1) {
+      if ((sizes[index] ?? 0) <= limit(index)) continue;
+      if (widest < 0 || (sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
+    }
+    return widest;
+  };
   let used = sizes.reduce((sum, size) => sum + size, 0);
   while (used > available) {
-    let widest = 0;
-    for (let index = 1; index < sizes.length; index += 1) {
-      if ((sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
-    }
-    if ((sizes[widest] ?? 0) <= 1) break;
+    let widest = widestAbove((index) => wordFloor[index] ?? 1);
+    if (widest < 0) widest = widestAbove(() => 1);
+    if (widest < 0) break;
     sizes[widest] = (sizes[widest] ?? 1) - 1;
     used -= 1;
   }
@@ -808,7 +823,20 @@ function tableRows(
   const natural = Array.from({ length: columns }, (_, column) =>
     Math.max(...cells.map((row) => terminalSegmentsWidth(row[column] ?? [])), 1),
   );
-  const { sizes, gap } = tableColumnLayout(natural, width);
+  const longestWord = Array.from({ length: columns }, (_, column) =>
+    Math.max(
+      ...cells.map((row) =>
+        Math.max(
+          0,
+          ...(row[column] ?? [])
+            .flatMap((segment) => segment.text.split(/\s+/))
+            .map((word) => terminalCellWidth(word)),
+        ),
+      ),
+      1,
+    ),
+  );
+  const { sizes, gap } = tableColumnLayout(natural, width, longestWord);
 
   const wrappedRows = cells.map((row) => row.map((cell, column) => wrap(cell, sizes[column] ?? 1)));
   const heights = wrappedRows.map((row) => Math.max(...row.map((cell) => cell.length), 1));
@@ -1076,38 +1104,72 @@ function userRows(
   return rows;
 }
 
-function agentRows(
-  block: Extract<Block, { kind: "agent" }>,
+/**
+ * Where an agent block's rows have got to. Rows are produced by folding prose
+ * items into this state one at a time, so a streaming block can keep the state
+ * reached at its last settled paragraph and resume from there, instead of
+ * re-parsing and re-wrapping the whole answer on every reveal frame.
+ */
+interface ProseRowsState {
+  rows: RenderRow[];
+  /** The next row is the block's first, and carries the speaker marker. */
+  first: boolean;
+  /** A non-blank item has been emitted; blank items before it are dropped. */
+  started: boolean;
+  /** The last fence or table asked for a breathing row before the next item. */
+  breatheBeforeNext: boolean;
+  /** Key of a run of blank items waiting for the next non-blank item, so trailing blanks never land. */
+  pendingBlankKey: string | undefined;
+}
+
+function initialProseRowsState(): ProseRowsState {
+  return {
+    rows: [],
+    first: true,
+    started: false,
+    breatheBeforeNext: false,
+    pendingBlankKey: undefined,
+  };
+}
+
+function copyProseRowsState(state: ProseRowsState): ProseRowsState {
+  return { ...state, rows: state.rows.slice() };
+}
+
+interface AgentRowStyle {
+  readonly rail: Segment;
+  readonly marker: Segment;
+}
+
+function agentRowStyle(block: Extract<Block, { kind: "agent" }>, glyphs: GlyphSet): AgentRowStyle {
+  // Colour is state, not speaker: the rail is accent only while tokens land.
+  const streaming = block.streaming === true;
+  return {
+    rail: railCell(streaming ? THEME.agent : THEME.border),
+    marker: { text: glyphs.diamond, fg: streaming ? THEME.agent : THEME.secondary },
+  };
+}
+
+/**
+ * Fold prose items into rows. `offset` is the index of `items[0]` within the
+ * whole block, so row keys match a parse of the full text however it was split.
+ */
+function appendProseItems(
+  state: ProseRowsState,
+  items: readonly ProseItem[],
+  offset: number,
+  blockId: string,
+  style: AgentRowStyle,
   geometry: Geometry,
   glyphs: GlyphSet,
-): RenderRow[] {
-  // Colour is state, not speaker: the rail is accent only while tokens land.
-  const railColor = block.streaming === true ? THEME.agent : THEME.border;
-  const rail = railCell(railColor);
-  const marker: Segment = {
-    text: glyphs.diamond,
-    fg: block.streaming === true ? THEME.agent : THEME.secondary,
-  };
-
-  const rows: RenderRow[] = [];
-  let first = true;
+  streamingEpoch?: string,
+): void {
+  const rows = state.rows;
   const gutterFor = (): readonly Segment[] => {
-    const gutter = [first ? marker : rail, BLANK_CELL];
-    first = false;
+    const gutter = [state.first ? style.marker : style.rail, BLANK_CELL];
+    state.first = false;
     return gutter;
   };
-
-  const items = parseProse(block.markdown, glyphs);
-  // Models often open a text block with newlines after a tool call; a leading blank row would strand the marker on an empty line.
-  let firstItem = 0;
-  let endItem = items.length;
-  while (firstItem < endItem && items[firstItem]?.kind === "blank") {
-    firstItem += 1;
-  }
-  while (endItem > firstItem && items[endItem - 1]?.kind === "blank") {
-    endItem -= 1;
-  }
-
   const lastIsBlank = (): boolean => {
     const last = rows[rows.length - 1];
     return last !== undefined && last.content.length === 0 && last.backgroundColor === undefined;
@@ -1125,19 +1187,27 @@ function agentRows(
     if (rows.length === 0 || lastIsBlank()) return;
     rows.push(blank(`${key}:breath`));
   };
-  let breatheBeforeNext = false;
 
-  for (let itemIndex = firstItem; itemIndex < endItem; itemIndex += 1) {
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
     const item = items[itemIndex];
     if (item === undefined) continue;
-    const key = `${block.id}:${String(itemIndex)}`;
+    const key = `${blockId}:${String(offset + itemIndex)}`;
     if (item.kind === "blank") {
-      if (!lastIsBlank()) rows.push(blank(key));
+      // Models often open a text block with newlines after a tool call; a
+      // leading blank row would strand the marker on an empty line.
+      if (state.started && state.pendingBlankKey === undefined) {
+        state.pendingBlankKey = key;
+      }
       continue;
     }
-    if (breatheBeforeNext) {
+    if (state.pendingBlankKey !== undefined) {
+      if (!lastIsBlank()) rows.push(blank(state.pendingBlankKey));
+      state.pendingBlankKey = undefined;
+    }
+    state.started = true;
+    if (state.breatheBeforeNext) {
       breathe(key);
-      breatheBeforeNext = false;
+      state.breatheBeforeNext = false;
     }
     switch (item.kind) {
       case "rule":
@@ -1167,13 +1237,25 @@ function agentRows(
       }
       case "fence":
         breathe(key);
-        appendRows(rows, fenceRows(item.language, item.lines, geometry, key, gutterFor));
-        breatheBeforeNext = true;
+        appendRows(
+          rows,
+          streamingEpoch === undefined
+            ? fenceRows(item.language, item.lines, geometry, key, gutterFor)
+            : streamingFenceRows(
+                item.language,
+                item.lines,
+                geometry,
+                key,
+                streamingEpoch,
+                gutterFor,
+              ),
+        );
+        state.breatheBeforeNext = true;
         break;
       case "table":
         breathe(key);
         appendRows(rows, tableRows(item.rows, geometry.content, key, gutterFor, glyphs));
-        breatheBeforeNext = true;
+        state.breatheBeforeNext = true;
         break;
       case "text": {
         const indent = item.indent;
@@ -1204,8 +1286,196 @@ function agentRows(
       }
     }
   }
+}
 
-  return rows;
+const FENCE_LINE = /^\s*```/;
+const NEWLINE = 10;
+
+interface StreamingProseCache {
+  readonly blockId: string;
+  readonly epoch: string;
+  /** Where the open tail starts: just after the newline that ends the settled prefix. */
+  readonly tailStart: number;
+  /** The settled prefix, compared on resume so an edited answer starts over. */
+  readonly prefix: string;
+  readonly itemCount: number;
+  readonly state: ProseRowsState;
+}
+
+let streamingProseCache: StreamingProseCache | undefined;
+
+/** Drop what a streaming answer has settled, so the next frame renders it from scratch. */
+export function forgetStreamingRows(): void {
+  streamingProseCache = undefined;
+  openFenceCache = undefined;
+}
+
+/**
+ * The start of the last blank line outside a fence, scanning from `from`, or
+ * -1. Every prose item stops at a blank line, so cutting the text just before
+ * one and parsing the halves apart gives exactly the items of the whole. The
+ * last line is still being written, so it is never a boundary.
+ */
+function lastSettledBoundary(markdown: string, from: number): number {
+  let boundary = -1;
+  let insideFence = false;
+  let lineStart = from;
+  for (;;) {
+    const newline = markdown.indexOf("\n", lineStart);
+    if (newline === -1) break;
+    const line = markdown.slice(lineStart, newline);
+    if (FENCE_LINE.test(line)) {
+      insideFence = !insideFence;
+    } else if (!insideFence && lineStart > from && line.trim().length === 0) {
+      boundary = lineStart;
+    }
+    lineStart = newline + 1;
+  }
+  return boundary;
+}
+
+/**
+ * Rows for an answer that is still streaming, at the cost of its open tail
+ * rather than the whole answer. Everything before the last blank line outside
+ * a fence is settled: its rows and the fold state after them are kept, and
+ * each frame resumes from there, parsing and wrapping only what came after.
+ */
+function streamingAgentRows(
+  block: Extract<Block, { kind: "agent" }>,
+  geometry: Geometry,
+  glyphs: GlyphSet,
+  style: AgentRowStyle,
+): RenderRow[] {
+  const markdown = block.markdown;
+  const epoch = `${wrapEpoch(geometry.page, glyphs)}\0${String(geometry.prose)}\0${String(geometry.content)}`;
+  const previous = streamingProseCache;
+  let settled: StreamingProseCache =
+    previous !== undefined &&
+    previous.blockId === block.id &&
+    previous.epoch === epoch &&
+    markdown.length >= previous.tailStart &&
+    (previous.tailStart === 0 || markdown.charCodeAt(previous.tailStart - 1) === NEWLINE) &&
+    markdown.startsWith(previous.prefix)
+      ? previous
+      : {
+          blockId: block.id,
+          epoch,
+          tailStart: 0,
+          prefix: "",
+          itemCount: 0,
+          state: initialProseRowsState(),
+        };
+
+  const boundary = lastSettledBoundary(markdown, settled.tailStart);
+  if (boundary > settled.tailStart) {
+    // The segment ends before the newline that precedes the blank line, so the
+    // blank line itself opens the next segment, as it would in one parse.
+    const items = parseProse(markdown.slice(settled.tailStart, boundary - 1), glyphs);
+    const state = copyProseRowsState(settled.state);
+    appendProseItems(state, items, settled.itemCount, block.id, style, geometry, glyphs, epoch);
+    settled = {
+      blockId: block.id,
+      epoch,
+      tailStart: boundary,
+      prefix: markdown.slice(0, boundary),
+      itemCount: settled.itemCount + items.length,
+      state,
+    };
+  }
+  streamingProseCache = settled;
+
+  const state = copyProseRowsState(settled.state);
+  appendProseItems(
+    state,
+    parseProse(markdown.slice(settled.tailStart), glyphs),
+    settled.itemCount,
+    block.id,
+    style,
+    geometry,
+    glyphs,
+    epoch,
+  );
+  return state.rows;
+}
+
+/**
+ * An accent block at the reveal point, so the eye finds where the answer is
+ * growing. It sits in the cell after the last text and is drawn only when that
+ * cell exists inside the row's width, so it never wraps a line or moves text.
+ * It holds still rather than blinking: the reveal only repaints while text is
+ * arriving, and a blink would need a timer of its own for a cell that already
+ * moves with every word.
+ */
+function withStreamCursor(rows: RenderRow[], glyphs: GlyphSet): RenderRow[] {
+  const last = rows[rows.length - 1];
+  if (last === undefined) return rows;
+  if (terminalSegmentsWidth(last.content) + 1 > last.contentWidth) return rows;
+  const cursor: Segment = { text: glyphs.streamCursor, fg: THEME.agent };
+  const withCursor = rows.slice();
+  withCursor[withCursor.length - 1] = { ...last, content: [...last.content, cursor] };
+  return withCursor;
+}
+
+function agentRows(
+  block: Extract<Block, { kind: "agent" }>,
+  geometry: Geometry,
+  glyphs: GlyphSet,
+): RenderRow[] {
+  const style = agentRowStyle(block, glyphs);
+  if (block.streaming === true) {
+    return withStreamCursor(streamingAgentRows(block, geometry, glyphs, style), glyphs);
+  }
+  const state = initialProseRowsState();
+  appendProseItems(state, parseProse(block.markdown, glyphs), 0, block.id, style, geometry, glyphs);
+  return state.rows;
+}
+
+interface FenceLayout {
+  readonly width: number;
+  readonly inner: number;
+}
+
+function fenceLayout(longest: number, geometry: Geometry): FenceLayout {
+  const width = Math.min(geometry.content, Math.max(geometry.prose, longest + BAND_PADDING));
+  return { width, inner: Math.max(1, width - BAND_PADDING) };
+}
+
+function fenceSurface(
+  rowKey: string,
+  content: readonly Segment[],
+  width: number,
+  gutter: readonly Segment[],
+): RenderRow {
+  return {
+    key: rowKey,
+    gutter,
+    content,
+    contentWidth: width,
+    meta: [],
+    backgroundColor: THEME.surfaceStrong,
+    bandIncludesGutter: true,
+  };
+}
+
+function fenceLabelRow(
+  language: string,
+  layout: FenceLayout,
+  key: string,
+  gutter: readonly Segment[],
+): RenderRow {
+  const label = sliceTerminalCells(language.trim().split(/\s+/)[0] ?? "", layout.inner);
+  const labelOffset = Math.max(0, layout.width - BAND_PADDING - terminalCellWidth(label));
+  return fenceSurface(
+    `${key}:fence:top`,
+    label.length === 0
+      ? []
+      : [
+          { text: " ".repeat(labelOffset), fg: THEME.muted },
+          { text: label, fg: THEME.muted },
+        ],
+    layout.width,
+    gutter,
+  );
 }
 
 /**
@@ -1224,88 +1494,195 @@ function fenceRows(
   gutterFor: () => readonly Segment[],
 ): RenderRow[] {
   const painted = highlightFenceLines(language, lines);
-  const longest = Math.max(0, ...lines.map((line) => terminalCellWidth(line)));
-  const width = Math.min(geometry.content, Math.max(geometry.prose, longest + BAND_PADDING));
-  const inner = Math.max(1, width - BAND_PADDING);
-  const label = sliceTerminalCells(language.trim().split(/\s+/)[0] ?? "", inner);
-  const surface = (rowKey: string, content: readonly Segment[]): RenderRow => ({
-    key: rowKey,
-    gutter: gutterFor(),
-    content,
-    contentWidth: width,
-    meta: [],
-    backgroundColor: THEME.surfaceStrong,
-    bandIncludesGutter: true,
-  });
-
-  const labelOffset = Math.max(0, width - BAND_PADDING - terminalCellWidth(label));
-  const rows: RenderRow[] = [
-    surface(
-      `${key}:fence:top`,
-      label.length === 0
-        ? []
-        : [
-            { text: " ".repeat(labelOffset), fg: THEME.muted },
-            { text: label, fg: THEME.muted },
-          ],
-    ),
-  ];
+  const layout = fenceLayout(
+    Math.max(0, ...lines.map((line) => terminalCellWidth(line))),
+    geometry,
+  );
+  const rows: RenderRow[] = [fenceLabelRow(language, layout, key, gutterFor())];
   for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
     const spans = painted[lineIndex];
     if (spans === undefined) continue;
-    rows.push(surface(`${key}:${String(lineIndex)}`, fitTerminalSegments([...spans], inner)));
+    rows.push(
+      fenceSurface(
+        `${key}:${String(lineIndex)}`,
+        fitTerminalSegments([...spans], layout.inner),
+        layout.width,
+        gutterFor(),
+      ),
+    );
   }
-  rows.push(surface(`${key}:fence:bottom`, []));
+  rows.push(fenceSurface(`${key}:fence:bottom`, [], layout.width, gutterFor()));
   return rows;
 }
 
+/**
+ * The fence a streaming answer is writing into. It has no blank line outside
+ * itself to settle at, so without this every reveal frame would re-highlight
+ * and re-fit its whole body. Settled lines keep their highlight and their row;
+ * rows are rebuilt only when a longer line widens the band.
+ */
+interface OpenFenceCache {
+  readonly key: string;
+  readonly epoch: string;
+  readonly highlight: FenceHighlight;
+  /** Widest of the first `measuredLines` lines, in cells. */
+  readonly longestSettled: number;
+  readonly measuredLines: number;
+  readonly layout: FenceLayout;
+  /** Rows for the settled lines, laid out at `layout`, all spans from `highlight`. */
+  readonly settledRows: readonly RenderRow[];
+  /** The settled spans the rows were built from, so a diff reclassification rebuilds them. */
+  readonly settledSpans: readonly (readonly SyntaxSpan[])[];
+}
+
+let openFenceCache: OpenFenceCache | undefined;
+
+function streamingFenceRows(
+  language: string,
+  lines: readonly string[],
+  geometry: Geometry,
+  key: string,
+  epoch: string,
+  gutterFor: () => readonly Segment[],
+): RenderRow[] {
+  const previous =
+    openFenceCache !== undefined && openFenceCache.key === key && openFenceCache.epoch === epoch
+      ? openFenceCache
+      : undefined;
+  const highlight = continueFenceHighlight(previous?.highlight, language, lines);
+  const settledCount = Math.max(0, lines.length - 1);
+
+  const resumed =
+    previous !== undefined &&
+    previous.highlight.language === language &&
+    lines.length > previous.measuredLines;
+  let longestSettled = resumed ? previous.longestSettled : 0;
+  for (let index = resumed ? previous.measuredLines : 0; index < settledCount; index += 1) {
+    longestSettled = Math.max(longestSettled, terminalCellWidth(lines[index] ?? ""));
+  }
+  const last = lines.length > 0 ? terminalCellWidth(lines[lines.length - 1] ?? "") : 0;
+  const layout = fenceLayout(Math.max(longestSettled, last), geometry);
+
+  const top = fenceLabelRow(language, layout, key, gutterFor());
+  const rail = gutterFor();
+  const settledSpans = highlight.spans.slice(0, settledCount);
+  const reuse =
+    resumed &&
+    previous.layout.width === layout.width &&
+    previous.layout.inner === layout.inner &&
+    previous.settledRows.length <= settledCount &&
+    previous.settledSpans.every((spans, index) => spans === settledSpans[index]);
+  const settledRows = reuse ? previous.settledRows.slice() : [];
+  for (let index = settledRows.length; index < settledCount; index += 1) {
+    settledRows.push(
+      fenceSurface(
+        `${key}:${String(index)}`,
+        fitTerminalSegments([...(settledSpans[index] ?? [])], layout.inner),
+        layout.width,
+        rail,
+      ),
+    );
+  }
+  openFenceCache = {
+    key,
+    epoch,
+    highlight,
+    longestSettled,
+    measuredLines: settledCount,
+    layout,
+    settledRows,
+    settledSpans,
+  };
+
+  const rows: RenderRow[] = [top, ...settledRows];
+  if (lines.length > 0) {
+    rows.push(
+      fenceSurface(
+        `${key}:${String(lines.length - 1)}`,
+        fitTerminalSegments([...(highlight.spans[lines.length - 1] ?? [])], layout.inner),
+        layout.width,
+        rail,
+      ),
+    );
+  }
+  rows.push(fenceSurface(`${key}:fence:bottom`, [], layout.width, rail));
+  return rows;
+}
+
+/** While the model thinks, only its newest lines show, so reasoning cannot push the conversation away. */
+export const LIVE_REASONING_LINES = 3;
+
+/**
+ * Reasoning is the model's scratchpad, never its answer: italic, muted, behind
+ * a thin rule, and at a narrower measure. It has three states.
+ *
+ * - Live: an italic "thinking" label with the elapsed time, and the newest
+ *   lines only.
+ * - Folded (settled): one line per turn, `› thought for 4.1s · ctrl+r to read`.
+ * - Opened with ctrl+r: the full text under `╷ thought for 4.1s`, with the key
+ *   that folds it again.
+ */
 function reasoningRows(
   block: Extract<Block, { kind: "reasoning" }>,
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
   const rail = railCell(THEME.border);
-  const meta: readonly Segment[] =
-    block.durationMs !== undefined && geometry.metadata > 0
-      ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
-      : [];
+  const gutter: readonly Segment[] = [rail, BLANK_CELL];
+  const indent: Segment = { text: " ".repeat(REASONING_INDENT), fg: THEME.border };
+  const row = (
+    key: string,
+    content: readonly Segment[],
+    meta: readonly Segment[] = [],
+  ): RenderRow => ({
+    key,
+    gutter,
+    content,
+    contentWidth: geometry.prose,
+    meta,
+  });
+  const separator = ` ${glyphs.bullet} `;
 
   if (block.collapsed) {
-    const steps = block.steps ?? 0;
-    const parts = [steps > 0 ? `thought ${String(steps)} steps` : "thought", "ctrl+r expands"];
     return [
-      {
-        key: `${block.id}:0`,
-        gutter: [rail, BLANK_CELL],
-        content: [
-          {
-            text: `${" ".repeat(REASONING_INDENT)}${parts.join(` ${glyphs.bullet} `)}`,
-            fg: THEME.muted,
-          },
-        ],
-        contentWidth: geometry.prose,
-        meta,
-      },
+      row(`${block.id}:0`, [
+        indent,
+        {
+          text: foldedThoughtLine(block, block.readable !== false, glyphs.folded, separator),
+          fg: THEME.muted,
+        },
+      ]),
     ];
   }
 
   // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
   const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
+  const ruled: Segment = { text: `${glyphs.railDeep} `, fg: THEME.border };
   const text = spaceReasoningSections(block.text);
-  const lines = wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT);
-  const rows: RenderRow[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line === undefined) continue;
-    rows.push({
-      key: `${block.id}:${String(index)}`,
-      gutter: [rail, BLANK_CELL],
-      content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
-      contentWidth: geometry.prose,
-      meta: index === 0 ? meta : [],
-    });
+  const wrapped = wrap([{ text, fg: THEME.muted, italic: true }], measure - REASONING_INDENT - 2);
+  const bodyRows = (lines: readonly (readonly Segment[])[], keyOffset: number): RenderRow[] =>
+    lines.map((line, index) =>
+      row(`${block.id}:${String(keyOffset + index)}`, [indent, ruled, ...line]),
+    );
+
+  // The live zone right below says "thinking" with the elapsed time, so the
+  // lines carry no label of their own; a second one would stack the word twice.
+  if (block.live === true) {
+    const newest = text.trim().length === 0 ? [] : wrapped.slice(-LIVE_REASONING_LINES);
+    return bodyRows(newest, Math.max(0, wrapped.length - newest.length));
   }
-  return rows;
+
+  return [
+    row(`${block.id}:label`, [
+      indent,
+      { text: `${glyphs.unfolded} ${thoughtLabel(block)}`, fg: THEME.secondary },
+    ]),
+    ...bodyRows(wrapped, 0),
+    row(`${block.id}:fold`, [
+      indent,
+      { text: `ctrl+r to fold${separator}again for the previous block`, fg: THEME.muted },
+    ]),
+  ];
 }
 
 /**
@@ -1446,7 +1823,7 @@ function receiptRows(
             : { text: glyphs.pending, fg: THEME.muted };
       const meta: readonly Segment[] =
         block.expanded === true && block.durationMs !== undefined && geometry.metadata > 0
-          ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
+          ? [{ text: formatPreciseDuration(block.durationMs), fg: THEME.muted }]
           : [];
       if (segments.some((segment) => segment.text.trim().length > 0)) {
         const lines = wrap(segments, geometry.prose);

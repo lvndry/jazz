@@ -397,7 +397,7 @@ describe("UIStore", () => {
       expect(regions[1]!.tail).toEqual(["world"]);
     });
 
-    test("collapseEphemeral removes region and emits summary line", () => {
+    test("collapseEphemeral removes the region, and the turn's line lands when it settles", () => {
       const s = new UIStore();
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
@@ -407,8 +407,11 @@ describe("UIStore", () => {
       });
 
       expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      s.flushOutputBatchNow();
+      expect(s.getOutputSnapshot().entries).toHaveLength(0);
+      s.settleTurnThought();
       expect(s.getOutputSnapshot().entries).toHaveLength(1);
-      expect(s.getOutputSnapshot().entries[0]!.message).toBe("✓ Reasoning · 12s · 100 tokens");
+      expect(String(s.getOutputSnapshot().entries[0]!.message)).toContain("thought for 12.0s");
     });
 
     test("collapseEphemeral keeps the live tail when fullText is missing", () => {
@@ -416,6 +419,7 @@ describe("UIStore", () => {
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.appendEphemeral(id, "kept from the live panel");
       s.collapseEphemeral(id, { durationMs: 800 });
+      s.settleTurnThought();
 
       expect(s.getExpandableReasoningSnapshot()?.fullText).toBe("kept from the live panel");
     });
@@ -428,6 +432,7 @@ describe("UIStore", () => {
         tokens: 42,
         fullText: "I was thinking about X then Y",
       });
+      s.settleTurnThought();
 
       const expandable = s.getExpandableReasoningSnapshot();
       expect(expandable).not.toBeNull();
@@ -468,6 +473,7 @@ describe("UIStore", () => {
         durationMs: 1000,
         fullText: "full reasoning body",
       });
+      s.settleTurnThought();
 
       expect(s.getOutputSnapshot().entries).toHaveLength(1);
       expect(s.getOutputSnapshot().entries[0]!.meta?.["collapsed"]).toBe(true);
@@ -489,6 +495,7 @@ describe("UIStore", () => {
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(id, { durationMs: 1000, fullText: "full reasoning body" });
+      s.settleTurnThought();
 
       expect(s.getOutputSnapshot().entries).toHaveLength(1);
 
@@ -502,13 +509,15 @@ describe("UIStore", () => {
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
-    test("expandLastReasoning expands later blocks without moving them", () => {
+    test("expandLastReasoning expands earlier turns without moving them", () => {
       const s = new UIStore();
 
       const first = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(first, { durationMs: 500, fullText: "first block" });
+      s.settleTurnThought();
       const second = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(second, { durationMs: 700, fullText: "second block" });
+      s.settleTurnThought();
 
       s.expandLastReasoning();
       s.expandLastReasoning();

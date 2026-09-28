@@ -145,6 +145,21 @@ describe("fullscreen bridge", () => {
     expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
   });
 
+  it("names the reasoning effort beside the model in the composer", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol", reasoning: "medium" });
+    });
+    expect(text).toContain(`gpt-6-sol ${getGlyphs().bullet} medium`);
+  });
+
+  it("shows the model alone when the conversation does not reason", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol" });
+    });
+    expect(text).toContain("gpt-6-sol");
+    expect(text).not.toContain(`gpt-6-sol ${getGlyphs().bullet}`);
+  });
+
   it("shows the resolved local endpoint beside a conversation model", async () => {
     const text = await frame(() => {
       store.resetRunStats({
@@ -257,7 +272,7 @@ describe("fullscreen bridge", () => {
     });
     expect(text).toContain("gmail");
     expect(text).toContain("search");
-    expect(text).toContain("todo 1/3");
+    expect(text).toContain("1 of 3");
     expect(text).toContain("Rank urgent threads");
     expect(text).toContain("Draft replies");
   });
@@ -308,7 +323,7 @@ describe("fullscreen bridge", () => {
       todoSnapshot,
     });
     const blankRowsAboveTodoIn = (rows: readonly string[]): number => {
-      const todoIndex = rows.findIndex((row) => row.includes("todo"));
+      const todoIndex = rows.findIndex((row) => row.includes("plan"));
       let blankRows = 0;
       for (let index = todoIndex - 1; rows[index]?.trim() === ""; index -= 1) {
         blankRows += 1;
@@ -319,7 +334,7 @@ describe("fullscreen bridge", () => {
     const settledRows = (
       await frameWhen(rendered, (frame) => blankRowsAboveTodoIn(frame.split("\n")) === 1)
     ).split("\n");
-    const settledTodoIndex = settledRows.findIndex((row) => row.includes("todo"));
+    const settledTodoIndex = settledRows.findIndex((row) => row.includes("plan"));
     expect(settledTodoIndex).toBeGreaterThan(-1);
 
     // The row directly above the checklist header belongs to the transcript
@@ -355,15 +370,15 @@ describe("fullscreen bridge", () => {
       });
     });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setActivity({ phase: "idle" });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setChatBusy(true);
     await rendered.flush();
-    expect(rendered.captureCharFrame()).not.toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).not.toContain("1 of 2");
 
     rendered.renderer.destroy();
   });
@@ -2841,22 +2856,27 @@ describe("fullscreen bridge", () => {
   it("paces a streamed burst in over several frames, and shows a finished turn whole", async () => {
     const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
-    const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
-    updateForTest(() => {
-      store.appendStream("response", burst);
-    });
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).not.toContain("END");
-    expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
+    store.setStreamPacing(true);
+    try {
+      const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
+      updateForTest(() => {
+        store.appendStream("response", burst);
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).not.toContain("END");
+      expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
 
-    updateForTest(() => {
-      store.appendStream("response", " and then a tail FIN");
-      store.finalizeStream();
-      store.flushOutputBatchNow();
-    });
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("FIN");
-    rendered.renderer.destroy();
+      updateForTest(() => {
+        store.appendStream("response", " and then a tail FIN");
+        store.finalizeStream();
+        store.flushOutputBatchNow();
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).toContain("FIN");
+    } finally {
+      store.setStreamPacing(false);
+      rendered.renderer.destroy();
+    }
   });
   it("keeps the indicator visible while the model is reasoning", async () => {
     // Reasoning is the model working with nothing yet to show, which is when an
@@ -2883,6 +2903,7 @@ describe("fullscreen bridge", () => {
       fullText: "the full chain of thought",
       durationMs: 3_200,
     });
+    store.settleTurnThought();
     store.flushOutputBatchNow();
     await rendered.flush();
 
@@ -2905,6 +2926,8 @@ describe("fullscreen bridge", () => {
       fullText: "thought that belongs first",
       durationMs: 1_000,
     });
+    // The answer's first text settles what the turn thought, just above it.
+    store.settleTurnThought();
     store.printOutput({
       type: "streamContent",
       message: "the spoken answer",
@@ -2935,6 +2958,7 @@ describe("fullscreen bridge", () => {
       fullText: "the earlier thought",
       durationMs: 1_000,
     });
+    store.settleTurnThought();
     store.openEphemeral("reasoning", "Reasoning", 8);
     store.flushOutputBatchNow();
     await rendered.flush();
@@ -3038,7 +3062,7 @@ describe("fullscreen bridge", () => {
         }
       });
       expect(text).toContain("view_memory");
-      expect(text).toContain("path: /");
+      expect(text).toContain("view_memory  /  1 entry");
       expect(text).toContain("1 entry");
       expect(text).not.toContain("Here're the files");
     });

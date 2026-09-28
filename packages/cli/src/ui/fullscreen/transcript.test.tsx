@@ -278,6 +278,22 @@ describe("density", () => {
   });
 });
 
+describe("table columns", () => {
+  it("keeps a short column whole beside wide prose columns", () => {
+    const long = "Stroll through Alfama and visit the cathedral, then lunch in a tasca";
+    const markdown = [
+      "| Day | Morning | Afternoon | Evening |",
+      "|---|---|---|---|",
+      `| **Friday** | ${long} | ${long} | ${long} |`,
+      `| **Saturday** | ${long} | ${long} | ${long} |`,
+    ].join("\n");
+    const rows = transcriptRows([{ id: "t", seq: 0, kind: "agent", markdown }], WIDE);
+    const lines = rows.map((row) => row.content.map((segment) => segment.text).join(""));
+    expect(lines.some((line) => line.includes("Friday"))).toBe(true);
+    expect(lines.some((line) => line.includes("Saturday"))).toBe(true);
+  });
+});
+
 describe("the measure", () => {
   it("never lets a row overflow the viewport, at 120 or at 80", async () => {
     for (const viewport of [WIDE, NARROW]) {
@@ -554,13 +570,12 @@ describe("tool receipts", () => {
     expect(text.split("\n").length).toBeGreaterThan(1);
   });
 
-  it("collapses reasoning to one dim line of steps, duration and the key", async () => {
+  it("folds reasoning to one dim line of duration, steps and the key", async () => {
     const { rows, spans } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("thought")) ?? "";
 
-    expect(row).toContain("8 steps");
-    expect(row).toContain("ctrl+r expands");
-    expect(row).toContain("3.2s");
+    expect(row).toContain("thought for 3.2s across 8 steps");
+    expect(row).toContain("ctrl+r to read");
     expect(colorOf(spans, "thought")).toBe(THEME.muted.toUpperCase());
   });
 
@@ -639,9 +654,7 @@ describe("reasoning is subordinate by geometry", () => {
       { id: "r2", seq: 2, kind: "reasoning", collapsed: false, text: "second thought" },
     ];
     const rows = transcriptRows(blocks, WIDE);
-    const second = rows.findIndex((row) =>
-      row.content.some((segment) => segment.text.includes("second thought")),
-    );
+    const second = rows.findIndex((row) => row.key === "r2:label");
     expect(second).toBeGreaterThan(0);
     expect(rows[second - 1]?.key).toBe("gap:r2");
     expect(rows[second - 1]?.content).toEqual([]);
@@ -658,7 +671,13 @@ describe("reasoning is subordinate by geometry", () => {
       },
     ];
     const rows = transcriptRows(blocks, WIDE);
-    const texts = rows.map((row) => row.content.map((segment) => segment.text).join(""));
+    const glyphs = getGlyphs();
+    const texts = rows.map((row) =>
+      row.content
+        .map((segment) => segment.text)
+        .join("")
+        .replace(glyphs.railDeep, ""),
+    );
     const heading = texts.findIndex((text) => text.includes("Reviewing tests"));
     const body = texts.findIndex((text) => text.includes("Considering bun test"));
     expect(heading).toBeGreaterThanOrEqual(0);
@@ -1549,19 +1568,15 @@ describe("code fences", () => {
 });
 
 describe("metadata alignment", () => {
-  it("ends a reasoning duration on the same column as a user timestamp", async () => {
+  it("states a folded reasoning duration in its label, inside the prose column", async () => {
     const blocks: readonly Block[] = [
       { id: "u", seq: 1, kind: "user", text: "hello", at: "14:32" },
       { id: "r", seq: 2, kind: "reasoning", text: "thinking", collapsed: true, durationMs: 4_100 },
       { id: "a", seq: 3, kind: "agent", markdown: "Hi." },
     ];
     const { rows } = await render(transcript(blocks, WIDE), WIDE);
-    const stamp = rows.find((row) => row.includes("14:32")) ?? "";
-    const duration = rows.find((row) => row.includes("4.1s")) ?? "";
-    expect(stamp.indexOf("14:32") + 5).toBe(duration.indexOf("4.1s") + 4);
-    expect(duration.indexOf("4.1s")).toBeGreaterThan(2 + PROSE_MEASURE);
-    expect(duration.indexOf("4.1s") + 4).toBeLessThanOrEqual(
-      2 + PROSE_MEASURE + measureFor(WIDE.width).metadata,
-    );
+    const folded = rows.find((row) => row.includes("thought for 4.1s")) ?? "";
+    expect(folded).toContain("ctrl+r to read");
+    expect(folded.indexOf("4.1s")).toBeLessThan(2 + PROSE_MEASURE);
   });
 });

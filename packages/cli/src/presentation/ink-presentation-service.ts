@@ -655,6 +655,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "error") {
         this.clearAllToolTimeouts();
         this.acc.activeTools.clear();
+        // The turn ends here, so what it thought settles above the error.
+        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
       }
 
       const result = reduceEvent(this.acc, event, ink);
@@ -677,6 +679,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       if (event.type === "text_start") {
+        // What the turn thought so far settles as one line just above the
+        // answer it led to. Printed here rather than updated later, because
+        // Ink's static scrollback never repaints a line it has written.
+        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
         // Reasoning was finalized by thinking_complete (or there was none).
         // Reset stream-text bookkeeping for the new response stream.
         this.seenLength = 0;
@@ -858,6 +864,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     if ((event.response.toolCalls?.length ?? 0) > 0) return;
 
+    if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
     const turn = this.turn;
     this.turn = EMPTY_TURN;
     const line = formatTurnReceipt(turn);

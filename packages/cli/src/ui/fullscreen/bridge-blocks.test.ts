@@ -2,7 +2,7 @@ import { report } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import type { EphemeralRegion } from "../store";
 import type { OutputEntry } from "../types";
-import { blocksFrom, shareUnchangedBlocks, transcriptBlocks } from "./bridge";
+import { blocksFrom, shareUnchangedBlocks, transcriptBlocks, waitingLabel } from "./bridge";
 
 const USER: OutputEntry = {
   id: "u1",
@@ -222,5 +222,17 @@ describe("command reports", () => {
     const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
     expect(block?.kind).toBe("report");
     expect(block?.kind === "report" ? block.report : undefined).toBe(answer);
+  });
+});
+
+describe("the waiting label", () => {
+  it("says thinking once the model is reasoning", () => {
+    expect(waitingLabel("thinking", 12_000)).toBe("thinking");
+  });
+
+  it("fills the silence before the first event with the house copy", () => {
+    const first = waitingLabel("awaiting", 0);
+    expect(first).not.toBe("thinking");
+    expect(waitingLabel("awaiting", 4_000)).not.toBe(first);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { THEME } from "../theme";
 import {
+  continueFenceHighlight,
   highlightCodeLine,
   highlightDiffLine,
   highlightFenceLines,
@@ -89,7 +90,7 @@ describe("syntax-spans", () => {
     expect(sourceLanguageFromPath("bin/run.sh")).toBe("sh");
     expect(sourceLanguageFromPath("index.js")).toBe("js");
     expect(sourceLanguageFromPath("notes.md")).toBeUndefined();
-    expect(pathFromFileArgsPreview("file: src/app.py  def main():")).toBe("src/app.py");
+    expect(pathFromFileArgsPreview("src/app.py  def main():")).toBe("src/app.py");
   });
 
   it("carries a block comment across fence lines", () => {
@@ -183,5 +184,35 @@ describe("comment syntax follows the fence's language", () => {
   it("leaves prose fences uncoloured so apostrophes stay text", () => {
     const rows = highlightFenceLines("text", ["don't // stop # here"]);
     expect(rows[0]).toEqual([{ text: "don't // stop # here", fg: THEME.selected }]);
+  });
+
+  describe("a fence highlighted as it streams", () => {
+    const streamLines = (language: string, lines: readonly string[]): void => {
+      let highlight = continueFenceHighlight(undefined, language, []);
+      for (let count = 1; count <= lines.length; count += 1) {
+        const prefix = lines.slice(0, count);
+        const last = prefix[count - 1] ?? "";
+        // The last line grows a character at a time, as a reveal delivers it.
+        for (let length = 0; length <= last.length; length += 1) {
+          const partial = [...prefix.slice(0, -1), last.slice(0, length)];
+          highlight = continueFenceHighlight(highlight, language, partial);
+          expect(highlight.spans).toEqual(highlightFenceLines(language, partial));
+        }
+      }
+    };
+
+    it("matches a whole-fence highlight, including a comment carried across lines", () => {
+      streamLines("ts", ["/* opens", "   closes */", 'const text = "a string";', "call(text);"]);
+    });
+
+    it("repaints every line when the fence turns out to be a diff", () => {
+      streamLines("", ["notes about the change", "--- a/file.ts", "+++ b/file.ts", "-old", "+new"]);
+    });
+
+    it("starts over when the language changes", () => {
+      const first = continueFenceHighlight(undefined, "ts", ["const a = 1;", "const b"]);
+      const second = continueFenceHighlight(first, "python", ["const a = 1;", "const b"]);
+      expect(second.spans).toEqual(highlightFenceLines("python", ["const a = 1;", "const b"]));
+    });
   });
 });

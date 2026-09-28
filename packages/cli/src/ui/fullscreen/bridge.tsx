@@ -99,6 +99,7 @@ import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { themePickerTarget } from "./theme-picker-keys";
+import { foldTurn } from "./turn-fold";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -115,7 +116,6 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
-import { useStreamReveal } from "./use-stream-reveal";
 import { compactWorkingDirectory } from "./working-directory";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
@@ -123,6 +123,16 @@ const SUBAGENT_NOTICE_MS = 2500;
 
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
+
+/**
+ * What the waiting row says. Before the first event arrives nothing is known
+ * about what the model is doing, so the house copy fills the silence. Once it
+ * is reasoning, the row says so plainly.
+ */
+export function waitingLabel(phase: string, elapsedMs: number | undefined): string {
+  if (phase === "thinking") return "thinking";
+  return WAITING[Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length] as string;
+}
 
 /** Footer and live elapsed digits update once a second, not on the indicator. */
 const FOOTER_ELAPSED_MS = 1000;
@@ -812,17 +822,17 @@ export function blocksFrom(
       const collapsed = entry.meta["collapsed"] === true;
       const fullText = entry.meta["fullText"];
       const durationMs = entry.meta["durationMs"];
+      const steps = entry.meta["steps"];
+      const readable = typeof fullText === "string" && fullText.trim().length > 0;
       blocks.push({
         id,
         seq: seq++,
         kind: "reasoning",
-        text: collapsed
-          ? ""
-          : typeof fullText === "string" && fullText.length > 0
-            ? fullText
-            : text,
+        text: collapsed ? "" : readable ? fullText : text,
         collapsed,
+        ...(collapsed && !readable ? { readable: false } : {}),
         ...(typeof durationMs === "number" ? { durationMs } : {}),
+        ...(typeof steps === "number" ? { steps } : {}),
       });
       continue;
     }
@@ -876,6 +886,7 @@ export function blocksFrom(
         kind: "reasoning",
         text: region.tail.join("\n"),
         collapsed: false,
+        live: true,
       });
       continue;
     }
@@ -893,7 +904,7 @@ export function blocksFrom(
       state: "running",
     });
   }
-  return blocks;
+  return foldTurn(blocks);
 }
 
 // `previous` is undefined on the first block or a missing cache slot; still
@@ -919,7 +930,9 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.collapsed === current.collapsed &&
         previous.steps === current.steps &&
         previous.durationMs === current.durationMs &&
-        previous.tokens === current.tokens
+        previous.tokens === current.tokens &&
+        previous.live === current.live &&
+        previous.readable === current.readable
       );
     case "tool":
       return (
@@ -1098,7 +1111,6 @@ export function FullscreenBridge(): React.ReactNode {
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
   const streaming = output.streaming;
-  const revealedStreaming = useStreamReveal(streaming);
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -2623,15 +2635,12 @@ export function FullscreenBridge(): React.ReactNode {
   const blocks = useMemo(() => {
     const next =
       inspectedRun === undefined
-        ? transcriptBlocks(
-            { outputs, streaming: revealedStreaming, regions },
-            previousBlocks.current,
-          )
+        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
         : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
-  }, [outputs, revealedStreaming, regions, inspectedRun, elapsedMs]);
+  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;
@@ -2651,6 +2660,7 @@ export function FullscreenBridge(): React.ReactNode {
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
       ...(localHost === undefined ? {} : { localHost }),
+      ...(stats.reasoning === undefined ? {} : { reasoning: stats.reasoning }),
       connectors: [...connectors].map(([name, status]) => ({ name, status })),
       contextUsed: stats.tokensInContext ?? 0,
       contextMax: stats.maxContextTokens ?? 0,
@@ -2659,6 +2669,7 @@ export function FullscreenBridge(): React.ReactNode {
     workingDirectory,
     stats.model,
     stats.provider,
+    stats.reasoning,
     stats.localModelHosts,
     stats.tokensInContext,
     stats.maxContextTokens,
@@ -2796,18 +2807,12 @@ export function FullscreenBridge(): React.ReactNode {
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
       ...(todoList.length === 0 ? {} : { todoList }),
-      ...(waitingNow
-        ? {
-            waiting: WAITING[
-              Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length
-            ] as string,
-          }
-        : {}),
+      ...(waitingNow ? { waiting: waitingLabel(activity.phase, elapsedMs) } : {}),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
     };
-  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [tools, step, todoList, waitingNow, activity.phase, elapsedMs, reservedRows, regions]);
 
   const view = useMemo<ViewModel>(
     () => ({
@@ -2887,6 +2892,7 @@ export function FullscreenBridge(): React.ReactNode {
       onAction={onAction}
       onKey={onKey}
       onPaste={applyPaste}
+      onWatchingLiveEdgeChange={store.setReaderFollowing}
       {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );

@@ -75,6 +75,17 @@ export function receiveTarget(state: RevealState, target: string, nowMs: number)
       lastStepMs: nowMs,
     };
   }
+  return extendReveal(state, target, nowMs);
+}
+
+/**
+ * Take in `target`, which the caller guarantees continues what was being
+ * revealed. A caller that owns the stream (the store's pacer) uses this to
+ * skip the continuation check, which compares the whole text so far and would
+ * make each delta cost the length of the answer.
+ */
+export function extendReveal(state: RevealState, target: string, nowMs: number): RevealState {
+  if (target.length === state.target.length) return state;
   const idle = state.shown >= state.target.length;
   return {
     ...state,

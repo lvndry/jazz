@@ -2,8 +2,10 @@
  * User-facing formatting for tool arguments and results in the terminal UI.
  * LLM-context formatting has separate rules in tool-result-formatter.ts.
  */
+import path from "node:path";
 import chalk from "chalk";
 import { isRecord } from "@/core/utils/is-record";
+import { abbreviateHomePath } from "./storage";
 import { safeString } from "./string";
 
 const MAX_RESULT_DISPLAY_LINES = 12;
@@ -477,16 +479,109 @@ export function formatToolArguments(
 }
 
 /**
- * Arguments for a live tool row or a settled receipt: the same fields
- * `formatToolArguments` would show, without the wrapping braces plain style
- * adds around a list.
+ * Arguments as a short phrase for a live tool row or a settled receipt, read
+ * next to the tool's name: `README.md 1–300`, `"TODO" in src`, `git status`.
+ * Key names are left out where the tool makes their meaning plain, and paths
+ * are shown relative to the working directory, or under `~`.
+ *
+ * The first word is the path whenever the tool acts on a file, which is how a
+ * renderer picks the language to highlight a file mutation's preview in.
  */
-export function compactToolArguments(toolName: string, args?: Record<string, unknown>): string {
-  const formatted = formatToolArguments(toolName, args, { style: "plain" }).trim();
-  if (formatted.startsWith("{") && formatted.endsWith("}")) {
-    return formatted.slice(1, -1).trim();
+export function compactToolArguments(
+  toolName: string,
+  args?: Record<string, unknown>,
+  workingDirectory: string = process.cwd(),
+): string {
+  const toolArgs = args ?? {};
+  const shown = (value: unknown): string => displayPath(safeString(value), workingDirectory);
+  const quoted = (value: unknown): string => {
+    const text = safeString(value);
+    return text.length === 0 ? "" : `"${text}"`;
+  };
+  const join = (...parts: readonly string[]): string =>
+    parts.filter((part) => part.length > 0).join(" ");
+
+  switch (toolName) {
+    case "read_file":
+      return join(
+        shown(toolArgs["path"] || toolArgs["filePath"]),
+        lineSpan(toolArgs["startLine"], toolArgs["endLine"]),
+      );
+    case "view_memory": {
+      const range = toolArgs["view_range"];
+      const memoryPath = safeString(toolArgs["path"]);
+      return join(
+        memoryPath.trim().length === 0 ? "/" : memoryPath,
+        Array.isArray(range) && range.length === 2 ? lineSpan(range[0], range[1]) : "",
+      );
+    }
+    case "write_file":
+    case "execute_write_file":
+    case "edit_file":
+    case "execute_edit_file": {
+      const preview = fileMutationPreview(extractFileMutationContent(toolName, toolArgs));
+      const target = shown(toolArgs["path"] || toolArgs["filePath"]);
+      return [target, preview].filter((part) => part.length > 0).join("  ");
+    }
+    case "ls":
+    case "cd":
+    case "mkdir":
+      return shown(toolArgs["path"] || toolArgs["directory"]) || ".";
+    case "find": {
+      const name = quoted(toolArgs["name"]);
+      const where = shown(toolArgs["path"]);
+      return join(name, name.length > 0 && where.length > 0 ? "in" : "", where);
+    }
+    case "grep": {
+      const pattern = quoted(toolArgs["pattern"]);
+      const where = shown(toolArgs["path"]);
+      return join(pattern, pattern.length > 0 && where.length > 0 ? "in" : "", where);
+    }
+    case "execute_command":
+    case "execute_execute_command":
+      return safeString(toolArgs["command"]);
+    case "http_request": {
+      const url = safeString(toolArgs["url"]);
+      if (url.length === 0) return "";
+      return join(
+        safeString(toolArgs["method"] || "GET"),
+        appendQueryParams(url, toolArgs["query"]),
+      );
+    }
+    case "web_search":
+      return quoted(toolArgs["query"] || toolArgs["search_query"] || toolArgs["q"]);
+    case "manage_todos":
+      // The plan is drawn from the arguments themselves; there is nothing to add beside the name.
+      return "";
+    default: {
+      const formatted = formatToolArguments(toolName, args, { style: "plain" }).trim();
+      if (formatted.startsWith("{") && formatted.endsWith("}")) {
+        return formatted.slice(1, -1).trim();
+      }
+      return formatted;
+    }
   }
-  return formatted;
+}
+
+/** `12–40`, `from 12`, `to 40`, or nothing. */
+function lineSpan(start: unknown, end: unknown): string {
+  const first = typeof start === "number" ? start : undefined;
+  const last = typeof end === "number" ? end : undefined;
+  if (first !== undefined && last !== undefined) return `${String(first)}–${String(last)}`;
+  if (first !== undefined) return `from ${String(first)}`;
+  if (last !== undefined) return `to ${String(last)}`;
+  return "";
+}
+
+/** A path as a person reads it: relative inside the working directory, `~` under home. */
+function displayPath(target: string, workingDirectory: string): string {
+  if (target.length === 0) return "";
+  if (target === workingDirectory) return ".";
+  const prefix = workingDirectory.endsWith(path.sep)
+    ? workingDirectory
+    : workingDirectory + path.sep;
+  if (workingDirectory.length > 0 && target.startsWith(prefix)) return target.slice(prefix.length);
+  return abbreviateHomePath(target);
 }
 
 /**

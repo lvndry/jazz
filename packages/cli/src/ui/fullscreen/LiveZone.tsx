@@ -33,6 +33,7 @@
  * running rather than one thing blinking three times.
  */
 
+import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
@@ -52,6 +53,8 @@ import {
 export interface LiveSegment {
   readonly text: string;
   readonly fg: string;
+  readonly bold?: boolean;
+  readonly strikethrough?: boolean;
 }
 
 export interface LiveRow {
@@ -207,7 +210,8 @@ function waitingRow(
   return alignRow(
     "waiting",
     [
-      { text: laneFrame(tick, glyphs), fg: THEME.primary },
+      // Waiting is one thing in flight: the model, before its first word.
+      { text: laneFrame(tick, glyphs, 1), fg: THEME.primary },
       { text: " ", fg: THEME.muted },
       { text: waiting, fg: THEME.secondary },
     ],
@@ -231,31 +235,41 @@ function waitingRow(
  */
 export const TODO_WINDOW_ROWS = 10;
 
-function todoGlyph(status: TodoSnapshotItem["status"], glyphs: GlyphSet): string {
-  switch (status) {
+/**
+ * A plan item reads by weight and mark, not by a colour per status: done is
+ * muted and struck through behind a success check, the current step is bold
+ * with its own moving cell, and what is still to come is quiet. Warning amber
+ * never means "not started yet".
+ */
+function todoItemSegments(todo: TodoSnapshotItem, tick: number, glyphs: GlyphSet): LiveSegment[] {
+  switch (todo.status) {
     case "completed":
-      return glyphs.todoDone;
-    case "in_progress":
-      return glyphs.todoActive;
+      return [
+        { text: glyphs.todoDone, fg: THEME.success },
+        { text: " ", fg: THEME.muted },
+        { text: todo.content, fg: THEME.muted, strikethrough: true },
+      ];
+    case "in_progress": {
+      const frames = glyphs.spinnerFrames;
+      return [
+        { text: frames[tick % frames.length] ?? glyphs.todoActive, fg: THEME.primary },
+        { text: " ", fg: THEME.muted },
+        { text: todo.content, fg: THEME.selected, bold: true },
+      ];
+    }
     case "cancelled":
-      return glyphs.todoCancelled;
+      return [
+        { text: glyphs.todoCancelled, fg: THEME.muted },
+        { text: " ", fg: THEME.muted },
+        { text: todo.content, fg: THEME.muted, strikethrough: true },
+      ];
     case "pending":
     default:
-      return glyphs.todoPending;
-  }
-}
-
-function todoColor(status: TodoSnapshotItem["status"]): string {
-  switch (status) {
-    case "completed":
-      return THEME.success;
-    case "in_progress":
-      return THEME.agent;
-    case "cancelled":
-      return THEME.muted;
-    case "pending":
-    default:
-      return THEME.warning;
+      return [
+        { text: glyphs.todoPending, fg: THEME.muted },
+        { text: " ", fg: THEME.muted },
+        { text: todo.content, fg: THEME.muted },
+      ];
   }
 }
 
@@ -264,14 +278,15 @@ function todoPanelRows(
   glyphs: GlyphSet,
   width: number,
   maxRows: number,
+  tick = 0,
 ): LiveRow[] {
   if (todos.length === 0 || maxRows <= 0) return [];
 
   const done = todos.filter((todo) => todo.status === "completed").length;
   const header = alignRow(
     "todo-header",
-    [...gutter(glyphs), { text: `todo ${done}/${todos.length}`, fg: THEME.muted }],
-    [],
+    [...gutter(glyphs), { text: "plan", fg: THEME.secondary, bold: true }],
+    [{ text: `${String(done)} of ${String(todos.length)}`, fg: THEME.muted }],
     width,
   );
 
@@ -294,12 +309,7 @@ function todoPanelRows(
   const itemRows = showItems.map((todo, index) =>
     alignRow(
       `todo:${todo.content}:${start + index}`,
-      [
-        ...gutter(glyphs),
-        { text: todoGlyph(todo.status, glyphs), fg: todoColor(todo.status) },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.secondary },
-      ],
+      [...gutter(glyphs), ...todoItemSegments(todo, tick, glyphs)],
       [],
       width,
     ),
@@ -395,7 +405,7 @@ export function liveRows(
   // shares the remaining room with any other tools, windowed with `+N more`.
   const todoPanel: LiveRow[] =
     showTodo && model.todoList !== undefined
-      ? todoPanelRows(model.todoList, glyphs, width, budget)
+      ? todoPanelRows(model.todoList, glyphs, width, budget, tick)
       : [];
   budget = Math.max(0, budget - todoPanel.length);
 
@@ -435,7 +445,16 @@ export function liveRows(
 function liveBandAnimates(model: LiveModel, streaming: boolean, maxRows?: number): boolean {
   if (reservedHeight(model, maxRows) === 0) return false;
   if (model.tools.length > 0) return true;
+  if (model.todoList?.some((todo) => todo.status === "in_progress") === true) return true;
   return model.waiting !== undefined && !streaming;
+}
+
+/** OpenTUI text nodes honour `attributes`, not `bold`/`strikethrough` booleans. */
+function liveAttributes(segment: LiveSegment): { attributes?: number } {
+  const attributes =
+    (segment.bold === true ? TextAttributes.BOLD : 0) |
+    (segment.strikethrough === true ? TextAttributes.STRIKETHROUGH : 0);
+  return attributes === 0 ? {} : { attributes };
 }
 
 function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
@@ -480,7 +499,7 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
             {row.segments.map((segment, index) => (
               <span
                 key={`${String(index)}:${segment.text}`}
-                style={{ fg: segment.fg }}
+                style={{ fg: segment.fg, ...liveAttributes(segment) }}
               >
                 {segment.text}
               </span>
