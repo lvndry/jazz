@@ -131,11 +131,27 @@ export default [
     },
   },
   {
+    /**
+     * Every package's source, and every test and benchmark below, is linted in the one TypeScript
+     * program `tsconfig.eslint.json` describes. A program per package tsconfig would load each
+     * dependency's sources again (cli alone pulls in core, adapters and daemon), so typed lint
+     * memory would grow with every package added.
+     */
+    files: ["packages/*/src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir,
+      },
+    },
+  },
+  {
     // Benchmarks share the test tsconfig; they print results, so console is fine.
     files: ["bench/**/*.ts"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.test.json",
+        project: "./tsconfig.eslint.json",
         tsconfigRootDir,
       },
       globals: {
@@ -153,7 +169,7 @@ export default [
     files: ["**/*.test.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.test.json",
+        project: "./tsconfig.eslint.json",
         tsconfigRootDir,
       },
       globals: {
