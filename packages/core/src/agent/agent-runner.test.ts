@@ -11,6 +11,7 @@ import {
   runContextBoundary,
   runRecordBoundary,
 } from "./agent-runner";
+import { createEgressTaint } from "./execution/egress-taint";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
@@ -560,6 +561,23 @@ describe("AgentRunner", () => {
         { llm },
       );
       expect(requestedModels).toEqual(["Qwen/Qwen3-8B"]);
+    });
+
+    it("records the run's live egress taint on the messages it returns", async () => {
+      const liveTaint = createEgressTaint();
+      liveTaint.mark("a detached web_fetch");
+
+      const result = await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          stream: false,
+          maxIterations: 1,
+          egressTaint: liveTaint,
+        }),
+      );
+
+      expect(result.messages?.some((message) => message.egressTainted === true)).toBe(true);
+      expect(createEgressTaint(result.messages).isTainted()).toBe(true);
     });
 
     it("should execute agent with streaming when enabled", async () => {

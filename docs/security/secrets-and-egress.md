@@ -142,8 +142,11 @@ only from you. After a run reads external content, egress tools need approval be
 see [unattended runs](./unattended-runs.md#egress-after-untrusted-input).
 
 External-content exposure is also recorded as host-owned transcript metadata. Clearing tool
-output and automatic or manual compaction carry that restriction forward; saving and resuming
-that conversation still requires approval for new destinations under `read-only` and `low-risk`.
+output, automatic or manual compaction, trimming a full context window, the chat's history cap,
+the compaction journal a resumed run reads back, a sub-agent's answer, a Ctrl+B background task's
+result, a batch stopped by Esc or a timeout, and a transcript returned from a detached host all
+carry that restriction forward; saving and resuming that conversation still requires approval for
+new destinations under `read-only` and `low-risk`.
 The model's summary cannot remove the restriction. Older transcripts still containing an external
 tool envelope remain restricted, but exposure already lost from an older compacted transcript
 cannot be recovered.

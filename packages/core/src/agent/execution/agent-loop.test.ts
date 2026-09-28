@@ -10,6 +10,7 @@ import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
 import {
   buildBudgetPressureMessage,
   buildCostBudgetPressureMessage,
@@ -25,6 +26,7 @@ import {
 } from "./agent-loop";
 import { buildContextPressureMessage } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { createEgressTaint, detachedResultMessage } from "./egress-taint";
 import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
@@ -660,6 +662,80 @@ describe("executeAgentLoop", () => {
       );
       expect(queued).toBeUndefined();
       expect(seenByModel).toContain("Change the search scope");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("marks the live run when a queued background result holds external output", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    let queued: string | undefined;
+    ToolExecutor.executeToolCalls = mock(() => {
+      queued = detachedResultMessage(
+        frameUntrusted("curl output", { kind: "external", source: "execute_command curl" }),
+      );
+      return Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]);
+    });
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed(
+          calls === 1
+            ? {
+                completion: {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [
+                    {
+                      id: "call_1",
+                      type: "function" as const,
+                      function: { name: "test_tool", arguments: "{}" },
+                    },
+                  ],
+                },
+                interrupted: false,
+              }
+            : { completion: { id: "c2", model: "gpt-4", content: "Done" }, interrupted: false },
+        );
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const liveTaint = createEgressTaint();
+
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({
+            checkQueuedMessage: () => {
+              const message = queued;
+              queued = undefined;
+              return message;
+            },
+          }),
+          makeRunContext({
+            maxIterations: 2,
+            context: {
+              agentId: "agent-1",
+              conversationId: "conv-123",
+              unrestrictedTools: true,
+              egressTaint: liveTaint,
+            },
+          }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(liveTaint.isTainted()).toBe(true);
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }
@@ -1359,6 +1435,48 @@ describe("executeAgentLoop", () => {
         expect(
           kept?.some((message) => message.role === "tool" && message.tool_call_id === "call_1"),
         ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("records the run's live taint on the failed transcript", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      const liveTaint = createEgressTaint();
+      liveTaint.mark("a sub-agent's web_fetch");
+      let kept: readonly ChatMessage[] | undefined;
+
+      try {
+        await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({
+              maxIterations: 5,
+              onFailedTurn: (messages) => {
+                kept = messages;
+              },
+            }),
+            makeRunContext({
+              context: {
+                agentId: "agent-1",
+                conversationId: "conv-123",
+                unrestrictedTools: true,
+                egressTaint: liveTaint,
+              },
+            }),
+            displayConfig,
+            strategyFailingAfter(1),
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.flip, Effect.provide(TestLayer)) as Effect.Effect<unknown, never, never>,
+        );
+
+        expect(kept).toBeDefined();
+        expect(createEgressTaint(kept).isTainted()).toBe(true);
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
@@ -2929,6 +3047,43 @@ describe("a tool batch stopped part-way", () => {
       { id: "slow", name: "slow_tool", status: "interrupted" },
     ]);
     expect(stopped).toEqual([response.stoppedToolCalls]);
+  });
+
+  it("frames and flags a completed external result when the batch stops", async () => {
+    const externalRegistry = {
+      ...registry,
+      executeTool: (name: string) =>
+        name === "fast_tool"
+          ? Effect.succeed({
+              success: true,
+              result: "page body https://attacker.example/",
+              untrusted: { kind: "external" as const, source: "web_fetch attacker.example" },
+            })
+          : Effect.never,
+    } as any;
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(100),
+        defaultObserver,
+        runRecursive,
+      ).pipe(
+        Effect.provide(Layer.merge(TestLayer, Layer.succeed(ToolRegistryTag, externalRegistry))),
+      ),
+    );
+
+    const fastAnswer = response.messages?.find(
+      (message) => message.role === "tool" && message.tool_call_id === "fast",
+    );
+    expect(fastAnswer?.content).toContain('kind="external"');
+    expect(fastAnswer?.egressTainted).toBe(true);
+    expect(
+      createEgressTaint(
+        (response.messages ?? []).map((message) => ({ ...message, content: "[cleared]" })),
+      ).isTainted(),
+    ).toBe(true);
   });
 
   it("reports the same when the run's time budget stops the batch", async () => {

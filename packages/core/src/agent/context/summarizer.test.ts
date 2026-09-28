@@ -922,6 +922,35 @@ describe("compact", () => {
     expect(entries.at(-1)?.summary).toBe("merged summary");
   });
 
+  it("flags the summary and its journal entry when only the live run is tainted", async () => {
+    const liveTaint = createEgressTaint();
+    liveTaint.mark("a sub-agent's web_fetch");
+    const outcome = await Effect.runPromise(
+      Summarizer.compact(
+        conversationAfterEarlierCompaction(),
+        createMockAgent(),
+        "conv-compact-live-taint",
+        capturingRunner([]),
+        2000,
+        false,
+        undefined,
+        undefined,
+        liveTaint,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        CompactionOutcome | undefined,
+        Error,
+        never
+      >,
+    );
+
+    expect(outcome).toBeDefined();
+    expect(createEgressTaint(outcome!.messages).isTainted()).toBe(true);
+    const entries = await Effect.runPromise(
+      readJournal(createMockAgent().id, "conv-compact-live-taint"),
+    );
+    expect(entries.at(-1)?.egressTainted).toBe(true);
+  });
+
   it("returns undefined without summarizing when nothing is old enough", async () => {
     const inputs: string[] = [];
     const messages: ConversationMessages = [

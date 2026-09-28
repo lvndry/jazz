@@ -17,6 +17,7 @@ import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
@@ -115,6 +116,24 @@ import {
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
  */
+/**
+ * Most messages kept between chat turns. The agent's own ContextWindowManager handles per-turn
+ * trimming with tool-call integrity; this outer cap only stops the between-turn array from
+ * growing without limit.
+ */
+export const MAX_CHAT_HISTORY_MESSAGES = 2000;
+
+/** The newest `limit` messages, still marked as having read external content if any dropped one was. */
+export function capChatHistory(
+  history: readonly ChatMessage[],
+  limit: number = MAX_CHAT_HISTORY_MESSAGES,
+): ChatMessage[] {
+  if (history.length <= limit) {
+    return [...history];
+  }
+  return carryEgressTaint(history.slice(0, -limit), history.slice(-limit));
+}
+
 export class ChatServiceImpl implements ChatService {
   startChatSession(
     agent: Agent,
@@ -305,7 +324,7 @@ export class ChatServiceImpl implements ChatService {
         // automatically — at the next tool-phase boundary if a run is still going, or as the
         // opening line of the next turn otherwise.
         onDetachedToolComplete: (summary: string) => {
-          store.appendToQueue(`[Background task finished]\n${summary}`);
+          store.appendToQueue(detachedResultMessage(summary));
         },
       });
 
@@ -328,12 +347,6 @@ export class ChatServiceImpl implements ChatService {
           store.showModeToast(message);
         }
       });
-
-      // Bound conversation history to prevent unbounded memory growth.
-      // The agent's own ContextWindowManager (50K tokens) handles per-turn
-      // trimming with tool-call integrity; this outer cap is a simple safety
-      // net so the between-turn array doesn't grow without limit.
-      const MAX_CHAT_HISTORY_MESSAGES = 2000;
 
       // True after a turn ended in a caught error. Decides whether queued
       // text auto-flushes (clean-finish path) or seeds the next prompt for
@@ -864,7 +877,7 @@ export class ChatServiceImpl implements ChatService {
 
             // Trim if history exceeds the outer safety cap
             if (conversationHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
-              conversationHistory = conversationHistory.slice(-MAX_CHAT_HISTORY_MESSAGES);
+              conversationHistory = capChatHistory(conversationHistory);
               loggedMessageCount = conversationHistory.length;
             }
           } else if (response.content) {

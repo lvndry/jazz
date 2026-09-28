@@ -80,7 +80,7 @@ import {
 import { closeUnansweredToolCalls } from "./context/unanswered-tool-calls";
 import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { createEgressTaint } from "./execution/egress-taint";
+import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import {
@@ -1098,6 +1098,16 @@ export class AgentRunner {
               runRecursive,
             )
           : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+        const executeRecordingTaint = execute.pipe(
+          Effect.map((response) =>
+            response.messages === undefined
+              ? response
+              : {
+                  ...response,
+                  messages: recordEgressTaint(response.messages, runContext.context.egressTaint),
+                },
+          ),
+        );
 
         // Priced once here rather than per transition: the lookup is a cached network fetch,
         // and a run that parks or fails should not pay for it twice.
@@ -1129,7 +1139,7 @@ export class AgentRunner {
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
             boundary: runRecordBoundary(options),
           },
-          execute,
+          executeRecordingTaint,
         ).pipe(
           // Every way out, including failure and interruption: a run that died still spent.
           Effect.onExit(() =>
