@@ -40,9 +40,10 @@ repo. This is the guide for doing that.
 | `JAZZ_GITHUB_APP_ID`          | required for rotation updates | Identifies the repository scoped GitHub App       |
 | `JAZZ_GITHUB_APP_PRIVATE_KEY` | required for rotation updates | Mints a short lived secret updater token          |
 
-The checked-in agents use `chatgpt/gpt-5.6-luna` and your ChatGPT plan's usage
-limits. To use API billing instead, change both agent configs and pass the
-matching provider API key to both Jazz run steps.
+The code reviewer uses `chatgpt/gpt-6-luna`; the PR assistant uses
+`chatgpt/gpt-5.6-luna`. Both use your ChatGPT plan's usage limits. To use API
+billing instead, change both agent configs and pass the matching provider API
+key to both Jazz run steps.
 
 ## File structure
 
@@ -68,7 +69,7 @@ Two files almost certainly need editing: the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
 1. **`agents/*.json`: pick your model.**
-   Change `llmProvider`, `llmModel`, and optionally `reasoning` (for example `medium`, or `disable`). The checked-in configs use `chatgpt/gpt-5.6-luna`.
+   Change `llmProvider`, `llmModel`, and optionally `reasoning` (for example `medium`, or `disable`). The checked-in reviewer uses `chatgpt/gpt-6-luna`; the assistant uses `chatgpt/gpt-5.6-luna`.
 2. **`workflows/code-review/WORKFLOW.md`: match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk
