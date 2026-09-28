@@ -92,7 +92,7 @@ describe("reasoning rows", () => {
     setThemeVariant("dark");
   });
 
-  it("shows only the newest lines, italic, under a thinking label while live", () => {
+  it("shows only the newest lines, italic, and leaves the label to the live zone", () => {
     const lines = Array.from({ length: 8 }, (_, index) => `line ${String(index + 1)} of thought`);
     const rows = transcriptRows(
       [
@@ -107,13 +107,12 @@ describe("reasoning rows", () => {
       ],
       VIEWPORT,
     );
-    expect(text(rows[0]).trim()).toBe("thinking");
-    expect(rows[0]?.content.some((segment) => segment.italic === true)).toBe(true);
-    const body = rows.slice(1).map((row) => text(row));
+    const body = rows.map((row) => text(row));
     expect(body).toHaveLength(LIVE_REASONING_LINES);
     expect(body.at(-1)).toContain("line 8 of thought");
     expect(body[0]).toContain(getGlyphs().railDeep);
-    expect(rows[1]?.content.some((segment) => segment.italic === true)).toBe(true);
+    expect(body.join("\n")).not.toContain("thinking");
+    expect(rows[0]?.content.some((segment) => segment.italic === true)).toBe(true);
   });
 
   it("opens to the full text with a fold hint", () => {

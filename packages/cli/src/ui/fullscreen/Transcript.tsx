@@ -726,9 +726,17 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
  * keep every column. Flooring a proportional scale (and a min of 3) used to
  * overflow the row, after which `fitTerminalSegments` ate the last cells.
  */
+/**
+ * A column is never squeezed below its longest word while another column can
+ * give, so "Friday" does not break into "Frid / ay". A word longer than this
+ * does not get to hold the whole table hostage for its own width.
+ */
+const TABLE_WORD_FLOOR_CAP = 16;
+
 function tableColumnLayout(
   natural: readonly number[],
   width: number,
+  longestWord: readonly number[] = [],
 ): { readonly sizes: readonly number[]; readonly gap: number } {
   const columns = natural.length;
   if (columns === 0) return { sizes: [], gap: 0 };
@@ -743,18 +751,29 @@ function tableColumnLayout(
 
   const total = natural.reduce((sum, size) => sum + size, 0);
   const floor = available < columns * 3 ? 1 : 3;
-  const sizes = natural.map((size) => {
+  const wordFloor = natural.map((size, index) =>
+    Math.min(size, TABLE_WORD_FLOOR_CAP, longestWord[index] ?? 1),
+  );
+  const sizes = natural.map((size, index) => {
     if (total <= available) return Math.max(size, 1);
-    return Math.max(floor, Math.floor((size / total) * available));
+    return Math.max(floor, wordFloor[index] ?? 1, Math.floor((size / total) * available));
   });
 
+  // Take from the widest column that is still above its longest word; only
+  // when every column is down to its words does a word have to break.
+  const widestAbove = (limit: (index: number) => number): number => {
+    let widest = -1;
+    for (let index = 0; index < sizes.length; index += 1) {
+      if ((sizes[index] ?? 0) <= limit(index)) continue;
+      if (widest < 0 || (sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
+    }
+    return widest;
+  };
   let used = sizes.reduce((sum, size) => sum + size, 0);
   while (used > available) {
-    let widest = 0;
-    for (let index = 1; index < sizes.length; index += 1) {
-      if ((sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
-    }
-    if ((sizes[widest] ?? 0) <= 1) break;
+    let widest = widestAbove((index) => wordFloor[index] ?? 1);
+    if (widest < 0) widest = widestAbove(() => 1);
+    if (widest < 0) break;
     sizes[widest] = (sizes[widest] ?? 1) - 1;
     used -= 1;
   }
@@ -810,7 +829,20 @@ function tableRows(
   const natural = Array.from({ length: columns }, (_, column) =>
     Math.max(...cells.map((row) => terminalSegmentsWidth(row[column] ?? [])), 1),
   );
-  const { sizes, gap } = tableColumnLayout(natural, width);
+  const longestWord = Array.from({ length: columns }, (_, column) =>
+    Math.max(
+      ...cells.map((row) =>
+        Math.max(
+          0,
+          ...(row[column] ?? [])
+            .flatMap((segment) => segment.text.split(/\s+/))
+            .map((word) => terminalCellWidth(word)),
+        ),
+      ),
+      1,
+    ),
+  );
+  const { sizes, gap } = tableColumnLayout(natural, width, longestWord);
 
   const wrappedRows = cells.map((row) => row.map((cell, column) => wrap(cell, sizes[column] ?? 1)));
   const heights = wrappedRows.map((row) => Math.max(...row.map((cell) => cell.length), 1));
@@ -1639,20 +1671,11 @@ function reasoningRows(
       row(`${block.id}:${String(keyOffset + index)}`, [indent, ruled, ...line]),
     );
 
+  // The live zone right below says "thinking" with the elapsed time, so the
+  // lines carry no label of their own; a second one would stack the word twice.
   if (block.live === true) {
-    const elapsed: readonly Segment[] =
-      block.durationMs !== undefined && geometry.metadata > 0
-        ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
-        : [];
     const newest = text.trim().length === 0 ? [] : wrapped.slice(-LIVE_REASONING_LINES);
-    return [
-      row(
-        `${block.id}:label`,
-        [indent, { text: "thinking", fg: THEME.secondary, italic: true }],
-        elapsed,
-      ),
-      ...bodyRows(newest, Math.max(0, wrapped.length - newest.length)),
-    ];
+    return bodyRows(newest, Math.max(0, wrapped.length - newest.length));
   }
 
   return [

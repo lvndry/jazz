@@ -277,6 +277,22 @@ describe("density", () => {
   });
 });
 
+describe("table columns", () => {
+  it("keeps a short column whole beside wide prose columns", () => {
+    const long = "Stroll through Alfama and visit the cathedral, then lunch in a tasca";
+    const markdown = [
+      "| Day | Morning | Afternoon | Evening |",
+      "|---|---|---|---|",
+      `| **Friday** | ${long} | ${long} | ${long} |`,
+      `| **Saturday** | ${long} | ${long} | ${long} |`,
+    ].join("\n");
+    const rows = transcriptRows([{ id: "t", seq: 0, kind: "agent", markdown }], WIDE);
+    const lines = rows.map((row) => row.content.map((segment) => segment.text).join(""));
+    expect(lines.some((line) => line.includes("Friday"))).toBe(true);
+    expect(lines.some((line) => line.includes("Saturday"))).toBe(true);
+  });
+});
+
 describe("the measure", () => {
   it("never lets a row overflow the viewport, at 120 or at 80", async () => {
     for (const viewport of [WIDE, NARROW]) {
