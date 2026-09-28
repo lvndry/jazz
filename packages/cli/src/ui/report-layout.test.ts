@@ -93,6 +93,25 @@ describe("reportLines", () => {
     expect(lines[2]?.segments[0]?.role).toBe("muted");
   });
 
+  it("hangs a wrapped field value under its own value column, not under the label", () => {
+    const text = reportPlainText(
+      report("info", [
+        { kind: "field", key: "model", value: "openai/gpt-5.6" },
+        { kind: "field", key: "session log", value: `/very/long/${"segment/".repeat(8)}file.log` },
+      ]),
+      glyphs,
+      50,
+    ).split("\n");
+    const valueColumn = text[0]?.indexOf("openai") ?? -1;
+    expect(text[1]?.indexOf("/very")).toBe(valueColumn);
+    for (const continuation of text.slice(2)) {
+      expect(continuation.search(/\S/)).toBe(valueColumn);
+    }
+    for (const line of text) {
+      expect(line.length).toBeLessThanOrEqual(50);
+    }
+  });
+
   it("still names the command when a report has no rows", () => {
     expect(reportPlainText(report("clear", []), glyphs)).toBe("clear");
   });

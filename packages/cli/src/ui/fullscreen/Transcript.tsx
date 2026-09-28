@@ -1571,22 +1571,25 @@ function reportRows(
   glyphs: GlyphSet,
 ): RenderRow[] {
   const rows: RenderRow[] = [];
-  const lines = reportLines(block.report, glyphs);
-  // The first line's label is padded to the value column, so its width is the
-  // column every other row, and every wrapped continuation, hangs under.
-  const labelColumn = terminalCellWidth(lines[0]?.segments[0]?.text ?? "");
   const paint = (segments: readonly ReportSegment[]): Segment[] =>
     segments.map((segment) => ({ ...reportColor(segment.role), text: segment.text }));
-  const hang: Segment = { text: " ".repeat(labelColumn), fg: THEME.muted };
-  lines.forEach((line, lineIndex) => {
-    const head = lineIndex === 0 ? paint(line.segments.slice(0, 1)) : [hang];
-    const body = paint(lineIndex === 0 ? line.segments.slice(1) : line.segments);
-    const wrapped = body.length === 0 ? [[]] : wrap(body, geometry.prose - labelColumn);
+  reportLines(block.report, glyphs).forEach((line, lineIndex) => {
+    // The prefix (the label, a key, a marker and name) sets where a wrapped value
+    // continues, so a long value hangs under its own column rather than the label.
+    const indent: Segment = { text: " ".repeat(line.indent), fg: THEME.muted };
+    const prefix = [
+      ...(line.indent > 0 ? [indent] : []),
+      ...paint(line.segments.slice(0, line.lead)),
+    ];
+    const hang = terminalSegmentsWidth(prefix);
+    const rest = paint(line.segments.slice(line.lead));
+    const wrapped = rest.length === 0 ? [[]] : wrap(rest, Math.max(1, geometry.prose - hang));
+    const continuation: Segment = { text: " ".repeat(hang), fg: THEME.muted };
     wrapped.forEach((content, wrapIndex) => {
       rows.push({
         key: `${block.id}:${String(lineIndex)}:${String(wrapIndex)}`,
         gutter: [BLANK_CELL, BLANK_CELL],
-        content: [...(wrapIndex === 0 ? head : [hang]), ...content],
+        content: [...(wrapIndex === 0 ? prefix : [continuation]), ...content],
         contentWidth: geometry.prose,
         meta: [],
       });

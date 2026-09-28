@@ -41,6 +41,17 @@ export interface ReportLine {
   /** Columns before the content: the label column on every row. */
   readonly indent: number;
   readonly segments: readonly ReportSegment[];
+  /**
+   * How many leading segments are the line's fixed prefix: the label on the first line,
+   * then a field's key or an item's marker and name. A line too long for the row wraps
+   * what follows under the end of this prefix, so a long value hangs under its own column.
+   */
+  readonly lead: number;
+}
+
+interface Body {
+  readonly segments: ReportSegment[];
+  readonly lead: number;
 }
 
 /** Cells between the label and the value column, and between aligned columns. */
@@ -100,7 +111,7 @@ function runsOf(rows: readonly ReportRow[]): Run[] {
   return runs;
 }
 
-function fieldLines(rows: readonly Extract<ReportRow, { kind: "field" }>[]): ReportSegment[][] {
+function fieldLines(rows: readonly Extract<ReportRow, { kind: "field" }>[]): Body[] {
   const keyWidth = Math.max(...rows.map((row) => [...row.key].length));
   const numeric = rows.every((row) => NUMERIC_VALUE.test(row.value));
   const valueWidth = Math.max(...rows.map((row) => [...row.value].length));
@@ -113,14 +124,14 @@ function fieldLines(rows: readonly Extract<ReportRow, { kind: "field" }>[]): Rep
     if (row.detail !== undefined && row.detail.length > 0) {
       segments.push({ text: `  ${row.detail}`, role: "muted" });
     }
-    return segments;
+    return { segments, lead: 1 };
   });
 }
 
 function itemLines(
   rows: readonly Extract<ReportRow, { kind: "item" }>[],
   glyphs: GlyphSet,
-): ReportSegment[][] {
+): Body[] {
   const marked = rows.some((row) => row.marker !== undefined);
   const nameWidth = Math.max(...rows.map((row) => [...row.name].length));
   const detailed = rows.some((row) => row.detail !== undefined && row.detail.length > 0);
@@ -145,7 +156,9 @@ function itemLines(
     if (row.detail !== undefined && row.detail.length > 0) {
       segments.push({ text: row.detail, role: "muted" });
     }
-    return segments;
+    // With a detail column the name is the prefix and the detail hangs under itself;
+    // without one the whole row is the name, so it hangs under the marker.
+    return { segments, lead: (marked ? 2 : 0) + (detailed ? 1 : 0) };
   });
 }
 
@@ -182,33 +195,34 @@ function singleLine(row: ReportRow, glyphs: GlyphSet): ReportSegment[] {
 /** Lay a report out as lines of role-tagged segments, the label on the first line. */
 export function reportLines(report: TerminalReport, glyphs: GlyphSet): ReportLine[] {
   const indent = Math.max(MIN_LABEL_COLUMN, [...report.label].length + COLUMN_GAP);
-  const bodies: ReportSegment[][] = [];
+  const bodies: Body[] = [];
   for (const run of runsOf(report.rows)) {
     if (run.kind === "fields") {
       bodies.push(...fieldLines(run.rows));
     } else if (run.kind === "items") {
       bodies.push(...itemLines(run.rows, glyphs));
     } else {
-      bodies.push(singleLine(run.row, glyphs));
+      bodies.push({ segments: singleLine(run.row, glyphs), lead: 0 });
     }
   }
   if (report.note !== undefined && report.note.length > 0) {
     if (bodies.length > 0) {
-      bodies.push([]);
+      bodies.push({ segments: [], lead: 0 });
     }
-    bodies.push([{ text: report.note, role: "muted" }]);
+    bodies.push({ segments: [{ text: report.note, role: "muted" }], lead: 0 });
   }
   if (bodies.length === 0) {
-    bodies.push([]);
+    bodies.push({ segments: [], lead: 0 });
   }
 
-  return bodies.map((segments, index) =>
+  return bodies.map((body, index) =>
     index === 0
       ? {
           indent: 0,
-          segments: [{ text: report.label.padEnd(indent), role: "label" }, ...segments],
+          segments: [{ text: report.label.padEnd(indent), role: "label" }, ...body.segments],
+          lead: 1 + body.lead,
         }
-      : { indent, segments },
+      : { indent, segments: body.segments, lead: body.lead },
   );
 }
 
@@ -262,31 +276,31 @@ function wrapSegments(segments: readonly ReportSegment[], width: number): Report
   return rows;
 }
 
+function segmentsWidth(segments: readonly ReportSegment[]): number {
+  return segments.reduce((total, segment) => total + [...segment.text].length, 0);
+}
+
 function textOf(
   report: TerminalReport,
   glyphs: GlyphSet,
   width: number | undefined,
   paint: (segment: ReportSegment) => string,
 ): string {
-  const lines = reportLines(report, glyphs);
-  const labelColumn = [...(lines[0]?.segments[0]?.text ?? "")].length;
   const out: string[] = [];
-  lines.forEach((line, index) => {
-    const head = index === 0 ? line.segments.slice(0, 1) : [];
-    const body = index === 0 ? line.segments.slice(1) : line.segments;
-    const indent = index === 0 ? 0 : line.indent;
+  for (const line of reportLines(report, glyphs)) {
+    const prefix = line.segments.slice(0, line.lead);
+    const rest = line.segments.slice(line.lead);
+    const hang = line.indent + segmentsWidth(prefix);
     const rows =
-      width === undefined || width <= labelColumn
-        ? [body]
-        : wrapSegments(body, Math.max(1, width - labelColumn));
+      width === undefined || width <= hang ? [rest] : wrapSegments(rest, Math.max(1, width - hang));
     rows.forEach((row, rowIndex) => {
       const lead =
         rowIndex === 0
-          ? `${" ".repeat(indent)}${head.map(paint).join("")}`
-          : " ".repeat(labelColumn);
+          ? `${" ".repeat(line.indent)}${prefix.map(paint).join("")}`
+          : " ".repeat(hang);
       out.push(`${lead}${row.map(paint).join("")}`.trimEnd());
     });
-  });
+  }
   return out.join("\n");
 }
 
