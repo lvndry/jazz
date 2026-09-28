@@ -121,8 +121,12 @@ export interface ModelPickerChoice {
 }
 
 function priceText(inputPrice: number | undefined, outputPrice: number | undefined): string {
-  if (inputPrice === undefined && outputPrice === undefined) return "price unknown";
-  if (inputPrice === 0 && outputPrice === 0) return "free";
+  if (inputPrice === undefined && outputPrice === undefined) {
+    return "price unknown";
+  }
+  if (inputPrice === 0 && outputPrice === 0) {
+    return "free";
+  }
   const format = (price: number | undefined): string =>
     price === undefined ? "?" : `$${trimNumber(price)}`;
   return `${format(inputPrice)} / ${format(outputPrice)}`;

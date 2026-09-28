@@ -13,10 +13,13 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
+import { WizardHome } from "./WizardHome";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { agentDetailsBodyHeight, agentDetailsRows } from "./fullscreen/screens/AgentDetails";
 import { windowStart } from "./fullscreen/screens/AgentPicker";
 import { skillDetailBodyRows, skillListRows } from "./fullscreen/screens/SkillBrowser";
 import { clipTerminalCells } from "./fullscreen/terminal-cells";
+import { InkHome } from "./InkHome";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
@@ -28,8 +31,7 @@ import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
-import { WizardHome } from "./WizardHome";
-import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import packageJson from "../../../../package.json";
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -172,6 +174,23 @@ const OutputIsland = React.memo(OutputIslandComponent);
 
 function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
   if (menu.kind === "skills") return <InkSkillBrowserView menu={menu} />;
+  if (menu.kind === "home") {
+    return (
+      <InkHome
+        model={{
+          version: packageJson.version,
+          cwd: process.cwd(),
+          greeting: menu.greeting,
+          conversations: menu.conversations,
+          actions: menu.actions,
+          status: menu.status,
+          ...(menu.firstRun === undefined ? {} : { firstRun: menu.firstRun }),
+        }}
+        onSelect={(value) => store.completePrompt({ kind: "select", value })}
+        onExit={() => store.completePrompt({ kind: "exit" })}
+      />
+    );
+  }
   if (menu.kind === "agent-details") return <InkAgentDetailsView menu={menu} />;
   const options =
     menu.kind === "agents"
@@ -179,19 +198,11 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
           label: `${agent.name} (${agent.model})`,
           value: agent.id,
         }))
-      : menu.kind === "home"
-        ? [
-            ...menu.conversations.map((conversation) => ({
-              label: `${conversation.waiting ? "Waiting: " : "Continue: "}${conversation.title} (${conversation.agent})`,
-              value: conversation.value,
-            })),
-            ...menu.actions.map((action) => ({
-              label: action.label.charAt(0).toUpperCase() + action.label.slice(1),
-              value: action.value,
-            })),
-          ]
-        : menu.options;
-  const title = menu.kind === "home" ? undefined : menu.title;
+      : menu.options.map((option) => ({
+          label: option.hint === undefined ? option.label : `${option.label}  ${option.hint}`,
+          value: option.value,
+        }));
+  const title = menu.title;
 
   return (
     <WizardHome

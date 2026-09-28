@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useMemo } from "react";
+import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { pickerWindowStart } from "../picker-window";
 import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
@@ -116,6 +117,11 @@ export function ScrollableMultiSelect<T = unknown>({
               {" "}
               [{row.selected ? "x" : " "}] {row.label}
             </Text>
+            <ChoiceMeta
+              description={row.description}
+              tag={row.tag}
+              tagTone={row.tagTone}
+            />
           </Box>
         ))
       )}

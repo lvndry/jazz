@@ -85,6 +85,8 @@ import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
 import type { QuestionStep } from "./overlays/stepper";
+import { initialChoiceIndex } from "../prompt-core/picker-adapter";
+import { readPromptStep } from "../prompt-core/stepper";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
@@ -339,16 +341,15 @@ function initialPromptControls(prompt: PromptState | null): PromptControlsState 
   }
 
   const choices = promptChoices(prompt);
-  let selected = firstEnabledChoice(choices);
-  if (prompt.type === "confirm") {
-    selected = prompt.options?.["defaultValue"] === true ? 0 : 1;
-  } else if (prompt.type === "select" && prompt.options?.defaultSelected !== undefined) {
-    const defaultIndex = choices.findIndex(
-      (choice) =>
-        Object.is(choice.value, prompt.options?.defaultSelected) && choice.disabled !== true,
-    );
-    if (defaultIndex >= 0) selected = defaultIndex;
-  }
+  const selected =
+    prompt.type === "confirm"
+      ? prompt.options?.["defaultValue"] === true
+        ? 0
+        : 1
+      : initialChoiceIndex(
+          choices,
+          prompt.type === "select" ? prompt.options?.defaultSelected : undefined,
+        );
 
   const defaults = Array.isArray(prompt.options?.defaultSelected)
     ? prompt.options.defaultSelected
@@ -416,12 +417,7 @@ function stepField(prompt: PromptState): { readonly step?: QuestionStep } {
 
 /** The multi-step position a prompt was opened with, when it is well-formed. */
 function promptStep(prompt: PromptState): QuestionStep | undefined {
-  const step: unknown = prompt.options?.["step"];
-  if (typeof step !== "object" || step === null) return undefined;
-  const { labels, index } = step as { labels?: unknown; index?: unknown };
-  if (!Array.isArray(labels) || typeof index !== "number") return undefined;
-  const names = labels.filter((label): label is string => typeof label === "string");
-  return index >= 0 && index < names.length ? { labels: names, index } : undefined;
+  return readPromptStep(prompt.options?.["step"]);
 }
 
 function validatePrompt(prompt: PromptState, value: string): string | null {

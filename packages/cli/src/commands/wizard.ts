@@ -44,7 +44,7 @@ import {
   type HomeConversationSource,
 } from "./home-surface";
 import { sessionOpenLine } from "./session-open";
-import { configuredProviderNames } from "../ui/fullscreen/home-readiness";
+import { configuredProviderNames } from "../ui/models/configured-providers";
 import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**

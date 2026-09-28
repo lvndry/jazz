@@ -30,6 +30,7 @@ import { stepperSegments, type QuestionStep } from "./stepper";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
+import { alignTabColumns } from "../../prompt-core/description-columns";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
@@ -83,38 +84,17 @@ export interface QuestionChoice {
   readonly tagTone?: QuestionTagTone;
 }
 
-/** Pads a tab-separated description column; a no-break space survives word wrapping. */
-const COLUMN_PAD = "\u00a0";
-
-/** Cells kept between two tab-separated description columns. */
-const COLUMN_GAP = 2;
-
-/**
- * Descriptions that use tabs as column breaks, set so every column lines up across the
- * choices. Descriptions without a tab are returned unchanged.
- */
+/** Descriptions with tab-separated columns, lined up across the choices by the shared picker rule. */
 export function alignDescriptionColumns(
   choices: readonly QuestionChoice[],
 ): readonly QuestionChoice[] {
-  if (!choices.some((choice) => (choice.description ?? "").includes("\t"))) return choices;
-  const split = choices.map((choice) => (choice.description ?? "").split("\t"));
-  const widths: number[] = [];
-  for (const cells of split) {
-    cells.forEach((cell, index) => {
-      widths[index] = Math.max(widths[index] ?? 0, terminalCellWidth(cell));
-    });
+  const aligned = alignTabColumns(choices.map((choice) => choice.description));
+  if (aligned.every((description, index) => description === choices[index]?.description)) {
+    return choices;
   }
-  return choices.map((choice, row) => {
-    const cells = split[row] ?? [];
-    if (choice.description === undefined) return choice;
-    const description = cells
-      .map((cell, index) =>
-        index === cells.length - 1
-          ? cell
-          : cell + COLUMN_PAD.repeat((widths[index] ?? 0) - terminalCellWidth(cell) + COLUMN_GAP),
-      )
-      .join("");
-    return { ...choice, description };
+  return choices.map((choice, index) => {
+    const description = aligned[index];
+    return description === undefined ? choice : { ...choice, description };
   });
 }
 

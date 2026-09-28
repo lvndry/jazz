@@ -39,7 +39,7 @@ import {
 } from "./spend-limits";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
-import { configuredProviderNames } from "../ui/fullscreen/home-readiness";
+import { configuredProviderNames } from "../ui/models/configured-providers";
 import { store, type ActiveMenuOption } from "../ui/store";
 
 /**

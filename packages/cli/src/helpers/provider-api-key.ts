@@ -6,7 +6,7 @@ import type { AppConfig } from "@jazz/core/types/config";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { Effect } from "effect";
 import { signInToChatGPT } from "@/cli/helpers/chatgpt-sign-in";
-import { configuredProviderNames } from "@/cli/ui/fullscreen/home-readiness";
+import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 
 /** Whether the provider is pointed at its own endpoint, where the stock key check does not apply. */
 function hasCustomBaseUrl(config: AppConfig, provider: string): boolean {

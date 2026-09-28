@@ -26,7 +26,9 @@ export function environmentKeyDetections(
 
 /** The origin an Ollama base URL points at, or the default when none is configured. */
 export function ollamaOrigin(baseUrl: string | undefined): string {
-  if (baseUrl === undefined) return OLLAMA_DEFAULT_ORIGIN;
+  if (baseUrl === undefined) {
+    return OLLAMA_DEFAULT_ORIGIN;
+  }
   try {
     return new URL(baseUrl).origin;
   } catch {
@@ -46,7 +48,9 @@ export async function probeOllamaModels(
     const response = await fetchImpl(`${origin}/api/tags`, {
       signal: AbortSignal.timeout(OLLAMA_PROBE_TIMEOUT_MS),
     });
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      return undefined;
+    }
     const body = (await response.json()) as { models?: unknown };
     return Array.isArray(body.models) ? body.models.length : undefined;
   } catch {

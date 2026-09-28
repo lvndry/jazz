@@ -21,10 +21,26 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
+import {
+  FIRST_RUN_PITCH,
+  FIRST_RUN_PROMISE,
+  FIRST_RUN_SETUP_LEAD,
+  FIRST_RUN_STEPS,
+  conversationTag,
+  detectionLines,
+  homeLead,
+  homeLegend,
+  type HomeConversation,
+  type HomeModel,
+  type HomeStatus,
+  type LegendEntry,
+} from "../../models/home-view";
 import { groundPaint, THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
+
+export type { HomeModel } from "../../models/home-view";
 
 /** The bar cell plus one space; text inside a band starts here. */
 const GUTTER = 2;
@@ -40,49 +56,6 @@ const FOOTER_ROWS = 1;
 
 /** Share of the leftover height placed above the block; the rest goes below it. */
 const TOP_SLACK_SHARE = 1 / 3;
-
-const PITCH = "One agent for your email, calendar, files and the web.";
-const PROMISE = "It asks before it touches anything real.";
-const SETUP_LEAD = "Setup takes about a minute:";
-const SETUP_STEPS = ["pick a model", "name your agent", "say hello"] as const;
-
-export interface HomeConversation {
-  readonly key: string;
-  readonly value: string;
-  readonly title: string;
-  readonly agent: string;
-  readonly detail: string;
-  readonly age: string;
-  readonly waiting: boolean;
-}
-
-export interface HomeAction {
-  readonly key: string;
-  readonly label: string;
-  readonly value: string;
-}
-
-export interface HomeStatus {
-  readonly text: string;
-  readonly tone?: "warning";
-  readonly fixKey?: string;
-}
-
-export interface HomeDetection {
-  readonly label: string;
-  readonly detail: string;
-}
-
-export interface HomeModel {
-  readonly version: string;
-  /** The working directory as a person reads it, shown in the footer. */
-  readonly cwd: string;
-  readonly greeting: string;
-  readonly conversations: readonly HomeConversation[];
-  readonly actions: readonly HomeAction[];
-  readonly status: readonly HomeStatus[];
-  readonly firstRun?: { readonly detected: readonly HomeDetection[] };
-}
 
 export interface HomeProps {
   readonly model: HomeModel;
@@ -132,7 +105,9 @@ function clipSegments(segments: readonly Segment[], width: number): Segment[] {
   let used = 0;
   for (const segment of segments) {
     const room = width - used;
-    if (room <= 0) break;
+    if (room <= 0) {
+      break;
+    }
     const text = cells(segment.text) <= room ? segment.text : clip(segment.text, room);
     kept.push({ ...segment, text });
     used += cells(text);
@@ -186,14 +161,10 @@ function identityRows(): HomeRow[] {
 }
 
 function greetingRows(model: HomeModel, width: number): HomeRow[] {
-  if (model.greeting.length === 0) return [];
-  const waiting = model.conversations.filter((conversation) => conversation.waiting).length;
-  const lead =
-    waiting > 0
-      ? `${String(waiting)} ${waiting === 1 ? "conversation is" : "conversations are"} waiting for you.`
-      : model.conversations.length > 0
-        ? "Pick up where you left off, or start something new."
-        : "";
+  if (model.greeting.length === 0) {
+    return [];
+  }
+  const lead = homeLead(model);
   return [
     indented(
       "greeting",
@@ -224,7 +195,7 @@ function conversationRows(
         ],
         [
           {
-            text: conversation.waiting ? `waiting · ${conversation.age}` : conversation.age,
+            text: conversationTag(conversation),
             fg: conversation.waiting ? THEME.primary : THEME.muted,
           },
         ],
@@ -249,52 +220,50 @@ function conversationRows(
   });
 }
 
-function actionSegments(action: HomeAction): Segment[] {
+function legendSegments(entry: LegendEntry): Segment[] {
   return [
-    { text: action.key, fg: THEME.selected, bold: true },
-    { text: ` ${action.label}`, fg: THEME.secondary },
+    { text: entry.key, fg: THEME.selected, bold: true },
+    { text: ` ${entry.label}`, fg: THEME.secondary },
   ];
 }
 
+function joinEntries(entries: readonly LegendEntry[]): Segment[] {
+  return entries.flatMap((entry, index) => [
+    ...(index > 0 ? [{ text: " ".repeat(ACTION_GAP), fg: THEME.muted }] : []),
+    ...legendSegments(entry),
+  ]);
+}
+
 /**
- * The legend. The `enter` action leads on a row of its own, followed by the number keys when
- * there are conversations; the rest flow onto as many rows as the width needs.
+ * The legend: enter and the number keys lead on a row of their own; the rest flow onto as many
+ * rows as the width needs.
  */
 function actionRows(model: HomeModel, width: number): HomeRow[] {
   const inner = width - GUTTER;
-  const primary = model.actions.find((action) => action.key === "enter");
-  const rest = model.actions.filter((action) => action.key !== "enter");
+  const legend = homeLegend(model);
   const rows: HomeRow[] = [];
-  if (primary !== undefined) {
-    const lead: Segment[] = actionSegments(primary);
-    const count = model.conversations.length;
-    if (count > 0) {
-      const keys = count === 1 ? "1" : `1–${String(count)}`;
-      lead.push(
-        { text: " ".repeat(ACTION_GAP), fg: THEME.muted },
-        { text: keys, fg: THEME.selected, bold: true },
-        { text: count === 1 ? " open it" : " open one", fg: THEME.secondary },
-      );
-    }
-    rows.push(indented("actions:primary", lead, width));
+  if (legend.primary.length > 0) {
+    rows.push(indented("actions:primary", joinEntries(legend.primary), width));
   }
-  let line: Segment[] = [];
-  for (const action of rest) {
-    const next = actionSegments(action);
-    const needed = (line.length > 0 ? ACTION_GAP : 0) + segmentsWidth(next);
-    if (line.length > 0 && segmentsWidth(line) + needed > inner) {
-      rows.push(indented(`actions:${String(rows.length)}`, line, width));
-      line = [];
+  let line: LegendEntry[] = [];
+  for (const entry of legend.rest) {
+    const candidate = [...line, entry];
+    if (line.length > 0 && segmentsWidth(joinEntries(candidate)) > inner) {
+      rows.push(indented(`actions:${String(rows.length)}`, joinEntries(line), width));
+      line = [entry];
+    } else {
+      line = candidate;
     }
-    if (line.length > 0) line.push({ text: " ".repeat(ACTION_GAP), fg: THEME.muted });
-    line.push(...next);
   }
-  if (line.length > 0) rows.push(indented(`actions:${String(rows.length)}`, line, width));
+  if (line.length > 0)
+    rows.push(indented(`actions:${String(rows.length)}`, joinEntries(line), width));
   return rows;
 }
 
 function statusRows(status: readonly HomeStatus[], width: number, glyphs: GlyphSet): HomeRow[] {
-  if (status.length === 0) return [];
+  if (status.length === 0) {
+    return [];
+  }
   const segments: Segment[] = [];
   status.forEach((part, index) => {
     if (index > 0) segments.push({ text: ` ${glyphs.bullet} `, fg: THEME.muted });
@@ -307,9 +276,9 @@ function statusRows(status: readonly HomeStatus[], width: number, glyphs: GlyphS
 }
 
 function firstRunRows(model: HomeModel, width: number, glyphs: GlyphSet): HomeRow[] {
-  const detected = model.firstRun?.detected ?? [];
+  const detected = detectionLines(model);
   const steps: Segment[] = [];
-  SETUP_STEPS.forEach((step, index) => {
+  FIRST_RUN_STEPS.forEach((step, index) => {
     if (index > 0) steps.push({ text: " ".repeat(ACTION_GAP), fg: THEME.muted });
     steps.push(
       { text: String(index + 1), fg: THEME.primary, bold: true },
@@ -318,10 +287,10 @@ function firstRunRows(model: HomeModel, width: number, glyphs: GlyphSet): HomeRo
   });
   const rows: HomeRow[] = [
     blank("gap:pitch"),
-    indented("pitch", [{ text: PITCH, fg: THEME.selected }], width),
-    indented("promise", [{ text: PROMISE, fg: THEME.secondary }], width),
+    indented("pitch", [{ text: FIRST_RUN_PITCH, fg: THEME.selected }], width),
+    indented("promise", [{ text: FIRST_RUN_PROMISE, fg: THEME.secondary }], width),
     blank("gap:steps"),
-    indented("setup-lead", [{ text: SETUP_LEAD, fg: THEME.muted }], width),
+    indented("setup-lead", [{ text: FIRST_RUN_SETUP_LEAD, fg: THEME.muted }], width),
     indented("setup-steps", steps, width),
   ];
   if (detected.length > 0) {
@@ -333,7 +302,7 @@ function firstRunRows(model: HomeModel, width: number, glyphs: GlyphSet): HomeRo
           `detected:${String(index)}`,
           THEME.success,
           [
-            { text: index === 0 ? "Found " : "and ", fg: THEME.secondary },
+            { text: `${detection.lead} `, fg: THEME.secondary },
             { text: detection.label, fg: THEME.selected, bold: true },
             { text: ` ${detection.detail}`, fg: THEME.secondary },
           ],

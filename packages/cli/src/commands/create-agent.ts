@@ -61,7 +61,7 @@ import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
-import { configuredProviderNames } from "@/cli/ui/fullscreen/home-readiness";
+import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 import { THEME } from "@/cli/ui/theme";
 import { ollamaOrigin, probeOllamaModels } from "./home-detection";
 
@@ -389,7 +389,9 @@ export function suggestAgentName(
     .toLowerCase()
     .slice(0, AGENT_NAME_MAX_LENGTH);
   const taken = new Set(existing.map((name) => name.toLowerCase()));
-  if (!taken.has(base)) return base || "agent";
+  if (!taken.has(base)) {
+    return base || "agent";
+  }
   let suffix = 2;
   while (taken.has(`${base}-${String(suffix)}`)) suffix += 1;
   return `${base}-${String(suffix)}`;
@@ -428,7 +430,9 @@ function providerReadiness(
       ? { tag: "key saved", tagTone: "success" }
       : { tag: "not detected", tagTone: "muted" };
   }
-  if (isLocalServerProvider(provider)) return { tag: "local server", tagTone: "muted" };
+  if (isLocalServerProvider(provider)) {
+    return { tag: "local server", tagTone: "muted" };
+  }
   if (provider === "chatgpt") {
     return configured.has(provider)
       ? { tag: "signed in", tagTone: "success" }

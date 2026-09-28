@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo } from "react";
+import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { useTextInput } from "../hooks/use-input-service";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
@@ -23,6 +24,8 @@ interface SearchSelectProps<T = unknown> {
   /** When set, the typed filter is offered as its own answer and submitting it calls this. */
   readonly onTypedAnswer?: ((text: string) => void) | undefined;
   readonly onCancel?: () => void;
+  /** Where the cursor starts, as an index into `options`. */
+  readonly initialIndex?: number;
 }
 
 /**
@@ -37,11 +40,13 @@ export function SearchSelect<T = unknown>({
   onSelect,
   onTypedAnswer,
   onCancel,
+  initialIndex = 0,
 }: SearchSelectProps<T>): React.ReactElement {
   const choices = useMemo(() => toPickerChoices(options), [options]);
   const picker = usePicker({
     type: "search",
     choices,
+    initialCursor: initialIndex,
     allowCustom: onTypedAnswer !== undefined,
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
@@ -213,7 +218,11 @@ function PickerRowLine({
           {row.label}
         </Text>
       )}
-      {row.description ? <Text color={THEME.muted}>{`  ${row.description}`}</Text> : null}
+      <ChoiceMeta
+        description={row.description}
+        tag={row.tag}
+        tagTone={row.tagTone}
+      />
     </Box>
   );
 }

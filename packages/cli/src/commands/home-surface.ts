@@ -29,8 +29,12 @@ const OPEN_PREFIX = "open:";
 
 export function greetingFor(date: Date): string {
   const hour = date.getHours();
-  if (hour < AFTERNOON_HOUR) return "Good morning.";
-  if (hour < EVENING_HOUR) return "Good afternoon.";
+  if (hour < AFTERNOON_HOUR) {
+    return "Good morning.";
+  }
+  if (hour < EVENING_HOUR) {
+    return "Good afternoon.";
+  }
   return "Good evening.";
 }
 
@@ -52,10 +56,14 @@ export function openConversationValue(agentId: string, conversationId: string): 
 export function parseOpenConversationValue(
   value: string,
 ): { readonly agentId: string; readonly conversationId: string } | null {
-  if (!value.startsWith(OPEN_PREFIX)) return null;
+  if (!value.startsWith(OPEN_PREFIX)) {
+    return null;
+  }
   const rest = value.slice(OPEN_PREFIX.length);
   const separator = rest.indexOf(":");
-  if (separator <= 0) return null;
+  if (separator <= 0) {
+    return null;
+  }
   return { agentId: rest.slice(0, separator), conversationId: rest.slice(separator + 1) };
 }
 
@@ -141,7 +149,9 @@ export function homeStatus(input: {
   readonly agentCount: number;
   readonly providerCount: number;
 }): ActiveHomeStatus[] {
-  if (input.agentCount === 0) return [];
+  if (input.agentCount === 0) {
+    return [];
+  }
   const parts: ActiveHomeStatus[] = [
     { text: `${String(input.agentCount)} ${input.agentCount === 1 ? "agent" : "agents"}` },
   ];

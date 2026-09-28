@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { configuredProviderNames } from "./home-readiness";
+import { configuredProviderNames } from "./configured-providers";
 
 describe("configuredProviderNames", () => {
   it("reads configured keys from the app config without inventing local providers", () => {

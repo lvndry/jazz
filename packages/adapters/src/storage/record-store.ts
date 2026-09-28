@@ -17,6 +17,7 @@ import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
 import { toError } from "@jazz/core/utils/errors";
 import { withFileLock } from "@jazz/core/utils/file-lock";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
+import { logWarning } from "../logger";
 
 export interface VersionedRecord {
   readonly version: number;
@@ -249,9 +250,9 @@ export class FileRecords<Rec extends VersionedRecord> {
           records.push(record);
         }
       } catch (error) {
-        console.error(
-          `[${this.kind.noun}s] Skipping ${this.kind.noun} "${id}": ${toError(error).message}`,
-        );
+        logWarning(`Skipping ${this.kind.noun} "${id}": ${toError(error).message}`, {
+          directory: this.directory,
+        });
       }
     }
     return records;
