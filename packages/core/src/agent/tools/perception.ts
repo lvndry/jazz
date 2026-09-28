@@ -21,7 +21,8 @@
  * - **A pre-bound companion, unattended.** `config.companions["<action>:<modality>"]` names a
  *   `"provider/model"` chosen ahead of time; binding it *is* the consent, so bound runs
  *   skip the prompt entirely — which is what makes cron and bridge runs work where no
- *   one can answer a picker.
+ *   one can answer a picker. During batch approval preflight, bound tools only resolve
+ *   that consent; the companion runs after the entire batch is cleared to execute.
  *
  * When nothing capable is available, the failure says exactly what would fix it — add an
  * API key for a provider that has such models — rather than a bare refusal.
@@ -575,6 +576,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           return { success: false, result: null, error: choice.error };
         }
         if (choice.kind === "bound") {
+          if (context.approvalPhase === "preflight") {
+            return { success: true, result: null };
+          }
           const content = yield* runAnalysis(
             parentAgent,
             args,
@@ -698,6 +702,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           return { success: false, result: null, error: choice.error };
         }
         if (choice.kind === "bound") {
+          if (context.approvalPhase === "preflight") {
+            return { success: true, result: null };
+          }
           return yield* runGeneration(parentAgent, args, choice.companion, context);
         }
 

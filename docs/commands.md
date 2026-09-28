@@ -60,6 +60,9 @@ The prompt comes from the positional argument, from an `--input-stdin` frame, or
 stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
 memory write; plain piped stdin is treated as untrusted text.
 
+Framed stdin preserves UTF-8 characters across arbitrary pipe chunk boundaries, including
+incognito history. Bytes after the first newline remain available for interactive replies.
+
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--agent <id>`                 | **required** | Agent id or name                                                                                                                                                       |

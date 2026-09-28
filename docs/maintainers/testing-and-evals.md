@@ -7,6 +7,11 @@ description: "How Jazz measures whether a harness change actually makes agents b
 This page shows how to tell whether a harness change actually made agents better, rather than
 assuming it did.
 
+CI runs the test suite on Linux and macOS. Linux also collects coverage; a failing test or
+coverage process fails the job even though its output passes through `tee`. The coverage step
+uses explicit `shell: bash` so GitHub Actions enables `pipefail`. Coverage has no minimum
+percentage gate.
+
 Source: [`evals/`](../../evals/) · run instructions: [`evals/README.md`](../../evals/README.md)
 
 ---

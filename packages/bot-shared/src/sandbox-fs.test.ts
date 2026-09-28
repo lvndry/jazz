@@ -1,3 +1,4 @@
+/** Regression coverage for bridge access to sandbox-owned paths, including links and FIFOs. */
 import {
   lstatSync,
   mkdirSync,
@@ -104,6 +105,41 @@ describe.if(process.platform === "linux")("a pinned directory", () => {
 });
 
 describe("the stores built on it", () => {
+  test.skipIf(process.platform === "win32")(
+    "a FIFO is rejected without blocking the bridge",
+    async () => {
+      const fifo = join(home, "config.json");
+      expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+      const moduleUrl = new URL("./sandbox-fs.ts", import.meta.url).href;
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "-e",
+          `import { withDirectory } from ${JSON.stringify(moduleUrl)};
+       console.log(withDirectory(${JSON.stringify(home)}, {}, directory => directory.readText("config.json")));`,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, 2_000);
+      try {
+        const [output, exitCode] = await Promise.all([
+          new Response(child.stdout).text(),
+          child.exited,
+        ]);
+        expect(timedOut).toBe(false);
+        expect(exitCode).toBe(0);
+        expect(output.trim()).toBe("undefined");
+      } finally {
+        clearTimeout(timeout);
+        child.kill();
+      }
+    },
+  );
+
   test("an agent written into a linked agents directory lands in the home", () => {
     symlinkSync(outside, join(home, "agents"));
     writeAgentFile(home, {
