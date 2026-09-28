@@ -1324,29 +1324,60 @@ function highlightedArgs(args: string, fallbackFg: string, app: string): Segment
   return [{ text: "  ", fg: fallbackFg }, ...highlightCodeLine(args)];
 }
 
-/** A settled receipt: what it did and what came back, and nothing else. */
-function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet): Segment[] {
-  const args = block.args?.trim();
+/**
+ * A settled receipt: what it did and what came back, and nothing else.
+ *
+ * A successful receipt is exactly one row. `budget` is the cells it may use;
+ * the arguments are the only part that gives way, cropped with an ellipsis, so
+ * the app on the left and the outcome on the right always survive.
+ */
+function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet, budget: number): Segment[] {
+  const args = block.args?.trim().replace(/\s+/g, " ");
   const summary = block.summary.trim();
   if (block.status === "ok") {
-    const segments: Segment[] = [];
+    const head: Segment[] = [];
     if (block.app.length > 0) {
-      segments.push({ text: block.app, fg: THEME.muted });
+      head.push({ text: block.app, fg: THEME.muted });
     }
-    if (args !== undefined && args.length > 0) {
-      segments.push(...highlightedArgs(args, THEME.secondary, block.app));
-    }
+    const tail: Segment[] = [];
     if (summary.length > 0) {
-      segments.push({ text: `  ${summary}`, fg: THEME.muted });
+      tail.push({ text: `  ${summary}`, fg: THEME.muted });
     }
     if (block.classifiedRisk !== undefined) {
-      segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
+      tail.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
     }
+    if (args === undefined || args.length === 0) {
+      return [...head, ...tail];
+    }
+    const argSegments = highlightedArgs(args, THEME.secondary, block.app);
+    const room = budget - terminalSegmentsWidth(head) - terminalSegmentsWidth(tail);
+    if (terminalSegmentsWidth(argSegments) <= room) {
+      return [...head, ...argSegments, ...tail];
+    }
+    if (room <= 4) {
+      return [...head, ...tail];
+    }
+    const cropped = fitTerminalSegments(argSegments, room - 1);
+    return [...head, ...cropped, { text: "…", fg: THEME.muted }, ...tail];
+  }
+  if (block.status === "denied") {
+    const segments: Segment[] = [{ text: block.app, fg: THEME.warning }];
+    if (args !== undefined && args.length > 0) {
+      const room = budget - terminalCellWidth(block.app) - terminalCellWidth("  denied") - 2;
+      const shown =
+        terminalCellWidth(args) + 2 <= room
+          ? args
+          : `${sliceTerminalCells(args, Math.max(0, room - 3))}…`;
+      if (room > 4) {
+        segments.push({ text: `  ${shown}`, fg: THEME.muted });
+      }
+    }
+    segments.push({ text: "  denied", fg: THEME.warning });
     return segments;
   }
   // Failure keeps a colour and states the reason inline. A short reason stays
   // on the same row as the app; a long one wraps rather than cropping.
-  const tone = block.status === "denied" ? THEME.warning : THEME.error;
+  const tone = THEME.error;
   const reason = block.reason?.trim();
   const segments: Segment[] = [{ text: block.app, fg: tone }];
   if (args !== undefined && args.length > 0) {
@@ -1392,7 +1423,7 @@ function receiptRows(
   };
 
   for (const block of blocks) {
-    const segments = receiptSegments(block, glyphs);
+    const segments = receiptSegments(block, glyphs, geometry.prose);
     const needsOwnRows =
       block.status !== "ok" ||
       block.expanded === true ||
@@ -1462,18 +1493,33 @@ function noticeRows(
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
+  // Only a warning or an error earns a gutter mark. System and command output
+  // leaves the gutter empty, so it can never be read as the agent speaking,
+  // whose marker sits in the same cell.
   const tone =
-    block.tone === "error" ? THEME.error : block.tone === "warn" ? THEME.warning : THEME.info;
+    block.tone === "error"
+      ? THEME.error
+      : block.tone === "warn"
+        ? THEME.warning
+        : block.tone === "receipt"
+          ? THEME.muted
+          : THEME.secondary;
   const glyph =
-    block.tone === "error" ? glyphs.error : block.tone === "warn" ? glyphs.warn : glyphs.info;
+    block.tone === "error" ? glyphs.error : block.tone === "warn" ? glyphs.warn : undefined;
   const lines = wrap([{ text: block.text, fg: tone }], geometry.prose);
   const rows: RenderRow[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line === undefined) continue;
+    const gutterMark =
+      index === 0 && glyph !== undefined
+        ? { text: glyph, fg: tone }
+        : glyph !== undefined
+          ? railCell(THEME.border)
+          : BLANK_CELL;
     rows.push({
       key: `${block.id}:${String(index)}`,
-      gutter: [index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border), BLANK_CELL],
+      gutter: [gutterMark, BLANK_CELL],
       content: line,
       contentWidth: geometry.prose,
       meta: [],

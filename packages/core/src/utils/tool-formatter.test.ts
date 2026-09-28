@@ -5,7 +5,6 @@ import {
   FILE_MUTATION_PREVIEW_CHARS,
   formatToolArguments,
   formatToolResult,
-  toolResultSnippet,
 } from "./tool-formatter";
 
 describe("formatToolArguments http_request", () => {
@@ -146,22 +145,6 @@ describe("formatToolResult generic objects", () => {
     expect(formatted).toContain("Here're the files and directories");
     expect(formatted).toContain("/notes.txt");
     expect(formatted.trimStart().startsWith("{")).toBe(false);
-  });
-});
-
-describe("toolResultSnippet", () => {
-  test("skips brace-only JSON lines", () => {
-    expect(toolResultSnippet('{\n  "ok": true\n}')).toBe('"ok": true');
-  });
-
-  test("joins the first three content lines", () => {
-    expect(toolResultSnippet("Here're the files\n/notes.txt\n/people")).toBe(
-      "Here're the files · /notes.txt · /people",
-    );
-  });
-
-  test("returns empty for braces only", () => {
-    expect(toolResultSnippet("{\n}")).toBe("");
   });
 });
 

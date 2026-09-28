@@ -104,3 +104,106 @@ describe("agent prose hyperlinks", () => {
     expect(block).toMatchObject({ kind: "agent", markdown: "[site](https://example.com)" });
   });
 });
+
+describe("conversation flow entries", () => {
+  const at = new Date("2026-08-23T12:00:02.000Z");
+
+  it("drops the approval echo, because the receipt states the outcome", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "e1",
+          type: "log",
+          message: "Approve this action? No",
+          meta: { approvalEcho: true },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("drops the duration line of reasoning that returned no text", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "z1",
+          type: "log",
+          message: "Reasoning · 1.6s",
+          meta: { collapsedRegion: "reasoning" },
+          timestamp: at,
+        },
+        {
+          id: "z2",
+          type: "log",
+          message: "scout completed · 4.0s",
+          meta: { collapsedRegion: "subagent" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([expect.objectContaining({ text: "scout completed · 4.0s" })]);
+  });
+
+  it("carries a declined call as one denied receipt", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "r1",
+          type: "log",
+          message: "",
+          meta: {
+            toolReceipt: { app: "write_file", summary: "", status: "denied", args: "path: a.txt" },
+          },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "tool", app: "write_file", status: "denied" }),
+    ]);
+  });
+
+  it("shows an answer that never streamed as agent prose, without a separate name line", () => {
+    const blocks = blocksFrom(
+      [
+        { id: "h1", type: "info", message: "sol", meta: { agentHeader: true }, timestamp: at },
+        {
+          id: "a1",
+          type: "log",
+          message: "rendered",
+          meta: { plainText: "rendered", agentMarkdown: "**Done.**" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([expect.objectContaining({ kind: "agent", markdown: "**Done.**" })]);
+  });
+
+  it("marks the turn receipt as its own quiet notice", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "t1",
+          type: "debug",
+          message: "9.7s · 2 steps",
+          meta: { turnReceipt: true, plainText: "9.7s · 2 steps" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "notice", tone: "receipt", text: "9.7s · 2 steps" }),
+    ]);
+  });
+});

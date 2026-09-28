@@ -16,6 +16,7 @@
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
+import { REVEAL_FRAME_MS } from "./use-stream-reveal";
 import { store } from "../store";
 import type { OutputEntry } from "../types";
 
@@ -93,15 +94,17 @@ export interface MountedRenderer {
 }
 
 /**
- * Frame budget. Deliberately not 60.
+ * Frame cap. Deliberately not 60.
  *
- * The fastest host TUIs are invalidation-driven on a ~250ms heartbeat and run no
- * animation loop at all, and at least one popular terminal allocates a buffer
- * per synchronized frame — so a high frame rate costs the host real work to
- * produce motion nobody asked for. 12fps is enough for the indicator and
- * cheap everywhere.
+ * The renderer paints only when something changed, so this is a ceiling, not a
+ * loop: an idle screen paints nothing, and the activity indicator keeps its own
+ * slow interval (`MOTION.indicator`). The one thing that asks for more is
+ * streamed prose, which the reveal pacer advances once per `REVEAL_FRAME_MS`;
+ * at 12fps each frame would add half a line and read as steps. At least one
+ * popular terminal allocates a buffer per synchronized frame, so the cap stays
+ * at the reveal rate rather than going higher.
  */
-const MAX_FPS = 12;
+const MAX_FPS = Math.round(1000 / REVEAL_FRAME_MS);
 
 /** The renderer surface the lifecycle drives, narrowed so tests can pass a stand-in. */
 export type LifecycleRenderer = Pick<

@@ -85,6 +85,7 @@ import {
   type ChatApprovalMode,
 } from "@/cli/chat/approval-mode";
 import { describeTier } from "@/cli/commands/peers";
+import { sessionOpenLine } from "@/cli/commands/session-open";
 import {
   cancelDetachTransfer,
   commitDetachTransfer,
@@ -1893,10 +1894,7 @@ function handleClearCommand(
     // Use terminal.clear() which both clears the screen and resets the
     // Ink output island state (scrollback buffer: staticEntries + pending).
     yield* terminal.clear();
-    yield* terminal.info(`Chat with ${agent.name} - Screen cleared`);
-    yield* terminal.info("Type '/help' to see available commands.");
-    yield* terminal.info("Type '/exit' to end the conversation.");
-    yield* terminal.log("");
+    yield* terminal.log(sessionOpenLine(agent));
     return { shouldContinue: true };
   });
 }

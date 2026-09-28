@@ -2732,12 +2732,37 @@ describe("fullscreen bridge", () => {
   });
 
   it("keeps streamed deltas clean when the formatter has styled them", async () => {
-    const text = await frame(() => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    updateForTest(() => {
       store.appendStream("response", chalk.bold("bold start "));
       store.appendStream("response", chalk.dim("dim finish"));
     });
+    const text = await frameWhen(rendered, (candidate) => candidate.includes("dim finish"));
+    rendered.renderer.destroy();
     expect(text).not.toContain("\u001b");
     expect(text).toContain("bold start dim finish");
+  });
+
+  it("paces a streamed burst in over several frames, and shows a finished turn whole", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
+    updateForTest(() => {
+      store.appendStream("response", burst);
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).not.toContain("END");
+    expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
+
+    updateForTest(() => {
+      store.appendStream("response", " and then a tail FIN");
+      store.finalizeStream();
+      store.flushOutputBatchNow();
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("FIN");
+    rendered.renderer.destroy();
   });
   it("keeps the indicator visible while the model is reasoning", async () => {
     // Reasoning is the model working with nothing yet to show, which is when an
@@ -2890,7 +2915,7 @@ describe("fullscreen bridge", () => {
       expect(text).toContain("4 flagged of 26");
     });
 
-    it("shows the args used and a snippet of the tool output", async () => {
+    it("shows the args used and the outcome, never the output itself", async () => {
       const text = await frame(() => {
         const accumulator = createAccumulator("cassandra");
         const result = JSON.stringify({
@@ -2919,8 +2944,8 @@ describe("fullscreen bridge", () => {
       });
       expect(text).toContain("view_memory");
       expect(text).toContain("path: /");
-      expect(text).toContain("Here're the files");
-      expect(text).not.toMatch(/view_memory\s+\{/);
+      expect(text).toContain("1 entry");
+      expect(text).not.toContain("Here're the files");
     });
 
     it("leaves no escape sequence in a frame built from formatted markdown", async () => {
