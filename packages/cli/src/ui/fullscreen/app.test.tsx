@@ -139,6 +139,14 @@ describe("fullscreen frame", () => {
     expect(frame.text.toLowerCase()).toContain("not undoable");
   });
 
+  it("hides the composer under a docked card so no fragment shows beside its controls", async () => {
+    const plain = await frameOf(sampleView());
+    expect(plain.text).toContain("Ask anything");
+    const overlaid = await frameOf(sampleApprovalView());
+    expect(overlaid.text).not.toContain("Ask anything");
+    expect(overlaid.rows).toHaveLength(HEIGHT);
+  });
+
   it("does not disturb the transcript when an overlay opens", async () => {
     const plain = await frameOf(sampleView());
     const overlaid = await frameOf(sampleApprovalView());

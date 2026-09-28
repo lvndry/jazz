@@ -715,6 +715,7 @@ function AppView({
         viewport={viewport}
         focused={inputFocused}
         maxRows={regions.input}
+        concealed={overlayOpen}
       />
       {regions.subagents > 0 ? (
         <SubagentList

@@ -221,6 +221,12 @@ export interface InputProps {
   readonly focused?: boolean;
   /** Rows the shell can spare; see `inputRows`. */
   readonly maxRows?: number;
+  /**
+   * A docked card sits over the composer. The rows keep their height so nothing
+   * moves when the card closes, but draw nothing, so no fragment of the draft
+   * shows beside the card's own controls.
+   */
+  readonly concealed?: boolean;
 }
 
 /**
@@ -400,7 +406,7 @@ export function inputRows(
   return [...commandSuggestRows(model.commands, width, glyphs, listSize), ...rows];
 }
 
-function InputView({ model, viewport, focused, maxRows }: InputProps): ReactNode {
+function InputView({ model, viewport, focused, maxRows, concealed }: InputProps): ReactNode {
   const rows = inputRows(model, viewport, focused ?? !model.disabled, undefined, maxRows);
 
   return (
@@ -418,7 +424,7 @@ function InputView({ model, viewport, focused, maxRows }: InputProps): ReactNode
           style={{ width: viewport.width, height: 1, flexShrink: 0 }}
         >
           <text style={{ wrapMode: "none" }}>
-            {row.segments.map((segment, index) => (
+            {(concealed === true ? [] : row.segments).map((segment, index) => (
               <span
                 key={`${String(index)}:${segment.text}`}
                 style={{

@@ -141,7 +141,7 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("claude-opus-5");
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
-    expect(text).toContain("20k/40k $0.04");
+    expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
   });
 
   it("shows the resolved local endpoint beside a conversation model", async () => {

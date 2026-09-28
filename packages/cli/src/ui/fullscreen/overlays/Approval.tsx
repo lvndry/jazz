@@ -162,6 +162,58 @@ export function approvalBodyRows(
   return rows;
 }
 
+/**
+ * The card's title as a person would say it. Two-phase tools arrive as
+ * `execute write file`; the `execute` is plumbing, and the reader wants the verb.
+ */
+export function approvalTitle(action: string): string {
+  const words = oneLine(action.replace(/[_.]/g, " "))
+    .split(" ")
+    .filter((word) => word.length > 0);
+  const verb = words[0]?.toLowerCase() === "execute" && words.length > 1 ? words.slice(1) : words;
+  const title = verb.join(" ");
+  return title.length === 0 ? title : `${title.charAt(0).toUpperCase()}${title.slice(1)}`;
+}
+
+/** The app tag is dropped when the title already opens with it (`Write file` · `write`). */
+export function approvalTag(title: string, app: string): string | undefined {
+  const firstWord = title.split(" ")[0]?.toLowerCase();
+  return firstWord === app.toLowerCase() ? undefined : app;
+}
+
+/** Field values short enough to be words in a sentence are left alone. */
+const MIN_REPEATED_VALUE_CELLS = 12;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The consequence line, without values the fields above it already show. Tools
+ * write their prose for surfaces that have no field list, so it tends to repeat
+ * the path or command verbatim; on the card that is the same long string twice.
+ */
+export function approvalConsequence(
+  consequence: string,
+  fields: readonly { readonly value: string }[],
+): string {
+  let prose = oneLine(consequence);
+  for (const field of fields) {
+    const value = oneLine(field.value);
+    if (displayWidth(value) < MIN_REPEATED_VALUE_CELLS || !prose.includes(value)) {
+      continue;
+    }
+    prose = prose.replace(new RegExp(`:?\\s*${escapeRegExp(value)}`, "g"), "");
+  }
+  prose = oneLine(prose)
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/[:,;]$/, "");
+  if (prose.length > 0 && !/[.!?]$/.test(prose)) {
+    prose = `${prose}.`;
+  }
+  return prose;
+}
+
 function frameChars(glyphs: GlyphSet): BorderCharacters {
   return {
     topLeft: glyphs.boxTL,
@@ -187,7 +239,8 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   const inner = Math.max(8, width - 2 - CARD_PAD * 2);
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
-  const consequence = wrapProse(model.consequence, inner);
+  const consequenceText = approvalConsequence(model.consequence, model.fields);
+  const consequence = consequenceText.length === 0 ? [] : wrapProse(consequenceText, inner);
   // At compact widths, expanded rows keep long fields inspectable without
   // hiding the tail behind a shortcut that would not fit in the legend.
   const expanded = model.expanded === true || compact;
@@ -265,6 +318,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
     left,
     top,
   } = approvalLayout(model, viewport);
+  const title = approvalTitle(model.action);
+  const tag = approvalTag(title, model.app);
 
   const bodyContent = visibleBody.map((row) => {
     if (row.kind === "blank") {
@@ -335,10 +390,12 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
           <text style={{ fg: THEME.warning }}>
             <span style={{ fg: THEME.warning }}>{`${glyphs.proposed} `}</span>
-            <span style={{ fg: THEME.warning }}>{clip(model.action, inner - 2)}</span>
+            <b style={{ fg: THEME.warning }}>{clip(title, inner - 2)}</b>
           </text>
           <box style={{ flexGrow: 1 }} />
-          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(model.app, inner)}</text>
+          {tag === undefined ? null : (
+            <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(tag, inner)}</text>
+          )}
         </box>
 
         <box style={{ height: 1, flexShrink: 0 }} />

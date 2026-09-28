@@ -24,6 +24,13 @@ export const OVERLAY_FOOTER_ROWS = 1;
 /** The side margin a card keeps when the terminal is wider than it. */
 const SIDE_MARGIN = 4;
 
+/**
+ * Where a card's frame starts. The frame and its one-cell padding put the card's
+ * text on column 2, the same column the transcript's prose starts on, so the
+ * card reads as part of the conversation's column rather than floating over it.
+ */
+export const OVERLAY_LEFT = 0;
+
 export interface OverlayWidth {
   readonly fullscreen: boolean;
   readonly width: number;
@@ -54,8 +61,7 @@ export function placeOverlay(
   frame: OverlayWidth,
   wantedHeight: number,
 ): OverlayPlacement {
-  const left =
-    frame.width >= viewport.width ? 0 : Math.max(0, Math.floor((viewport.width - frame.width) / 2));
+  const left = frame.width >= viewport.width ? 0 : OVERLAY_LEFT;
   if (frame.fullscreen) {
     return { ...frame, height: viewport.height, left, top: 0 };
   }

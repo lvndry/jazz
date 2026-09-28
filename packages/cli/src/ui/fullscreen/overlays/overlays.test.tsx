@@ -17,7 +17,10 @@ import type { ReactNode } from "react";
 import { renderForTest } from "../test-helpers";
 import {
   approvalBodyRows,
+  approvalConsequence,
   approvalFieldNeedsExpand,
+  approvalTag,
+  approvalTitle,
   Approval,
   COLLAPSED_FIELD_CELLS,
   wrapProse,
@@ -161,6 +164,31 @@ async function draw(node: ReactNode, viewport: Viewport) {
   await setup.renderOnce();
   return setup;
 }
+
+describe("approval wording", () => {
+  it("titles a two-phase tool by its verb, sentence-cased", () => {
+    expect(approvalTitle("execute write file")).toBe("Write file");
+    expect(approvalTitle("execute_command")).toBe("Command");
+    expect(approvalTitle("calendar.create event")).toBe("Calendar create event");
+  });
+
+  it("drops the app tag only when the title already opens with it", () => {
+    expect(approvalTag("Write file", "write")).toBeUndefined();
+    expect(approvalTag("Send message", "slack")).toBe("slack");
+  });
+
+  it("states the consequence without repeating a value the fields show", () => {
+    const path = "/private/tmp/scratchpad/hello.txt";
+    expect(
+      approvalConsequence(`About to write 5 characters to file: ${path}`, [
+        { value: path },
+        { value: "hello" },
+      ]),
+    ).toBe("About to write 5 characters to file.");
+    // Short values are words in the sentence, not a repeated record entry.
+    expect(approvalConsequence("Sends to bob now", [{ value: "bob" }])).toBe("Sends to bob now.");
+  });
+});
 
 describe("approval overlay", () => {
   it("names the account and every field before anything is committed", async () => {
@@ -307,8 +335,8 @@ describe("approval overlay", () => {
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
     for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
-    // Windowed: the panel is inset, so the first column is never painted.
-    expect(wideRows.every((row) => (row[0] ?? " ") === " ")).toBe(true);
+    // Windowed: the panel sits on the prose column and stops short of the right edge.
+    expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
 
     const narrow = await draw(
@@ -628,7 +656,7 @@ describe("search overlay", () => {
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
     for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
-    expect(wideRows.every((row) => (row[0] ?? " ") === " ")).toBe(true);
+    expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
 
     const narrow = await draw(
