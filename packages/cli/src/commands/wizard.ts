@@ -1,4 +1,3 @@
-import os from "node:os";
 import { listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   loadConversationOrNull,
@@ -27,13 +26,13 @@ import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/pr
 import { Effect } from "effect";
 import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
+import { sessionOpenLine } from "./session-open";
 import { homeEnvironmentFacts, homeRequirements } from "../ui/fullscreen/home-readiness";
 import { store, type ActiveAgentChoice } from "../ui/store";
 import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
@@ -475,18 +474,7 @@ function startChatWithAgent(
       );
 
     yield* terminal.clear();
-    yield* terminal.heading(`Starting chat with: ${agent.name}`);
-    yield* terminal.log(`Working directory: ${process.cwd().replace(os.homedir(), "~")}`);
-    yield* terminal.log(
-      `${agentModelString(agent.config)} - Reasoning: ${formatReasoningSelection(agent.config.reasoning)}`,
-    );
-    if (agent.description) {
-      yield* terminal.log(`Description: ${agent.description}`);
-    }
-    yield* terminal.log("");
-    yield* terminal.info("Type '/help' to see available special commands.");
-    yield* terminal.info("Type '/exit' to end the conversation.");
-    yield* terminal.log("");
+    yield* terminal.log(sessionOpenLine(agent));
 
     // Start the chat session
     const chatService = yield* ChatServiceTag;

@@ -6,7 +6,7 @@ import { AgentNotFoundError, InteractiveTerminalRequiredError } from "@jazz/core
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { Effect } from "effect";
 import { continuedSessionOptions, type ContinueOptions } from "./continue-conversation";
-import packageJson from "../../../../package.json";
+import { sessionOpenLine } from "./session-open";
 
 /**
  * CLI commands for AI-powered chat agent interactions
@@ -54,16 +54,7 @@ export function chatWithAIAgentCommand(
     // Set terminal tab title to show agent name
     yield* terminal.setTitle(`🎷 Jazz - ${agent.name}`);
     yield* terminal.clear();
-    yield* terminal.heading(
-      `${agent.name} · ${agent.config.llmProvider}/${agent.config.llmModel} · jazz v${packageJson.version}`,
-    );
-    if (agent.description) {
-      yield* terminal.log(`   ${agent.description}`);
-    }
-    yield* terminal.log("");
-    yield* terminal.info(
-      "/help commands & shortcuts · /exit quit · Esc Esc interrupt · Shift+Tab approval mode · Ctrl+R reasoning · Ctrl+O expand output",
-    );
+    yield* terminal.log(sessionOpenLine(agent));
     if (options?.ephemeral === true) {
       yield* terminal.warn(
         "🕶️ Ephemeral session — nothing will be saved to history, memory, or the session log.",
