@@ -377,6 +377,14 @@ export function setConfigCommand(
       }
       const typedAnswer = yield* typedConfigValue(targetKey, answer);
       yield* configService.set(targetKey, typedAnswer);
+      if (secret && configService.secretStorageUnavailable(targetKey)) {
+        yield* terminal.error(
+          `Nowhere to store ${targetKey}: there is no usable keyring, and a per-entry token ` +
+            `cannot live in config.json. Supply it as ${envVarForSecretPath(targetKey) ?? "an environment variable"} ` +
+            `wherever the daemon runs.`,
+        );
+        return;
+      }
       const answerAgentWarning = unknownAgentCapWarning(targetKey, yield* listCapAgents());
       if (answerAgentWarning !== undefined) {
         yield* terminal.warn(answerAgentWarning);

@@ -52,6 +52,8 @@ $ jazz config set maxRetries never
 
 It also refuses a key Jazz does not read, suggesting the one a typo most likely meant (`maxRetrys` → `maxRetries`). Lists such as `peers` and `webhooks` are not set one field at a time; use `jazz peers` and `jazz webhook`, or edit the file.
 
+Omit `<value>` to enter it at a prompt. For a per-entry secret such as `notify.targets.phone.botToken`, Jazz reports when the value could not be stored because no keyring is available, whether it came from the prompt or the command line. In that case, supply the named environment variable wherever the daemon runs instead; a success message means the secret was stored.
+
 A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it. Jazz takes a cross-process lock, re-reads the latest file before applying the change, and atomically replaces it, so a concurrent edit is preserved. Unknown or invalid entries remain untouched, but Jazz refuses to overwrite malformed JSON.
 
 ## Mistakes in a configuration file

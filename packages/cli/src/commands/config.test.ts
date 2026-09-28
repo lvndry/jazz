@@ -20,7 +20,7 @@ import {
 
 let writes: { key: string; value: unknown }[] = [];
 let currentAppConfig: Record<string, unknown> = {};
-
+const storageUnavailable = mock((_key: string) => false);
 const mockConfigService = {
   get appConfig() {
     return Effect.sync(() => currentAppConfig);
@@ -30,7 +30,7 @@ const mockConfigService = {
     return Effect.void;
   }),
   getOrElse: mock(() => Effect.succeed(undefined)),
-  secretStorageUnavailable: () => false,
+  secretStorageUnavailable: storageUnavailable,
 } as unknown as AgentConfigService;
 
 const askAnswer = { value: "" };
@@ -72,6 +72,9 @@ beforeEach(() => {
   currentAppConfig = {};
   askAnswer.value = "";
   ask.mockClear();
+  storageUnavailable.mockImplementation(() => false);
+  (mockTerminal.success as ReturnType<typeof mock>).mockClear();
+  (mockTerminal.error as ReturnType<typeof mock>).mockClear();
 });
 
 describe("jazz config set", () => {
@@ -89,6 +92,19 @@ describe("jazz config set", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(writes).toEqual([{ key: "notify.targets.phone.botToken", value: "123:SECRET" }]);
+  });
+
+  it("does not claim a prompted per-entry token was stored without a usable keyring", async () => {
+    currentAppConfig = { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } };
+    askAnswer.value = "123:SECRET";
+    storageUnavailable.mockImplementation(() => true);
+
+    const exit = await set("notify.targets.phone.botToken");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "notify.targets.phone.botToken", value: "123:SECRET" }]);
+    expect(mockTerminal.error).toHaveBeenCalledWith(expect.stringContaining("Nowhere to store"));
+    expect(mockTerminal.success).not.toHaveBeenCalled();
   });
 
   it("stores a numeric setting as a number, not the string it arrived as", async () => {
