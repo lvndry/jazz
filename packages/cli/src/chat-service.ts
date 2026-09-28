@@ -801,7 +801,8 @@ export class ChatServiceImpl implements ChatService {
                     yield* terminal.log(
                       `   Cloud models need a key from https://ollama.com/settings/keys. ${apiKeyHint("ollama")} Or run \`ollama signin\` to proxy through a local daemon.`,
                     );
-                  } else {
+                  } else if (!error.message.includes(apiKeyHint(error.provider))) {
+                    // The message already carries the hint when the key was reported missing.
                     yield* terminal.log(`   ${apiKeyHint(error.provider)}`);
                   }
                 } else if (error instanceof GenerationInterruptedError) {
