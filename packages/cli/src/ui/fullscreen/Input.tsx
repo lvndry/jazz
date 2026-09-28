@@ -45,7 +45,7 @@ import { memo, type ReactNode } from "react";
 import { isShellEscape } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { pickerWindow, wrapIndex } from "../picker-window";
-import { plainDescription, suggestionOrigin } from "../suggestion-menu";
+import { matchedSpan, plainDescription, suggestionOrigin } from "../suggestion-menu";
 import { THEME } from "../theme";
 import {
   clipTerminalCells,
@@ -154,7 +154,8 @@ function alignRow(
  * The caret is a painted cell rather than the terminal's own cursor: the frame
  * is composited, so the one thing the reader looks for has to be part of it.
  */
-function commandSuggestRows(
+/** The rows of the slash and `@` menu, shared by the chat composer and home. */
+export function commandSuggestRows(
   commands: NonNullable<InputModel["commands"]>,
   width: number,
   glyphs: GlyphSet,
@@ -186,12 +187,23 @@ function commandSuggestRows(
     const tagCells = tagColumn === 0 ? 0 : tagColumn + COMMAND_COLUMN_GAP;
     const descriptionBudget = Math.max(0, width - lead - tagCells);
     const description = clipTerminalCells(plainDescription(command.description), descriptionBudget);
+    const nameColor = selected ? THEME.selected : THEME.secondary;
+    // The query's letters are bold where the name contains them; the sigil shifts the span.
+    const span = matchedSpan(command.name, commands.query ?? "");
+    const at: readonly [number, number] | undefined =
+      span === undefined ? undefined : [span[0] + prefix.length, span[1] + prefix.length];
+    const padding = " ".repeat(Math.max(0, labelColumn - terminalCellWidth(name)));
+    const nameSegments: InputSegment[] =
+      at === undefined || at[1] > [...name].length
+        ? [{ text: name + padding, fg: nameColor }]
+        : [
+            { text: name.slice(0, at[0]), fg: nameColor },
+            { text: name.slice(at[0], at[1]), fg: THEME.selected, bold: true },
+            { text: name.slice(at[1]) + padding, fg: nameColor },
+          ];
     const segments: InputSegment[] = [
       { text: selected ? `${glyphs.bandBar} ` : "  ", fg: THEME.primary },
-      {
-        text: name.padEnd(name.length + labelColumn - terminalCellWidth(name)),
-        fg: selected ? THEME.selected : THEME.secondary,
-      },
+      ...nameSegments,
       { text: " ".repeat(COMMAND_COLUMN_GAP), fg: THEME.muted },
       ...(tagColumn === 0
         ? []
@@ -441,12 +453,13 @@ export function inputRows(
     const onCaretLine = live && index === visibleCaretLine;
     const fg = model.disabled ? THEME.muted : THEME.selected;
     if (empty) {
-      const graphemes = terminalGraphemes(line.text);
-      const head = graphemes[0] ?? " ";
-      // The caret sits *on* the placeholder's first cell rather than beside it,
-      // so an empty composer is one column wide instead of two.
-      if (live) body.push(caret(head), { text: graphemes.slice(1).join(""), fg: THEME.muted });
-      else body.push({ text: line.text, fg: THEME.muted });
+      // The caret owns its cell and the placeholder starts one cell later, so the hint is read
+      // whole instead of losing its first letter under the caret.
+      if (live) {
+        body.push(caret(" "), { text: line.text, fg: THEME.muted });
+      } else {
+        body.push({ text: line.text, fg: THEME.muted });
+      }
     } else {
       const graphemes = terminalGraphemes(line.text);
       let caretIndex = graphemes.length;

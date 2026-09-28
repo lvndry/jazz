@@ -113,9 +113,16 @@ export interface ActiveMenuOption {
   readonly hint?: string;
 }
 
-/** A single key on home and what it does. `key` is one printable character, or `enter` on first run. */
-export interface ActiveHomeKey {
-  readonly key: string;
+/** A slash command home's composer runs, such as `/resume`. */
+export interface ActiveHomeCommand {
+  /** Without the slash. */
+  readonly name: string;
+  readonly description: string;
+  readonly value: string;
+}
+
+/** One row of the first-run list: an action and the value home answers with. */
+export interface ActiveHomeAction {
   readonly label: string;
   readonly value: string;
 }
@@ -130,7 +137,7 @@ export interface ActiveHomeAgent {
   readonly lastUsed?: string;
 }
 
-/** A conversation whose goal or loop is blocked on you, opened with its number key. */
+/** A conversation whose goal or loop is blocked on you. */
 export interface ActiveHomeWaiting {
   readonly key: string;
   readonly value: string;
@@ -167,12 +174,15 @@ export interface ActiveHome {
   /** Text to put back in the composer, after the agent picker. */
   readonly draft?: string;
   readonly waiting: readonly ActiveHomeWaiting[];
-  /** The footer's single keys. */
-  readonly keys: readonly ActiveHomeKey[];
-  /** A readiness problem, shown on the right of the footer with the key that fixes it. */
-  readonly warning?: { readonly text: string; readonly fixKey: string };
-  /** Present when there is no agent yet: what setup found. */
-  readonly firstRun?: { readonly detected: readonly ActiveHomeDetection[] };
+  /** What `/` offers in the composer. */
+  readonly commands: readonly ActiveHomeCommand[];
+  /** A readiness problem, shown on the right of the footer with the command that fixes it. */
+  readonly warning?: { readonly text: string; readonly fix: string };
+  /** Present when there is no agent yet: what setup found, and what to do about it. */
+  readonly firstRun?: {
+    readonly detected: readonly ActiveHomeDetection[];
+    readonly actions: readonly ActiveHomeAction[];
+  };
 }
 
 export interface ActiveAgentChoice {

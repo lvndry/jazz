@@ -1,40 +1,29 @@
 import {
+  HOME_COMMANDS,
   RECENT_AGENT_LIMIT,
   orderRecentAgents,
   waitingEntries,
   type AgentUsage,
   type WaitingSource,
 } from "../ui/models/home-view";
-import type { ActiveHome, ActiveHomeDetection, ActiveHomeKey } from "../ui/store";
+import type { ActiveHome, ActiveHomeAction, ActiveHomeDetection } from "../ui/store";
 
-/** The footer's single keys, or first run's actions. */
-export function homeKeys(input: {
-  readonly firstRun: boolean;
-  /** Models a running local Ollama serves, when one answered; a first-run fast path. */
-  readonly ollamaModels?: number | undefined;
-}): ActiveHomeKey[] {
-  if (input.firstRun) {
-    return [
-      { key: "enter", label: "start setup", value: "create-agent" },
-      ...(input.ollamaModels !== undefined && input.ollamaModels > 0
-        ? [{ key: "o", label: "use Ollama, no key needed", value: "create-agent:ollama" }]
-        : []),
-      { key: "s", label: "settings", value: "config" },
-      { key: "q", label: "quit", value: "exit" },
-    ];
-  }
+/** First run's list: start setup, the Ollama fast path when one is running, then settings. */
+export function firstRunActions(ollamaModels: number | undefined): ActiveHomeAction[] {
   return [
-    { key: "n", label: "new agent", value: "create-agent" },
-    { key: "r", label: "resume", value: "resume-conversation" },
-    { key: "l", label: "agents", value: "list-agents" },
-    { key: "s", label: "settings", value: "config" },
-    { key: "q", label: "quit", value: "exit" },
+    { label: "Start setup", value: "create-agent" },
+    ...(ollamaModels !== undefined && ollamaModels > 0
+      ? [{ label: "Use Ollama, no key needed", value: "create-agent:ollama" }]
+      : []),
+    { label: "Settings", value: "config" },
   ];
 }
 
 /** The footer warning, when no model provider can answer. */
 export function homeWarning(providerCount: number): ActiveHome["warning"] {
-  return providerCount === 0 ? { text: "no model provider has a key", fixKey: "s" } : undefined;
+  return providerCount === 0
+    ? { text: "no model provider has a key", fix: "/settings" }
+    : undefined;
 }
 
 export interface HomeInput {
@@ -83,8 +72,15 @@ export function buildHome(input: HomeInput): ActiveHome {
     ...(input.targetAgentId === undefined ? {} : { targetAgentId: input.targetAgentId }),
     ...(input.draft === undefined || input.draft.length === 0 ? {} : { draft: input.draft }),
     waiting: waitingEntries(input.waiting),
-    keys: homeKeys({ firstRun, ollamaModels: input.ollamaModels }),
+    commands: HOME_COMMANDS,
     ...(warning === undefined ? {} : { warning }),
-    ...(firstRun ? { firstRun: { detected: input.detected ?? [] } } : {}),
+    ...(firstRun
+      ? {
+          firstRun: {
+            detected: input.detected ?? [],
+            actions: firstRunActions(input.ollamaModels),
+          },
+        }
+      : {}),
   };
 }

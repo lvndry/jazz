@@ -1,15 +1,18 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
 import {
+  HOME_COMMANDS,
+  enterHint,
+  homeCommandMatches,
   homeIntent,
   homeSentences,
   orderRecentAgents,
   readableTitle,
-  stepTarget,
   targetAgent,
   waitingEntries,
   waitingTag,
   type HomeModel,
+  type HomeState,
 } from "./home-view";
 import { buildHome } from "../../commands/home-surface";
 import { InkHome } from "../InkHome";
@@ -35,12 +38,10 @@ const HOME: HomeModel = {
       detail: "Which venue should I confirm with Dana?",
     },
   ],
-  keys: [
-    { key: "n", label: "new agent", value: "create-agent" },
-    { key: "r", label: "resume", value: "resume-conversation" },
-    { key: "q", label: "quit", value: "exit" },
-  ],
+  commands: HOME_COMMANDS,
 };
+
+const EMPTY: HomeState = { agentId: "sol", waitingValue: undefined, draft: "", commandIndex: 0 };
 
 describe("targeting", () => {
   it("starts on the chosen agent and falls back to the first offered", () => {
@@ -48,10 +49,22 @@ describe("targeting", () => {
     expect(targetAgent(HOME, "gone")?.name).toBe("sol");
   });
 
-  it("moves with the arrows and stops at either end", () => {
-    expect(stepTarget(HOME, "sol", 1)).toBe("luna");
-    expect(stepTarget(HOME, "sol", -1)).toBe("sol");
-    expect(stepTarget(HOME, "terra", 1)).toBe("terra");
+  it("walks the agents with the arrows, then on into waiting, and back", () => {
+    const at = (patch: Partial<HomeState>): HomeState => ({ ...EMPTY, ...patch });
+    expect(homeIntent(HOME, at({}), { name: "down" })).toMatchObject({
+      patch: { agentId: "luna", waitingValue: undefined },
+    });
+    expect(homeIntent(HOME, at({}), { name: "up" })).toMatchObject({ patch: { agentId: "sol" } });
+    expect(homeIntent(HOME, at({ agentId: "terra" }), { name: "down" })).toMatchObject({
+      patch: { waitingValue: "open:luna:c1" },
+    });
+    const onWaiting = at({ agentId: "terra", waitingValue: "open:luna:c1" });
+    expect(homeIntent(HOME, onWaiting, { name: "down" })).toMatchObject({
+      patch: { waitingValue: "open:luna:c1" },
+    });
+    expect(homeIntent(HOME, onWaiting, { name: "up" })).toMatchObject({
+      patch: { agentId: "terra", waitingValue: undefined },
+    });
   });
 
   it("offers the last-used agent first, then by recent use, then by name", () => {
@@ -91,43 +104,111 @@ describe("targeting", () => {
 });
 
 describe("keys", () => {
+  const at = (patch: Partial<HomeState>): HomeState => ({ ...EMPTY, ...patch });
+
   it("enter starts a conversation with the target and hands over what was typed", () => {
-    expect(homeIntent(HOME, "luna", "plan my week", { name: "return" })).toEqual({
+    expect(
+      homeIntent(HOME, at({ agentId: "luna", draft: "plan my week" }), { name: "return" }),
+    ).toEqual({
       kind: "answer",
       value: "start:luna",
       text: "plan my week",
     });
-    expect(homeIntent(HOME, undefined, "", { name: "return" })).toEqual({
+  });
+
+  it("letters and digits always type, even the ones that used to be shortcuts", () => {
+    for (const character of ["n", "r", "q", "s", "1", "2"]) {
+      expect(homeIntent(HOME, at({}), { name: character, sequence: character })).toEqual({
+        kind: "state",
+        patch: { waitingValue: undefined, commandIndex: 0 },
+        edit: true,
+      });
+    }
+  });
+
+  it("enter on a selected waiting conversation opens it; typing goes back to the agent", () => {
+    const onWaiting = at({ waitingValue: "open:luna:c1" });
+    expect(homeIntent(HOME, onWaiting, { name: "return" })).toEqual({
       kind: "answer",
-      value: "start:sol",
-      text: "",
+      value: "open:luna:c1",
     });
+    expect(homeIntent(HOME, onWaiting, { name: "h", sequence: "h" })).toMatchObject({
+      patch: { waitingValue: undefined },
+      edit: true,
+    });
+    expect(enterHint(HOME, onWaiting)).toBe("enter opens Wedding venue");
+    expect(enterHint(HOME, at({}))).toBe("enter sends to sol");
+  });
+
+  it("slash commands run from the composer and never start a conversation", () => {
+    expect(homeCommandMatches(HOME, "/re")?.map((command) => command.name)).toEqual(["resume"]);
+    expect(homeIntent(HOME, at({ draft: "/re" }), { name: "return" })).toEqual({
+      kind: "answer",
+      value: "resume-conversation",
+    });
+    expect(homeIntent(HOME, at({ draft: "/resume now" }), { name: "return" })).toEqual({
+      kind: "answer",
+      value: "resume-conversation",
+    });
+    expect(homeIntent(HOME, at({ draft: "/nope" }), { name: "return" })).toMatchObject({
+      kind: "state",
+      edit: false,
+    });
+    expect(homeIntent(HOME, at({ draft: "/" }), { name: "down" })).toEqual({
+      kind: "state",
+      patch: { commandIndex: 1 },
+      edit: false,
+    });
+    expect(homeIntent(HOME, at({ draft: "/se" }), { name: "tab" })).toEqual({
+      kind: "state",
+      patch: { draft: "/settings", commandIndex: 0 },
+      edit: false,
+    });
+    expect(enterHint(HOME, at({ draft: "/qu" }))).toBe("enter runs /quit");
   });
 
   it("tab opens every agent and keeps the draft", () => {
-    expect(homeIntent(HOME, "sol", "hi", { name: "tab" })).toEqual({
+    expect(homeIntent(HOME, at({ draft: "hi" }), { name: "tab" })).toEqual({
       kind: "answer",
       value: "pick-agent",
       text: "hi",
     });
   });
 
-  it("single keys act only while the composer is empty", () => {
-    expect(homeIntent(HOME, "sol", "", { name: "n", sequence: "n" })).toEqual({
-      kind: "answer",
-      value: "create-agent",
+  it("esc clears a draft first, then quits; ctrl+c quits", () => {
+    expect(homeIntent(HOME, at({ draft: "draft" }), { name: "escape" })).toEqual({
+      kind: "state",
+      patch: { draft: "", commandIndex: 0 },
+      edit: false,
     });
-    expect(homeIntent(HOME, "sol", "", { name: "1", sequence: "1" })).toEqual({
-      kind: "answer",
-      value: "open:luna:c1",
+    expect(homeIntent(HOME, at({}), { name: "escape" })).toEqual({ kind: "quit" });
+    expect(homeIntent(HOME, at({ draft: "x" }), { name: "c", ctrl: true })).toEqual({
+      kind: "quit",
     });
-    expect(homeIntent(HOME, "sol", "k", { name: "n", sequence: "n" })).toEqual({ kind: "type" });
-    expect(homeIntent(HOME, "sol", "", { name: "x", sequence: "x" })).toEqual({ kind: "type" });
   });
 
-  it("esc empties the composer and never leaves home", () => {
-    expect(homeIntent(HOME, "sol", "draft", { name: "escape" })).toEqual({ kind: "clear" });
-    expect(homeIntent(HOME, "sol", "", { name: "escape" })).toEqual({ kind: "clear" });
+  it("first run chooses from its list with the arrows", () => {
+    const firstRun: HomeModel = {
+      ...HOME,
+      agents: [],
+      firstRun: {
+        detected: [],
+        actions: [
+          { label: "Start setup", value: "create-agent" },
+          { label: "Settings", value: "config" },
+        ],
+      },
+    };
+    expect(homeIntent(firstRun, at({}), { name: "down" })).toMatchObject({
+      patch: { commandIndex: 1 },
+    });
+    expect(homeIntent(firstRun, at({ commandIndex: 1 }), { name: "return" })).toEqual({
+      kind: "answer",
+      value: "config",
+    });
+    expect(homeIntent(firstRun, at({}), { name: "s", sequence: "s" })).toMatchObject({
+      edit: false,
+    });
   });
 });
 
@@ -192,11 +273,12 @@ describe("waiting", () => {
 
 describe("Ink reading", () => {
   it("reads home as complete sentences", () => {
-    const sentences = homeSentences(HOME, "sol");
+    const sentences = homeSentences(HOME, EMPTY);
     expect(sentences.start).toBe("New conversation with sol (gpt-5.6-sol)");
     expect(sentences.agents[1]?.text).toBe("luna, gpt-5.6-luna, everyday, used 2h ago");
     expect(sentences.agents[2]?.text).toBe("coder-terra, gpt-5.6-sol, coder, not used yet");
-    expect(sentences.waiting[0]).toBe("1  Wedding venue, luna, asked you 1d ago");
+    expect(sentences.waiting[0]?.text).toBe("Wedding venue, luna, asked you 1d ago");
+    expect(sentences.footer).toBe("/ commands · ↓ waiting · tab all agents · esc quit");
   });
 
   it("renders the same content on the Ink path", () => {
@@ -204,6 +286,7 @@ describe("Ink reading", () => {
       <InkHome
         model={HOME}
         onAnswer={() => undefined}
+        onQuit={() => undefined}
       />,
       { columns: 100 },
     );
@@ -211,6 +294,6 @@ describe("Ink reading", () => {
     expect(text).toContain("Or type your first message:");
     expect(text).toContain("Your agents, 31");
     expect(text).toContain("Waiting for you, 1");
-    expect(text).toContain("n new agent · r resume · q quit");
+    expect(text).toContain("/ commands · ↓ waiting · tab all agents · esc quit");
   });
 });

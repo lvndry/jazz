@@ -5,7 +5,8 @@
  * on home is decided here too, so the two renderers cannot disagree.
  */
 
-import type { ActiveHome, ActiveHomeAgent, ActiveHomeWaiting } from "../store";
+import type { ActiveHome, ActiveHomeAgent, ActiveHomeCommand, ActiveHomeWaiting } from "../store";
+import { rankCommands } from "../suggestion-menu";
 
 export type HomeAgent = ActiveHomeAgent;
 export type HomeWaiting = ActiveHomeWaiting;
@@ -72,21 +73,6 @@ export function targetAgent(
   selectedId: string | undefined,
 ): HomeAgent | undefined {
   return model.agents.find((agent) => agent.id === selectedId) ?? model.agents[0];
-}
-
-/** The agent ↑ or ↓ moves the choice to, stopping at either end. */
-export function stepTarget(
-  model: Pick<HomeModel, "agents">,
-  selectedId: string | undefined,
-  delta: number,
-): string | undefined {
-  const current = targetAgent(model, selectedId);
-  if (current === undefined) {
-    return undefined;
-  }
-  const index = model.agents.indexOf(current);
-  const next = Math.max(0, Math.min(model.agents.length - 1, index + delta));
-  return model.agents[next]?.id;
 }
 
 // ─── Titles ──────────────────────────────────────────────────────────────────
@@ -263,7 +249,66 @@ export function parseOpenConversationValue(
   return { agentId: rest.slice(0, separator), conversationId: rest.slice(separator + 1) };
 }
 
-// ─── Keys ────────────────────────────────────────────────────────────────────
+// ─── Commands ────────────────────────────────────────────────────────────────
+
+/** What `/` offers on home. Starting a conversation needs no command: enter does it. */
+export const HOME_COMMANDS: readonly ActiveHomeCommand[] = [
+  { name: "new", description: "create an agent", value: "create-agent" },
+  { name: "resume", description: "continue an earlier conversation", value: "resume-conversation" },
+  { name: "agents", description: "see, edit or delete your agents", value: "list-agents" },
+  { name: "settings", description: "providers, keys, theme and limits", value: "config" },
+  { name: "quit", description: "leave jazz", value: "exit" },
+];
+
+/** The home commands matching what is typed after `/`, or undefined when no menu is open. */
+export function homeCommandMatches(
+  model: Pick<HomeModel, "commands">,
+  draft: string,
+): readonly ActiveHomeCommand[] | undefined {
+  const query = slashQuery(draft);
+  return query === undefined ? undefined : rankCommands(model.commands, query);
+}
+
+/** The text after `/` while a command is still being chosen: no space, no newline yet. */
+export function slashQuery(draft: string): string | undefined {
+  if (!draft.startsWith("/") || /\s/.test(draft.slice(1))) {
+    return undefined;
+  }
+  return draft.slice(1);
+}
+
+/** The home command a finished line names, such as "/resume" with arguments after it. */
+function commandNamed(
+  model: Pick<HomeModel, "commands">,
+  draft: string,
+): ActiveHomeCommand | undefined {
+  const name = draft.slice(1).split(/\s/)[0]?.toLowerCase() ?? "";
+  return model.commands.find((command) => command.name === name);
+}
+
+// ─── Focus and keys ──────────────────────────────────────────────────────────
+
+/**
+ * Where home is, in one value both renderers hold. `agentId` is who a new conversation goes to;
+ * it is kept while a waiting conversation is selected, so typing returns to it. `commandIndex`
+ * is the selection in the slash menu, and in the first-run list.
+ */
+export interface HomeState {
+  readonly agentId: string | undefined;
+  /** The waiting conversation selected with ↓, if any; enter then opens it. */
+  readonly waitingValue: string | undefined;
+  readonly draft: string;
+  readonly commandIndex: number;
+}
+
+export function initialHomeState(model: HomeModel): HomeState {
+  return {
+    agentId: model.targetAgentId ?? model.agents[0]?.id,
+    waitingValue: undefined,
+    draft: model.draft ?? "",
+    commandIndex: 0,
+  };
+}
 
 export interface HomeKey {
   readonly name: string;
@@ -272,59 +317,144 @@ export interface HomeKey {
   readonly meta?: boolean | undefined;
 }
 
-/** What a key does on home, given what is typed in the composer. */
+/** What a key does on home. */
 export type HomeIntent =
-  | { readonly kind: "move"; readonly agentId: string | undefined }
+  /**
+   * Move to `patch`. With `edit`, the renderer then applies the key to the draft as text: home
+   * has no single-key actions, so every letter and digit types.
+   */
+  | { readonly kind: "state"; readonly patch: Partial<HomeState>; readonly edit: boolean }
   | {
       readonly kind: "answer";
       readonly value: string;
       /** The composer's text, sent as the first message or kept across the agent picker. */
       readonly text?: string;
     }
-  | { readonly kind: "type" }
-  /** Esc empties the composer. Home never closes on esc; q quits. */
-  | { readonly kind: "clear" };
+  | { readonly kind: "quit" };
+
+/** The selection order ↑↓ walks: the recent agents, then the waiting conversations. */
+function focusOrder(
+  model: HomeModel,
+): readonly { readonly agentId?: string; readonly waitingValue?: string }[] {
+  return [
+    ...model.agents.map((agent) => ({ agentId: agent.id })),
+    ...model.waiting.map((entry) => ({ waitingValue: entry.value })),
+  ];
+}
+
+function moveFocus(model: HomeModel, state: HomeState, delta: number): Partial<HomeState> {
+  const order = focusOrder(model);
+  const current = order.findIndex((entry) =>
+    state.waitingValue !== undefined
+      ? entry.waitingValue === state.waitingValue
+      : entry.agentId === targetAgent(model, state.agentId)?.id,
+  );
+  const next = order[Math.max(0, Math.min(order.length - 1, current + delta))];
+  if (next === undefined) {
+    return {};
+  }
+  return next.waitingValue !== undefined
+    ? { waitingValue: next.waitingValue }
+    : { agentId: next.agentId, waitingValue: undefined };
+}
+
+const NO_CHANGE: HomeIntent = { kind: "state", patch: {}, edit: false };
+
+function isEnter(key: HomeKey): boolean {
+  return key.name === "return" || key.name === "enter";
+}
 
 /**
- * The key's meaning. Arrows choose the agent. Enter starts a conversation with it, sending what
- * is typed. Tab opens every agent, keeping what is typed. The single keys in the footer and the
- * waiting numbers only act while the composer is empty; once you type, every key is text.
+ * The key's meaning.
+ *
+ * - `/` opens the command menu: ↑↓ choose in it, tab completes, enter runs the command. The
+ *   conversation is not started.
+ * - Otherwise ↑↓ move through the agents and on into "Waiting for you". Enter starts a
+ *   conversation with the chosen agent and sends what is typed, or opens the selected waiting
+ *   conversation. Tab opens every agent, keeping the draft.
+ * - Typing while a waiting conversation is selected goes back to the agent, so enter never
+ *   drops a draft into a conversation it was not written for.
+ * - Esc clears the draft; on an empty composer it quits, as ctrl+c does.
  */
-export function homeIntent(
-  model: HomeModel,
-  selectedId: string | undefined,
-  draft: string,
-  key: HomeKey,
-): HomeIntent {
-  if (key.name === "up" || key.name === "down") {
-    return { kind: "move", agentId: stepTarget(model, selectedId, key.name === "up" ? -1 : 1) };
-  }
-  if (key.name === "escape") {
-    return { kind: "clear" };
+export function homeIntent(model: HomeModel, state: HomeState, key: HomeKey): HomeIntent {
+  if (key.ctrl === true && key.name === "c") {
+    return { kind: "quit" };
   }
   if (model.firstRun !== undefined) {
-    const pressed = key.name === "return" || key.name === "enter" ? "enter" : key.sequence;
-    const action = model.keys.find((entry) => entry.key === pressed);
-    return action === undefined ? { kind: "type" } : { kind: "answer", value: action.value };
+    return firstRunIntent(model, state, key);
   }
-  if (key.name === "return" || key.name === "enter") {
-    const agent = targetAgent(model, selectedId);
+  if (key.name === "escape") {
+    return state.draft.length > 0
+      ? { kind: "state", patch: { draft: "", commandIndex: 0 }, edit: false }
+      : { kind: "quit" };
+  }
+  const matches = homeCommandMatches(model, state.draft);
+  if (matches !== undefined) {
+    if (key.name === "up" || key.name === "down") {
+      const index = Math.max(
+        0,
+        Math.min(matches.length - 1, state.commandIndex + (key.name === "up" ? -1 : 1)),
+      );
+      return { kind: "state", patch: { commandIndex: index }, edit: false };
+    }
+    const chosen = matches[Math.min(state.commandIndex, matches.length - 1)];
+    if (isEnter(key)) {
+      return chosen === undefined ? NO_CHANGE : { kind: "answer", value: chosen.value };
+    }
+    if (key.name === "tab") {
+      return chosen === undefined
+        ? NO_CHANGE
+        : { kind: "state", patch: { draft: `/${chosen.name}`, commandIndex: 0 }, edit: false };
+    }
+    return { kind: "state", patch: { commandIndex: 0 }, edit: true };
+  }
+  if (isEnter(key) && state.draft.startsWith("/")) {
+    const command = commandNamed(model, state.draft);
+    return command === undefined ? NO_CHANGE : { kind: "answer", value: command.value };
+  }
+  if (key.name === "up" || key.name === "down") {
+    return {
+      kind: "state",
+      patch: moveFocus(model, state, key.name === "up" ? -1 : 1),
+      edit: false,
+    };
+  }
+  if (isEnter(key)) {
+    if (state.waitingValue !== undefined) {
+      return { kind: "answer", value: state.waitingValue };
+    }
+    const agent = targetAgent(model, state.agentId);
     return agent === undefined
-      ? { kind: "type" }
-      : { kind: "answer", value: `${START_PREFIX}${agent.id}`, text: draft };
+      ? NO_CHANGE
+      : { kind: "answer", value: `${START_PREFIX}${agent.id}`, text: state.draft };
   }
   if (key.name === "tab") {
-    return { kind: "answer", value: PICK_AGENT, text: draft };
+    return { kind: "answer", value: PICK_AGENT, text: state.draft };
   }
-  if (draft.length === 0 && key.ctrl !== true && key.meta !== true && key.sequence !== undefined) {
-    const shortcut =
-      model.keys.find((entry) => entry.key === key.sequence) ??
-      model.waiting.find((entry) => entry.key === key.sequence);
-    if (shortcut !== undefined) {
-      return { kind: "answer", value: shortcut.value };
-    }
+  return {
+    kind: "state",
+    patch: { waitingValue: undefined, commandIndex: 0 },
+    edit: true,
+  };
+}
+
+function firstRunIntent(model: HomeModel, state: HomeState, key: HomeKey): HomeIntent {
+  const actions = model.firstRun?.actions ?? [];
+  if (key.name === "escape") {
+    return { kind: "quit" };
   }
-  return { kind: "type" };
+  if (key.name === "up" || key.name === "down") {
+    const index = Math.max(
+      0,
+      Math.min(actions.length - 1, state.commandIndex + (key.name === "up" ? -1 : 1)),
+    );
+    return { kind: "state", patch: { commandIndex: index }, edit: false };
+  }
+  if (isEnter(key)) {
+    const action = actions[state.commandIndex];
+    return action === undefined ? NO_CHANGE : { kind: "answer", value: action.value };
+  }
+  return NO_CHANGE;
 }
 
 /** The agent a start value names, or undefined. */
@@ -334,9 +464,38 @@ export function startedAgentId(value: string): string | undefined {
 
 // ─── Wording both renderers share ────────────────────────────────────────────
 
-/** The footer keys as "n new agent · r resume · …". */
-export function footerKeysText(model: HomeModel, separator = " · "): string {
-  return model.keys.map((entry) => `${entry.key} ${entry.label}`).join(separator);
+/** The waiting conversation the selection is on, if any. */
+export function focusedWaiting(model: HomeModel, state: HomeState): HomeWaiting | undefined {
+  return state.waitingValue === undefined
+    ? undefined
+    : model.waiting.find((entry) => entry.value === state.waitingValue);
+}
+
+/** What enter will do right now, in words, for the composer's hint. */
+export function enterHint(model: HomeModel, state: HomeState): string | undefined {
+  const matches = homeCommandMatches(model, state.draft);
+  if (matches !== undefined) {
+    const chosen = matches[Math.min(state.commandIndex, matches.length - 1)];
+    return chosen === undefined ? "no command by that name" : `enter runs /${chosen.name}`;
+  }
+  const waiting = focusedWaiting(model, state);
+  if (waiting !== undefined) {
+    return `enter opens ${waiting.title}`;
+  }
+  const agent = targetAgent(model, state.agentId);
+  return agent === undefined ? undefined : `enter sends to ${agent.name}`;
+}
+
+/** The footer's hints, left to right. */
+export function footerHints(
+  model: HomeModel,
+): readonly { readonly key: string; readonly label: string }[] {
+  return [
+    { key: "/", label: "commands" },
+    ...(model.waiting.length > 0 ? [{ key: "↓", label: "waiting" }] : []),
+    { key: "tab", label: "all agents" },
+    { key: "esc", label: "quit" },
+  ];
 }
 
 /** "↑↓ choose · tab all 31" beside the agents heading. */
@@ -360,7 +519,7 @@ export function detectionLines(
 /** Home read top to bottom as complete sentences, for screen readers and plain terminals. */
 export function homeSentences(
   model: HomeModel,
-  selectedId: string | undefined,
+  state: HomeState,
 ): {
   readonly start?: string;
   readonly agentsHeading: string;
@@ -370,10 +529,15 @@ export function homeSentences(
     readonly selected: boolean;
   }[];
   readonly waitingHeading?: string;
-  readonly waiting: readonly string[];
+  readonly waiting: readonly {
+    readonly value: string;
+    readonly text: string;
+    readonly selected: boolean;
+  }[];
   readonly footer: string;
 } {
-  const target = targetAgent(model, selectedId);
+  const target = targetAgent(model, state.agentId);
+  const onWaiting = state.waitingValue !== undefined;
   return {
     ...(target === undefined
       ? {}
@@ -387,18 +551,21 @@ export function homeSentences(
         personaLabel(agent.persona),
         agent.lastUsed === undefined ? "not used yet" : `used ${agent.lastUsed}`,
       ].join(", "),
-      selected: agent.id === target?.id,
+      selected: !onWaiting && agent.id === target?.id,
     })),
     ...(model.waiting.length === 0
       ? {}
       : { waitingHeading: `Waiting for you, ${String(model.waiting.length)}` }),
-    waiting: model.waiting.map(
-      (entry) =>
-        `${entry.key}  ${entry.title}, ${entry.agent}, ${waitingPhrase(entry.reason, entry.age)}`,
-    ),
+    waiting: model.waiting.map((entry) => ({
+      value: entry.value,
+      text: `${entry.title}, ${entry.agent}, ${waitingPhrase(entry.reason, entry.age)}`,
+      selected: entry.value === state.waitingValue,
+    })),
     footer: [
-      footerKeysText(model),
-      ...(model.warning === undefined ? [] : [model.warning.text]),
+      footerHints(model)
+        .map((hint) => `${hint.key} ${hint.label}`)
+        .join(" · "),
+      ...(model.warning === undefined ? [] : [`${model.warning.text} (${model.warning.fix})`]),
     ].join(" · "),
   };
 }

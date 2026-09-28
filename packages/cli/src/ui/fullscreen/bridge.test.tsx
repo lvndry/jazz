@@ -20,6 +20,7 @@ import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
+import { HOME_COMMANDS } from "../models/home-view";
 import { store, type ActiveHome } from "../store";
 import { applyTheme, THEME } from "../theme";
 import { pickThemeInteractively } from "../theme-picker-prompt";
@@ -792,10 +793,7 @@ describe("fullscreen bridge", () => {
     agentCount: 2,
     targetAgentId: "sol",
     waiting: [],
-    keys: [
-      { key: "r", label: "resume", value: "resume-conversation" },
-      { key: "q", label: "quit", value: "exit" },
-    ],
+    commands: HOME_COMMANDS,
     ...overrides,
   });
 
@@ -876,10 +874,11 @@ describe("fullscreen bridge", () => {
     const refreshed = captureCharFrame();
     expect(refreshed).toContain("with luna");
     expect(refreshed).toContain("Wedding venue");
-    // A key that is text once something is typed does not act as a shortcut.
+    // Letters always type on home; none of them is a shortcut.
     await mockInput.pressKey("r");
     await settleKeypress(flush);
     expect(answers).toEqual([]);
+    expect(captureCharFrame()).toContain("kr");
     updateForTest(() => {
       store.setActiveMenu(homeSurface({ shownAt: 2 }), record);
     });
@@ -889,6 +888,54 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
     expect(fresh).toContain("with sol");
     expect(fresh).toContain("Or type your first message");
+  });
+
+  it("runs a slash command from the home composer without starting a conversation", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    const answers: string[] = [];
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), (result) => {
+        answers.push(result.kind === "select" ? result.value : "exit");
+      });
+    });
+    await flush();
+    for (const character of "/res") {
+      await mockInput.pressKey(character);
+    }
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    renderer.destroy();
+    expect(answers).toEqual(["resume-conversation"]);
+  });
+
+  it("quits home with esc on an empty composer and with ctrl+c", async () => {
+    for (const quit of ["escape", "ctrl-c"] as const) {
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+        width: WIDTH,
+        height: HEIGHT,
+      });
+      await renderOnce();
+      const answers: string[] = [];
+      updateForTest(() => {
+        store.setActiveMenu(homeSurface(), (result) => {
+          answers.push(result.kind);
+        });
+      });
+      await flush();
+      if (quit === "escape") {
+        await mockInput.pressKey("ESCAPE");
+      } else {
+        await mockInput.pressKey("c", { ctrl: true });
+      }
+      await settleKeypress(flush);
+      renderer.destroy();
+      expect(answers).toEqual(["exit"]);
+    }
   });
 
   it("drops a refresh for a menu that was already answered", () => {

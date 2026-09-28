@@ -118,8 +118,8 @@ export function SearchSelect<T = unknown>({
             color={THEME.muted}
             dimColor
           >
-            <Text inverse>{placeholder[0] || " "}</Text>
-            {placeholder.slice(1)}
+            <Text inverse> </Text>
+            {placeholder}
           </Text>
         ) : (
           <Text color={THEME.primary}>

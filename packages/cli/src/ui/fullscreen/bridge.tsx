@@ -1196,6 +1196,10 @@ export function FullscreenBridge(): React.ReactNode {
   const [homeAgentId, homeAgentIdRef, setHomeAgentId] = useSynchronizedState<string | undefined>(
     undefined,
   );
+  /** The waiting conversation ↓ selected on home; enter then opens it. */
+  const [homeWaitingValue, homeWaitingValueRef, setHomeWaitingValue] = useSynchronizedState<
+    string | undefined
+  >(undefined);
   const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
     null,
   );
@@ -1287,6 +1291,7 @@ export function FullscreenBridge(): React.ReactNode {
     setHomeAgentId(
       opened?.kind === "home" ? (opened.targetAgentId ?? opened.agents[0]?.id) : undefined,
     );
+    setHomeWaitingValue(undefined);
     setSkillDetail(null);
     setSkillDetailOffset(0);
   }, [
@@ -1294,6 +1299,7 @@ export function FullscreenBridge(): React.ReactNode {
     setMenuIndex,
     setMenuFilter,
     setHomeAgentId,
+    setHomeWaitingValue,
     setSkillDetail,
     setSkillDetailOffset,
   ]);
@@ -1683,6 +1689,13 @@ export function FullscreenBridge(): React.ReactNode {
       // rather than killing the whole process, since /exit already returns
       // cleanly to the wizard's main menu.
       if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
+        // Home has nothing to interrupt and no transcript to show a "press again" warning in,
+        // so ctrl+c quits it at once, as esc on an empty composer does.
+        if (menuRef.current?.kind === "home" && interrupt.current === null) {
+          disarmQuit();
+          store.completePrompt({ kind: "exit" });
+          return true;
+        }
         if (interrupt.current !== null && quitArmed.current === false) {
           quitArmed.current = true;
           interrupt.current();
@@ -1898,40 +1911,55 @@ export function FullscreenBridge(): React.ReactNode {
           const draft = menuFilterRef.current;
           const intent = homeIntent(
             { ...openMenu, version: packageJson.version },
-            homeAgentIdRef.current,
-            draft.value,
+            {
+              agentId: homeAgentIdRef.current,
+              waitingValue: homeWaitingValueRef.current,
+              draft: draft.value,
+              commandIndex: menuIndexRef.current,
+            },
             { name, sequence, ctrl, meta },
           );
-          switch (intent.kind) {
-            case "move":
-              setHomeAgentId(intent.agentId);
-              break;
-            case "answer":
-              store.completePrompt({
-                kind: "select",
-                value: intent.value,
-                ...(intent.text === undefined ? {} : { text: intent.text }),
-              });
-              break;
-            case "clear":
-              setMenuFilter({ value: "", caret: 0 });
-              break;
-            case "type": {
-              if (openMenu.firstRun !== undefined) {
-                break;
-              }
-              const next = applyTextFieldKey(draft, {
-                name,
-                sequence,
-                ctrl,
-                meta,
-                option,
-                super: superKey,
-              });
-              if (next !== null) {
-                setMenuFilter(next);
-              }
-              break;
+          if (intent.kind === "quit") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          if (intent.kind === "answer") {
+            store.completePrompt({
+              kind: "select",
+              value: intent.value,
+              ...(intent.text === undefined ? {} : { text: intent.text }),
+            });
+            return true;
+          }
+          const { patch } = intent;
+          if (patch.agentId !== undefined) {
+            setHomeAgentId(patch.agentId);
+          }
+          if ("waitingValue" in patch) {
+            setHomeWaitingValue(patch.waitingValue);
+          }
+          if (patch.commandIndex !== undefined) {
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(patch.commandIndex);
+          }
+          const field =
+            patch.draft === undefined
+              ? draft
+              : { value: patch.draft, caret: [...patch.draft].length };
+          if (patch.draft !== undefined) {
+            setMenuFilter(field);
+          }
+          if (intent.edit && openMenu.firstRun === undefined) {
+            const next = applyTextFieldKey(field, {
+              name,
+              sequence,
+              ctrl,
+              meta,
+              option,
+              super: superKey,
+            });
+            if (next !== null) {
+              setMenuFilter(next);
             }
           }
           return true;
@@ -2784,6 +2812,7 @@ export function FullscreenBridge(): React.ReactNode {
             items: menu.items,
             selected: wrapCommandIndex(commandIndex, menu.items.length),
             prefix: menu.prefix,
+            ...(menu.prefix === "/" && commandQuery !== null ? { query: commandQuery } : {}),
           };
     return {
       value: draft,
@@ -2925,8 +2954,13 @@ export function FullscreenBridge(): React.ReactNode {
       <Home
         model={{ ...menu, version: packageJson.version }}
         viewport={viewport}
-        selectedId={homeAgentId}
-        draft={menuFilter}
+        state={{
+          agentId: homeAgentId,
+          waitingValue: homeWaitingValue,
+          draft: menuFilter.value,
+          commandIndex: menuIndex,
+        }}
+        caret={menuFilter.caret}
       />
     ) : menu?.kind === "menu" ? (
       <MenuScreen

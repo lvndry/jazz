@@ -14,6 +14,12 @@ import {
   stepperView,
   type PromptStepPosition,
 } from "../prompt-core/stepper";
+import {
+  matchedSpan,
+  plainDescription,
+  suggestionOrigin,
+  type SuggestionPrefix,
+} from "../suggestion-menu";
 import { THEME } from "../theme";
 
 export function tagColor(tone: PromptTagTone | undefined): string {
@@ -67,5 +73,58 @@ export function ChoiceMeta({
       {description ? <Text color={THEME.muted}>{`  ${description}`}</Text> : null}
       {tag ? <Text color={tagColor(tagTone)}>{`  ${tag}`}</Text> : null}
     </Text>
+  );
+}
+
+export interface CommandSuggestionItemProps {
+  readonly command: {
+    readonly name: string;
+    readonly description: string;
+    readonly usage?: string | undefined;
+    readonly source?: string | undefined;
+  };
+  readonly isSelected: boolean;
+  /** Sigil the row completes: "/" for a command, "@" for a file path. */
+  readonly prefix?: SuggestionPrefix;
+  /** What is typed after the sigil; its letters are bold in the name. */
+  readonly query?: string | undefined;
+}
+
+/** One row of the slash or `@` menu, shared by the chat prompt and home. */
+export function CommandSuggestionItem({
+  command,
+  isSelected,
+  prefix = "/",
+  query,
+}: CommandSuggestionItemProps): React.ReactElement {
+  const span = matchedSpan(command.name, query ?? "");
+  const origin = suggestionOrigin(command.source);
+  return (
+    <Box marginLeft={1}>
+      <Text
+        {...(isSelected ? { color: THEME.selected } : {})}
+        bold={isSelected}
+      >
+        {isSelected ? "> " : "  "}
+        {prefix}
+        {span === undefined ? (
+          command.name
+        ) : (
+          <>
+            {command.name.slice(0, span[0])}
+            <Text
+              bold
+              color={THEME.selected}
+            >
+              {command.name.slice(span[0], span[1])}
+            </Text>
+            {command.name.slice(span[1])}
+          </>
+        )}
+      </Text>
+      {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
+      {origin !== undefined ? <Text color={THEME.muted}> ({origin})</Text> : null}
+      <Text dimColor> – {plainDescription(command.description)}</Text>
+    </Box>
   );
 }

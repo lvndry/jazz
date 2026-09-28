@@ -183,6 +183,7 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
         onAnswer={(value, text) =>
           store.completePrompt({ kind: "select", value, ...(text === undefined ? {} : { text }) })
         }
+        onQuit={() => store.completePrompt({ kind: "exit" })}
       />
     );
   }

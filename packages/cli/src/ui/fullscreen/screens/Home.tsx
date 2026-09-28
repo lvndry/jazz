@@ -5,8 +5,10 @@
  *
  * It opens on the one thing most visits are for: a new conversation. The filled button names
  * the agent it goes to, and the composer under it sends the first message in the same step.
- * The recent agents sit below to re-target both, then whatever is waiting for you. Every word
- * comes from the shared home model; this file only sets it in bands.
+ * The recent agents sit below, then whatever is waiting for you; ↑↓ walks one selection down
+ * through both, lifted onto the element band with `›`. `/` opens the same command menu the chat
+ * composer has. Every word and every key's meaning comes from the shared home model; this file
+ * only sets it in bands.
  *
  * The block is anchored near the top with room around each section, and the footer holds the
  * last row. When the terminal is short, waiting details go first, then waiting entries from the
@@ -25,14 +27,21 @@ import {
   FIRST_RUN_STEPS,
   agentsHint,
   detectionLines,
+  enterHint,
+  focusedWaiting,
+  footerHints,
+  homeCommandMatches,
   personaLabel,
+  slashQuery,
   targetAgent,
   waitingTag,
   type HomeAgent,
   type HomeModel,
+  type HomeState,
   type HomeWaiting,
 } from "../../models/home-view";
 import { groundPaint, THEME } from "../../theme";
+import { commandSuggestRows } from "../Input";
 import { CaretValue } from "../overlays/TextPrompt";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
@@ -46,8 +55,8 @@ const GUTTER = 2;
 /** Blank cells kept between a row's text and its right-aligned tag. */
 const TAG_GAP = 2;
 
-/** Spaces between two keys in a legend. */
-const KEY_GAP = 4;
+/** Spaces between two hints in a legend. */
+const KEY_GAP = 3;
 
 /** The footer holds the last viewport row. */
 const FOOTER_ROWS = 1;
@@ -62,13 +71,19 @@ const ROOMY_HEIGHT = 40;
 const NAME_COLUMN = 16;
 const MODEL_COLUMN = 22;
 
+/** Cells kept free at the end of a table column, so neighbours never run together. */
+const COLUMN_GAP = 2;
+
+/** Rows the command menu may take under the composer. */
+const MENU_ROWS = 6;
+
 export interface HomeProps {
   readonly model: HomeModel;
   readonly viewport: Viewport;
-  /** The agent a new conversation goes to. */
-  readonly selectedId: string | undefined;
-  /** What is typed in the composer, and where the caret is. */
-  readonly draft: { readonly value: string; readonly caret: number };
+  /** Where home is: the chosen agent, the selected waiting conversation, the draft. */
+  readonly state: HomeState;
+  /** Where the caret is in the draft. */
+  readonly caret: number;
 }
 
 export interface Segment {
@@ -86,7 +101,7 @@ export type HomeRow =
       /** Background for the whole row width, when the row is part of a band. */
       readonly fill?: string;
     }
-  | { readonly key: string; readonly kind: "composer"; readonly agentName: string };
+  | { readonly key: string; readonly kind: "composer"; readonly hint: string };
 
 function cells(text: string): number {
   return terminalCellWidth(text);
@@ -99,9 +114,6 @@ function clip(text: string, width: number): string {
 function widthOf(segments: readonly Segment[]): number {
   return segments.reduce((total, segment) => total + cells(segment.text), 0);
 }
-
-/** Cells kept free at the end of a table column, so neighbours never run together. */
-const COLUMN_GAP = 2;
 
 function pad(text: string, width: number): string {
   const clipped = clip(text, width - COLUMN_GAP);
@@ -173,7 +185,11 @@ function wordmark(glyphs: GlyphSet): HomeRow {
   };
 }
 
-function startRows(agent: HomeAgent | undefined, width: number): HomeRow[] {
+/**
+ * The button. It is filled while enter would start a conversation, and drops to the element
+ * plane once the selection is on a waiting conversation, so what is lit is what enter does.
+ */
+function startRows(agent: HomeAgent | undefined, waiting: boolean, width: number): HomeRow[] {
   if (agent === undefined) {
     return [];
   }
@@ -181,32 +197,31 @@ function startRows(agent: HomeAgent | undefined, width: number): HomeRow[] {
     row(
       "start",
       [
-        { text: " + New conversation ", fg: THEME.canvas, bg: THEME.primary, bold: true },
+        waiting
+          ? { text: " + New conversation ", fg: THEME.secondary, bg: THEME.surfaceStrong }
+          : { text: " + New conversation ", fg: THEME.canvas, bg: THEME.primary, bold: true },
         { text: "  with ", fg: THEME.muted },
-        { text: agent.name, fg: THEME.selected, bold: true },
+        { text: agent.name, fg: waiting ? THEME.secondary : THEME.selected, bold: !waiting },
         { text: `  ${agent.model}`, fg: THEME.muted },
       ],
-      [{ text: "enter", fg: THEME.selected, bold: true }],
+      waiting ? [] : [{ text: "enter", fg: THEME.selected, bold: true }],
       width,
     ),
   ];
 }
 
-function composerRows(agent: HomeAgent | undefined, width: number): HomeRow[] {
-  if (agent === undefined) {
-    return [];
-  }
+function composerRows(hint: string, width: number): HomeRow[] {
   const padRow = (key: string): HomeRow =>
     row(key, [], [], width, { bar: THEME.primary, fill: THEME.surfaceStrong });
   return [
     padRow("composer:top"),
-    { key: "composer", kind: "composer", agentName: agent.name },
+    { key: "composer", kind: "composer", hint },
     padRow("composer:bottom"),
   ];
 }
 
 function agentRow(agent: HomeAgent, selected: boolean, width: number): HomeRow {
-  const cellsLeft: Segment[] = [
+  const left: Segment[] = [
     { text: selected ? "› " : "  ", fg: THEME.primary },
     {
       text: pad(agent.name, NAME_COLUMN),
@@ -218,7 +233,7 @@ function agentRow(agent: HomeAgent, selected: boolean, width: number): HomeRow {
   ];
   return row(
     `agent:${agent.id}`,
-    cellsLeft,
+    left,
     agent.lastUsed === undefined ? [] : [{ text: agent.lastUsed, fg: THEME.muted }],
     width,
     selected ? { fill: THEME.surfaceStrong } : {},
@@ -234,13 +249,18 @@ function heading(key: string, text: string, hint: string, width: number): HomeRo
   );
 }
 
-function waitingRows(entry: HomeWaiting, width: number, withDetail: boolean): HomeRow[] {
-  const band = { bar: THEME.primary, fill: THEME.surface };
+function waitingRows(
+  entry: HomeWaiting,
+  selected: boolean,
+  width: number,
+  withDetail: boolean,
+): HomeRow[] {
+  const band = { bar: THEME.primary, fill: selected ? THEME.surfaceStrong : THEME.surface };
   const rows = [
     row(
       `waiting:${entry.value}`,
       [
-        { text: `${entry.key}  `, fg: THEME.muted },
+        { text: selected ? "› " : "  ", fg: THEME.primary },
         { text: entry.title, fg: THEME.selected, bold: true },
         { text: `  ${entry.agent}`, fg: THEME.muted },
       ],
@@ -250,15 +270,13 @@ function waitingRows(entry: HomeWaiting, width: number, withDetail: boolean): Ho
     ),
   ];
   if (withDetail && entry.detail !== undefined) {
-    const indent = " ".repeat(cells(`${entry.key}  `));
-    const room = width - GUTTER - cells(indent);
-    const detail = clip(entry.detail, room);
+    const room = width - GUTTER - 2;
     rows.push(
       row(
         `waiting:${entry.value}:detail`,
         [
-          { text: indent, fg: THEME.muted },
-          { text: detail, fg: THEME.secondary },
+          { text: "  ", fg: THEME.muted },
+          { text: clip(entry.detail, room), fg: THEME.secondary },
         ],
         [],
         width,
@@ -269,7 +287,43 @@ function waitingRows(entry: HomeWaiting, width: number, withDetail: boolean): Ho
   return rows;
 }
 
-function firstRunRows(model: HomeModel, width: number): HomeRow[] {
+/** The command menu under the composer, from the chat composer's own row renderer. */
+function menuRows(model: HomeModel, state: HomeState, width: number): HomeRow[] {
+  const matches = homeCommandMatches(model, state.draft);
+  if (matches === undefined) {
+    return [];
+  }
+  if (matches.length === 0) {
+    return [
+      row(
+        "menu:empty",
+        [{ text: `No home command starts with ${state.draft}`, fg: THEME.muted }],
+        [],
+        width,
+        { fill: THEME.surface },
+      ),
+    ];
+  }
+  const query = slashQuery(state.draft) ?? "";
+  return commandSuggestRows(
+    {
+      items: matches.map((command) => ({ name: command.name, description: command.description })),
+      selected: Math.min(state.commandIndex, matches.length - 1),
+      prefix: "/",
+      query,
+    },
+    width,
+    getGlyphs(),
+    MENU_ROWS,
+  ).map((menuRow) => ({
+    key: `menu:${menuRow.key}`,
+    kind: "text" as const,
+    segments: menuRow.segments,
+    fill: THEME.surface,
+  }));
+}
+
+function firstRunRows(model: HomeModel, state: HomeState, width: number): HomeRow[] {
   const steps: Segment[] = FIRST_RUN_STEPS.flatMap((step, index) => [
     ...(index > 0 ? [{ text: " ".repeat(KEY_GAP), fg: THEME.muted }] : []),
     { text: String(index + 1), fg: THEME.primary, bold: true },
@@ -304,19 +358,22 @@ function firstRunRows(model: HomeModel, width: number): HomeRow[] {
     });
     rows.push(row("detected:bottom", [], [], width, band));
   }
-  rows.push(
-    blank("gap:keys"),
-    row(
-      "first-run-keys",
-      model.keys.flatMap((entry, index) => [
-        ...(index > 0 ? [{ text: " ".repeat(KEY_GAP), fg: THEME.muted }] : []),
-        { text: entry.key, fg: THEME.selected, bold: true },
-        { text: ` ${entry.label}`, fg: THEME.secondary },
-      ]),
-      [],
-      width,
-    ),
-  );
+  rows.push(blank("gap:actions"));
+  (model.firstRun?.actions ?? []).forEach((action, index) => {
+    const selected = index === state.commandIndex;
+    rows.push(
+      row(
+        `action:${action.value}`,
+        [
+          { text: selected ? "› " : "  ", fg: THEME.primary },
+          { text: action.label, fg: selected ? THEME.selected : THEME.secondary, bold: selected },
+        ],
+        selected ? [{ text: "enter", fg: THEME.selected, bold: true }] : [],
+        width,
+        selected ? { fill: THEME.surfaceStrong } : {},
+      ),
+    );
+  });
   return rows;
 }
 
@@ -329,11 +386,7 @@ export function homeWidth(viewport: Viewport): number {
  * The screen above the footer, as rows. Pure: the props and nothing else, which is what lets a
  * test assert the design rather than the markup.
  */
-export function homeRows(
-  model: HomeModel,
-  viewport: Viewport,
-  selectedId: string | undefined,
-): HomeRow[] {
+export function homeRows(model: HomeModel, viewport: Viewport, state: HomeState): HomeRow[] {
   const glyphs = getGlyphs();
   const width = homeWidth(viewport);
   const budget = Math.max(1, viewport.height - FOOTER_ROWS);
@@ -342,11 +395,13 @@ export function homeRows(
     Array.from({ length: gapRows }, (_, index) => blank(`${key}:${String(index)}`));
 
   if (model.firstRun !== undefined) {
-    const rows = [...gap("top"), wordmark(glyphs), ...firstRunRows(model, width)];
+    const rows = [...gap("top"), wordmark(glyphs), ...firstRunRows(model, state, width)];
     return rows.length <= budget ? rows : rows.slice(rows.length - budget);
   }
 
-  const target = targetAgent(model, selectedId);
+  const target = targetAgent(model, state.agentId);
+  const onWaiting = focusedWaiting(model, state) !== undefined;
+  const menu = menuRows(model, state, width);
   let shownAgents = model.agents.length;
   let shownWaiting = model.waiting.length;
   let details = true;
@@ -357,9 +412,10 @@ export function homeRows(
       ...Array.from({ length: topMargin }, (_, index) => blank(`top:${String(index)}`)),
       wordmark(glyphs),
       ...gap("start"),
-      ...startRows(target, width),
+      ...startRows(target, onWaiting, width),
       blank("gap:composer"),
-      ...composerRows(target, width),
+      ...(target === undefined ? [] : composerRows(enterHint(model, state) ?? "", width)),
+      ...menu,
     ];
     // The chosen agent always stays in view, whatever else has to give way.
     const agents = model.agents.filter(
@@ -369,15 +425,19 @@ export function homeRows(
       rows.push(
         ...gap("agents"),
         heading("agents:heading", "Start with another agent", agentsHint(model), width),
-        ...agents.map((agent) => agentRow(agent, agent.id === target?.id, width)),
+        ...agents.map((agent) => agentRow(agent, !onWaiting && agent.id === target?.id, width)),
       );
     }
-    const waiting = model.waiting.slice(0, shownWaiting);
+    const waiting = model.waiting.filter(
+      (entry, index) => index < shownWaiting || entry.value === state.waitingValue,
+    );
     if (waiting.length > 0) {
       rows.push(
         ...gap("waiting"),
         heading("waiting:heading", "Waiting for you", String(model.waiting.length), width),
-        ...waiting.flatMap((entry) => waitingRows(entry, width, details)),
+        ...waiting.flatMap((entry) =>
+          waitingRows(entry, entry.value === state.waitingValue, width, details),
+        ),
       );
     }
     return rows;
@@ -432,17 +492,18 @@ function SegmentsText({ segments }: { segments: readonly Segment[] }): ReactNode
 
 function Composer({
   width,
-  agentName,
+  hint,
   draft,
+  caret,
 }: {
   width: number;
-  agentName: string;
-  draft: HomeProps["draft"];
+  hint: string;
+  draft: string;
+  caret: number;
 }): ReactNode {
   const glyphs = getGlyphs();
-  const hint = `enter sends to ${agentName}`;
   const room = width - GUTTER - TAG_GAP - cells(hint) - 1;
-  const showHint = room >= cells(COMPOSER_PLACEHOLDER) / 2;
+  const showHint = hint.length > 0 && room >= cells(COMPOSER_PLACEHOLDER) / 2;
   return (
     <box
       style={{
@@ -457,8 +518,8 @@ function Composer({
         style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}
       >{`${glyphs.bandBar} `}</text>
       <CaretValue
-        value={draft.value}
-        caret={draft.caret}
+        value={draft}
+        caret={caret}
         width={showHint ? room : width - GUTTER - 1}
         placeholder={COMPOSER_PLACEHOLDER}
       />
@@ -469,24 +530,27 @@ function Composer({
 }
 
 function Row({
-  row,
+  row: entry,
   width,
   draft,
+  caret,
 }: {
   row: HomeRow;
   width: number;
-  draft: HomeProps["draft"];
+  draft: string;
+  caret: number;
 }): ReactNode {
-  if (row.kind === "composer") {
+  if (entry.kind === "composer") {
     return (
       <Composer
         width={width}
-        agentName={row.agentName}
+        hint={entry.hint}
         draft={draft}
+        caret={caret}
       />
     );
   }
-  if (row.segments.length === 0) {
+  if (entry.segments.length === 0) {
     return <box style={{ height: 1, flexShrink: 0 }} />;
   }
   return (
@@ -495,40 +559,47 @@ function Row({
         width,
         height: 1,
         flexShrink: 0,
-        ...(row.fill === undefined ? {} : { backgroundColor: row.fill }),
+        ...(entry.fill === undefined ? {} : { backgroundColor: entry.fill }),
       }}
     >
-      <SegmentsText segments={row.segments} />
+      <SegmentsText segments={entry.segments} />
     </box>
   );
 }
 
-/** The footer: the single keys on the left, a readiness warning and its fix key on the right. */
+/** The footer: what the keys do on the left, a readiness warning and its fix on the right. */
 export function homeFooterSegments(
   model: HomeModel,
   width: number,
 ): { left: Segment[]; right: Segment[] } {
   const left: Segment[] =
     model.firstRun !== undefined
-      ? []
-      : model.keys.flatMap((entry, index) => [
+      ? [
+          { text: "  ", fg: THEME.muted },
+          { text: "↑↓", fg: THEME.selected, bold: true },
+          { text: " choose", fg: THEME.muted },
+          { text: " ".repeat(KEY_GAP), fg: THEME.muted },
+          { text: "esc", fg: THEME.selected, bold: true },
+          { text: " quit", fg: THEME.muted },
+        ]
+      : footerHints(model).flatMap((hint, index) => [
           { text: index === 0 ? "  " : " ".repeat(KEY_GAP), fg: THEME.muted },
-          { text: entry.key, fg: THEME.selected, bold: true },
-          { text: ` ${entry.label}`, fg: THEME.muted },
+          { text: hint.key, fg: THEME.selected, bold: true },
+          { text: ` ${hint.label}`, fg: THEME.muted },
         ]);
   const right: Segment[] =
     model.warning === undefined
       ? []
       : [
           { text: model.warning.text, fg: THEME.warning },
-          { text: `  ${model.warning.fixKey}`, fg: THEME.selected, bold: true },
+          { text: `  ${model.warning.fix}`, fg: THEME.selected, bold: true },
           { text: " ", fg: THEME.muted },
         ];
   return widthOf(left) + TAG_GAP + widthOf(right) <= width ? { left, right } : { left, right: [] };
 }
 
-export function Home({ model, viewport, selectedId, draft }: HomeProps): ReactNode {
-  const rows = homeRows(model, viewport, selectedId);
+export function Home({ model, viewport, state, caret }: HomeProps): ReactNode {
+  const rows = homeRows(model, viewport, state);
   const width = homeWidth(viewport);
   const footer = homeFooterSegments(model, viewport.width);
   return (
@@ -545,7 +616,8 @@ export function Home({ model, viewport, selectedId, draft }: HomeProps): ReactNo
           key={entry.key}
           row={entry}
           width={width}
-          draft={draft}
+          draft={state.draft}
+          caret={caret}
         />
       ))}
       <box style={{ flexGrow: 1 }} />

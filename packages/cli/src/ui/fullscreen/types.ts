@@ -283,6 +283,8 @@ export interface InputModel {
      * share this menu, and the rows have to show the one being typed.
      */
     readonly prefix?: SuggestionPrefix;
+    /** What is typed after the sigil; its letters are bold in each name that contains them. */
+    readonly query?: string;
   };
   /**
    * Code-point offset into `value` where the next typed character lands.

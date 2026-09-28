@@ -5,7 +5,7 @@ import {
   probeOllamaModels,
   type ProbeFetch,
 } from "./home-detection";
-import { buildHome, homeKeys } from "./home-surface";
+import { buildHome, firstRunActions } from "./home-surface";
 import { openConversationValue, parseOpenConversationValue } from "../ui/models/home-view";
 
 describe("buildHome", () => {
@@ -27,7 +27,13 @@ describe("buildHome", () => {
     expect(home.agents.map((agent) => agent.id)).toEqual(["luna", "sol"]);
     expect(home.agents[0]?.lastUsed).toBe("2h ago");
     expect(home.agents[1]?.lastUsed).toBeUndefined();
-    expect(home.keys.map((entry) => entry.key)).toEqual(["n", "r", "l", "s", "q"]);
+    expect(home.commands.map((command) => command.name)).toEqual([
+      "new",
+      "resume",
+      "agents",
+      "settings",
+      "quit",
+    ]);
     expect(home.warning).toBeUndefined();
     expect(home.firstRun).toBeUndefined();
   });
@@ -42,7 +48,7 @@ describe("buildHome", () => {
       waiting: [],
       providerCount: 0,
     });
-    expect(home.warning).toEqual({ text: "no model provider has a key", fixKey: "s" });
+    expect(home.warning).toEqual({ text: "no model provider has a key", fix: "/settings" });
     expect(home.draft).toBe("plan my week");
   });
 
@@ -58,13 +64,15 @@ describe("buildHome", () => {
       detected: [{ label: "Ollama", detail: "running" }],
     });
     expect(home.firstRun?.detected).toHaveLength(1);
-    expect(homeKeys({ firstRun: true, ollamaModels: 3 }).map((entry) => entry.key)).toEqual([
-      "enter",
-      "o",
-      "s",
-      "q",
+    expect(home.firstRun?.actions.map((action) => action.value)).toEqual([
+      "create-agent",
+      "create-agent:ollama",
+      "config",
     ]);
-    expect(homeKeys({ firstRun: true }).some((entry) => entry.key === "o")).toBe(false);
+    expect(firstRunActions(undefined).map((action) => action.value)).toEqual([
+      "create-agent",
+      "config",
+    ]);
   });
 });
 

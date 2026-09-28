@@ -26,9 +26,7 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
-import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
@@ -41,6 +39,8 @@ import { configuredProviderNames } from "../ui/models/configured-providers";
 import {
   PICK_AGENT,
   parseOpenConversationValue,
+  readableTitle,
+  waitingTag,
   startedAgentId,
   type AgentUsage,
   type WaitingSource,
@@ -740,63 +740,31 @@ function startChatWithAgent(
 const MAX_RESUME_CHOICES = 50;
 
 /**
- * Load all saved conversations across agents, show a selector, and resume the chosen one
+ * Every saved conversation across agents, titled by what it is about, with the ones waiting on
+ * you first and what each needs; the chosen one is resumed.
  */
-/**
- * Conversations with a goal or loop that can go no further until the user acts, each with what
- * it waits on in words, so the resume list can say which conversation needs them and why.
- */
-function waitingConversations() {
-  return Effect.gen(function* () {
-    const waiting = new Map<string, string>();
-    const goals = yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES });
-    for (const goal of goals) {
-      if (goal.sourceConversationId !== undefined) {
-        const pending = yield* pendingGoalInput(goal);
-        waiting.set(
-          goal.sourceConversationId,
-          `goal ${goalHandle(goal)} ${goalStatus(goal, pending)}`,
-        );
-      }
-    }
-    for (const loop of yield* loopsWaitingOnUser()) {
-      if (loop.sourceConversationId !== undefined && !waiting.has(loop.sourceConversationId)) {
-        const pending = yield* pendingLoopInput(loop);
-        waiting.set(loop.sourceConversationId, `loop ${loop.name} ${loopStatus(loop, pending)}`);
-      }
-    }
-    return waiting;
-  }).pipe(
-    Effect.provide(makeFileGoalStoreLayer()),
-    Effect.provide(makeFileLoopStoreLayer()),
-    Effect.provide(makeFileRunStoreLayer()),
-    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
-  );
-}
-
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
-    const waiting = yield* waitingConversations();
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
       title: string;
       startedAt: string;
-      messageCount: number;
     };
     const entries: ConversationEntry[] = [];
+    const titles = new Map<string, string>();
 
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
-      for (const conv of history.conversations) {
+      for (const conversation of history.conversations) {
+        titles.set(conversation.conversationId, conversation.title);
         entries.push({
           agent,
-          conversationId: conv.conversationId,
-          title: conv.title,
-          startedAt: conv.startedAt,
-          messageCount: conv.messageCount,
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          startedAt: conversation.startedAt,
         });
       }
     }
@@ -806,7 +774,12 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       return;
     }
 
-    // Waiting conversations first, so the one the menu counted is the one on top.
+    const nowMs = Date.now();
+    const waiting = new Map(
+      (yield* waitingWork(agents, titles, nowMs)).map((source) => [source.conversationId, source]),
+    );
+
+    // Waiting conversations first, so the ones home counted are the ones on top.
     entries.sort(
       (a, b) =>
         Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
@@ -814,22 +787,24 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const nowMs = Date.now();
-    const choices = entries.map((entry, idx) => {
-      const waitingOn = waiting.get(entry.conversationId);
+    const choices = entries.map((entry, index) => {
+      const work = waiting.get(entry.conversationId);
       const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
       return {
-        name: entry.title,
+        name:
+          work === undefined
+            ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
+            : readableTitle(work),
         description:
-          waitingOn === undefined ? entry.agent.name : `${entry.agent.name} · ${waitingOn}`,
-        value: String(idx),
-        ...(waitingOn === undefined
+          work?.detail === undefined ? entry.agent.name : `${entry.agent.name} · ${work.detail}`,
+        value: String(index),
+        ...(work === undefined
           ? { tag: age, tagTone: "muted" as const }
-          : { tag: `waiting · ${age}`, tagTone: "accent" as const }),
+          : { tag: waitingTag(work.reason, work.age), tagTone: "accent" as const }),
       };
     });
 
-    const selectedIdx = yield* terminal.search<string>(
+    const selectedIndex = yield* terminal.search<string>(
       waiting.size === 0
         ? "Which conversation?"
         : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
@@ -838,10 +813,14 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
         placeholder: "Type to filter by title",
       },
     );
-    if (selectedIdx === null || selectedIdx === undefined) return;
+    if (selectedIndex === null || selectedIndex === undefined) {
+      return;
+    }
 
-    const selected = entries[Number(selectedIdx)];
-    if (!selected) return;
+    const selected = entries[Number(selectedIndex)];
+    if (!selected) {
+      return;
+    }
 
     yield* openConversation(selected.agent, selected.conversationId);
   });

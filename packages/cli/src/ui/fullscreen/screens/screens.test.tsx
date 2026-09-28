@@ -28,6 +28,7 @@ import {
 } from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
+import { HOME_COMMANDS, type HomeState } from "../../models/home-view";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
 
@@ -57,12 +58,13 @@ const FIRST_RUN: HomeModel = {
   agents: [],
   agentCount: 0,
   waiting: [],
-  keys: [
-    { key: "enter", label: "start setup", value: "create-agent" },
-    { key: "o", label: "use Ollama, no key needed", value: "create-agent:ollama" },
-    { key: "q", label: "quit", value: "exit" },
-  ],
+  commands: HOME_COMMANDS,
   firstRun: {
+    actions: [
+      { label: "Start setup", value: "create-agent" },
+      { label: "Use Ollama, no key needed", value: "create-agent:ollama" },
+      { label: "Settings", value: "config" },
+    ],
     detected: [
       { label: "OPENAI_API_KEY", detail: "in your environment" },
       { label: "Ollama", detail: "running on this machine with 3 models" },
@@ -106,16 +108,13 @@ const SETTLED: HomeModel = {
       detail: "Found 214 old exports. Delete them, or keep the newest 20?",
     },
   ],
-  keys: [
-    { key: "n", label: "new agent", value: "create-agent" },
-    { key: "r", label: "resume", value: "resume-conversation" },
-    { key: "s", label: "settings", value: "config" },
-    { key: "q", label: "quit", value: "exit" },
-  ],
-  warning: { text: "no model provider has a key", fixKey: "s" },
+  commands: HOME_COMMANDS,
+  warning: { text: "no model provider has a key", fix: "/settings" },
 };
 
-const EMPTY_DRAFT = { value: "", caret: 0 };
+function homeState(patch: Partial<HomeState> = {}): HomeState {
+  return { agentId: "sol", waitingValue: undefined, draft: "", commandIndex: 0, ...patch };
+}
 
 const AGENTS: readonly AgentChoice[] = [
   {
@@ -256,15 +255,15 @@ describe("home screen", () => {
   function drawHome(
     model: HomeModel,
     viewport: Viewport,
-    selectedId: string | undefined = model.targetAgentId,
-    draft = EMPTY_DRAFT,
+    patch: Partial<HomeState> = {},
   ): Promise<Drawn> {
+    const state = homeState(patch);
     return draw(
       <Home
         model={model}
         viewport={viewport}
-        selectedId={selectedId}
-        draft={draft}
+        state={state}
+        caret={[...state.draft].length}
       />,
       viewport,
     );
@@ -289,7 +288,7 @@ describe("home screen", () => {
   });
 
   it("re-targets the button and the composer when another agent is chosen", async () => {
-    const drawn = await drawHome(SETTLED, TALL, "luna");
+    const drawn = await drawHome(SETTLED, TALL, { agentId: "luna" });
     expect(drawn.text).toContain("with luna  gpt-5.6-luna");
     expect(drawn.text).toContain("enter sends to luna");
     const chosen = drawn.rows.find((row) => row.includes("› luna"));
@@ -320,21 +319,47 @@ describe("home screen", () => {
     expect(drawn.text).not.toContain("Waiting for you");
   });
 
-  it("puts the keys in the footer with the warning on the right, and no path", async () => {
+  it("puts the hints in the footer with the warning on the right, and no path", async () => {
     const drawn = await drawHome(SETTLED, TALL);
     const footer = drawn.rows.at(-1) ?? "";
-    expect(footer).toContain("n new agent");
-    expect(footer).toContain("q quit");
-    expect(footer.trimEnd().endsWith("no model provider has a key  s")).toBe(true);
+    expect(footer).toContain("/ commands   ↓ waiting   tab all agents   esc quit");
+    expect(footer.trimEnd().endsWith("no model provider has a key  /settings")).toBe(true);
     expect(drawn.text).not.toContain("~/");
+    expect(drawn.text).not.toContain("n new agent");
+  });
+
+  it("moves the selection into waiting and says enter opens it", async () => {
+    const drawn = await drawHome(SETTLED, TALL, { waitingValue: "open:sol:c2" });
+    expect(drawn.rows.find((row) => row.includes("› Organize Downloads"))).toBeDefined();
+    expect(drawn.rows.some((row) => row.includes("› sol"))).toBe(false);
+    expect(drawn.text).toContain("enter opens Organize Downloads");
+    const button = spanWithText(drawn.frame, " + New conversation ");
+    expect(button.attributes & TextAttributes.BOLD).toBeFalsy();
+  });
+
+  it("shows the command menu under the composer with matched letters bold", async () => {
+    const drawn = await drawHome(SETTLED, TALL, { draft: "/re" });
+    const descriptions = HOME_COMMANDS.map((command) => command.description);
+    const menu = drawn.rows.filter((row) => descriptions.some((text) => row.includes(text)));
+    expect(menu).toHaveLength(1);
+    expect(menu[0]).toContain("/resume");
+    expect(drawn.text).toContain("enter runs /resume");
+    const matched = allSpans(drawn.frame).filter((span) => span.text === "re");
+    expect(matched.some((span) => (span.attributes & TextAttributes.BOLD) !== 0)).toBe(true);
+  });
+
+  it("draws the caret before the placeholder, never over its first letter", async () => {
+    const drawn = await drawHome(SETTLED, TALL);
+    const composer = drawn.rows.find((row) => row.includes("type your first message")) ?? "";
+    expect(composer).toContain(" Or type your first message");
   });
 
   it("anchors the block near the top and keeps the chosen agent on a short terminal", () => {
-    const tall = homeRows(SETTLED, TALL, "sol");
+    const tall = homeRows(SETTLED, TALL, homeState());
     const firstInk = tall.findIndex((row) => row.kind === "composer" || row.segments.length > 0);
     expect(firstInk).toBeLessThanOrEqual(3);
     const short: Viewport = { width: 100, height: 14 };
-    const rows = homeRows(SETTLED, short, "long");
+    const rows = homeRows(SETTLED, short, homeState({ agentId: "long" }));
     const text = rows
       .map((row) =>
         row.kind === "composer" ? "composer" : row.segments.map((part) => part.text).join(""),
@@ -347,10 +372,11 @@ describe("home screen", () => {
   });
 
   it("introduces jazz on first run and names what it found", async () => {
-    const drawn = await drawHome(FIRST_RUN, TALL, undefined);
+    const drawn = await drawHome(FIRST_RUN, TALL, { agentId: undefined });
     expect(drawn.text).toContain("One agent for your email, calendar, files and the web.");
     expect(drawn.text).toContain("Found OPENAI_API_KEY in your environment");
-    expect(drawn.text).toContain("enter start setup");
+    expect(drawn.rows.find((row) => row.includes("› Start setup"))).toContain("enter");
+    expect(drawn.text).toContain("Use Ollama, no key needed");
     expect(drawn.text).not.toContain("New conversation");
   });
 
@@ -664,8 +690,8 @@ describe("both screens in ascii glyph mode", () => {
       <Home
         model={SETTLED}
         viewport={TALL}
-        selectedId="sol"
-        draft={EMPTY_DRAFT}
+        state={homeState()}
+        caret={0}
       />,
       TALL,
     );

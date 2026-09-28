@@ -6,6 +6,7 @@
 
 import { Box, Text, useInput } from "ink";
 import React, { useState } from "react";
+import { CommandSuggestionItem } from "./components/PromptParts";
 import {
   COMPOSER_PLACEHOLDER,
   FIRST_RUN_PITCH,
@@ -13,17 +14,22 @@ import {
   FIRST_RUN_SETUP_LEAD,
   FIRST_RUN_STEPS,
   detectionLines,
+  enterHint,
+  homeCommandMatches,
   homeIntent,
   homeSentences,
-  targetAgent,
+  initialHomeState,
+  slashQuery,
   type HomeKey,
   type HomeModel,
+  type HomeState,
 } from "./models/home-view";
 import { THEME } from "./theme";
 
 export interface InkHomeProps {
   readonly model: HomeModel;
   readonly onAnswer: (value: string, text?: string) => void;
+  readonly onQuit: () => void;
 }
 
 interface InkKey {
@@ -56,35 +62,38 @@ export function homeKeyFromInk(input: string, key: InkKey): HomeKey {
   return { name, sequence: input.length === 1 ? input : undefined, ctrl: key.ctrl, meta: key.meta };
 }
 
-export function InkHome({ model, onAnswer }: InkHomeProps): React.ReactElement {
-  const [selectedId, setSelectedId] = useState<string | undefined>(
-    model.targetAgentId ?? model.agents[0]?.id,
-  );
-  const [draft, setDraft] = useState(model.draft ?? "");
-  const sentences = homeSentences(model, selectedId);
-  const target = targetAgent(model, selectedId);
+/** The draft after a key the model left to the text field: a character, or a deletion. */
+function editDraft(draft: string, input: string, key: InkKey): string {
+  if (key.backspace || key.delete) {
+    return [...draft].slice(0, -1).join("");
+  }
+  if (key.ctrl || key.meta || input.length === 0) {
+    return draft;
+  }
+  return draft + input;
+}
+
+export function InkHome({ model, onAnswer, onQuit }: InkHomeProps): React.ReactElement {
+  const [state, setState] = useState<HomeState>(() => initialHomeState(model));
+  const sentences = homeSentences(model, state);
+  const matches = homeCommandMatches(model, state.draft);
 
   useInput((input, key) => {
-    const homeKey = homeKeyFromInk(input, key);
-    const intent = homeIntent(model, selectedId, draft, homeKey);
-    switch (intent.kind) {
-      case "move":
-        setSelectedId(intent.agentId);
-        return;
-      case "answer":
-        onAnswer(intent.value, intent.text);
-        return;
-      case "clear":
-        setDraft("");
-        return;
-      case "type":
-        if (homeKey.name === "backspace") {
-          setDraft((current) => [...current].slice(0, -1).join(""));
-        } else if (!key.ctrl && !key.meta && input.length > 0 && model.firstRun === undefined) {
-          setDraft((current) => current + input);
-        }
-        return;
+    const intent = homeIntent(model, state, homeKeyFromInk(input, key));
+    if (intent.kind === "quit") {
+      onQuit();
+      return;
     }
+    if (intent.kind === "answer") {
+      onAnswer(intent.value, intent.text);
+      return;
+    }
+    setState((current) => {
+      const patched = { ...current, ...intent.patch };
+      return intent.edit && model.firstRun === undefined
+        ? { ...patched, draft: editDraft(patched.draft, input, key) }
+        : patched;
+    });
   });
 
   if (model.firstRun !== undefined) {
@@ -113,15 +122,27 @@ export function InkHome({ model, onAnswer }: InkHomeProps): React.ReactElement {
             </Text>
           ))}
         </Box>
+        <Box
+          marginTop={1}
+          flexDirection="column"
+        >
+          {model.firstRun.actions.map((action, index) => (
+            <Text
+              key={action.value}
+              bold={index === state.commandIndex}
+            >
+              {`${index === state.commandIndex ? "›" : " "} ${action.label}`}
+            </Text>
+          ))}
+        </Box>
         <Box marginTop={1}>
-          <Text color={THEME.muted}>
-            {model.keys.map((entry) => `${entry.key} ${entry.label}`).join(" · ")}
-          </Text>
+          <Text color={THEME.muted}>↑↓ choose · enter select · esc quit</Text>
         </Box>
       </Box>
     );
   }
 
+  const hint = enterHint(model, state);
   return (
     <Box
       flexDirection="column"
@@ -139,20 +160,29 @@ export function InkHome({ model, onAnswer }: InkHomeProps): React.ReactElement {
               bold
               color={THEME.primary}
             >
-              {"› "}
+              {state.waitingValue === undefined ? "› " : "  "}
             </Text>
-            <Text bold>{sentences.start}</Text>
-            <Text color={THEME.muted}>{"  enter"}</Text>
+            <Text bold={state.waitingValue === undefined}>{sentences.start}</Text>
           </Text>
           <Text>
             <Text color={THEME.secondary}>{`${COMPOSER_PLACEHOLDER}: `}</Text>
-            <Text>{draft}</Text>
             <Text color={THEME.primary}>▍</Text>
-            {draft.length > 0 && target !== undefined ? (
-              <Text color={THEME.muted}>{`  enter sends to ${target.name}`}</Text>
-            ) : null}
+            <Text>{state.draft}</Text>
+            {hint !== undefined ? <Text color={THEME.muted}>{`  ${hint}`}</Text> : null}
           </Text>
-          <Text color={THEME.muted}>↑↓ choose agent · tab all agents</Text>
+          {matches !== undefined &&
+            (matches.length === 0 ? (
+              <Text color={THEME.muted}>{`No home command starts with ${state.draft}`}</Text>
+            ) : (
+              matches.map((command, index) => (
+                <CommandSuggestionItem
+                  key={command.name}
+                  command={command}
+                  isSelected={index === Math.min(state.commandIndex, matches.length - 1)}
+                  query={slashQuery(state.draft)}
+                />
+              ))
+            ))}
         </Box>
       )}
       <Box
@@ -186,12 +216,13 @@ export function InkHome({ model, onAnswer }: InkHomeProps): React.ReactElement {
           >
             {sentences.waitingHeading}
           </Text>
-          {sentences.waiting.map((line) => (
+          {sentences.waiting.map((entry) => (
             <Text
-              key={line}
-              color={THEME.secondary}
+              key={entry.value}
+              bold={entry.selected}
+              color={entry.selected ? THEME.selected : THEME.secondary}
             >
-              {`  ${line}`}
+              {`${entry.selected ? "›" : " "} ${entry.text}`}
             </Text>
           ))}
         </Box>

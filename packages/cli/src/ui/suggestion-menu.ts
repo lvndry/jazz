@@ -25,6 +25,51 @@ export interface SuggestionMenu<Entry extends SuggestionEntry = SuggestionEntry>
   readonly prefix: SuggestionPrefix;
 }
 
+/** An entry the slash menu can rank: its name and any other names it answers to. */
+export interface RankableCommand {
+  readonly name: string;
+  readonly aliases?: readonly string[] | undefined;
+}
+
+function namesOf(command: RankableCommand): readonly string[] {
+  return [command.name, ...(command.aliases ?? [])].map((name) => name.toLowerCase());
+}
+
+/**
+ * The commands a query matches, in menu order: prefix matches first (in list order), then
+ * substring matches, so "/ode" still surfaces /model and /mode. An alias matches too, and case
+ * is ignored. The chat composer and home both rank this way.
+ */
+export function rankCommands<Command extends RankableCommand>(
+  commands: readonly Command[],
+  query: string,
+): Command[] {
+  const lower = query.toLowerCase();
+  const prefixMatches = commands.filter((command) =>
+    namesOf(command).some((name) => name.startsWith(lower)),
+  );
+  if (lower.length === 0) {
+    return prefixMatches;
+  }
+  const substringMatches = commands.filter(
+    (command) =>
+      !prefixMatches.includes(command) && namesOf(command).some((name) => name.includes(lower)),
+  );
+  return [...prefixMatches, ...substringMatches];
+}
+
+/**
+ * Where a query sits in a name, to bold the matched letters: `[start, end)`, or undefined when
+ * the name does not contain it (an alias matched instead).
+ */
+export function matchedSpan(name: string, query: string): readonly [number, number] | undefined {
+  if (query.length === 0) {
+    return undefined;
+  }
+  const start = name.toLowerCase().indexOf(query.toLowerCase());
+  return start < 0 ? undefined : [start, start + query.length];
+}
+
 /**
  * A description as one plain line. Skill and prompt descriptions are written
  * as markdown for the model; in a one-row menu the `*` and backticks are just

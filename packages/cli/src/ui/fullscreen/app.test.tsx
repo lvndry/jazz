@@ -728,7 +728,8 @@ describe("composer after a completed turn", () => {
     );
     await renderOnce();
     const idle = captureCharFrame();
-    expect(idle).toContain(`${getGlyphs().bandBar} Ask anything`);
+    // The caret takes its own cell before the placeholder, so the hint reads whole.
+    expect(idle).toContain(`${getGlyphs().bandBar}  Ask anything`);
     expect(idle).toContain("enter to send");
 
     await mockInput.pressKey("x");
