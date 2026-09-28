@@ -179,6 +179,8 @@ export interface PendingApproval {
 export interface RunStats {
   readonly model?: string;
   readonly provider?: string;
+  /** Reasoning effort the conversation runs at, e.g. `medium`; unset when reasoning is off. */
+  readonly reasoning?: string | undefined;
   /** Resolved endpoint hosts for the conversation's local model providers. */
   readonly localModelHosts?: LocalModelHosts;
   readonly tokensInContext?: number;

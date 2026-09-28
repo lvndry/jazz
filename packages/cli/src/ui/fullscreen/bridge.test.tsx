@@ -144,6 +144,21 @@ describe("fullscreen bridge", () => {
     expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
   });
 
+  it("names the reasoning effort beside the model in the composer", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol", reasoning: "medium" });
+    });
+    expect(text).toContain(`gpt-6-sol ${getGlyphs().bullet} medium`);
+  });
+
+  it("shows the model alone when the conversation does not reason", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol" });
+    });
+    expect(text).toContain("gpt-6-sol");
+    expect(text).not.toContain(`gpt-6-sol ${getGlyphs().bullet}`);
+  });
+
   it("shows the resolved local endpoint beside a conversation model", async () => {
     const text = await frame(() => {
       store.resetRunStats({

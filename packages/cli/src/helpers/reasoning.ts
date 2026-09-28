@@ -44,6 +44,13 @@ export function formatReasoningSelection(selection: ReasoningSelection | undefin
   return selection ?? "disabled";
 }
 
+/** The effort to show beside the model, or nothing when the conversation does not reason. */
+export function reasoningEffortLabel(
+  selection: ReasoningSelection | undefined,
+): string | undefined {
+  return selection === undefined || selection === "disable" ? undefined : selection;
+}
+
 /**
  * The levels a picker should offer for this control, weakest first, `disable` last.
  *
