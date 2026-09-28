@@ -463,8 +463,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
@@ -483,19 +481,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
+  /**
+   * The Esc/Ctrl+C handler belongs to the run, which installs it when it starts and removes
+   * it when it ends; reset() and flush() run many times inside one run (every retried model
+   * call resets the renderer) and leave it alone, or a run that had retried once could no
+   * longer be stopped. A sub-agent's renderer does not install one either: the store holds
+   * a single handler, the parent run's interrupt already cancels its children, and a child
+   * clearing the handler as it finished would leave the parent unstoppable.
+   */
   setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setInterruptHandler(handler);
     });
   }
 
   setBackgroundHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setBackgroundHandler(handler);
     });
   }

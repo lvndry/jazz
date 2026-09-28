@@ -1839,3 +1839,37 @@ describe("model retries", () => {
     expect(store.getSessionSnapshot().retryNotice).toBeNull();
   });
 });
+
+describe("the run's interrupt handler", () => {
+  const displayConfig = {
+    showReasoning: true,
+    showToolExecution: true,
+    mode: "rendered" as const,
+    colorProfile: "full" as const,
+  };
+
+  afterEach(() => {
+    store.setInterruptHandler(null);
+  });
+
+  test("survives a reset and a flush, so a run that retried can still be stopped", () => {
+    const renderer = new InkStreamingRenderer("sol", false, displayConfig, { textBufferMs: 0 }, 0);
+    const handler = (): void => undefined;
+    Effect.runSync(renderer.setInterruptHandler(handler));
+    Effect.runSync(renderer.reset());
+    Effect.runSync(renderer.flush());
+    expect(store.getSessionSnapshot().interruptHandler).toBe(handler);
+  });
+
+  test("is never replaced or cleared by a sub-agent's renderer", () => {
+    const parent = (): void => undefined;
+    store.setInterruptHandler(parent);
+    const child = new InkStreamingRenderer("scout", false, displayConfig, { textBufferMs: 0 }, 0, {
+      kind: "ephemeral",
+      regionId: "eph-child",
+    });
+    Effect.runSync(child.setInterruptHandler(() => undefined));
+    Effect.runSync(child.setInterruptHandler(null));
+    expect(store.getSessionSnapshot().interruptHandler).toBe(parent);
+  });
+});
