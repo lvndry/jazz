@@ -139,3 +139,49 @@ describe("syntax-spans", () => {
     expect(rows[3]?.find((span) => span.text === "const")?.fg).toBe(THEME.syntaxStructure);
   });
 });
+
+describe("comment syntax follows the fence's language", () => {
+  const painted = (language: string, line: string, fg: string): string =>
+    (highlightFenceLines(language, [line])[0] ?? [])
+      .filter((span) => span.fg === fg)
+      .map((span) => span.text)
+      .join("");
+
+  it("never reads a URL's `//` as a shell comment", () => {
+    const line = "curl -fsSL https://example.com/install.sh | bash";
+    for (const language of ["bash", "sh", "shell", "zsh", "console", ""]) {
+      expect(painted(language, line, THEME.muted)).toBe("");
+    }
+  });
+
+  it("treats `#` as a comment only where a token starts", () => {
+    expect(painted("bash", "echo hi # say hi", THEME.muted)).toBe("# say hi");
+    expect(painted("bash", 'echo "${#items[@]}"', THEME.muted)).toBe("");
+    expect(painted("bash", "echo $#", THEME.muted)).toBe("");
+    expect(painted("python", "x = 1  # note", THEME.muted)).toBe("# note");
+  });
+
+  it("keeps `#` as code in languages where it is not a comment", () => {
+    expect(painted("css", ".brand { color: #00d7ff; }", THEME.muted)).toBe("");
+    expect(painted("ts", "class A { #secret = 1; }", THEME.muted)).toBe("");
+    expect(painted("rust", "#[derive(Debug)]", THEME.muted)).toBe("");
+    expect(painted("json", '{ "url": "https://x.dev" }', THEME.muted)).toBe("");
+  });
+
+  it("paints `--` comments in SQL and Lua only", () => {
+    expect(painted("sql", "select 1 -- one", THEME.muted)).toBe("-- one");
+    expect(painted("lua", "local x = 1 -- one", THEME.muted)).toBe("-- one");
+    expect(painted("bash", "ls --all", THEME.muted)).toBe("");
+  });
+
+  it("does not open a string at a Rust lifetime", () => {
+    const spans = highlightFenceLines("rust", ["fn get<'a>(value: &'a str) -> &'a str {"])[0] ?? [];
+    expect(spans.filter((span) => span.fg === THEME.syntaxValue)).toHaveLength(0);
+    expect(painted("rust", "let letter = 'x';", THEME.syntaxValue)).toBe("'x'");
+  });
+
+  it("leaves prose fences uncoloured so apostrophes stay text", () => {
+    const rows = highlightFenceLines("text", ["don't // stop # here"]);
+    expect(rows[0]).toEqual([{ text: "don't // stop # here", fg: THEME.selected }]);
+  });
+});
