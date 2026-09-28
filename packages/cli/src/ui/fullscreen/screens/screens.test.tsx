@@ -52,7 +52,7 @@ const FIRST_RUN: HomeModel = {
   ],
   choices: [
     { label: "Create agent", value: "create-agent", hint: "about a minute" },
-    { label: "Update configuration", value: "config" },
+    { label: "Settings", value: "settings" },
     { label: "Exit", value: "exit" },
   ],
   selected: 0,

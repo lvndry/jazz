@@ -4,6 +4,7 @@
  * spend limits.
  */
 
+import { loadChatGPTCredential } from "@jazz/adapters/llm/chatgpt";
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
@@ -38,6 +40,7 @@ import {
 } from "./spend-limits";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
+import { writeClipboard } from "../ui/fullscreen/clipboard";
 import { store } from "../ui/store";
 import type { WizardMenuOption } from "../ui/WizardHome";
 
@@ -126,7 +129,7 @@ function showConfigMenu(
     store.setActiveMenu(
       {
         kind: "menu",
-        title: "Configuration",
+        title: "Settings",
         options,
       },
       (result) => {
@@ -136,6 +139,44 @@ function showConfigMenu(
       },
     );
   });
+}
+
+/** Copy a saved credential on explicit `c`; return true only when the user chose to edit it. */
+function copyOrEditCredential(
+  terminal: TerminalService,
+  label: string,
+  credential: string,
+): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    const action = yield* terminal.ask(`${label}: ••••••••  [e]dit · [c]opy`, {
+      hidden: true,
+      keys: ["e", "c"],
+    });
+    if (action === "e") return true;
+    if (action === "c") yield* copyCredential(terminal, credential, label);
+    return false;
+  });
+}
+
+/** Write a credential to the system clipboard without putting it in terminal output. */
+function copyCredential(
+  terminal: TerminalService,
+  credential: string,
+  label: string,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => writeClipboard(credential),
+    catch: (error) => error as Error,
+  }).pipe(
+    Effect.flatMap((copied) =>
+      copied
+        ? terminal.success(`${label} copied to clipboard.`)
+        : terminal.error(
+            "Could not access a clipboard. Install a clipboard utility and try again.",
+          ),
+    ),
+    Effect.catchAll((error) => terminal.error(`Could not copy credential: ${error.message}`)),
+  );
 }
 
 function configureLLMProviders() {
@@ -201,6 +242,13 @@ function configureLLMProviders() {
 
         // Ollama uses a key for :cloud models; the OpenAI-compatible local servers can require keys.
         if (provider === "llamacpp" || provider === "vllm" || provider === "sglang") {
+          const existingKey = configuredProviderApiKey(config.llm, provider);
+          if (
+            existingKey &&
+            !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))
+          ) {
+            continue;
+          }
           const serverKey = yield* terminal.password(
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
           );
@@ -210,6 +258,13 @@ function configureLLMProviders() {
           }
         }
         if (provider === "ollama") {
+          const existingKey = configuredProviderApiKey(config.llm, provider);
+          if (
+            existingKey &&
+            !(yield* copyOrEditCredential(terminal, "Ollama Cloud", existingKey))
+          ) {
+            continue;
+          }
           const cloudKey = yield* terminal.password(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
           );
@@ -225,7 +280,32 @@ function configureLLMProviders() {
 
       if (provider === "chatgpt") {
         if (isChatGPTSignedIn(config.llm)) {
-          const action = yield* terminal.select<"keep" | "switch" | "sign-out">(
+          const credentialAction = yield* terminal.ask(
+            "OAuth credential: ••••••••  [e]dit account · [c]opy credential",
+            { hidden: true, keys: ["e", "c"] },
+          );
+          if (credentialAction === "c") {
+            const result = yield* Effect.either(
+              Effect.tryPromise({
+                try: loadChatGPTCredential,
+                catch: (error) => error as Error,
+              }),
+            );
+            if (result._tag === "Left") {
+              yield* terminal.error(`Could not read ChatGPT credential: ${result.left.message}`);
+            } else if (!result.right) {
+              yield* terminal.error("ChatGPT credential is unavailable. Sign in again.");
+            } else {
+              yield* copyCredential(
+                terminal,
+                JSON.stringify(result.right),
+                "ChatGPT OAuth credential",
+              );
+            }
+            continue;
+          }
+          if (credentialAction !== "e") continue;
+          const accountAction = yield* terminal.select<"keep" | "switch" | "sign-out">(
             "You are signed in to ChatGPT.",
             {
               choices: [
@@ -235,15 +315,20 @@ function configureLLMProviders() {
               ],
             },
           );
-          if (action === "sign-out") {
+          if (accountAction === "sign-out") {
             yield* signOutOfChatGPT(terminal, configService);
-          } else if (action === "switch") {
+          } else if (accountAction === "switch") {
             yield* signInToChatGPT(terminal, configService);
           }
         } else {
           yield* signInToChatGPT(terminal, configService);
         }
         yield* terminal.log("");
+        continue;
+      }
+
+      const existingKey = configuredProviderApiKey(config.llm, provider);
+      if (existingKey && !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))) {
         continue;
       }
 
@@ -334,6 +419,13 @@ function configureWebSearchProviders() {
         const provider = selection as WebSearchProviderName;
 
         yield* terminal.info(`Configuring ${provider}...`);
+        const existingKey = config.web_search?.[provider]?.api_key;
+        if (
+          existingKey &&
+          !(yield* copyOrEditCredential(terminal, `${provider} API key`, existingKey))
+        ) {
+          continue;
+        }
         const apiKey = yield* terminal.password(
           `Enter API Key for ${provider} (leave empty to keep current):`,
         );

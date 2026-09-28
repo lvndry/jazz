@@ -96,7 +96,7 @@ A provider key in the environment is used when no key is saved for that provider
 | `xai`        | `XAI_API_KEY`                                       |
 | `zhipuai`    | `ZHIPU_API_KEY`                                     |
 
-`chatgpt` has no key variable: sign in from **Update configuration** → **LLM Providers** in
+`chatgpt` has no key variable: sign in from **Settings** → **LLM Providers** in
 the `jazz` home menu.
 
 Self-hosted servers are found at these addresses. A saved `llm.<provider>.base_url` wins

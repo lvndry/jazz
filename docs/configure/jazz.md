@@ -180,7 +180,7 @@ through without asking. A `high-risk` or yolo run reaches it without asking and 
 as it is.
 
 `network.allowPrivateHosts` applies to every agent and is read from the global config file only;
-a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Update configuration** >
+a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Settings** >
 **Private Network Hosts**, or in the file, at most 64 entries:
 
 ```json
