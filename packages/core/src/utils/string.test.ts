@@ -5,9 +5,23 @@ import {
   editDistance,
   coerceBoolean,
   findAllOccurrenceLineNumbers,
+  formatByteSize,
   formatCompactCount,
   offsetToLine,
 } from "./string";
+
+describe("formatByteSize", () => {
+  test.each([
+    [0, "0 B"],
+    [-5, "0 B"],
+    [512, "512 B"],
+    [1024, "1 KB"],
+    [12_595, "12.3 KB"],
+    [1_395_864_371, "1.3 GB"],
+  ])("%p bytes reads as %p", (bytes, expected) => {
+    expect(formatByteSize(bytes)).toBe(expected);
+  });
+});
 
 describe("coerceBoolean", () => {
   test("accepts real booleans", () => {

@@ -41,23 +41,11 @@ import {
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
+import { formatByteSize } from "@/core/utils/string";
 import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type MemoryToolDeps = MemoryService | FileSystem.FileSystem;
-
-const BYTES_PER_KIB = 1024;
-const BYTES_PER_MIB = BYTES_PER_KIB * 1024;
-
-function formatSize(bytes: number): string {
-  if (bytes < BYTES_PER_KIB) {
-    return `${bytes}B`;
-  }
-  if (bytes < BYTES_PER_MIB) {
-    return `${(bytes / BYTES_PER_KIB).toFixed(1)}KB`;
-  }
-  return `${(bytes / BYTES_PER_MIB).toFixed(1)}MB`;
-}
 
 function joinDisplayPath(base: string, name: string): string {
   return base === "/" ? `/${name}` : `${base}/${name}`;
@@ -73,7 +61,7 @@ function formatDirectoryOutcome(
   const lines = outcome.entries.map((entry) =>
     entry.kind === "directory"
       ? joinDisplayPath(outcome.path, entry.name)
-      : `${joinDisplayPath(outcome.path, entry.name)}\t(${formatSize(entry.sizeBytes)})`,
+      : `${joinDisplayPath(outcome.path, entry.name)}\t(${formatByteSize(entry.sizeBytes)})`,
   );
   return [header, ...lines].join("\n");
 }

@@ -248,3 +248,24 @@ export function closestMatch(typed: string, known: readonly string[]): string | 
   }
   return best;
 }
+
+const BYTES_PER_UNIT = 1024;
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
+
+/**
+ * A byte count as a person reads it: `0 B`, `512 B`, `12.3 KB`, `1.3 GB`.
+ * Binary multiples, one decimal above bytes, trailing `.0` dropped.
+ */
+export function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  const unitIndex = Math.min(
+    BYTE_UNITS.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(BYTES_PER_UNIT)),
+  );
+  const scaled = bytes / BYTES_PER_UNIT ** unitIndex;
+  const value =
+    unitIndex === 0 ? String(Math.round(scaled)) : String(parseFloat(scaled.toFixed(1)));
+  return `${value} ${BYTE_UNITS[unitIndex]}`;
+}
