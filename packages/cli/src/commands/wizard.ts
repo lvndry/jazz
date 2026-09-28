@@ -3,6 +3,7 @@ import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
+import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
 import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
@@ -175,37 +176,18 @@ function wizardSession() {
           break;
         }
 
-        case "edit-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "edit an agent",
-            "edit",
-          );
-          if (selectedAgent) {
-            yield* editAgentCommand(selectedAgent.id).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to edit agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
-          }
-          break;
-        }
-
         case "list-agents": {
-          const listedAgents = yield* agentService.listAgents().pipe(
+          let listedAgents = yield* agentService.listAgents().pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* terminal.error(`Failed to list agents: ${String(error)}`);
+                yield* terminal.error(`Could not read your agents: ${String(error)}`);
                 return [] as Agent[];
               }),
             ),
           );
           let previouslyOpenedId: string | undefined;
-          while (true) {
+          let started = false;
+          while (!started && listedAgents.length > 0) {
             const selectedAgent = yield* showAgentList(
               listedAgents,
               lastUsedAgentId,
@@ -213,61 +195,42 @@ function wizardSession() {
             );
             if (selectedAgent === null) break;
             previouslyOpenedId = selectedAgent.id;
-            const metadata = isZeroCostLocalModel(
-              selectedAgent.config.llmProvider,
-              selectedAgent.config.llmModel,
-            )
-              ? undefined
-              : yield* Effect.tryPromise({
-                  try: () =>
-                    getModelsDevMetadata(
-                      selectedAgent.config.llmModel,
-                      selectedAgent.config.llmProvider,
-                    ),
-                  catch: (error) => error,
-                }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-            const llmService = yield* LLMServiceTag;
-            const appConfig = yield* configService.appConfig;
-            const hostUrl =
-              isLocalServerProvider(selectedAgent.config.llmProvider) &&
-              (selectedAgent.config.llmProvider !== "ollama" ||
-                !isOllamaCloudModel(selectedAgent.config.llmModel))
-                ? llmService.resolveLocalProviderBaseUrl(
-                    selectedAgent.config.llmProvider,
-                    appConfig.llm,
-                  )
-                : undefined;
-            yield* showAgentDetails(selectedAgent, metadata, hostUrl);
-          }
-          break;
-        }
-
-        case "delete-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "delete an agent",
-            "delete",
-          );
-          if (selectedAgent) {
-            // Deletion is irreversible — always confirm, defaulting to No.
-            const confirmed = yield* terminal.confirm(
-              `Delete agent "${selectedAgent.name}" (${selectedAgent.config.llmProvider}/${selectedAgent.config.llmModel})? This cannot be undone.`,
-              false,
-            );
-            if (!confirmed) {
-              yield* terminal.info("Deletion cancelled.");
-              yield* terminal.clear();
-              break;
+            const action = yield* showAgentActions(selectedAgent);
+            switch (action) {
+              case "start":
+                yield* startChatWithAgent(selectedAgent);
+                yield* terminal.clear();
+                started = true;
+                break;
+              case "details":
+                yield* showAgentDetails(
+                  selectedAgent,
+                  yield* modelMetadataFor(selectedAgent),
+                  yield* localHostUrlFor(selectedAgent),
+                );
+                break;
+              case "edit":
+                yield* editAgentCommand(selectedAgent.id).pipe(
+                  Effect.catchAll((error) =>
+                    terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
+                  ),
+                );
+                yield* terminal.clear();
+                listedAgents = yield* agentService
+                  .listAgents()
+                  .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+                break;
+              case "delete": {
+                const deleted = yield* confirmAndDeleteAgent(selectedAgent);
+                if (deleted) {
+                  listedAgents = listedAgents.filter((agent) => agent.id !== selectedAgent.id);
+                  previouslyOpenedId = undefined;
+                }
+                break;
+              }
+              case "back":
+                break;
             }
-            yield* deleteAgentCommand(selectedAgent.id, { skipConfirmation: true }).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to delete agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
           }
           break;
         }
@@ -501,6 +464,96 @@ function showAgentDetails(
   });
 }
 
+type AgentAction = "start" | "details" | "edit" | "delete" | "back";
+
+/** What to do with one agent picked from the list. */
+function showAgentActions(agent: Agent): Effect.Effect<AgentAction, never, never> {
+  return Effect.async<AgentAction>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        title: agent.name,
+        options: [
+          { label: "Start a conversation", value: "start", hint: agentModelString(agent.config) },
+          { label: "Details", value: "details", hint: "model, tools, access" },
+          { label: "Edit", value: "edit", hint: "change its model, persona or tools" },
+          { label: "Delete", value: "delete", hint: "asks first" },
+          { label: "Back to agents", value: "back" },
+        ],
+      },
+      (result) =>
+        resume(Effect.succeed(result.kind === "exit" ? "back" : (result.value as AgentAction))),
+    );
+  });
+}
+
+/**
+ * Ask before deleting, with keeping the agent as the default, and say what goes and what stays:
+ * the agent's file goes, its saved conversations stay on disk but no longer appear in resume.
+ */
+function confirmAndDeleteAgent(agent: Agent) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const history = yield* loadHistory(agent.id).pipe(
+      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+    );
+    const saved = history.conversations.length;
+    const keeps =
+      saved === 0
+        ? "It has no saved conversations."
+        : `Its ${String(saved)} saved ${saved === 1 ? "conversation stays" : "conversations stay"} on disk, but resume stops listing ${saved === 1 ? "it" : "them"}.`;
+    const answer = yield* terminal.select<"keep" | "delete">(
+      `Delete ${agent.name}? This removes its settings, persona choice and tool access. ${keeps}`,
+      {
+        choices: [
+          { name: `Keep ${agent.name}`, value: "keep" },
+          {
+            name: `Delete ${agent.name}`,
+            value: "delete",
+            tag: "can't be undone",
+            tagTone: "warning",
+          },
+        ],
+        default: "keep",
+      },
+    );
+    if (answer !== "delete") {
+      return false;
+    }
+    const outcome = yield* deleteAgentCommand(agent.id, { skipConfirmation: true }).pipe(
+      Effect.either,
+    );
+    if (outcome._tag === "Left") {
+      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.left)}`);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** models.dev pricing for an agent's model, skipped for local models that cost nothing. */
+function modelMetadataFor(agent: Agent) {
+  return isZeroCostLocalModel(agent.config.llmProvider, agent.config.llmModel)
+    ? Effect.succeed(undefined)
+    : Effect.tryPromise({
+        try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+}
+
+/** The server a local-model agent talks to, for the details screen. */
+function localHostUrlFor(agent: Agent) {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    return isLocalServerProvider(agent.config.llmProvider) &&
+      (agent.config.llmProvider !== "ollama" || !isOllamaCloudModel(agent.config.llmModel))
+      ? llmService.resolveLocalProviderBaseUrl(agent.config.llmProvider, appConfig.llm)
+      : undefined;
+  });
+}
+
 /**
  * Show agent selection menu
  */
@@ -636,7 +689,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     }
 
     if (entries.length === 0) {
-      yield* terminal.warn("No saved conversations found.");
+      yield* terminal.info("There are no saved conversations yet. Start one with enter on home.");
       return;
     }
 
@@ -648,19 +701,30 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
+    const nowMs = Date.now();
     const choices = entries.map((entry, idx) => {
       const waitingOn = waiting.get(entry.conversationId);
+      const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
       return {
-        name: `${waitingOn !== undefined ? "● " : ""}${entry.title} · ${agentModelString(entry.agent.config)}`,
-        ...(waitingOn !== undefined ? { description: `waiting for you: ${waitingOn}` } : {}),
+        name: entry.title,
+        description:
+          waitingOn === undefined ? entry.agent.name : `${entry.agent.name} · ${waitingOn}`,
         value: String(idx),
+        ...(waitingOn === undefined
+          ? { tag: age, tagTone: "muted" as const }
+          : { tag: `waiting · ${age}`, tagTone: "accent" as const }),
       };
     });
 
-    const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
-      choices,
-      placeholder: "Type to filter conversations…",
-    });
+    const selectedIdx = yield* terminal.search<string>(
+      waiting.size === 0
+        ? "Which conversation?"
+        : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
+      {
+        choices,
+        placeholder: "Type to filter by title",
+      },
+    );
     if (selectedIdx === null || selectedIdx === undefined) return;
 
     const selected = entries[Number(selectedIdx)];

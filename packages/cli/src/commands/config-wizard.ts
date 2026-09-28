@@ -15,8 +15,15 @@ import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/mod
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
-import type { LoggingConfig, SchedulerMode, WebSearchProviderName } from "@jazz/core/types/config";
+import type {
+  AppConfig,
+  LoggingConfig,
+  SchedulerMode,
+  WebSearchProviderName,
+} from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
+import type { SpendLimits } from "@jazz/core/types/spend";
+import { isRecord } from "@jazz/core/utils/is-record";
 import {
   configuredProviderApiKey,
   formatProviderDisplayName,
@@ -32,8 +39,8 @@ import {
 } from "./spend-limits";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
-import { store } from "../ui/store";
-import type { WizardMenuOption } from "../ui/WizardHome";
+import { configuredProviderNames } from "../ui/fullscreen/home-readiness";
+import { store, type ActiveMenuOption } from "../ui/store";
 
 /**
  * Menu actions for the config wizard
@@ -56,16 +63,8 @@ export function configWizardCommand() {
     let stayInMenu = true;
 
     while (stayInMenu) {
-      const menuOptions: WizardMenuOption[] = [
-        { label: "LLM Providers", value: "llm-providers" },
-        { label: "Web Search Providers", value: "web-search" },
-        { label: "Output & Display", value: "output-display" },
-        { label: "Scheduler", value: "scheduler" },
-        { label: "Logging", value: "logging" },
-        { label: "Notifications", value: "notifications" },
-        { label: "Spend Limits", value: "spend-limits" },
-        { label: "Back to Main Menu", value: "back" },
-      ];
+      const config = yield* (yield* AgentConfigServiceTag).appConfig;
+      const menuOptions = settingsMenuOptions(config);
 
       const selection = yield* showConfigMenu(menuOptions);
 
@@ -107,14 +106,58 @@ export function configWizardCommand() {
   });
 }
 
+function spendHint(limits: SpendLimits | undefined): string {
+  const parts = [
+    ...(limits?.dayUSD === undefined ? [] : [`$${String(limits.dayUSD)} / day`]),
+    ...(limits?.monthUSD === undefined ? [] : [`$${String(limits.monthUSD)} / month`]),
+  ];
+  return parts.length === 0 ? "no limit" : parts.join(" · ");
+}
+
+/** The settings list, each row with the value it has now. */
+export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
+  const providers = configuredProviderNames(config).length;
+  const searchProviders = Object.entries(config.web_search ?? {}).filter(
+    ([, value]) =>
+      isRecord(value) && typeof value["api_key"] === "string" && value["api_key"] !== "",
+  ).length;
+  const notifications = config.notifications?.enabled;
+  return [
+    {
+      label: "Model providers",
+      value: "llm-providers",
+      hint: providers === 0 ? "none has a key yet" : `${String(providers)} ready`,
+    },
+    {
+      label: "Web search",
+      value: "web-search",
+      hint: searchProviders === 0 ? "no key saved" : `${String(searchProviders)} with a key`,
+    },
+    {
+      label: "Output and display",
+      value: "output-display",
+      hint: config.ui?.theme ?? "theme follows the terminal",
+    },
+    { label: "Scheduler", value: "scheduler" },
+    { label: "Logging", value: "logging", hint: config.logging.level },
+    {
+      label: "Notifications",
+      value: "notifications",
+      hint: notifications === undefined ? "not set up" : notifications ? "on" : "off",
+    },
+    { label: "Spend limits", value: "spend-limits", hint: spendHint(config.spend) },
+    { label: "Back", value: "back" },
+  ];
+}
+
 function showConfigMenu(
-  options: WizardMenuOption[],
+  options: readonly ActiveMenuOption[],
 ): Effect.Effect<ConfigMenuAction, never, never> {
   return Effect.async<ConfigMenuAction>((resume) => {
     store.setActiveMenu(
       {
         kind: "menu",
-        title: "Configuration",
+        title: "Settings",
         options,
       },
       (result) => {

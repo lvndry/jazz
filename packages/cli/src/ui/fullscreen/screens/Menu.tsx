@@ -122,7 +122,7 @@ export function MenuScreen({ title, choices, selected, viewport }: MenuScreenPro
         <box style={{ width: GUTTER, flexShrink: 0 }} />
         <text style={{ wrapMode: "none", truncate: true }}>
           <b style={{ fg: THEME.selected }}>enter</b>
-          <span style={{ fg: THEME.secondary }}>{" change"}</span>
+          <span style={{ fg: THEME.secondary }}>{" choose"}</span>
           <span style={{ fg: THEME.muted }}>{"    "}</span>
           <b style={{ fg: THEME.selected }}>↑↓</b>
           <span style={{ fg: THEME.secondary }}>{" move"}</span>
