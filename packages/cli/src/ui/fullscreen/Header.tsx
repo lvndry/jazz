@@ -13,6 +13,10 @@
  * underneath; the blank row below the header is the separation.
  */
 
+import {
+  CONTEXT_TRIM_THRESHOLD_RATIO,
+  CONTEXT_WARN_THRESHOLD_RATIO,
+} from "@jazz/core/agent/context/context-window-manager";
 import { memo, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
@@ -27,9 +31,13 @@ import type { Connector, HeaderModel, Viewport } from "./types";
  */
 const METER_CELLS = 10;
 
-/** A context window filling up is worth noticing before it is a problem. */
-const CONTEXT_WARN_PERCENT = 80;
-const CONTEXT_ERROR_PERCENT = 92;
+/**
+ * The meter follows the agent's own context ladder: it warms when the agent starts
+ * warning (and before it compacts), and turns red only where history would be trimmed
+ * without being summarised.
+ */
+const CONTEXT_WARN_PERCENT = CONTEXT_WARN_THRESHOLD_RATIO * 100;
+const CONTEXT_ERROR_PERCENT = CONTEXT_TRIM_THRESHOLD_RATIO * 100;
 
 /** Cells between the name and the model, and between the right-hand facts. */
 const NEAR_GAP = "  ";

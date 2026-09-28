@@ -204,7 +204,7 @@ describe("Header", () => {
     expect(meterFilledCells(100)).toBe(10);
   });
 
-  it("steps the meter to warning past 80% and error past 92%", async () => {
+  it("warms the meter where the agent starts warning (70%) and reddens where it trims (95%)", async () => {
     const filled = getGlyphs().ruleHeavy;
 
     const calm = await render(
@@ -218,22 +218,22 @@ describe("Header", () => {
 
     const warning = await render(
       <Header
-        model={header({ contextUsed: 85_000 })}
+        model={header({ contextUsed: 72_000 })}
         viewport={{ width: 80, height: 24 }}
       />,
       80,
     );
-    expect(warning.row).toContain("85%");
+    expect(warning.row).toContain("72%");
     expect(colorOf(warning.spans, filled)).toBe(THEME.warning.toUpperCase());
 
     const error = await render(
       <Header
-        model={header({ contextUsed: 95_000 })}
+        model={header({ contextUsed: 97_000 })}
         viewport={{ width: 80, height: 24 }}
       />,
       80,
     );
-    expect(error.row).toContain("95%");
+    expect(error.row).toContain("97%");
     expect(colorOf(error.spans, filled)).toBe(THEME.error.toUpperCase());
   });
 
