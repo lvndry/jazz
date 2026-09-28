@@ -20,31 +20,32 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Suites
 
-| suite                | measures                                                          | cadence in the app          |
-| -------------------- | ----------------------------------------------------------------- | --------------------------- |
-| transcript-rows      | `transcriptRows` cold wrap, warm streaming tail, fingerprint walk | per frame                   |
-| blocks-from          | `blocksFrom` rebuild + `shareUnchangedBlocks` identity pass       | per frame                   |
-| markdown-prose       | `parseProse` / `inlineSegments` lexing                            | per dirty block per frame   |
-| terminal-cells       | grapheme width measurement across script classes                  | innermost wrap leaf         |
-| syntax-spans         | code fence and diff highlighting                                  | per visible fence per frame |
-| markdown-split       | one-shot vs `StreamSplitScanner`, by tail shape + reducer fold    | per stream delta            |
-| store-writes         | `UIStore.appendStream` / batched `printOutput`                    | per delta / per message     |
-| stream-processor     | `StreamProcessor.process` over a synthetic provider stream        | per stream delta            |
-| reasoning-parser     | `TagPairParser.feed`, passthrough vs `<think>` vs split tags      | per stream delta            |
-| format-markdown      | one-shot `formatMarkdown` regex pipeline                          | per reply                   |
-| token-counter        | `TokenCounter.countText`/`countMessage`, BPE vs ratio branches    | per message                 |
-| context-window       | `ContextWindowManager.calculateTotalTokens`, BPE vs ratio         | per turn on long chats      |
-| tool-result-clearing | `clearToolResults` walk, BPE vs ratio                             | per turn on long chats      |
-| agent-prompt         | `buildSystemPrompt` cold vs cached + work-state preamble          | per turn / on resume        |
-| summarizer-chunking  | `chunkForSummarizer` by history length and budget                 | per compaction              |
-| conversation-log     | parse + reduce + `outputEntriesFromHistory`                       | session resume              |
-| conversation-search  | `search` over a synthetic history directory                       | per keystroke while open    |
-| tool-formatter       | `formatToolResult` at 1KB / 100KB / 1MB                           | per tool call               |
-| capped-output        | `appendCapped` fold, `decodeCapped`, `tailForModel`               | per stdout chunk            |
-| diff                 | `generateDiff` by file size and edit distance                     | per write / edit call       |
-| activity-reducer     | `reduceEvent` fold over a recorded run                            | per stream event            |
-| mcp-schema           | `convertMCPSchemaToZod` per tool and per 40-tool server           | per MCP connection          |
-| startup              | `bun packages/runtime/src/main.ts --version` spawn, from source   | per invocation              |
+| suite                | measures                                                                 | cadence in the app          |
+| -------------------- | ------------------------------------------------------------------------ | --------------------------- |
+| transcript-rows      | `transcriptRows` cold wrap, warm streaming tail, fingerprint walk        | per frame                   |
+| streaming-answer     | one streaming answer per reveal frame at 1k/10k/50k, prose and one fence | per reveal frame (30fps)    |
+| blocks-from          | `blocksFrom` rebuild + `shareUnchangedBlocks` identity pass              | per frame                   |
+| markdown-prose       | `parseProse` / `inlineSegments` lexing                                   | per dirty block per frame   |
+| terminal-cells       | grapheme width measurement across script classes                         | innermost wrap leaf         |
+| syntax-spans         | code fence and diff highlighting                                         | per visible fence per frame |
+| markdown-split       | one-shot vs `StreamSplitScanner`, by tail shape + reducer fold           | per stream delta            |
+| store-writes         | `UIStore.appendStream` / batched `printOutput`                           | per delta / per message     |
+| stream-processor     | `StreamProcessor.process` over a synthetic provider stream               | per stream delta            |
+| reasoning-parser     | `TagPairParser.feed`, passthrough vs `<think>` vs split tags             | per stream delta            |
+| format-markdown      | one-shot `formatMarkdown` regex pipeline                                 | per reply                   |
+| token-counter        | `TokenCounter.countText`/`countMessage`, BPE vs ratio branches           | per message                 |
+| context-window       | `ContextWindowManager.calculateTotalTokens`, BPE vs ratio                | per turn on long chats      |
+| tool-result-clearing | `clearToolResults` walk, BPE vs ratio                                    | per turn on long chats      |
+| agent-prompt         | `buildSystemPrompt` cold vs cached + work-state preamble                 | per turn / on resume        |
+| summarizer-chunking  | `chunkForSummarizer` by history length and budget                        | per compaction              |
+| conversation-log     | parse + reduce + `outputEntriesFromHistory`                              | session resume              |
+| conversation-search  | `search` over a synthetic history directory                              | per keystroke while open    |
+| tool-formatter       | `formatToolResult` at 1KB / 100KB / 1MB                                  | per tool call               |
+| capped-output        | `appendCapped` fold, `decodeCapped`, `tailForModel`                      | per stdout chunk            |
+| diff                 | `generateDiff` by file size and edit distance                            | per write / edit call       |
+| activity-reducer     | `reduceEvent` fold over a recorded run                                   | per stream event            |
+| mcp-schema           | `convertMCPSchemaToZod` per tool and per 40-tool server                  | per MCP connection          |
+| startup              | `bun packages/runtime/src/main.ts --version` spawn, from source          | per invocation              |
 
 ## Conventions
 
